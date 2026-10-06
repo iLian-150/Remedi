@@ -10,8 +10,11 @@ from sqlalchemy.orm import Session
 from ..auth import require_student
 from ..config import settings
 from ..database import get_db
-from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
+from ..models import Assignment, ChatMessage, Correction, Error, Essay, Notification, Question, Submission, User
 from ..schemas import (
+    AgentChatIn,
+    AgentChatOut,
+    AgentHistoryItem,
     AssignmentDetail,
     BriefingOut,
     CorrectionCreate,
@@ -20,6 +23,10 @@ from ..schemas import (
     EssayBrief,
     EssayCreate,
     EssayOut,
+    NotificationItem,
+    NotificationListOut,
+    NotificationReadIn,
+    NotificationReadOut,
     PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
@@ -242,3 +249,107 @@ async def photo_transcribe(file: UploadFile = File(...),
         "question_text": result.get("question_text", ""),
         "steps": result.get("steps", []),
     }
+
+
+# ---------- 主页 Agent 对话（v0.3.0 新增，LangGraph） ----------
+
+_AGENT_MSG_MAX = 2000
+_AGENT_HISTORY_WINDOW = 20   # 组上下文时取最近 N 条
+_AGENT_HISTORY_RETURN = 50   # history 接口返回最近 N 条
+
+
+@router.post("/agent/chat", response_model=AgentChatOut, summary="与学习助手对话")
+def agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
+               current: User = Depends(require_student)):
+    """学生主页自由对话：取最近 20 条历史组上下文 → 跑 Agent 图（或规则兜底）
+    → 用户与助手两条消息都落库 → 返回助手回复。LLM 异常在 Agent 层已降级，不会 500。"""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from ..agent.graph import agent_reply
+
+    text = body.message.strip()
+    if not text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息不能为空")
+    if len(text) > _AGENT_MSG_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
+
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == current.id)
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(_AGENT_HISTORY_WINDOW)
+        .all()
+    )
+    history = [
+        HumanMessage(content=r.content) if r.role == "user" else AIMessage(content=r.content)
+        for r in reversed(rows)
+    ]
+    reply = agent_reply(db, current, history, text)
+
+    db.add(ChatMessage(user_id=current.id, role="user", content=text))
+    db.add(ChatMessage(user_id=current.id, role="assistant", content=reply))
+    db.commit()
+    return {"reply": reply}
+
+
+@router.get("/agent/history", response_model=List[AgentHistoryItem], summary="我的对话历史")
+def agent_history(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == current.id)
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(_AGENT_HISTORY_RETURN)
+        .all()
+    )
+    return [
+        {"role": r.role, "content": r.content, "created_at": r.created_at}
+        for r in reversed(rows)
+    ]
+
+
+# ---------- 站内提醒（v0.3.0 新增） ----------
+
+@router.get("/notifications", response_model=NotificationListOut, summary="我的提醒列表")
+def my_notifications(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    rows = (
+        db.query(Notification)
+        .filter(Notification.user_id == current.id)
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
+        .limit(30)
+        .all()
+    )
+    unread = (
+        db.query(Notification)
+        .filter(Notification.user_id == current.id, Notification.is_read.is_(False))
+        .count()
+    )
+    items = [
+        NotificationItem(
+            id=n.id, type=n.type, content=n.content,
+            related_submission_id=n.related_submission_id,
+            is_read=n.is_read, created_at=n.created_at,
+        )
+        for n in rows
+    ]
+    return {"unread_count": unread, "items": items}
+
+
+@router.post("/notifications/read", response_model=NotificationReadOut, summary="提醒标已读")
+def mark_notifications_read(body: NotificationReadIn, db: Session = Depends(get_db),
+                            current: User = Depends(require_student)):
+    """ids 不传/为空 = 全部标已读；传 ids 只标这些（且只限本人的）。"""
+    query = db.query(Notification).filter(
+        Notification.user_id == current.id, Notification.is_read.is_(False)
+    )
+    if body.ids:
+        query = query.filter(Notification.id.in_(body.ids))
+    targets = query.all()
+    for n in targets:
+        n.is_read = True
+    db.commit()
+    unread = (
+        db.query(Notification)
+        .filter(Notification.user_id == current.id, Notification.is_read.is_(False))
+        .count()
+    )
+    return {"updated": len(targets), "unread_count": unread}

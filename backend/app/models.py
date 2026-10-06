@@ -129,3 +129,29 @@ class Essay(Base):
     submitted_at = Column(DateTime, nullable=False, default=datetime.now)
 
     student = relationship("User", back_populates="essays")
+
+
+class ChatMessage(Base):
+    """学生与主页 Agent 的对话记录（v0.3.0 新增表）。"""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String(16), nullable=False, comment="user | assistant")
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class Notification(Base):
+    """站内提醒（v0.3.0 新增表）：如教师一键纠错后提醒被纠错的学生。"""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True,
+                     comment="接收提醒的用户")
+    type = Column(String(32), nullable=False, comment="teacher_correction | ...")
+    content = Column(Text, nullable=False, comment="提醒文案")
+    related_submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=True,
+                                   comment="关联的提交（点提醒跳诊断报告用），可空")
+    is_read = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)

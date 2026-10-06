@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_teacher
 from ..config import settings
 from ..database import get_db
-from ..models import Assignment, Error, Essay, Question, Submission, User
+from ..models import Assignment, Correction, Error, Essay, Notification, Question, Step, Submission, User
 from ..schemas import (
     ErrorCorrectIn,
     KnowledgePointRankItem,
@@ -89,9 +89,29 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     err = db.query(Error).filter(Error.id == error_id).first()
     if not err:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "错误记录不存在")
+    old_type = err.error_type
     err.error_type = body.error_type
     err.teacher_note = body.teacher_note
     err.teacher_corrected = True
+    # v0.3.0：纠错成功后给被纠错的学生写一条站内提醒（主流程：AI 初批 → 老师干预 → 学生收到提醒去订正）
+    sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
+    if sub is not None:
+        question = db.query(Question).filter(Question.id == sub.question_id).first()
+        assignment = (
+            db.query(Assignment).filter(Assignment.id == question.assignment_id).first()
+            if question else None
+        )
+        title = assignment.title if assignment else ""
+        content = (
+            f"{current.name}调整了你《{title}》的批改结果："
+            f"错因由{old_type}改为{body.error_type}，点开看看老师的复核结果吧。"
+        )
+        db.add(Notification(
+            user_id=sub.student_id,
+            type="teacher_correction",
+            content=content,
+            related_submission_id=sub.id,
+        ))
     db.commit()
     db.refresh(err)
     return _teacher_error_item(err, db)
@@ -183,6 +203,48 @@ def list_teacher_assignments(db: Session = Depends(get_db),
     assignments = db.query(Assignment).order_by(Assignment.id).all()
     items = [_teacher_assignment_out(a, db) for a in assignments]
     return {"total": len(items), "items": items}
+
+
+@router.delete("/assignments/{assignment_id}", summary="删除已发布作业")
+def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
+                      current: User = Depends(require_teacher)):
+    """删除自己发布的一份作业（v0.3.0 新增）。事务内按外键依赖顺序级联删除：
+    corrections → notifications（关联这些提交的）→ errors → steps → submissions
+    → essays → questions → assignment，避免孤儿数据污染学生报告与班级统计。
+    非本人发布或不存在统一返回 404（不泄露他人作业是否存在）。"""
+    assignment = (
+        db.query(Assignment)
+        .filter(Assignment.id == assignment_id, Assignment.created_by == current.id)
+        .first()
+    )
+    if not assignment:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    qids = [q.id for q in db.query(Question).filter(Question.assignment_id == assignment.id).all()]
+    if qids:
+        sub_ids = [
+            s.id for s in db.query(Submission).filter(Submission.question_id.in_(qids)).all()
+        ]
+        if sub_ids:
+            err_ids = [
+                e.id for e in db.query(Error).filter(Error.submission_id.in_(sub_ids)).all()
+            ]
+            if err_ids:
+                db.query(Correction).filter(Correction.error_id.in_(err_ids)) \
+                    .delete(synchronize_session=False)
+            db.query(Notification).filter(
+                Notification.related_submission_id.in_(sub_ids)
+            ).delete(synchronize_session=False)
+            db.query(Error).filter(Error.submission_id.in_(sub_ids)) \
+                .delete(synchronize_session=False)
+            db.query(Step).filter(Step.submission_id.in_(sub_ids)) \
+                .delete(synchronize_session=False)
+            db.query(Submission).filter(Submission.id.in_(sub_ids)) \
+                .delete(synchronize_session=False)
+        db.query(Essay).filter(Essay.question_id.in_(qids)).delete(synchronize_session=False)
+        db.query(Question).filter(Question.id.in_(qids)).delete(synchronize_session=False)
+    db.delete(assignment)
+    db.commit()
+    return {"deleted": True}
 
 
 # ---------- 拍照识别题目（v0.2.1 新增） ----------

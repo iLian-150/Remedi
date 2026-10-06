@@ -348,6 +348,48 @@ class TeacherAssignmentOut(BaseModel):
     questions: List[TeacherAssignmentQuestionOut]
 
 
+# ---------- 主页 Agent 对话（v0.3.0 新增） ----------
+
+class AgentChatIn(BaseModel):
+    # 长度上限在接口层手动校验并返回 400（契约约定），故此处只做非空约束
+    message: str = Field(min_length=1)
+
+
+class AgentChatOut(BaseModel):
+    reply: str
+
+
+class AgentHistoryItem(BaseModel):
+    role: str                     # user | assistant
+    content: str
+    created_at: datetime
+
+
+# ---------- 站内提醒（v0.3.0 新增） ----------
+
+class NotificationItem(BaseModel):
+    id: int
+    type: str
+    content: str
+    related_submission_id: Optional[int] = None
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationListOut(BaseModel):
+    unread_count: int
+    items: List[NotificationItem]
+
+
+class NotificationReadIn(BaseModel):
+    ids: Optional[List[int]] = None   # 不传或为空 = 全部标已读
+
+
+class NotificationReadOut(BaseModel):
+    updated: int                  # 本次标已读的条数
+    unread_count: int             # 标后的未读数
+
+
 # ---------- 健康检查 ----------
 
 class HealthOut(BaseModel):
