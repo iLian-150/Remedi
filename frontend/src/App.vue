@@ -81,6 +81,7 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/student/assignments', icon: 'clipboard', label: '作业列表' },
   { to: '/student/submit', icon: 'edit', label: '交作业' },
   { to: '/student/feedback', icon: 'file', label: '诊断报告' },
+  { to: '/student/report', icon: 'chart', label: '学习报告' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
   { to: '/student/profile', icon: 'user', label: '我的档案' }
 ]

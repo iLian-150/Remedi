@@ -6,6 +6,7 @@ import type {
   GradingError,
   KnowledgePointStat,
   PageResult,
+  PhotoTranscribeResult,
   StudentProfile,
   StudentSummary,
   TeacherAssignment,
@@ -65,6 +66,15 @@ export const useTeacherStore = defineStore('teacher', {
     // 4.7 发布作业（v0.2.0）
     async createAssignment(payload: TeacherAssignmentInput): Promise<TeacherAssignment> {
       const { data } = await api.post<TeacherAssignment>('/api/teacher/assignments', payload)
+      return data
+    },
+    // 4.9 拍照识别题目（v0.2.1）：上传题目照片，返回转写 {question_text, steps} 供填入表单
+    async recognizePhoto(file: File): Promise<PhotoTranscribeResult> {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post<PhotoTranscribeResult>('/api/teacher/photo-recognize', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
       return data
     }
   }

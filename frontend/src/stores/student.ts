@@ -8,10 +8,12 @@ import type {
   CorrectionResult,
   EssayResult,
   EssaySummary,
+  KnowledgePointErrorItem,
   PageResult,
   PhotoTranscribeResult,
   StudentBriefing,
   StudentProfile,
+  SubjectReport,
   SubmissionResult,
   SubmissionSummary
 } from '../api/types'
@@ -82,6 +84,18 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.post<PhotoTranscribeResult>('/api/student/photo-transcribe', form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
+      return data
+    },
+    // 3.13 学习报告（v0.2.1）：按科目聚合 + 知识点状态
+    async fetchReport(): Promise<SubjectReport[]> {
+      const { data } = await api.get<SubjectReport[]>('/api/student/report')
+      return data
+    },
+    // 3.14 知识点错题时间线（v0.2.1）
+    async fetchKnowledgePointErrors(name: string): Promise<KnowledgePointErrorItem[]> {
+      const { data } = await api.get<KnowledgePointErrorItem[]>(
+        `/api/student/report/knowledge-points/${encodeURIComponent(name)}/errors`
+      )
       return data
     }
   }

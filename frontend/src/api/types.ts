@@ -190,11 +190,18 @@ export interface PendingAssignment {
   created_at: string
 }
 
+export interface WeakPointDetail {
+  knowledge_point: string
+  error_count: number
+  last_error_at: string | null
+}
+
 export interface StudentBriefing {
   pending_assignments: PendingAssignment[]
   pending_corrections_count: number
   pending_corrections_knowledge_points: string[]
   weak_points: string[]
+  weak_point_details: WeakPointDetail[] // v0.2.1 新增：需加固知识点明细（与 weak_points 同序）
   recent_feedback: string | null
 }
 
@@ -235,6 +242,39 @@ export interface TeacherAssignmentInput {
   subject?: 'math' | 'english'
   description?: string
   questions: TeacherQuestionInput[]
+}
+
+// ---------- v0.2.1 新增：学习报告（科目 → 知识点 → 错题时间线 → 步骤诊断） ----------
+// 契约见 docs/api-contract.md v0.2.1 第 3.13 / 3.14 节
+
+export type KnowledgePointStatus = 'pending' | 'stubborn' | 'fixed'
+
+export interface ReportKnowledgePoint {
+  name: string
+  attempts: number
+  error_count: number
+  error_rate: number
+  status: KnowledgePointStatus
+  last_error_at: string | null
+}
+
+export interface SubjectReport {
+  subject: string // 'math' | 'english'
+  submission_count: number
+  correct_rate: number
+  pending_fix_count: number
+  fixed_ratio: number
+  knowledge_points: ReportKnowledgePoint[]
+}
+
+export interface KnowledgePointErrorItem {
+  created_at: string
+  assignment_title: string
+  question_prompt: string
+  first_error_seq: number | null
+  error_type: ErrorType | string
+  corrected: boolean
+  submission_id: number
 }
 
 // ---------- 界面文案映射 ----------

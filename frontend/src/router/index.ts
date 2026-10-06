@@ -8,6 +8,7 @@ import StudentChat from '../views/student/StudentChat.vue'
 import StudentAssignments from '../views/student/StudentAssignments.vue'
 import StudentSubmit from '../views/student/StudentSubmit.vue'
 import StudentFeedback from '../views/student/StudentFeedback.vue'
+import StudentReport from '../views/student/StudentReport.vue'
 import StudentProfile from '../views/student/StudentProfile.vue'
 import StudentCorrections from '../views/student/StudentCorrections.vue'
 // 教师端
@@ -29,6 +30,7 @@ const routes: RouteRecordRaw[] = [
   // 交作业：从作业列表进入（?assignment_id=），直接访问 URL 时回退为下拉选择
   { path: '/student/submit', component: StudentSubmit, meta: { role: 'student', title: '交作业' } },
   { path: '/student/feedback', component: StudentFeedback, meta: { role: 'student', title: '诊断报告' } },
+  { path: '/student/report', component: StudentReport, meta: { role: 'student', title: '学习报告' } },
   { path: '/student/profile', component: StudentProfile, meta: { role: 'student', title: '我的档案' } },
   { path: '/student/corrections', component: StudentCorrections, meta: { role: 'student', title: '订正错题' } },
 

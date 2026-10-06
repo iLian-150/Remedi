@@ -22,15 +22,21 @@
         <select v-model="subject" disabled>
           <option value="math">数学</option>
         </select>
-        <p class="hint" style="margin-top: 6px">本轮先只支持数学作业（可拍照批改与逐步诊断），作文作业请沿用原有方式布置。</p>
+        <p class="hint" style="margin-top: 6px">目前专注数学作业，支持拍照批改与逐步诊断。</p>
       </div>
     </div>
 
     <div v-for="(q, idx) in questions" :key="idx" class="card">
       <div class="q-head">
         <h3 style="margin-bottom: 0">第 {{ idx + 1 }} 题 · 数学</h3>
-        <button class="btn small danger" :disabled="questions.length === 1" @click="questions.splice(idx, 1)">删除本题</button>
+        <div class="q-actions">
+          <button class="btn small secondary inline-icon" :disabled="q.recognizing" @click="pickPhoto(idx)">
+            <AppIcon name="camera" :size="15" /> {{ q.recognizing ? '识别中…' : '拍照识别题目' }}
+          </button>
+          <button class="btn small danger" :disabled="questions.length === 1" @click="questions.splice(idx, 1)">删除本题</button>
+        </div>
       </div>
+      <p v-if="q.recognized" class="ok-msg" style="margin-bottom: 12px">已通过照片识别填入，请检查题干与标准步骤是否正确，可直接修改后再发布。</p>
       <div class="form-row">
         <label>题干</label>
         <textarea v-model="q.prompt" rows="2" placeholder="例如：解方程：3x-5=10"></textarea>
@@ -49,6 +55,7 @@
       </div>
     </div>
 
+    <input ref="photoRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhotoChange" />
     <div class="toolbar">
       <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加一题</button>
       <button class="btn" :disabled="submitting" @click="submit">
@@ -73,19 +80,62 @@ interface QuestionForm {
   knowledge_point: string
   standard_steps_text: string
   reference_answer: string
+  recognized: boolean   // 是否刚通过照片识别填入（展示检查提示）
+  recognizing: boolean  // 识别请求进行中
 }
 
 const title = ref('')
 const subject = ref<'math'>('math')
-const questions = ref<QuestionForm[]>([
-  { prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '' }
-])
+const blankQuestion = (): QuestionForm => ({
+  prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '',
+  recognized: false, recognizing: false
+})
+const questions = ref<QuestionForm[]>([blankQuestion()])
 const submitting = ref(false)
 const error = ref('')
 const ok = ref(false)
 
 function addQuestion() {
-  questions.value.push({ prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '' })
+  questions.value.push(blankQuestion())
+}
+
+// ---------- 拍照识别题目（v0.2.1）：识别结果填入当前题行，教师检查后再发布 ----------
+const photoRef = ref<HTMLInputElement | null>(null)
+const photoTarget = ref(-1)
+
+function pickPhoto(idx: number) {
+  photoTarget.value = idx
+  photoRef.value?.click()
+}
+
+async function onPhotoChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const q = questions.value[photoTarget.value]
+  if (!file || !q) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    error.value = '题目照片格式不对，请上传 jpg / png / webp 格式的图片。'
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    error.value = '题目照片太大了（超过 10MB），请压缩后再试。'
+    return
+  }
+  q.recognizing = true
+  error.value = ''
+  try {
+    const res = await teacher.recognizePhoto(file)
+    if (res.question_text) q.prompt = res.question_text
+    if (res.steps?.length) q.standard_steps_text = res.steps.join('\n')
+    q.recognized = true
+  } catch (err: unknown) {
+    const d = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    error.value = '照片识别失败：' + (typeof d === 'string' ? d : '请稍后重试。')
+    console.error(err)
+  } finally {
+    q.recognizing = false
+  }
 }
 
 async function submit() {
@@ -136,5 +186,6 @@ async function submit() {
 </script>
 
 <style scoped>
-.q-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.q-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
+.q-actions { display: flex; gap: 8px; align-items: center; }
 </style>
