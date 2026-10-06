@@ -3,7 +3,7 @@ from typing import Dict, List
 
 from sqlalchemy import func
 
-from ..models import Error, Question, Submission, User
+from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
 from .providers import get_provider
 
 
@@ -135,6 +135,97 @@ def student_profile(db, student: User) -> Dict:
         "stubborn_errors": stubborn_errors,
         "recent_errors": recent_errors,
         "suggestion": suggestion,
+    }
+
+
+def student_briefing(db, student: User) -> Dict:
+    """学生首页待办简报：未完成作业 / 待订正 / 需要加固的知识点 / 最近一次批改摘要。
+    全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
+    submissions = (
+        db.query(Submission).filter(Submission.student_id == student.id).all()
+    )
+    sub_ids = [s.id for s in submissions]
+    done_qids = {s.question_id for s in submissions}
+    done_qids |= {
+        e.question_id
+        for e in db.query(Essay).filter(
+            Essay.student_id == student.id, Essay.question_id.isnot(None)
+        ).all()
+    }
+
+    # 未完成作业：至少有一道题该生还没提交过
+    pending_assignments = []
+    for a in db.query(Assignment).order_by(Assignment.id).all():
+        questions = db.query(Question).filter(Question.assignment_id == a.id).all()
+        remaining = sum(1 for q in questions if q.id not in done_qids)
+        if questions and remaining > 0:
+            pending_assignments.append({
+                "id": a.id,
+                "title": a.title,
+                "question_count": len(questions),
+                "remaining_count": remaining,
+                "created_at": a.created_at,
+            })
+
+    # 错误集合（待订正判定 + 薄弱点聚合共用）
+    errors = []
+    if sub_ids:
+        errors = (
+            db.query(Error)
+            .filter(Error.submission_id.in_(sub_ids))
+            .order_by(Error.created_at.desc())
+            .all()
+        )
+
+    # 待订正：尚无一条 is_correct=True 订正的 error
+    fixed_ids = {
+        c.error_id
+        for c in db.query(Correction).filter(
+            Correction.student_id == student.id, Correction.is_correct.is_(True)
+        ).all()
+    }
+    pending_errors = [e for e in errors if e.id not in fixed_ids]
+    pending_kps = sorted({e.knowledge_point for e in pending_errors})
+
+    # 需要加固的知识点：顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点
+    # （聚合口径与 student_profile 一致；顽固的排前面）
+    kp_attempts: Dict[str, int] = {}
+    for s in submissions:
+        kp = s.question.knowledge_point if s.question else "未知"
+        kp_attempts[kp] = kp_attempts.get(kp, 0) + 1
+    kp_errors: Dict[str, int] = {}
+    stubborn_kps = set()
+    for e in errors:
+        kp_errors[e.knowledge_point] = kp_errors.get(e.knowledge_point, 0) + 1
+        if e.is_stubborn:
+            stubborn_kps.add(e.knowledge_point)
+    weak_points = sorted(stubborn_kps)
+    for kp, attempts in kp_attempts.items():
+        if kp in stubborn_kps:
+            continue
+        rate = kp_errors.get(kp, 0) / attempts if attempts else 0.0
+        if rate >= 0.5:
+            weak_points.append(kp)
+
+    # 最近一次批改的一句话摘要
+    recent_feedback = None
+    if submissions:
+        latest = max(submissions, key=lambda s: (s.submitted_at, s.id))
+        stem = latest.question.stem if latest.question else ""
+        latest_errors = [e for e in errors if e.submission_id == latest.id]
+        if latest_errors:
+            e0 = latest_errors[0]
+            detail = e0.detail or f"出现了「{e0.error_type}」"
+            recent_feedback = f"最近一次批改《{stem}》：{detail}"
+        else:
+            recent_feedback = f"最近一次作答《{stem}》全部正确，继续保持！"
+
+    return {
+        "pending_assignments": pending_assignments,
+        "pending_corrections_count": len(pending_errors),
+        "pending_corrections_knowledge_points": pending_kps,
+        "weak_points": weak_points,
+        "recent_feedback": recent_feedback,
     }
 
 

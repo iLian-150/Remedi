@@ -12,6 +12,7 @@ services:
     environment:
       # SQLite 落盘到命名卷，容器重建数据不丢
       - DATABASE_URL=sqlite:////data/remedi.db
+      - UPLOAD_DIR=/data/uploads
       - CORS_ORIGINS=*
       # LLM：默认 mock（无需 key 跑全流程）
       # DeepSeek：改 LLM_PROVIDER=deepseek 并填写 DEEPSEEK_API_KEY

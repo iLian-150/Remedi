@@ -6,6 +6,7 @@
 #   - CloudflareProvider：调 Cloudflare Workers AI（OpenAI 兼容接口，免费额度
 #     10,000 Neurons/天）；继承 DeepSeekProvider 的调用与降级逻辑
 # 切换：环境变量 LLM_PROVIDER=mock|deepseek|cloudflare（默认 mock）
+import base64
 import json
 import logging
 import re
@@ -31,6 +32,11 @@ class LLMProvider(ABC):
     def generate_feedback(self, *, student_name: str, summary: Dict) -> str:
         """按学习画像生成一句话学习建议。summary 含 knowledge_points / stubborn_errors 等。"""
 
+    @abstractmethod
+    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
+        """拍照转写：把作业照片转写为结构化文本。
+        返回 {question_text: str, steps: [str, ...]}（steps 只含作答步骤，不含题干）。"""
+
 
 # ---------------------------------------------------------------- Mock（确定性）
 
@@ -39,6 +45,13 @@ _LINKING_WORDS = {
     "first", "firstly", "second", "secondly", "third", "then", "next",
     "however", "but", "because", "so", "and", "also", "finally",
     "in addition", "for example", "such as", "although", "though",
+}
+
+# Mock 拍照转写（罐头数据）：一元一次方程，第 2 步移项未变号——
+# 接现有诊断管线可定位出错步，与演示数据口径一致。
+MOCK_TRANSCRIPTION: Dict = {
+    "question_text": "解方程：2x+3=7",
+    "steps": ["2x+3=7", "2x=7+3", "2x=10", "x=5"],
 }
 
 
@@ -50,6 +63,13 @@ class MockProvider(LLMProvider):
         result = dict(rule_result)
         result["detail"] = (result.get("detail") or "") + "（规则分类，Mock 未改写）"
         return result
+
+    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
+        """Mock 转写：不看图，直接返回罐头转写（深拷贝，避免调用方改动常量）。"""
+        return {
+            "question_text": MOCK_TRANSCRIPTION["question_text"],
+            "steps": list(MOCK_TRANSCRIPTION["steps"]),
+        }
 
     # -- 作文轻量评分（确定性启发式） --
     def score_essay(self, *, text, prompt=None) -> Dict:
@@ -270,6 +290,11 @@ class DeepSeekProvider(LLMProvider):
             logger.warning("LLM generate_feedback 失败，降级为 Mock: %s", e)
             return self._mock.generate_feedback(student_name=student_name, summary=summary)
 
+    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
+        # DeepSeek 文本接口无视觉能力，直接用 Mock 转写兜底，保证流程不中断
+        logger.info("DeepSeek 无视觉能力，拍照转写降级为 Mock 转写结果")
+        return self._mock.transcribe_image(image_bytes, content_type)
+
 
 # ---------------------------------------------------------------- Cloudflare Workers AI
 
@@ -282,11 +307,64 @@ class CloudflareProvider(DeepSeekProvider):
     未配置 account_id / token 时构造抛错，由工厂降级为 Mock。
     """
 
-    def __init__(self, account_id: str, api_token: str, model: str):
+    def __init__(self, account_id: str, api_token: str, model: str,
+                 vision_model: str = "@cf/meta/llama-3.2-11b-vision-instruct"):
         if not account_id or not api_token:
             raise RuntimeError("未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN")
         base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
         super().__init__(api_key=api_token, base_url=base_url, model=model)
+        self.vision_model = vision_model
+
+    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
+        """拍照转写：调视觉模型逐行转写手写解题步骤，只输出 JSON。
+        解析失败/请求异常时降级为 Mock 转写（沿用全站降级风格，流程不中断）。"""
+        try:
+            import requests
+            data_url = "data:{};base64,{}".format(
+                content_type or "image/jpeg",
+                base64.b64encode(image_bytes).decode("ascii"),
+            )
+            resp = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": self.vision_model,
+                    "temperature": 0.1,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "你是作业照片转写助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "请逐行转写这张照片里学生手写的解题过程。"
+                                        "题干（题目原文）放进 question_text；学生的作答步骤按书写顺序逐行放进 steps，"
+                                        "steps 里不要包含题干本身。数学公式用纯文本书写，如 2x+3=7、x=5，不要用 LaTeX。"
+                                        '只输出 JSON：{"question_text": "...", "steps": ["...", "..."]}'
+                                    ),
+                                },
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                            ],
+                        },
+                    ],
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+            data = self._extract_json(content)
+            steps = [str(s).strip() for s in data.get("steps", []) if str(s).strip()]
+            question_text = str(data.get("question_text", "")).strip()
+            if not steps:
+                raise ValueError("视觉模型未转写出任何步骤")
+            return {"question_text": question_text, "steps": steps}
+        except Exception as e:
+            logger.warning("LLM transcribe_image 失败，降级为 Mock 转写: %s", e)
+            return self._mock.transcribe_image(image_bytes, content_type)
 
 
 # ---------------------------------------------------------------- 工厂
@@ -317,6 +395,7 @@ def get_provider() -> LLMProvider:
                 account_id=settings.CLOUDFLARE_ACCOUNT_ID,
                 api_token=settings.CLOUDFLARE_API_TOKEN,
                 model=settings.CLOUDFLARE_MODEL,
+                vision_model=settings.CLOUDFLARE_VISION_MODEL,
             )
             logger.info("LLM Provider: cloudflare (%s)", settings.CLOUDFLARE_MODEL)
         except Exception as e:

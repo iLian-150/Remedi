@@ -6,13 +6,16 @@ from sqlalchemy.orm import Session
 
 from ..auth import require_teacher
 from ..database import get_db
-from ..models import Error, Question, Submission, User
+from ..models import Assignment, Error, Essay, Question, Submission, User
 from ..schemas import (
     ErrorCorrectIn,
     KnowledgePointRankItem,
     ProfileOut,
     QuestionOut,
     StudentBrief,
+    TeacherAssignmentCreate,
+    TeacherAssignmentOut,
+    TeacherAssignmentQuestionOut,
     TeacherErrorItem,
     TopQuestionItem,
     UserOut,
@@ -114,3 +117,63 @@ def student_profile_view(student_id: int, db: Session = Depends(get_db),
     if not st:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学生不存在")
     return student_profile(db, st)
+
+
+# ---------- 发布作业（v0.2.0 新增） ----------
+
+def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
+    questions = (
+        db.query(Question).filter(Question.assignment_id == a.id)
+        .order_by(Question.order_num, Question.id).all()
+    )
+    items = []
+    for q in questions:
+        count = db.query(Submission).filter(Submission.question_id == q.id).count()
+        count += db.query(Essay).filter(Essay.question_id == q.id).count()
+        items.append(TeacherAssignmentQuestionOut(
+            id=q.id,
+            type="math" if q.subject == "math" else "essay",
+            prompt=q.stem,
+            knowledge_point=q.knowledge_point,
+            standard_answer=q.standard_answer,
+            submission_count=count,
+        ))
+    return TeacherAssignmentOut(
+        id=a.id, title=a.title, description=a.description,
+        created_at=a.created_at, questions=items,
+    )
+
+
+@router.post("/assignments", response_model=TeacherAssignmentOut, summary="发布作业")
+def create_assignment(body: TeacherAssignmentCreate,
+                      db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    """创建一份作业并落库，学生端立即可见。
+    standard_steps 无独立存储列：落库时并入 standard_answer（参考答案优先）。"""
+    assignment = Assignment(
+        title=body.title, description=body.description, created_by=current.id,
+    )
+    db.add(assignment)
+    db.flush()  # 拿到 assignment.id
+    for i, q in enumerate(body.questions, start=1):
+        standard_answer = q.reference_answer
+        if not standard_answer and q.standard_steps:
+            standard_answer = "\n".join(s.strip() for s in q.standard_steps if s.strip())
+        db.add(Question(
+            assignment_id=assignment.id,
+            subject="math" if q.type == "math" else "english",
+            knowledge_point=q.knowledge_point,
+            stem=q.prompt,
+            standard_answer=standard_answer,
+            order_num=i,
+        ))
+    db.commit()
+    db.refresh(assignment)
+    return _teacher_assignment_out(assignment, db)
+
+
+@router.get("/assignments", summary="已发布作业列表")
+def list_teacher_assignments(db: Session = Depends(get_db),
+                             current: User = Depends(require_teacher)):
+    assignments = db.query(Assignment).order_by(Assignment.id).all()
+    items = [_teacher_assignment_out(a, db) for a in assignments]
+    return {"total": len(items), "items": items}

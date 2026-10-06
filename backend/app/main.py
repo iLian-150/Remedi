@@ -1,6 +1,9 @@
 # Remedi MVP 后端入口。
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import init_db
@@ -32,6 +35,10 @@ app.include_router(auth_router.router)
 app.include_router(health_router.router)
 app.include_router(student_router.router)
 app.include_router(teacher_router.router)
+
+# 拍照上传的图片以静态文件方式回读（前端转写卡片预览用）
+os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
 
 @app.on_event("startup")

@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.1.0（2026-10-06）
+> 版本：v0.2.0（2026-10-07）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -374,6 +374,53 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `attempts`：该知识点题目的提交次数；`errors`：该知识点累计 error 记录数。
 - `suggestion`：由 LLM Provider 生成（Mock 为确定性模板，无需 key）。
 
+### 3.11 POST /api/student/photo-transcribe —— 拍照转写作业 ⭐（v0.2.0 新增）
+
+权限：学生。
+
+请求：`multipart/form-data`，字段 `file` 为作业照片（jpg / png / webp，≤10MB）。
+
+响应 `200`：
+
+```json
+{
+  "image_id": "20261007103000_a1b2c3d4.png",
+  "image_url": "/uploads/20261007103000_a1b2c3d4.png",
+  "question_text": "解方程：2x+3=7",
+  "steps": ["2x+3=7", "2x=7+3", "2x=10", "x=5"]
+}
+```
+
+- `question_text`：转写出的题干；`steps`：学生作答步骤（按顺序，**不含题干**）。
+- 图片只存服务器本地目录（环境变量 `UPLOAD_DIR`，默认 `backend/uploads/`），不落库；`image_url` 为静态回读路径。
+- 转写由当前 LLM Provider 的视觉能力完成：Cloudflare 走视觉模型 `@cf/meta/llama-3.2-11b-vision-instruct`（可用 `CLOUDFLARE_VISION_MODEL` 覆盖）；Mock / 无凭证 / 识别异常时降级为确定性罐头转写，保证流程不中断。
+- 本接口**不产生提交记录**：学生确认/编辑转写结果后，仍走 3.3 `POST /api/student/submissions`（question_id + steps）完成诊断。
+
+错误：`400`（格式不支持 / 内容为空 / 超过 10MB，detail 为中文说明）；`403`（教师调用学生接口）。
+
+### 3.12 GET /api/student/briefing —— 首页待办简报（v0.2.0 新增）
+
+权限：学生。对话页打开时播报的数据来源，全部由现有表拼装，不调 LLM。
+
+响应 `200`：
+
+```json
+{
+  "pending_assignments": [
+    {"id": 1, "title": "第一周数学+英语作业", "question_count": 4, "remaining_count": 3, "created_at": "2026-10-06T10:00:00"}
+  ],
+  "pending_corrections_count": 1,
+  "pending_corrections_knowledge_points": ["一元一次方程"],
+  "weak_points": ["一元一次方程"],
+  "recent_feedback": "最近一次批改《解方程：2x+3=7》：移项未变号：3 移到等号另一边时没有变号"
+}
+```
+
+- `pending_assignments`：至少有一道题该生未提交过的作业（数学题以 submissions 计、作文题以 essays 计）；`remaining_count` 为未提交题目数。
+- `pending_corrections_*`：本人 error 中尚无一条 `is_correct=true` 订正记录的条数，及涉及知识点（去重）。
+- `weak_points`：需要加固的知识点 = 顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点（聚合口径同 3.10）。
+- `recent_feedback`：最近一次数学批改的一句话摘要（有错取引首条 error 的 detail，全对则为鼓励语）；从未提交过时为 `null`。
+
 ---
 
 ## 4. /api/teacher/* —— 教师端
@@ -497,6 +544,61 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 权限：教师。响应结构同 3.10（`student` 为目标学生）。
 
+### 4.7 POST /api/teacher/assignments —— 发布作业（v0.2.0 新增）
+
+权限：教师。创建一份作业并落库，学生端立即可见（3.1 / 3.2）。
+
+请求：
+
+```json
+{
+  "title": "第二周数学作业",
+  "subject": "math",
+  "description": "选填说明",
+  "questions": [
+    {
+      "type": "math",
+      "prompt": "解方程：3x-5=10",
+      "knowledge_point": "一元一次方程",
+      "standard_steps": ["3x-5=10", "3x=10+5", "3x=15", "x=5"],
+      "reference_answer": "x=5"
+    }
+  ]
+}
+```
+
+- `subject`：选填，作业级学科标记（`math | english`），仅记录用；题目学科以每题 `type` 为准。
+- `questions[].type`：`math | essay`，分别落库为题目 `subject=math | english`；`prompt` 落库为题干 `stem`；`order_num` 按数组顺序从 1 开始。
+- `standard_steps` / `reference_answer`：选填，仅教师可见（学生端详情不返回标准答案，沿用 3.2 约定）。`standard_steps` 无独立存储列：当 `reference_answer` 为空时，它按行拼入 `standard_answer` 字段保存。
+- 校验：`questions` 至少 1 道；`title` / `prompt` / `knowledge_point` 非空，否则 `422`。
+
+响应 `200`：
+
+```json
+{
+  "id": 2,
+  "title": "第二周数学作业",
+  "description": null,
+  "created_at": "2026-10-07T10:30:00",
+  "questions": [
+    {
+      "id": 5,
+      "type": "math",
+      "prompt": "解方程：3x-5=10",
+      "knowledge_point": "一元一次方程",
+      "standard_answer": "x=5",
+      "submission_count": 0
+    }
+  ]
+}
+```
+
+### 4.8 GET /api/teacher/assignments —— 已发布作业列表（v0.2.0 新增）
+
+权限：教师。响应 `200`：`{"total": n, "items": [...]}`，item 结构同 4.7 响应。
+
+- `submission_count`：该题的累计提交记录数（submissions + essays，同一学生多次提交计多次）。
+
 ---
 
 ## 5. /api/health —— 健康检查
@@ -510,13 +612,13 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```json
 {
   "status": "ok",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "provider": "mock",
   "time": "2026-10-06T15:40:35"
 }
 ```
 
-- `provider`：当前 LLM Provider（`mock` | `deepseek`）。
+- `provider`：当前 LLM Provider（`mock` | `deepseek` | `cloudflare`）。
 
 ---
 
@@ -535,3 +637,4 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v0.1.0 | 2026-10-06 | 初版冻结 |
+| v0.2.0 | 2026-10-07 | 新增 3.11 拍照转写、3.12 首页简报、4.7 发布作业、4.8 教师作业列表；无 breaking 变更 |

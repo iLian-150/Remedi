@@ -205,6 +205,31 @@ class ProfileOut(BaseModel):
     suggestion: str
 
 
+# ---------- 拍照转写 / 首页简报（v0.2.0 新增） ----------
+
+class PhotoTranscribeOut(BaseModel):
+    image_id: str                 # 服务器保存的文件名
+    image_url: str                # 图片相对访问路径（/uploads/<文件名>）
+    question_text: str
+    steps: List[str]
+
+
+class PendingAssignmentItem(BaseModel):
+    id: int
+    title: str
+    question_count: int           # 作业总题目数
+    remaining_count: int          # 该生尚未提交的题目数
+    created_at: datetime
+
+
+class BriefingOut(BaseModel):
+    pending_assignments: List[PendingAssignmentItem]
+    pending_corrections_count: int                     # 已诊断出错但未订正正确的条数
+    pending_corrections_knowledge_points: List[str]    # 上述订正涉及的知识点（去重）
+    weak_points: List[str]                             # 顽固/需要加固的知识点（去重）
+    recent_feedback: Optional[str] = None              # 最近一次批改的一句话摘要，可空
+
+
 # ---------- 教师 ----------
 
 class TeacherErrorItem(BaseModel):
@@ -250,6 +275,40 @@ class StudentBrief(BaseModel):
     student_no: Optional[str] = None
     submission_count: int
     error_count: int
+
+
+# ---------- 教师：发布作业（v0.2.0 新增） ----------
+
+class TeacherQuestionIn(BaseModel):
+    type: str = Field(pattern="^(math|essay)$")
+    prompt: str = Field(min_length=1, max_length=2000)          # 题干
+    knowledge_point: str = Field(min_length=1, max_length=64)
+    standard_steps: Optional[List[str]] = Field(default=None, max_length=30)  # 标准解题步骤（参考）
+    reference_answer: Optional[str] = Field(default=None, max_length=2000)    # 参考答案
+
+
+class TeacherAssignmentCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=128)
+    subject: Optional[str] = Field(default=None, pattern="^(math|english)$")
+    description: Optional[str] = Field(default=None, max_length=2000)
+    questions: List[TeacherQuestionIn] = Field(min_length=1, max_length=50)
+
+
+class TeacherAssignmentQuestionOut(BaseModel):
+    id: int
+    type: str                     # math | essay（由题目 subject 映射）
+    prompt: str                   # 题干
+    knowledge_point: str
+    standard_answer: Optional[str] = None
+    submission_count: int         # 该题累计提交人数（含作文提交）
+
+
+class TeacherAssignmentOut(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    created_at: datetime
+    questions: List[TeacherAssignmentQuestionOut]
 
 
 # ---------- 健康检查 ----------

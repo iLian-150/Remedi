@@ -27,6 +27,15 @@ class Settings:
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     CLOUDFLARE_API_TOKEN: str = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
     CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
+    # 视觉（拍照转写）模型。仅 CloudflareProvider 使用；其余 Provider 降级为 Mock 转写。
+    CLOUDFLARE_VISION_MODEL: str = os.getenv(
+        "CLOUDFLARE_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct").strip()
+
+    # 拍照上传的图片本地存放目录（默认 backend/uploads/）。只存文件，不落库。
+    UPLOAD_DIR: str = os.getenv(
+        "UPLOAD_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"),
+    )
 
     # 顽固误区判定窗口（天）：同一学生同一知识点 N 天内重复出错即记顽固
     STUBBORN_WINDOW_DAYS: int = _get_int("STUBBORN_WINDOW_DAYS", 30)
@@ -34,7 +43,7 @@ class Settings:
     # CORS。默认放行所有来源方便前端 dev server 联调；生产请收紧。
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = "0.2.0"
 
 
 settings = Settings()

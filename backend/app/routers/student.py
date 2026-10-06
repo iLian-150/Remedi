@@ -1,20 +1,26 @@
 # /api/student/* 学生端
+import os
+import secrets
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..auth import require_student
+from ..config import settings
 from ..database import get_db
 from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
 from ..schemas import (
     AssignmentDetail,
+    BriefingOut,
     CorrectionCreate,
     CorrectionOut,
     DiagnosisOut,
     EssayBrief,
     EssayCreate,
     EssayOut,
+    PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
     SubmissionBrief,
@@ -22,7 +28,8 @@ from ..schemas import (
 )
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
 from ..services.essays import present_essay, score_and_save_essay
-from ..services.stats import student_profile
+from ..services.providers import get_provider
+from ..services.stats import student_briefing, student_profile
 
 router = APIRouter(prefix="/api/student", tags=["student"])
 
@@ -170,3 +177,44 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
 @router.get("/profile", response_model=ProfileOut, summary="我的学习画像")
 def my_profile(db: Session = Depends(get_db), current: User = Depends(require_student)):
     return student_profile(db, current)
+
+
+# ---------- 首页简报 / 拍照转写（v0.2.0 新增） ----------
+
+@router.get("/briefing", response_model=BriefingOut, summary="首页待办简报")
+def briefing(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    return student_briefing(db, current)
+
+
+_PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",
+                "image/png": ".png", "image/webp": ".webp"}
+_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+
+@router.post("/photo-transcribe", response_model=PhotoTranscribeOut, summary="拍照转写作业")
+async def photo_transcribe(file: UploadFile = File(...),
+                           current: User = Depends(require_student)):
+    """上传作业照片 → Provider 视觉转写 → 返回 {image_id, image_url, question_text, steps}。
+    图片只存本地文件（不落库）；学生确认/编辑后走 POST /submissions 完成诊断。"""
+    if file.content_type not in _PHOTO_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
+    if len(data) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    filename = "{}_{}{}".format(
+        datetime.now().strftime("%Y%m%d%H%M%S"),
+        secrets.token_hex(4),
+        _PHOTO_TYPES[file.content_type],
+    )
+    with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
+        f.write(data)
+    result = get_provider().transcribe_image(data, file.content_type)
+    return {
+        "image_id": filename,
+        "image_url": f"/api/uploads/{filename}",
+        "question_text": result.get("question_text", ""),
+        "steps": result.get("steps", []),
+    }
