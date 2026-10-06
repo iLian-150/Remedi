@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/auth'
 // 角色选择 + 登录
 import RoleSelect from '../views/RoleSelect.vue'
 // 学生端
+import StudentChat from '../views/student/StudentChat.vue'
 import StudentAssignments from '../views/student/StudentAssignments.vue'
 import StudentSubmit from '../views/student/StudentSubmit.vue'
 import StudentFeedback from '../views/student/StudentFeedback.vue'
@@ -16,11 +17,14 @@ import TeacherSubmissionDetail from '../views/teacher/TeacherSubmissionDetail.vu
 import TeacherStudents from '../views/teacher/TeacherStudents.vue'
 import TeacherStudentPortrait from '../views/teacher/TeacherStudentPortrait.vue'
 import TeacherSuggestions from '../views/teacher/TeacherSuggestions.vue'
+import TeacherAssignments from '../views/teacher/TeacherAssignments.vue'
+import TeacherPublish from '../views/teacher/TeacherPublish.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', component: RoleSelect, meta: { public: true, title: '登录' } },
 
-  // 学生端
+  // 学生端（登录默认落地页为对话式智能批改）
+  { path: '/student/chat', component: StudentChat, meta: { role: 'student', title: '智能批改' } },
   { path: '/student/assignments', component: StudentAssignments, meta: { role: 'student', title: '作业列表' } },
   // 交作业：从作业列表进入（?assignment_id=），直接访问 URL 时回退为下拉选择
   { path: '/student/submit', component: StudentSubmit, meta: { role: 'student', title: '交作业' } },
@@ -34,7 +38,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/submissions/:id', component: TeacherSubmissionDetail, meta: { role: 'teacher', title: '诊断详情' } },
   { path: '/teacher/students', component: TeacherStudents, meta: { role: 'teacher', title: '学生列表' } },
   { path: '/teacher/students/:id', component: TeacherStudentPortrait, meta: { role: 'teacher', title: '学生画像' } },
-  { path: '/teacher/suggestions', component: TeacherSuggestions, meta: { role: 'teacher', title: '教学建议' } }
+  { path: '/teacher/suggestions', component: TeacherSuggestions, meta: { role: 'teacher', title: '教学建议' } },
+  { path: '/teacher/assignments', component: TeacherAssignments, meta: { role: 'teacher', title: '作业管理' } },
+  { path: '/teacher/assignments/new', component: TeacherPublish, meta: { role: 'teacher', title: '发布作业' } }
 ]
 
 const router = createRouter({
@@ -48,7 +54,7 @@ router.beforeEach((to) => {
   if (to.meta.public) return true
   if (!auth.token) return '/'
   if (to.meta.role && to.meta.role !== auth.role) {
-    return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/assignments'
+    return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/chat'
   }
   return true
 })

@@ -8,6 +8,8 @@ import type {
   PageResult,
   StudentProfile,
   StudentSummary,
+  TeacherAssignment,
+  TeacherAssignmentInput,
   TeacherErrorItem,
   TopQuestion
 } from '../api/types'
@@ -53,6 +55,16 @@ export const useTeacherStore = defineStore('teacher', {
     // 4.6 学生画像查询（结构同 3.10）
     async fetchStudentProfile(id: number): Promise<StudentProfile> {
       const { data } = await api.get<StudentProfile>(`/api/teacher/students/${id}/profile`)
+      return data
+    },
+    // 4.8 已发布作业列表（含每题提交人数，v0.2.0）
+    async fetchTeacherAssignments(): Promise<TeacherAssignment[]> {
+      const { data } = await api.get<PageResult<TeacherAssignment>>('/api/teacher/assignments')
+      return data.items
+    },
+    // 4.7 发布作业（v0.2.0）
+    async createAssignment(payload: TeacherAssignmentInput): Promise<TeacherAssignment> {
+      const { data } = await api.post<TeacherAssignment>('/api/teacher/assignments', payload)
       return data
     }
   }

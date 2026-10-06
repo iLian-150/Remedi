@@ -10,8 +10,8 @@
       <div class="form-row">
         <label>我是</label>
         <div class="role-btns">
-          <button :class="['btn', role === 'teacher' ? '' : 'secondary']" @click="switchRole('teacher')">👩‍🏫 教师</button>
-          <button :class="['btn', role === 'student' ? '' : 'secondary']" @click="switchRole('student')">🎒 学生</button>
+          <button :class="['btn', 'inline-icon', role === 'teacher' ? '' : 'secondary']" @click="switchRole('teacher')"><AppIcon name="cap" :size="18" /> 教师</button>
+          <button :class="['btn', 'inline-icon', role === 'student' ? '' : 'secondary']" @click="switchRole('student')"><AppIcon name="book" :size="18" /> 学生</button>
         </div>
       </div>
 
@@ -36,6 +36,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import api from '../api/client'
 import type { LoginResponse } from '../api/types'
+import AppIcon from '../components/icons/AppIcon.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -65,7 +66,7 @@ async function login() {
       role: role.value
     })
     auth.setSession(data.token, data.user)
-    router.push(role.value === 'teacher' ? '/teacher/dashboard' : '/student/assignments')
+    router.push(role.value === 'teacher' ? '/teacher/dashboard' : '/student/chat')
   } catch (e: unknown) {
     error.value = '登录失败，请稍后重试；若持续失败请联系管理员检查后端服务。'
     console.error(e)

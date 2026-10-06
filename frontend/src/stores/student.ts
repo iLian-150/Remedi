@@ -9,6 +9,8 @@ import type {
   EssayResult,
   EssaySummary,
   PageResult,
+  PhotoTranscribeResult,
+  StudentBriefing,
   StudentProfile,
   SubmissionResult,
   SubmissionSummary
@@ -66,6 +68,20 @@ export const useStudentStore = defineStore('student', {
     // 3.10 我的学习画像
     async fetchProfile(): Promise<StudentProfile> {
       const { data } = await api.get<StudentProfile>('/api/student/profile')
+      return data
+    },
+    // 3.12 首页待办简报（v0.2.0）
+    async fetchBriefing(): Promise<StudentBriefing> {
+      const { data } = await api.get<StudentBriefing>('/api/student/briefing')
+      return data
+    },
+    // 3.11 拍照转写（v0.2.0）：multipart 上传，返回转写文本，确认后仍走 submitMath
+    async transcribePhoto(file: File): Promise<PhotoTranscribeResult> {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post<PhotoTranscribeResult>('/api/student/photo-transcribe', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
       return data
     }
   }

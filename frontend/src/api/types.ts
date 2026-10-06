@@ -179,6 +179,64 @@ export interface StudentSummary {
   error_count: number
 }
 
+// ---------- v0.2.0 新增：简报 / 拍照转写 / 教师作业 ----------
+// 契约见 docs/api-contract.md v0.2.0 第 3.11 / 3.12 / 4.7 / 4.8 节
+
+export interface PendingAssignment {
+  id: number
+  title: string
+  question_count: number
+  remaining_count: number
+  created_at: string
+}
+
+export interface StudentBriefing {
+  pending_assignments: PendingAssignment[]
+  pending_corrections_count: number
+  pending_corrections_knowledge_points: string[]
+  weak_points: string[]
+  recent_feedback: string | null
+}
+
+export interface PhotoTranscribeResult {
+  image_id: string
+  image_url: string
+  question_text: string
+  steps: string[]
+}
+
+export interface TeacherAssignmentQuestion {
+  id: number
+  type: 'math' | 'essay'
+  prompt: string
+  knowledge_point: string
+  standard_answer: string | null
+  submission_count: number
+}
+
+export interface TeacherAssignment {
+  id: number
+  title: string
+  description: string | null
+  created_at: string
+  questions: TeacherAssignmentQuestion[]
+}
+
+export interface TeacherQuestionInput {
+  type: 'math' | 'essay'
+  prompt: string
+  knowledge_point: string
+  standard_steps?: string[]
+  reference_answer?: string
+}
+
+export interface TeacherAssignmentInput {
+  title: string
+  subject?: 'math' | 'english'
+  description?: string
+  questions: TeacherQuestionInput[]
+}
+
 // ---------- 界面文案映射 ----------
 export const STEP_STATUS_TEXT: Record<StepStatus, string> = {
   stem: '题干',
