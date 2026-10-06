@@ -14,13 +14,19 @@ class Settings:
     # 切 PostgreSQL 时改为 postgresql+psycopg2://user:pass@host/db 即可，代码零改动。
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./remedi.db")
 
-    # LLM Provider：mock（默认，确定性，无需 key）| deepseek
+    # LLM Provider：mock（默认，确定性，无需 key）| deepseek | cloudflare
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "mock").strip().lower()
 
     # DeepSeek 配置。未配置 DEEPSEEK_API_KEY 时 DeepSeekProvider 自动降级为 Mock。
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+
+    # Cloudflare Workers AI 配置（OpenAI 兼容接口）。
+    # 未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN 时自动降级为 Mock。
+    CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    CLOUDFLARE_API_TOKEN: str = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+    CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
 
     # 顽固误区判定窗口（天）：同一学生同一知识点 N 天内重复出错即记顽固
     STUBBORN_WINDOW_DAYS: int = _get_int("STUBBORN_WINDOW_DAYS", 30)

@@ -13,9 +13,15 @@ services:
       # SQLite 落盘到命名卷，容器重建数据不丢
       - DATABASE_URL=sqlite:////data/remedi.db
       - CORS_ORIGINS=*
-      # LLM：默认 mock（无需 key 跑全流程）；有 key 后改为 deepseek 并填写 DEEPSEEK_API_KEY
+      # LLM：默认 mock（无需 key 跑全流程）
+      # DeepSeek：改 LLM_PROVIDER=deepseek 并填写 DEEPSEEK_API_KEY
+      # Cloudflare Workers AI（免费 10,000 Neurons/天）：改 LLM_PROVIDER=cloudflare
+      #   并填写 CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN
       - LLM_PROVIDER=mock
       # - DEEPSEEK_API_KEY=sk-xxx
+      # - CLOUDFLARE_ACCOUNT_ID=
+      # - CLOUDFLARE_API_TOKEN=
+      # - CLOUDFLARE_MODEL=@cf/qwen/qwen3-30b-a3b-fp8
     restart: unless-stopped
 
   web:

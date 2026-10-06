@@ -3,7 +3,9 @@
 #   - MockProvider：确定性返回，无需 key，保证全流程可跑（默认）
 #   - DeepSeekProvider：调 DeepSeek Chat Completions；未配置 DEEPSEEK_API_KEY
 #     或请求异常时自动降级为 Mock，保证流程不中断
-# 切换：环境变量 LLM_PROVIDER=mock|deepseek（默认 mock）
+#   - CloudflareProvider：调 Cloudflare Workers AI（OpenAI 兼容接口，免费额度
+#     10,000 Neurons/天）；继承 DeepSeekProvider 的调用与降级逻辑
+# 切换：环境变量 LLM_PROVIDER=mock|deepseek|cloudflare（默认 mock）
 import json
 import logging
 import re
@@ -231,7 +233,7 @@ class DeepSeekProvider(LLMProvider):
             data["confidence"] = max(0.0, min(1.0, float(data.get("confidence", 0.5))))
             return data
         except Exception as e:
-            logger.warning("DeepSeek classify_error 失败，降级为规则结果: %s", e)
+            logger.warning("LLM classify_error 失败，降级为规则结果: %s", e)
             return dict(rule_result)
 
     def score_essay(self, *, text, prompt=None) -> Dict:
@@ -255,7 +257,7 @@ class DeepSeekProvider(LLMProvider):
                 "overall": data.get("overall", ""),
             }
         except Exception as e:
-            logger.warning("DeepSeek score_essay 失败，降级为 Mock: %s", e)
+            logger.warning("LLM score_essay 失败，降级为 Mock: %s", e)
             return self._mock.score_essay(text=text, prompt=prompt)
 
     def generate_feedback(self, *, student_name, summary) -> str:
@@ -265,8 +267,26 @@ class DeepSeekProvider(LLMProvider):
                 f"学生：{student_name}\n学习画像：{json.dumps(summary, ensure_ascii=False, default=str)}",
             ).strip()
         except Exception as e:
-            logger.warning("DeepSeek generate_feedback 失败，降级为 Mock: %s", e)
+            logger.warning("LLM generate_feedback 失败，降级为 Mock: %s", e)
             return self._mock.generate_feedback(student_name=student_name, summary=summary)
+
+
+# ---------------------------------------------------------------- Cloudflare Workers AI
+
+class CloudflareProvider(DeepSeekProvider):
+    """调 Cloudflare Workers AI 的 OpenAI 兼容接口。
+
+    base_url 形如 https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1，
+    其 /chat/completions 与 DeepSeek 的请求/响应结构一致，直接复用父类逻辑。
+    默认模型 @cf/qwen/qwen3-30b-a3b-fp8（中文好、单价低，免费额度内约数百次/天）。
+    未配置 account_id / token 时构造抛错，由工厂降级为 Mock。
+    """
+
+    def __init__(self, account_id: str, api_token: str, model: str):
+        if not account_id or not api_token:
+            raise RuntimeError("未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN")
+        base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
+        super().__init__(api_key=api_token, base_url=base_url, model=model)
 
 
 # ---------------------------------------------------------------- 工厂
@@ -275,7 +295,7 @@ _provider = None
 
 
 def get_provider() -> LLMProvider:
-    """按 LLM_PROVIDER 选择实现；deepseek 未配置 key 时自动降级 mock。"""
+    """按 LLM_PROVIDER 选择实现；deepseek/cloudflare 未配置凭证时自动降级 mock。"""
     global _provider
     if _provider is not None:
         return _provider
@@ -290,6 +310,17 @@ def get_provider() -> LLMProvider:
             logger.info("LLM Provider: deepseek (%s)", settings.DEEPSEEK_MODEL)
         except Exception as e:
             logger.warning("DeepSeek 初始化失败（%s），自动降级为 Mock", e)
+            _provider = MockProvider()
+    elif settings.LLM_PROVIDER == "cloudflare":
+        try:
+            _provider = CloudflareProvider(
+                account_id=settings.CLOUDFLARE_ACCOUNT_ID,
+                api_token=settings.CLOUDFLARE_API_TOKEN,
+                model=settings.CLOUDFLARE_MODEL,
+            )
+            logger.info("LLM Provider: cloudflare (%s)", settings.CLOUDFLARE_MODEL)
+        except Exception as e:
+            logger.warning("Cloudflare 初始化失败（%s），自动降级为 Mock", e)
             _provider = MockProvider()
     else:
         _provider = MockProvider()
