@@ -45,7 +45,7 @@
               <p class="step-text">{{ r.step_text }}</p>
               <p class="detail">{{ r.detail }}</p>
               <p style="margin-top: 6px">
-                <router-link :to="`/teacher/submissions/${r.id}`"><button class="btn small ghost">查看诊断 →</button></router-link>
+                <router-link :to="`/teacher/submissions/${r.id}`"><button class="btn small ghost inline-icon">查看诊断 <AppIcon name="chevron-right" :size="14" /></button></router-link>
               </p>
             </div>
           </div>
@@ -70,6 +70,7 @@ import type { StudentProfile } from '../../api/types'
 import { errorTypeDotClass } from '../../utils/errorType'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import EChart from '../../components/EChart.vue'
+import AppIcon from '../../components/icons/AppIcon.vue'
 
 const route = useRoute()
 const teacher = useTeacherStore()

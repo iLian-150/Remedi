@@ -47,7 +47,7 @@
               <p class="step-text">{{ e.step_text }}</p>
               <p class="detail">{{ sanitizeStudentCopy(e.detail) }}</p>
               <p v-if="!fixedIds.has(e.id)" style="margin-top: 6px">
-                <router-link to="/student/corrections"><button class="btn small ghost">去订正 →</button></router-link>
+                <router-link to="/student/corrections"><button class="btn small ghost inline-icon">去订正 <AppIcon name="chevron-right" :size="14" /></button></router-link>
               </p>
             </div>
           </div>
@@ -80,6 +80,7 @@ import { errorTypeDotClass, errorTypePalette, sanitizeStudentCopy } from '../../
 import { getFixedErrorIds } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import EChart from '../../components/EChart.vue'
+import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
 const auth = useAuthStore()

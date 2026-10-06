@@ -19,7 +19,7 @@
     <template v-if="!loading && ready">
       <!-- 分层辅导建议 -->
       <div class="card">
-        <h3>🎯 分层辅导建议</h3>
+        <h3><AppIcon name="target" :size="18" /> 分层辅导建议</h3>
 
         <h4 class="section-title">重点一对一：顽固误区学生</h4>
         <div v-if="oneOnOne.length">
@@ -60,7 +60,7 @@
 
       <!-- 课堂讲评建议 -->
       <div class="card">
-        <h3>📢 课堂讲评建议</h3>
+        <h3><AppIcon name="megaphone" :size="18" /> 课堂讲评建议</h3>
         <p class="card-sub">按高频错题排序的讲评重点清单，建议按顺序分配讲评时间。</p>
         <div v-if="reviewPlan.length">
           <div v-for="(r, i) in reviewPlan" :key="r.question_id" class="suggest-block">
@@ -85,6 +85,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useTeacherStore } from '../../stores/teacher'
 import type { KnowledgePointStat, StudentSummary, TeacherErrorItem, TopQuestion } from '../../api/types'
+import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
 

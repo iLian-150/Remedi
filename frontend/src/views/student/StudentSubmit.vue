@@ -1,6 +1,6 @@
 <!-- 学生端：交作业（分步录入）
      入口：从作业列表进入 /student/submit?assignment_id=；直接访问 URL 时回退为下拉选择
-     流程：① 选择题目 → ② 作答 → ③ 查看诊断（数学诊断同步返回）
+     流程：1 选择题目 → 2 作答 → 3 查看诊断（数学诊断同步返回）
      契约：3.2 作业详情 / 3.3 数学提交 / 3.6 作文提交 -->
 <template>
   <div class="page">
@@ -14,19 +14,19 @@
 
     <template v-else>
       <div class="stepper">
-        <div class="sp-step done">① 选择题目</div>
-        <div class="sp-step" :class="{ done: !!selectedQuestion, current: !submittedOnce && !!selectedQuestion }">② 作答</div>
-        <div class="sp-step" :class="{ done: submittedOnce, current: submittedOnce }">③ 查看诊断</div>
+        <div class="sp-step done">1 选择题目</div>
+        <div class="sp-step" :class="{ done: !!selectedQuestion, current: !submittedOnce && !!selectedQuestion }">2 作答</div>
+        <div class="sp-step" :class="{ done: submittedOnce, current: submittedOnce }">3 查看诊断</div>
       </div>
 
       <!-- 第一步：选择题目 -->
       <div class="card">
-        <h3>① 选择题目</h3>
+        <h3>1 选择题目</h3>
         <div v-if="presetAssignment" class="problem-info">
           <p><strong>{{ presetAssignment.title }}</strong></p>
           <p class="kp">{{ presetAssignment.description }}</p>
           <p style="margin-top: 8px">
-            <router-link to="/student/assignments"><button class="btn small ghost">← 换一份作业</button></router-link>
+            <router-link to="/student/assignments"><button class="btn small ghost inline-icon"><AppIcon name="chevron-left" :size="14" /> 换一份作业</button></router-link>
           </p>
         </div>
         <div v-else class="form-row">
@@ -57,7 +57,7 @@
 
       <!-- 第二步：作答 -->
       <div class="card" v-if="selectedQuestion">
-        <h3>② 作答</h3>
+        <h3>2 作答</h3>
         <!-- 数学：有序步骤输入 -->
         <div v-if="selectedQuestion.subject === 'math'" class="form-row">
           <label>作答步骤（按顺序填写，只填作答步骤，不用重复题干）</label>
@@ -85,7 +85,7 @@
 
       <!-- 第三步：诊断结果 -->
       <div v-if="mathResult" class="card">
-        <h3>③ 诊断报告</h3>
+        <h3>3 诊断报告</h3>
         <p class="card-sub">别灰心，看清楚问题就是进步的开始。</p>
         <h4 class="section-title">分步解析</h4>
         <div
@@ -122,7 +122,7 @@
 
       <!-- 作文评分结果 -->
       <div v-if="essayResult" class="card">
-        <h3>③ 作文评分</h3>
+        <h3>3 作文评分</h3>
         <p class="card-sub">总分 <strong class="tnum" style="font-size: 18px; color: var(--primary)">{{ essayResult.scores.total }}</strong>，看看各维度的表现。</p>
         <div class="score-grid">
           <div v-for="(label, key) in scoreLabels" :key="key" class="score-cell">
@@ -147,6 +147,7 @@ import type { Assignment, AssignmentDetail, EssayResult, Question, SubmissionRes
 import { STEP_STATUS_TEXT, type EssayScores } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
 const route = useRoute()
