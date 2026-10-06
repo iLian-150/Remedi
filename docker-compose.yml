@@ -1,0 +1,33 @@
+# Remedi MVP 一键部署
+# 用法：docker compose up -d --build
+# 访问：http://服务器公网IP:8080
+
+services:
+  api:
+    build: ./backend
+    expose:
+      - "8000"
+    volumes:
+      - remedi-data:/data
+    environment:
+      # SQLite 落盘到命名卷，容器重建数据不丢
+      - DATABASE_URL=sqlite:////data/remedi.db
+      - CORS_ORIGINS=*
+      # LLM：默认 mock（无需 key 跑全流程）；有 key 后改为 deepseek 并填写 DEEPSEEK_API_KEY
+      - LLM_PROVIDER=mock
+      # - DEEPSEEK_API_KEY=sk-xxx
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    # 8080 避开宝塔自带 nginx 可能占用的 80 端口；如 80 空闲可改为 "80:80"
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  remedi-data:
