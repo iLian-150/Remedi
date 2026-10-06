@@ -132,6 +132,34 @@
 - 索引：`ix_essays_student_id`。
 - 说明：`scores_json` / `grammar_issues_json` 在 PostgreSQL 迁移时改为 JSONB。
 
+### 2.9 chat_messages —— Agent 对话记录（v0.3.0 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| id | INTEGER PK 自增 | 否 | — | 主键 |
+| user_id | INTEGER FK → users.id | 否 | — | 对话所属学生 |
+| role | VARCHAR(16) | 否 | — | `user` \| `assistant` |
+| content | TEXT | 否 | — | 消息文本 |
+| created_at | TIMESTAMP | 否 | now | 发送时间 |
+
+- 索引：`ix_chat_messages_user_id`。
+- 说明：学生主页 Agent 的对话持久化；组上下文取最近 20 条，历史接口返回最近 50 条。
+
+### 2.10 notifications —— 站内提醒（v0.3.0 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| id | INTEGER PK 自增 | 否 | — | 主键 |
+| user_id | INTEGER FK → users.id | 否 | — | 接收提醒的用户 |
+| type | VARCHAR(32) | 否 | — | 提醒类型，目前 `teacher_correction` |
+| content | TEXT | 否 | — | 提醒文案 |
+| related_submission_id | INTEGER FK → submissions.id | 是 | NULL | 关联提交（点提醒跳诊断用） |
+| is_read | BOOLEAN | 否 | false | 是否已读 |
+| created_at | TIMESTAMP | 否 | now | 生成时间 |
+
+- 索引：`ix_notifications_user_id`。
+- 说明：教师一键纠错成功后写入一条，提醒被纠错的学生；删除作业时关联这些提交的提醒一并级联删除。
+
 ## 3. 关系图（ER，文本版）
 
 ```
@@ -203,3 +231,5 @@ WHERE s.student_id = S
 |---|---|---|
 | v0.1.0 | 2026-10-06 | 初版冻结 |
 | v0.2.0 | 2026-10-07 | 无表结构变更：拍照图片走文件存储（UPLOAD_DIR），不新建表、不给现有表加列 |
+| v0.2.1 | 2026-10-07 | 无表结构变更：学习报告/错题时间线均为现有表聚合查询 |
+| v0.3.0 | 2026-10-07 | 新增两张表：`chat_messages`（Agent 对话记录）、`notifications`（站内提醒）；不改任何现有表/列。删除作业走应用层级联（见 api-contract 4.10） |

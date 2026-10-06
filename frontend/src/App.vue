@@ -1,11 +1,12 @@
-<!-- 全局布局（v0.2.0 改版）：学生端与教师端共用 Muse 式侧栏外壳
-     左侧栏：品牌 / 导航（SVG 图标）/ 底部当前用户卡；移动端收起为抽屉。
+<!-- 全局布局（v0.2.0 侧栏外壳；v0.3.0 升三栏）：左侧导航 / 中间内容 / 右侧栏。
+     右侧栏（提醒便利贴 + 日历）可收起：收起后内容区右上角出现「邮件」图标按钮（带未读角标），
+     点它重新展开；展开状态存 localStorage（remedi-rail-open），首次默认展开，移动端默认收起（抽屉式）。
      未登录只渲染登录页。 -->
 <template>
   <!-- 未登录：仅登录页 -->
   <router-view v-if="!auth.token" />
 
-  <!-- 已登录：统一侧栏外壳 -->
+  <!-- 已登录：统一外壳 -->
   <div v-else class="app-shell">
     <!-- 移动端顶栏 -->
     <header class="mobile-topbar">
@@ -55,6 +56,23 @@
     <main class="shell-main">
       <router-view />
     </main>
+
+    <!-- 右侧栏：常挂载（保证提醒数据就绪），用 class 控制展开/收起动画 -->
+    <aside class="app-rail" :class="{ closed: !railOpen }" :aria-hidden="!railOpen">
+      <RightRail @close="setRail(false)" @unread-change="unreadCount = $event" />
+    </aside>
+
+    <!-- 收起态入口：邮件图标 + 未读角标 -->
+    <button
+      v-if="!railOpen"
+      class="mail-fab"
+      :class="{ 'has-unread': unreadCount > 0 }"
+      title="打开提醒与日程"
+      @click="setRail(true)"
+    >
+      <AppIcon name="mail" :size="20" />
+      <span v-if="unreadCount > 0" :key="unreadCount" class="mail-badge">{{ unreadCount }}</span>
+    </button>
   </div>
 </template>
 
@@ -64,6 +82,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import AppIcon from './components/icons/AppIcon.vue'
 import type { IconName } from './components/icons/paths'
+import RightRail from './components/RightRail.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -97,6 +116,30 @@ const TEACHER_NAV: NavItem[] = [
 
 const navItems = computed<NavItem[]>(() => (auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV))
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
+
+// ---------- 右侧栏展开状态：localStorage 记忆，首次默认展开（窄屏默认收起） ----------
+const RAIL_KEY = 'remedi-rail-open'
+function initRail(): boolean {
+  try {
+    const saved = localStorage.getItem(RAIL_KEY)
+    if (saved === '1') return true
+    if (saved === '0') return false
+  } catch {
+    /* localStorage 不可用时走默认 */
+  }
+  return window.innerWidth >= 1200
+}
+const railOpen = ref(initRail())
+const unreadCount = ref(0)
+
+function setRail(open: boolean) {
+  railOpen.value = open
+  try {
+    localStorage.setItem(RAIL_KEY, open ? '1' : '0')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
 
 function logout() {
   auth.logout()

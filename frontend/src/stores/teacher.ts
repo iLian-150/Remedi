@@ -68,6 +68,10 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.post<TeacherAssignment>('/api/teacher/assignments', payload)
       return data
     },
+    // 4.10 删除已发布作业（v0.3.0）：后端级联删除题目与学生提交数据
+    async deleteAssignment(id: number): Promise<void> {
+      await api.delete(`/api/teacher/assignments/${id}`)
+    },
     // 4.9 拍照识别题目（v0.2.1）：上传题目照片，返回转写 {question_text, steps} 供填入表单
     async recognizePhoto(file: File): Promise<PhotoTranscribeResult> {
       const form = new FormData()

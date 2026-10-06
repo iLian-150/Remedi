@@ -212,6 +212,30 @@ export interface PhotoTranscribeResult {
   steps: string[]
 }
 
+// ---------- 主页 Agent 对话（v0.3.0） ----------
+
+export interface AgentHistoryItem {
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+// ---------- 站内提醒（v0.3.0） ----------
+
+export interface NotificationItem {
+  id: number
+  type: string
+  content: string
+  related_submission_id: number | null
+  is_read: boolean
+  created_at: string
+}
+
+export interface NotificationList {
+  unread_count: number
+  items: NotificationItem[]
+}
+
 export interface TeacherAssignmentQuestion {
   id: number
   type: 'math' | 'essay'
