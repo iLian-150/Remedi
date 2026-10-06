@@ -10,7 +10,7 @@
         <div class="chat-title">
           <AppIcon name="sparkles" :size="20" />
           <span>智能批改</span>
-          <span class="hint">拍一张作业照片，AI 逐步帮你检查</span>
+          <span class="hint">拍一张作业照片，老师会逐步帮你检查；也可以直接打字问我问题</span>
         </div>
         <div class="chat-selectors">
           <select v-model="assignmentId" @change="onAssignmentChange" aria-label="选择作业">
@@ -194,15 +194,29 @@
       </div>
     </div>
 
-    <!-- 输入区（v0.2.1：拍照为主路径） -->
+    <!-- 输入区（v0.3.0：文本聊天接学习助手 Agent + 拍照批改并存） -->
     <div class="chat-composer">
-      <div class="chat-inner composer-inner">
-        <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
-        <button class="btn photo-main-btn" :disabled="busy" @click="fileRef?.click()">
-          <AppIcon name="camera" :size="20" /> 拍照批改
-        </button>
+      <div class="chat-inner">
+        <p class="composer-tip">可以问我数学问题，也可以问问你的学习情况</p>
+        <div class="composer-row">
+          <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
+          <input
+            v-model="chatInput"
+            class="chat-text-input"
+            type="text"
+            placeholder="输入你的问题，回车发送"
+            :disabled="chatSending"
+            @keyup.enter="sendChat"
+          />
+          <button class="btn inline-icon send-btn" :disabled="chatSending || !chatInput.trim()" @click="sendChat">
+            <AppIcon name="send" :size="16" /> 发送
+          </button>
+          <button class="btn photo-main-btn" :disabled="busy" @click="fileRef?.click()">
+            <AppIcon name="camera" :size="20" /> 拍照批改
+          </button>
+        </div>
         <p class="composer-hint">
-          拍一张作业照片，AI 帮你逐步批改<template v-if="selectedQuestion">（当前题目：{{ selectedQuestion.stem }}）</template>
+          拍一张作业照片，老师会逐步帮你批改<template v-if="selectedQuestion">（当前题目：{{ selectedQuestion.stem }}）</template>
         </p>
       </div>
     </div>
@@ -359,6 +373,35 @@ async function gotoAssignment(p: PendingAssignment) {
   scrollToBottom()
 }
 
+// ---------- 学习助手文本聊天（v0.3.0：LangGraph Agent） ----------
+const chatInput = ref('')
+const chatSending = ref(false)
+
+async function sendChat() {
+  const text = chatInput.value.trim()
+  if (!text || chatSending.value) return
+  if (text.length > 2000) {
+    pushMsg({ side: 'ai', kind: 'error', text: '这条消息有点太长了（最多 2000 字），拆成两条发给我吧。' })
+    return
+  }
+  chatInput.value = ''
+  pushMsg({ side: 'user', kind: 'text', text })
+  const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
+  chatSending.value = true
+  try {
+    const reply = await student.agentChat(text)
+    wait.text = reply
+  } catch (e) {
+    wait.kind = 'error'
+    wait.text = '发送失败：' + (errDetail(e) || '请稍后重试。')
+    console.error(e)
+  } finally {
+    wait.pending = false
+    chatSending.value = false
+    scrollToBottom()
+  }
+}
+
 // ---------- 拍照批改 ----------
 async function onFileChange(e: Event) {
   const input = e.target as HTMLInputElement
@@ -472,6 +515,15 @@ onMounted(async () => {
   } catch (e) {
     pushMsg({ side: 'ai', kind: 'error', text: '学习简报加载失败，刷新页面可以重试。' })
     console.error(e)
+  }
+  // 历史对话接在简报下方（v0.3.0：GET agent/history，最近 50 条时间正序）
+  try {
+    const history = await student.fetchAgentHistory()
+    history.forEach((h) =>
+      pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content })
+    )
+  } catch (e) {
+    console.error(e)
   } finally {
     loadingInit.value = false
     scrollToBottom()
@@ -565,13 +617,16 @@ onMounted(async () => {
 .detail { margin-top: 6px; font-size: 14px; color: var(--text-2); }
 .ok-line { margin-top: 10px; font-size: 14.5px; color: #065F46; display: flex; align-items: center; gap: 6px; }
 
-.chat-composer { background: var(--card); border-top: 1px solid var(--border); padding: 14px 0 18px; }
-.composer-inner { display: flex; gap: 14px; align-items: center; }
+.chat-composer { background: var(--card); border-top: 1px solid var(--border); padding: 12px 0 16px; }
+.composer-tip { font-size: 13px; color: var(--text-2); margin-bottom: 9px; }
+.composer-row { display: flex; gap: 10px; align-items: center; }
+.chat-text-input { flex: 1; min-width: 0; padding: 12px 14px; font-size: 14.5px; }
+.send-btn { padding: 12px 20px; flex-shrink: 0; }
 .photo-main-btn {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 13px 28px; font-size: 15.5px; border-radius: 10px; flex-shrink: 0;
+  padding: 12px 22px; font-size: 15px; border-radius: 10px; flex-shrink: 0;
 }
-.composer-hint { font-size: 13px; color: var(--text-2); }
+.composer-hint { font-size: 13px; color: var(--text-2); margin-top: 9px; }
 .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 
@@ -579,7 +634,8 @@ onMounted(async () => {
   .chat-layout { height: calc(100dvh - 52px); }
   .user-image img { max-width: 240px; }
   .bubble { max-width: 88%; }
-  .composer-inner { flex-direction: column; align-items: stretch; }
+  .composer-row { flex-wrap: wrap; }
+  .chat-text-input { flex: 1 1 100%; }
   .photo-main-btn { justify-content: center; }
   .composer-hint { text-align: center; }
 }

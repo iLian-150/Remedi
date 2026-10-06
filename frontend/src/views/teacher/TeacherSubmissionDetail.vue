@@ -112,7 +112,7 @@ async function submitCorrection() {
       item.value.teacher_note = updated.teacher_note
     }
     correctOk.value = true
-    correctMsg.value = '纠错已提交，回标数据已入库。'
+    correctMsg.value = `已修改，并通知了学生${item.value?.student.name ?? ''}（学生端会收到一条提醒便利贴）。回标数据已入库。`
     correctType.value = ''
     correctNote.value = ''
   } catch (e) {
