@@ -1,15 +1,20 @@
 # /api/teacher/* 教师端
+import os
+import secrets
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..auth import require_teacher
+from ..config import settings
 from ..database import get_db
 from ..models import Assignment, Error, Essay, Question, Submission, User
 from ..schemas import (
     ErrorCorrectIn,
     KnowledgePointRankItem,
+    PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
     StudentBrief,
@@ -21,6 +26,7 @@ from ..schemas import (
     UserOut,
 )
 from ..services.diagnosis import present_error
+from ..services.providers import get_provider
 from ..services.stats import knowledge_point_ranking, list_students, student_profile, top_error_questions
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -177,3 +183,41 @@ def list_teacher_assignments(db: Session = Depends(get_db),
     assignments = db.query(Assignment).order_by(Assignment.id).all()
     items = [_teacher_assignment_out(a, db) for a in assignments]
     return {"total": len(items), "items": items}
+
+
+# ---------- 拍照识别题目（v0.2.1 新增） ----------
+
+_PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",
+                "image/png": ".png", "image/webp": ".webp"}
+_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+
+@router.post("/photo-recognize", response_model=PhotoTranscribeOut, summary="拍照识别题目")
+async def photo_recognize(file: UploadFile = File(...),
+                          current: User = Depends(require_teacher)):
+    """上传题目照片 → Provider 视觉转写 → 返回 {question_text, steps}（含图片回读信息）。
+    规则与学生端 photo-transcribe 一致（jpg/png/webp、≤10MB、存同一 UPLOAD_DIR）；
+    前端把 question_text 填入题干、steps 填入标准步骤，教师检查修改后再发布。
+    注意：v1 直接复用学生作答转写能力（transcribe_image），未针对题目照片单独调 prompt。"""
+    if file.content_type not in _PHOTO_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
+    if len(data) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    filename = "{}_{}{}".format(
+        datetime.now().strftime("%Y%m%d%H%M%S"),
+        secrets.token_hex(4),
+        _PHOTO_TYPES[file.content_type],
+    )
+    with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
+        f.write(data)
+    result = get_provider().transcribe_image(data, file.content_type)
+    return {
+        "image_id": filename,
+        "image_url": f"/api/uploads/{filename}",
+        "question_text": result.get("question_text", ""),
+        "steps": result.get("steps", []),
+    }

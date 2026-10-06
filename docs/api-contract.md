@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.2.0（2026-10-07）
+> 版本：v0.2.1（2026-10-07）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -113,14 +113,16 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
   "items": [
     {
       "id": 1,
-      "title": "第一周数学+英语作业",
-      "description": "包含 3 道数学题与 1 篇英语作文",
-      "question_count": 4,
+      "title": "第一周数学作业",
+      "description": "包含 3 道数学题",
+      "question_count": 3,
       "created_at": "2026-10-06T10:00:00"
     }
   ]
 }
 ```
+
+- `created_at`：作业发布时间（ISO 8601），学生/教师两端作业日历的数据源（v0.2.1 确认双端均有此字段，无变更）。
 
 ### 3.2 GET /api/student/assignments/{assignment_id} —— 作业详情（含题目）
 
@@ -131,8 +133,8 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```json
 {
   "id": 1,
-  "title": "第一周数学+英语作业",
-  "description": "包含 3 道数学题与 1 篇英语作文",
+  "title": "第一周数学作业",
+  "description": "包含 3 道数学题",
   "questions": [
     {
       "id": 1,
@@ -142,11 +144,11 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
       "order_num": 1
     },
     {
-      "id": 4,
-      "subject": "english",
-      "knowledge_point": "英语写作",
-      "stem": "Write a short paragraph about your weekend (60-80 words).",
-      "order_num": 4
+      "id": 3,
+      "subject": "math",
+      "knowledge_point": "去括号",
+      "stem": "解方程：2(x-3)=10",
+      "order_num": 3
     }
   ]
 }
@@ -407,11 +409,14 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```json
 {
   "pending_assignments": [
-    {"id": 1, "title": "第一周数学+英语作业", "question_count": 4, "remaining_count": 3, "created_at": "2026-10-06T10:00:00"}
+    {"id": 1, "title": "第一周数学作业", "question_count": 3, "remaining_count": 2, "created_at": "2026-10-06T10:00:00"}
   ],
   "pending_corrections_count": 1,
   "pending_corrections_knowledge_points": ["一元一次方程"],
   "weak_points": ["一元一次方程"],
+  "weak_point_details": [
+    {"knowledge_point": "一元一次方程", "error_count": 2, "last_error_at": "2026-10-06T15:45:00"}
+  ],
   "recent_feedback": "最近一次批改《解方程：2x+3=7》：移项未变号：3 移到等号另一边时没有变号"
 }
 ```
@@ -419,7 +424,65 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `pending_assignments`：至少有一道题该生未提交过的作业（数学题以 submissions 计、作文题以 essays 计）；`remaining_count` 为未提交题目数。
 - `pending_corrections_*`：本人 error 中尚无一条 `is_correct=true` 订正记录的条数，及涉及知识点（去重）。
 - `weak_points`：需要加固的知识点 = 顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点（聚合口径同 3.10）。
+- `weak_point_details`（v0.2.1 新增，非 breaking）：与 `weak_points` 同序的明细，供简报卡片展示每个知识点的累计出错次数与最近出错时间。
 - `recent_feedback`：最近一次数学批改的一句话摘要（有错取引首条 error 的 detail，全对则为鼓励语）；从未提交过时为 `null`。
+
+### 3.13 GET /api/student/report —— 我的学习报告（v0.2.1 新增）
+
+权限：学生。对应开题报告「学习记忆层 + 教学反馈层」的学生侧报告：科目 → 知识点 → 错题时间线（3.14） → 步骤诊断（3.5）四级下钻。本接口返回前两级。
+
+响应 `200`（顶层为数组，每个元素是一个科目）：
+
+```json
+[
+  {
+    "subject": "math",
+    "submission_count": 6,
+    "correct_rate": 0.667,
+    "pending_fix_count": 1,
+    "fixed_ratio": 0.5,
+    "knowledge_points": [
+      {
+        "name": "一元一次方程",
+        "attempts": 3,
+        "error_count": 2,
+        "error_rate": 0.667,
+        "status": "stubborn",
+        "last_error_at": "2026-10-06T15:45:00"
+      }
+    ]
+  }
+]
+```
+
+- `correct_rate`：`1 - error_rate`，错误率口径与 3.10 学生画像一致（该科目累计 error 数 / 提交数，上限截断 1.0）。
+- `knowledge_points`：仅包含出过错的知识点，按 `error_rate` 降序。
+- `status` 口径：`fixed` = 该知识点每条错题都已有 `is_correct=true` 的订正；`stubborn` = 命中既有顽固判定（该知识点任一错题 `is_stubborn=true`，即诊断时同知识点在窗口天数内重复出错）；其余有未订正错题为 `pending`。
+- `pending_fix_count`：`status != fixed` 的知识点数；`fixed_ratio` = `fixed` 知识点数 / 出过错的知识点数（无出过错知识点时为 1.0）。
+
+### 3.14 GET /api/student/report/knowledge-points/{name}/errors —— 知识点错题时间线（v0.2.1 新增）
+
+权限：学生。`{name}` 为知识点名称（URL 编码）。返回该生在该知识点下的全部错题，按时间倒序——即纵向学习记忆的时间线。
+
+响应 `200`：
+
+```json
+[
+  {
+    "created_at": "2026-10-06T15:45:00",
+    "assignment_title": "第一周数学作业",
+    "question_prompt": "解方程：2x+3=7",
+    "first_error_seq": 2,
+    "error_type": "概念混淆",
+    "corrected": false,
+    "submission_id": 7
+  }
+]
+```
+
+- `first_error_seq`：该条错题所在步骤的序号（与 3.3 诊断中的 `step_seq` 同口径）；无关联步骤时为 `null`。
+- `corrected`：该条错题是否已有 `is_correct=true` 的订正。
+- 点某条可凭 `submission_id` 跳 3.5 查看步骤级诊断。
 
 ---
 
@@ -599,6 +662,17 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 - `submission_count`：该题的累计提交记录数（submissions + essays，同一学生多次提交计多次）。
 
+### 4.9 POST /api/teacher/photo-recognize —— 拍照识别题目（v0.2.1 新增）
+
+权限：教师。与 3.11 同一转写能力，服务于「发布作业」表单：上传题目照片 → 识别 → 前端把 `question_text` 填入题干输入框、`steps` 填入标准步骤，教师检查修改后再发布（不直接落库）。
+
+请求：`multipart/form-data`，字段 `file`（jpg / png / webp，≤10MB），图片存同一 `UPLOAD_DIR`。
+
+响应 `200`：结构同 3.11（`image_id` / `image_url` / `question_text` / `steps`），前端实际使用 `question_text` 与 `steps`。
+
+- 注意：v1 直接复用 `transcribe_image`（其 prompt 按学生作答转写调校），未针对题目照片单独调 prompt，识别质量以实际为准。
+- 错误：`400`（格式不支持 / 内容为空 / 超过 10MB）；`403`（学生调用）。
+
 ---
 
 ## 5. /api/health —— 健康检查
@@ -612,7 +686,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```json
 {
   "status": "ok",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "provider": "mock",
   "time": "2026-10-06T15:40:35"
 }
@@ -638,3 +712,4 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 |---|---|---|
 | v0.1.0 | 2026-10-06 | 初版冻结 |
 | v0.2.0 | 2026-10-07 | 新增 3.11 拍照转写、3.12 首页简报、4.7 发布作业、4.8 教师作业列表；无 breaking 变更 |
+| v0.2.1 | 2026-10-07 | 新增 3.13 学习报告、3.14 知识点错题时间线、4.9 教师拍照识别题目；3.12 简报新增 `weak_point_details` 字段（非 breaking）。产品侧变更（无接口 breaking）：作答方式以拍照上传为主，学生端线上文本输入作答入口下线（3.3 接口保留，转写确认后仍走它）；英语作文相关前端入口与文案全部下线（3.6–3.8 接口保留，后续可能恢复）；seed 演示数据改为数学-only（作业更名「第一周数学作业」、去作文题）——仅影响新建数据库，线上已有数据库不受影响；学生/教师作业列表 `created_at` 字段确认为作业日历数据源（双端均有，无变更） |

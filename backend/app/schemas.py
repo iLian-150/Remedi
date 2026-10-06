@@ -222,12 +222,49 @@ class PendingAssignmentItem(BaseModel):
     created_at: datetime
 
 
+class WeakPointDetail(BaseModel):
+    knowledge_point: str
+    error_count: int              # 该知识点累计出错次数
+    last_error_at: Optional[datetime] = None   # 最近一次出错时间
+
+
 class BriefingOut(BaseModel):
     pending_assignments: List[PendingAssignmentItem]
     pending_corrections_count: int                     # 已诊断出错但未订正正确的条数
     pending_corrections_knowledge_points: List[str]    # 上述订正涉及的知识点（去重）
     weak_points: List[str]                             # 顽固/需要加固的知识点（去重）
+    weak_point_details: List[WeakPointDetail] = []      # v0.2.1 新增：需加固知识点明细（与 weak_points 同序）
     recent_feedback: Optional[str] = None              # 最近一次批改的一句话摘要，可空
+
+
+# ---------- 学习报告（v0.2.1 新增） ----------
+
+class ReportKnowledgePointOut(BaseModel):
+    name: str
+    attempts: int                 # 该知识点题目的提交次数
+    error_count: int              # 该知识点累计错题数
+    error_rate: float             # error_count / attempts（上限 1.0，口径同学生画像）
+    status: str                   # pending（待修复）| stubborn（反复出错）| fixed（已加固）
+    last_error_at: Optional[datetime] = None
+
+
+class SubjectReportOut(BaseModel):
+    subject: str                  # math | english
+    submission_count: int         # 该科目提交总数
+    correct_rate: float           # 1 - 错误率（口径同学生画像 mastery）
+    pending_fix_count: int        # 待修复知识点数（status != fixed 的知识点数）
+    fixed_ratio: float            # 已修复知识点 / 出过错的知识点（无错题知识点时为 1.0）
+    knowledge_points: List[ReportKnowledgePointOut]
+
+
+class KnowledgePointErrorItem(BaseModel):
+    created_at: datetime
+    assignment_title: str
+    question_prompt: str
+    first_error_seq: Optional[int] = None   # 出错步骤序号（该条错题所在步骤）
+    error_type: str
+    corrected: bool               # 是否已有订正正确的记录
+    submission_id: int
 
 
 # ---------- 教师 ----------

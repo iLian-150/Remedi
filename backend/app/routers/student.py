@@ -2,7 +2,7 @@
 import os
 import secrets
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
@@ -23,13 +23,20 @@ from ..schemas import (
     PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
+    SubjectReportOut,
+    KnowledgePointErrorItem,
     SubmissionBrief,
     SubmissionCreate,
 )
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
-from ..services.stats import student_briefing, student_profile
+from ..services.stats import (
+    knowledge_point_errors,
+    student_briefing,
+    student_profile,
+    student_report,
+)
 
 router = APIRouter(prefix="/api/student", tags=["student"])
 
@@ -184,6 +191,23 @@ def my_profile(db: Session = Depends(get_db), current: User = Depends(require_st
 @router.get("/briefing", response_model=BriefingOut, summary="首页待办简报")
 def briefing(db: Session = Depends(get_db), current: User = Depends(require_student)):
     return student_briefing(db, current)
+
+
+# ---------- 学习报告（v0.2.1 新增）：科目 → 知识点 → 错题时间线 → 步骤诊断 ----------
+
+@router.get("/report", response_model=List[SubjectReportOut], summary="我的学习报告（按科目）")
+def my_report(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    return student_report(db, current)
+
+
+@router.get(
+    "/report/knowledge-points/{kp_name}/errors",
+    response_model=List[KnowledgePointErrorItem],
+    summary="知识点错题时间线",
+)
+def my_knowledge_point_errors(kp_name: str, db: Session = Depends(get_db),
+                              current: User = Depends(require_student)):
+    return knowledge_point_errors(db, current, kp_name)
 
 
 _PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",

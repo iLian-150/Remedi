@@ -8,7 +8,7 @@
 
 演示数据：
     - 1 名教师（陈老师）、2 名学生（林小夏 S2026001、陈默 S2026002）
-    - 1 份作业「第一周数学+英语作业」：3 道数学题 + 1 篇作文题
+    - 1 份作业「第一周数学作业」：3 道数学题（v0.2.1 起只做数学，作文题已下线）
     - 历史错误（走真实诊断管线生成，再回拨 created_at）：
         1. 林小夏 20 天前第 1 题移项未变号 → 概念混淆
            （用于演示：她再次在"一元一次方程"出错时 is_stubborn=true）
@@ -65,11 +65,11 @@ def main():
         print(f"用户：陈老师(id={teacher.id})、林小夏(id={xiaxia.id})、陈默(id={chenmo.id})")
 
         # ---- 作业与题目 ----
-        assignment = db.query(Assignment).filter(Assignment.title == "第一周数学+英语作业").first()
+        assignment = db.query(Assignment).filter(Assignment.title == "第一周数学作业").first()
         if not assignment:
             assignment = Assignment(
-                title="第一周数学+英语作业",
-                description="包含 3 道数学题与 1 篇英语作文",
+                title="第一周数学作业",
+                description="包含 3 道数学题",
                 created_by=teacher.id,
             )
             db.add(assignment)
@@ -78,15 +78,13 @@ def main():
                 ("math", "一元一次方程", "解方程：2x+3=7", "x=2", 1),
                 ("math", "完全平方公式", "解方程：(x+1)²=9", "x=2 或 x=-4", 2),
                 ("math", "去括号", "解方程：2(x-3)=10", "x=8", 3),
-                ("english", "英语写作",
-                 "Write a short paragraph about your weekend (60-80 words).", None, 4),
             ]
             for subject, kp, stem, ans, order in questions_data:
                 db.add(Question(assignment_id=assignment.id, subject=subject,
                                 knowledge_point=kp, stem=stem,
                                 standard_answer=ans, order_num=order))
             db.commit()
-            print(f"作业 id={assignment.id}，4 道题目已创建")
+            print(f"作业 id={assignment.id}，3 道题目已创建")
         questions = {q.order_num: q for q in
                      db.query(Question).filter(Question.assignment_id == assignment.id).all()}
 

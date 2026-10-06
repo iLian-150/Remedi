@@ -3,7 +3,7 @@ from typing import Dict, List
 
 from sqlalchemy import func
 
-from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
+from ..models import Assignment, Correction, Error, Essay, Question, Step, Submission, User
 from .providers import get_provider
 
 
@@ -207,6 +207,16 @@ def student_briefing(db, student: User) -> Dict:
         if rate >= 0.5:
             weak_points.append(kp)
 
+    # 需加固知识点的明细（v0.2.1 新增字段，供简报卡片展示出错次数/最近出错时间）
+    weak_point_details = []
+    for kp in weak_points:
+        kp_errs = [e for e in errors if e.knowledge_point == kp]
+        weak_point_details.append({
+            "knowledge_point": kp,
+            "error_count": len(kp_errs),
+            "last_error_at": max((e.created_at for e in kp_errs), default=None),
+        })
+
     # 最近一次批改的一句话摘要
     recent_feedback = None
     if submissions:
@@ -225,6 +235,7 @@ def student_briefing(db, student: User) -> Dict:
         "pending_corrections_count": len(pending_errors),
         "pending_corrections_knowledge_points": pending_kps,
         "weak_points": weak_points,
+        "weak_point_details": weak_point_details,
         "recent_feedback": recent_feedback,
     }
 
@@ -241,5 +252,147 @@ def list_students(db) -> List[Dict]:
         items.append({
             "id": st.id, "name": st.name, "student_no": st.student_no,
             "submission_count": submission_count, "error_count": error_count,
+        })
+    return items
+
+
+# ---------------------------------------------------------------- 学习报告（v0.2.1 新增）
+# 对应开题报告「学习记忆层 + 教学反馈层」：科目 → 知识点 → 错题时间线 → 步骤诊断 四级下钻。
+# 知识点状态口径：
+#   fixed    —— 该知识点有过错，且每条错题都已有 is_correct=True 的订正
+#   stubborn —— 命中既有顽固判定（该知识点任一错题 is_stubborn=True，即诊断时
+#               check_stubborn 命中：同知识点在窗口天数内重复出错）
+#   pending  —— 其余有未订正错题的情况
+
+def _fixed_error_ids(db, student: User):
+    """该生已订正正确的 error id 集合（口径与 student_briefing 一致）。"""
+    return {
+        c.error_id
+        for c in db.query(Correction).filter(
+            Correction.student_id == student.id, Correction.is_correct.is_(True)
+        ).all()
+    }
+
+
+def student_report(db, student: User) -> List[Dict]:
+    """学生学习报告：按科目聚合提交/正确率/修复进度，并下钻到知识点状态。"""
+    submissions = (
+        db.query(Submission).filter(Submission.student_id == student.id).all()
+    )
+    sub_ids = [s.id for s in submissions]
+    errors = []
+    if sub_ids:
+        errors = (
+            db.query(Error)
+            .filter(Error.submission_id.in_(sub_ids))
+            .order_by(Error.created_at.desc())
+            .all()
+        )
+    fixed_ids = _fixed_error_ids(db, student)
+    sub_by_id = {s.id: s for s in submissions}
+
+    # 按 (科目, 知识点) 聚合提交数与错题
+    attempts: Dict = {}
+    kp_errors: Dict = {}
+    for s in submissions:
+        subject = s.question.subject if s.question else "math"
+        kp = s.question.knowledge_point if s.question else "未知"
+        attempts[(subject, kp)] = attempts.get((subject, kp), 0) + 1
+    for e in errors:
+        s = sub_by_id.get(e.submission_id)
+        subject = s.question.subject if s and s.question else "math"
+        kp_errors.setdefault((subject, e.knowledge_point), []).append(e)
+
+    by_subject: Dict[str, Dict] = {}
+    for (subject, kp), errs in kp_errors.items():
+        att = attempts.get((subject, kp), 0)
+        err_n = len(errs)
+        # 错误率口径与学生画像一致：errors / attempts，上限截断 1.0
+        rate = round(min(1.0, err_n / att), 3) if att else 0.0
+        if all(e.id in fixed_ids for e in errs):
+            kp_status = "fixed"
+        elif any(e.is_stubborn for e in errs):
+            kp_status = "stubborn"
+        else:
+            kp_status = "pending"
+        entry = by_subject.setdefault(subject, {
+            "subject": subject,
+            "submission_count": 0,
+            "error_total": 0,
+            "knowledge_points": [],
+        })
+        entry["knowledge_points"].append({
+            "name": kp,
+            "attempts": att,
+            "error_count": err_n,
+            "error_rate": rate,
+            "status": kp_status,
+            "last_error_at": max(e.created_at for e in errs),
+        })
+
+    # 科目层汇总：提交数补全（含从未出错的科目），正确率 = 1 - 错误率（画像同口径）
+    for s in submissions:
+        subject = s.question.subject if s.question else "math"
+        entry = by_subject.setdefault(subject, {
+            "subject": subject,
+            "submission_count": 0,
+            "error_total": 0,
+            "knowledge_points": [],
+        })
+        entry["submission_count"] += 1
+    for e in errors:
+        s = sub_by_id.get(e.submission_id)
+        subject = s.question.subject if s and s.question else "math"
+        if subject in by_subject:
+            by_subject[subject]["error_total"] += 1
+
+    result = []
+    for subject in sorted(by_subject):
+        entry = by_subject[subject]
+        kps = sorted(entry["knowledge_points"], key=lambda x: x["error_rate"], reverse=True)
+        att_total = entry["submission_count"]
+        err_total = entry["error_total"]
+        correct_rate = round(1 - min(1.0, err_total / att_total), 3) if att_total else 1.0
+        fixed_n = sum(1 for k in kps if k["status"] == "fixed")
+        result.append({
+            "subject": subject,
+            "submission_count": att_total,
+            "correct_rate": correct_rate,
+            "pending_fix_count": sum(1 for k in kps if k["status"] != "fixed"),
+            "fixed_ratio": round(fixed_n / len(kps), 3) if kps else 1.0,
+            "knowledge_points": kps,
+        })
+    return result
+
+
+def knowledge_point_errors(db, student: User, knowledge_point: str) -> List[Dict]:
+    """某知识点下该生的错题时间线（纵向学习记忆），按时间倒序。"""
+    submissions = (
+        db.query(Submission).filter(Submission.student_id == student.id).all()
+    )
+    sub_ids = [s.id for s in submissions]
+    if not sub_ids:
+        return []
+    errors = (
+        db.query(Error)
+        .filter(Error.submission_id.in_(sub_ids), Error.knowledge_point == knowledge_point)
+        .order_by(Error.created_at.desc(), Error.id.desc())
+        .all()
+    )
+    fixed_ids = _fixed_error_ids(db, student)
+    sub_by_id = {s.id: s for s in submissions}
+    items = []
+    for e in errors:
+        s = sub_by_id.get(e.submission_id)
+        q = s.question if s else None
+        step = db.query(Step).filter(Step.id == e.step_id).first() if e.step_id else None
+        items.append({
+            "created_at": e.created_at,
+            "assignment_title": q.assignment.title if q and q.assignment else "",
+            "question_prompt": q.stem if q else "",
+            "first_error_seq": step.seq if step else None,
+            "error_type": e.error_type,
+            "corrected": e.id in fixed_ids,
+            "submission_id": e.submission_id,
         })
     return items
