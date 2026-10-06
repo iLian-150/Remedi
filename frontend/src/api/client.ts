@@ -1,11 +1,12 @@
 // axios 统一封装：
 // 1. 从 Pinia auth store（localStorage 持久化）取 token，自动带 Authorization 头
-// 2. baseURL 来自环境变量 VITE_API_BASE_URL（.env 可配置），默认走 /api 由 vite 代理
+// 2. baseURL 来自环境变量 VITE_API_BASE_URL（.env 可配置），默认空 = 同源相对路径
+//    （各调用点路径已自带 /api 前缀；开发时由 vite 代理，部署时由 nginx 反代）
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 30000
 })
 

@@ -67,7 +67,7 @@ async function login() {
     auth.setSession(data.token, data.user)
     router.push(role.value === 'teacher' ? '/teacher/dashboard' : '/student/assignments')
   } catch (e: unknown) {
-    error.value = '登录失败，请确认后端已启动（http://localhost:8000/api/health）。'
+    error.value = '登录失败，请稍后重试；若持续失败请联系管理员检查后端服务。'
     console.error(e)
   } finally {
     loading.value = false
