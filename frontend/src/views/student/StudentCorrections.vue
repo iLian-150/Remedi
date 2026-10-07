@@ -84,9 +84,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import { useAuthStore } from '../../stores/auth'
-import type { CorrectionResult, GradingError } from '../../api/types'
+import type { CorrectionResult, GradingError, StudentMistake } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -94,6 +95,7 @@ import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
 const auth = useAuthStore()
+const route = useRoute()
 
 const errorList = ref<GradingError[]>([])
 const selectedErrorId = ref<number | ''>('')
@@ -150,13 +152,21 @@ onMounted(async () => {
   loading.value = true
   try {
     if (auth.user) fixedIds.value = getFixedErrorIds(auth.user.id)
-    const profile = await student.fetchProfile()
-    // 去重合并需要加固的知识点与最近错误
-    const map = new Map<number, GradingError>()
-    ;[...profile.stubborn_errors, ...profile.recent_errors].forEach((e) => map.set(e.id, e))
-    errorList.value = [...map.values()]
+    const [currentMistakes, archivedMistakes] = await Promise.all([
+      student.fetchMyMistakes(false),
+      student.fetchMyMistakes(true)
+    ])
+    const mistakes = [...new Map([...currentMistakes, ...archivedMistakes].map((item) => [item.id, item])).values()]
+    errorList.value = mistakes.map(toGradingError)
+    if (auth.user) {
+      const serverFixed = mistakes.filter((item) => item.latest_correction?.is_correct === true).map((item) => item.id)
+      fixedIds.value = new Set([...fixedIds.value, ...serverFixed])
+    }
     if (errorList.value.length) {
-      selectedErrorId.value = errorList.value[0].id
+      const requestedId = Number(route.query.error_id)
+      selectedErrorId.value = errorList.value.some((item) => item.id === requestedId)
+        ? requestedId
+        : errorList.value[0].id
     }
   } catch (e) {
     error.value = '错题加载失败，请确认后端已启动。'
@@ -165,6 +175,23 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+function toGradingError(item: StudentMistake): GradingError {
+  return {
+    id: item.id,
+    submission_id: item.submission_id,
+    step_seq: item.step_seq ?? 0,
+    step_text: item.step_text || item.question_stem,
+    knowledge_point: item.knowledge_point,
+    error_type: item.error_type,
+    confidence: 0,
+    is_stubborn: item.is_stubborn,
+    detail: item.detail ?? '',
+    teacher_corrected: false,
+    teacher_note: null,
+    created_at: item.created_at
+  }
+}
 </script>
 
 <style scoped>

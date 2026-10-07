@@ -1,17 +1,35 @@
 # /api/student/* 学生端
 import json
 import os
+import re
 import secrets
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_student
 from ..config import settings
 from ..database import get_db
-from ..models import Assignment, ChatMessage, Correction, Error, Essay, Notification, Question, Submission, User, Verification
+from ..models import (
+    Assignment,
+    ChatMessage,
+    Correction,
+    Error,
+    Essay,
+    Notification,
+    Question,
+    StudentMistakeArchive,
+    StudentMistakeCategoryReview,
+    StudentMistakeEvent,
+    StudentQuestionCapture,
+    Step,
+    Submission,
+    User,
+    Verification,
+)
 from ..schemas import (
     AgentChatIn,
     AgentChatOut,
@@ -29,13 +47,20 @@ from ..schemas import (
     NotificationListOut,
     NotificationReadIn,
     NotificationReadOut,
+    PhotoDiagnosisOut,
+    PhotoReviewOut,
+    PhotoCaptureSaveIn,
     PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
     SubjectReportOut,
     KnowledgePointErrorItem,
+    MistakeArchiveIn,
+    MistakeAssignmentArchiveIn,
+    MistakeCategoryStudyIn,
     SubmissionBrief,
     SubmissionCreate,
+    StudentMistakeOut,
     VerificationCreate,
     VerificationOut,
     VerificationSubmitIn,
@@ -60,7 +85,11 @@ router = APIRouter(prefix="/api/student", tags=["student"])
 
 @router.get("/assignments", summary="作业列表")
 def list_assignments(db: Session = Depends(get_db), current: User = Depends(require_student)):
-    items = db.query(Assignment).order_by(Assignment.id).all()
+    items = (db.query(Assignment)
+             .filter((Assignment.created_by.is_(None)) | (~Assignment.created_by.in_(
+                 db.query(User.id).filter(User.role == "student")
+             )))
+             .order_by(Assignment.id).all())
     result = []
     for a in items:
         qc = db.query(Question).filter(Question.assignment_id == a.id).count()
@@ -77,7 +106,8 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
 def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_student)):
     a = db.query(Assignment).filter(Assignment.id == assignment_id).first()
-    if not a:
+    creator = db.query(User).filter(User.id == a.created_by).first() if a and a.created_by else None
+    if not a or (creator and creator.role == "student"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     questions = (
         db.query(Question).filter(Question.assignment_id == a.id)
@@ -134,6 +164,365 @@ def submission_detail(submission_id: int, db: Session = Depends(get_db),
     if s.student_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能查看自己的提交记录")
     return present_diagnosis(s, db)
+
+
+def _mistake_category(subject: str, error_type: str, knowledge_point: str) -> tuple[str, str]:
+    """Use the reference notebook's stable category rules, adapted to Remedi fields."""
+    normalized_type = re.sub(r"\s+", "", error_type or "").casefold()
+    normalized_knowledge = re.sub(r"\s+", "", knowledge_point or "").casefold()
+    categories = (
+        ("tense", "时态运用", ("时态", "tense")),
+        ("agreement", "主谓一致", ("主谓一致", "主语和谓语一致", "subject-verb agreement")),
+        ("article", "冠词使用", ("冠词", "article")),
+        ("preposition", "介词使用", ("介词", "preposition")),
+        ("word_form", "词形变化", ("词形", "单复数", "词性转换", "word form")),
+        ("spelling", "拼写", ("拼写", "拼错", "spelling")),
+        ("punctuation", "标点使用", ("标点", "punctuation")),
+        ("capitalization", "大小写", ("大小写", "capitalization", "uppercase")),
+        ("calculation", "计算与运算", ("计算", "运算", "算错", "calculation")),
+        ("formula", "公式运用", ("公式", "formula")),
+        ("concept", "概念理解", ("概念", "理解错误", "概念混淆")),
+        ("unit", "单位换算", ("单位", "换算", "unit")),
+        ("sign", "符号与正负号", ("符号", "正负号", "漏负号")),
+        ("omission", "遗漏与漏写", ("遗漏", "漏写", "漏项", "漏答")),
+        ("reading", "审题与信息提取", ("审题", "看错题", "读题", "信息提取")),
+        ("expression", "表达与书写", ("表达", "书写", "格式")),
+    )
+    generic_types = {"语法错误", "知识错误", "知识性错误", "综合诊断", "待确认问题", "其他错误", "错误", "未分类"}
+    primary = normalized_knowledge if normalized_type in generic_types else normalized_type
+    subject_key = subject or "other"
+    for code, label, tokens in categories:
+        if any(token in primary for token in tokens) or any(token in normalized_knowledge for token in tokens):
+            return f"{subject_key}:{code}", label
+    fallback_source = knowledge_point if normalized_type in generic_types else error_type
+    fallback = str(fallback_source or error_type or "待归类").strip()
+    normalized_fallback = (re.sub(r"[\s，。；：、,.!?！？]+", "", fallback).casefold() or "待归类")[:160]
+    return f"{subject_key}:other:{normalized_fallback}", fallback
+
+
+def _record_mistake_event(db: Session, student_id: int, assignment_id: int,
+                          event_type: str, payload: dict, created_at: datetime) -> None:
+    db.add(StudentMistakeEvent(
+        student_id=student_id,
+        assignment_id=assignment_id,
+        event_type=event_type,
+        payload_json=json.dumps(payload, ensure_ascii=False),
+        created_at=created_at,
+    ))
+
+
+@router.get("/mistakes", response_model=List[StudentMistakeOut], summary="我的错题本")
+def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get_db),
+                current: User = Depends(require_student)):
+    """List this student's active or archived error occurrences without deleting diagnosis history."""
+    all_rows = (
+        db.query(Error, Submission, Question, Assignment, Step)
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .join(Assignment, Question.assignment_id == Assignment.id)
+        .outerjoin(Step, Error.step_id == Step.id)
+        .filter(Submission.student_id == current.id)
+        .order_by(Error.created_at.desc(), Error.id.desc())
+        .all()
+    )
+    error_ids = [error.id for error, _, _, _, _ in all_rows]
+    archived_at_by_error = {
+        item.error_id: item.archived_at
+        for item in db.query(StudentMistakeArchive)
+        .filter(StudentMistakeArchive.student_id == current.id,
+                StudentMistakeArchive.error_id.in_(error_ids))
+        .all()
+    }
+    rows = [row for row in all_rows if (row[0].id in archived_at_by_error) == archived]
+    assignment_ids = {assignment.id for _, _, _, assignment, _ in all_rows}
+    visible_error_ids = [error.id for error, _, _, _, _ in rows]
+    reviewed = {
+        (item.assignment_id, item.category_key)
+        for item in db.query(StudentMistakeCategoryReview)
+        .filter(StudentMistakeCategoryReview.student_id == current.id,
+                StudentMistakeCategoryReview.assignment_id.in_(assignment_ids))
+        .all()
+    }
+    correction_by_error = {}
+    for correction in (
+        db.query(Correction)
+        .filter(Correction.student_id == current.id, Correction.error_id.in_(visible_error_ids))
+        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
+        .all()
+    ):
+        correction_by_error.setdefault(correction.error_id, correction)
+    verification_by_error = {}
+    for verification in (
+        db.query(Verification)
+        .filter(Verification.student_id == current.id,
+                Verification.source_error_id.in_(visible_error_ids))
+        .order_by(Verification.created_at.desc(), Verification.id.desc())
+        .all()
+    ):
+        verification_by_error.setdefault(verification.source_error_id, verification)
+
+    history_by_category = {}
+    for error, submission, question, assignment, _ in all_rows:
+        key, _ = _mistake_category(question.subject, error.error_type, error.knowledge_point)
+        history_by_category.setdefault(key, []).append((error, submission, question, assignment))
+
+    result = []
+    for error, submission, question, assignment, step in rows:
+        category_key, category_label = _mistake_category(
+            question.subject, error.error_type, error.knowledge_point
+        )
+        previous_by_assignment = {}
+        for previous_error, previous_submission, previous_question, previous_assignment in history_by_category.get(category_key, []):
+            if previous_assignment.id == assignment.id or previous_assignment.created_at >= assignment.created_at:
+                continue
+            previous_by_assignment.setdefault(previous_assignment.id, {
+                "id": previous_error.id,
+                "submission_id": previous_submission.id,
+                "assignment_id": previous_assignment.id,
+                "assignment_title": previous_assignment.title,
+                "assignment_created_at": previous_assignment.created_at,
+                "question_stem": previous_question.stem,
+            })
+        correction = correction_by_error.get(error.id)
+        verification = verification_by_error.get(error.id)
+        result.append(StudentMistakeOut(
+            id=error.id,
+            submission_id=submission.id,
+            question_id=question.id,
+            assignment_id=assignment.id,
+            assignment_title=assignment.title,
+            assignment_created_at=assignment.created_at,
+            question_subject=question.subject,
+            question_order=question.order_num,
+            question_stem=question.stem,
+            knowledge_point=error.knowledge_point,
+            error_type=error.error_type,
+            is_stubborn=error.is_stubborn,
+            detail=error.detail,
+            step_seq=step.seq if step else None,
+            step_text=step.text if step else None,
+            created_at=error.created_at,
+            category_key=category_key,
+            category_label=category_label,
+            category_studied=(assignment.id, category_key) in reviewed,
+            archived_at=archived_at_by_error.get(error.id),
+            similar_occurrences=list(previous_by_assignment.values())[:5],
+            latest_correction=({
+                "id": correction.id,
+                "content": correction.content,
+                "is_correct": correction.is_correct,
+                "note": correction.note,
+                "submitted_at": correction.submitted_at,
+            } if correction else None),
+            verification_status=verification.status if verification else None,
+        ))
+    captures = (
+        db.query(StudentQuestionCapture)
+        .filter(StudentQuestionCapture.student_id == current.id,
+                StudentQuestionCapture.saved_at.isnot(None))
+        .order_by(StudentQuestionCapture.created_at.desc(), StudentQuestionCapture.id.desc())
+        .all()
+    )
+    for capture in captures:
+        if (capture.archived_at is not None) != archived:
+            continue
+        result.append(StudentMistakeOut(
+            id=-capture.id,
+            submission_id=0,
+            question_id=capture.question_id or 0,
+            assignment_id=-capture.id,
+            assignment_title="自主收录题目",
+            assignment_created_at=capture.created_at,
+            question_subject=capture.subject,
+            question_order=1,
+            question_stem=capture.question_text,
+            knowledge_point="自主复习",
+            error_type="主动收录",
+            is_stubborn=False,
+            detail=capture.explanation or "你主动加入错题本的题目，可以在这里继续复习。",
+            step_seq=None,
+            step_text=None,
+            created_at=capture.saved_at or capture.created_at,
+            category_key=f"student_saved:{capture.id}",
+            category_label="自主收录",
+            category_studied=True,
+            archived_at=capture.archived_at,
+            similar_occurrences=[],
+            latest_correction=None,
+            verification_status=None,
+            source_kind="student_saved",
+            capture_id=capture.id,
+            image_url=f"/api/uploads/{capture.image_path}",
+        ))
+    result.sort(key=lambda item: item.created_at, reverse=True)
+    return result
+
+
+@router.patch("/mistakes/categories", summary="标记错因类别学习状态")
+def set_mistake_category_studied(body: MistakeCategoryStudyIn,
+                                 db: Session = Depends(get_db),
+                                 current: User = Depends(require_student)):
+    rows = (
+        db.query(Error, Question)
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .filter(Submission.student_id == current.id, Question.assignment_id == body.assignment_id)
+        .all()
+    )
+    archived_ids = {
+        item.error_id for item in db.query(StudentMistakeArchive)
+        .filter(StudentMistakeArchive.student_id == current.id).all()
+    }
+    active_rows = [(error, question) for error, question in rows if error.id not in archived_ids]
+    valid_keys = {
+        _mistake_category(question.subject, error.error_type, error.knowledge_point)[0]
+        for error, question in active_rows
+    }
+    if body.category_key not in valid_keys:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业或错题类别不存在")
+
+    state = db.query(StudentMistakeCategoryReview).filter_by(
+        student_id=current.id,
+        assignment_id=body.assignment_id,
+        category_key=body.category_key,
+    ).first()
+    if body.studied:
+        if state:
+            state.studied_at = datetime.now()
+        else:
+            db.add(StudentMistakeCategoryReview(
+                student_id=current.id,
+                assignment_id=body.assignment_id,
+                category_key=body.category_key,
+            ))
+    elif state:
+        db.delete(state)
+    db.commit()
+    return {"assignment_id": body.assignment_id, "category_key": body.category_key, "studied": body.studied}
+
+
+@router.patch("/mistakes/{error_id}/archive", summary="移出或恢复单条错题")
+def set_mistake_archived(error_id: int, body: MistakeArchiveIn,
+                         db: Session = Depends(get_db),
+                         current: User = Depends(require_student)):
+    if error_id < 0:
+        capture = db.query(StudentQuestionCapture).filter_by(
+            id=-error_id, student_id=current.id
+        ).first()
+        if not capture or capture.saved_at is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这条错题记录")
+        capture.archived_at = datetime.now() if body.archived else None
+        db.commit()
+        return {"id": error_id, "student_id": current.id, "archived_at": capture.archived_at}
+
+    error = (
+        db.query(Error).join(Submission, Error.submission_id == Submission.id)
+        .filter(Error.id == error_id, Submission.student_id == current.id)
+        .first()
+    )
+    if not error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这条错题记录")
+    state = db.query(StudentMistakeArchive).filter_by(
+        student_id=current.id, error_id=error_id
+    ).first()
+    if bool(state) == body.archived:
+        return {"id": error_id, "student_id": current.id, "archived_at": state.archived_at if state else None}
+
+    now = datetime.now()
+    if body.archived:
+        state = StudentMistakeArchive(student_id=current.id, error_id=error_id, archived_at=now)
+        db.add(state)
+        event_type = "mistake_archived"
+        payload = {"occurrence_id": error_id, "student_id": current.id}
+    else:
+        db.delete(state)
+        event_type = "mistake_restored"
+        payload = {"occurrence_id": error_id, "student_id": current.id}
+    _record_mistake_event(db, current.id, error.submission.question.assignment_id, event_type, payload, now)
+    db.commit()
+    return {"id": error_id, "student_id": current.id, "archived_at": now if body.archived else None}
+
+
+@router.patch("/mistakes/assignments/{assignment_id}/archive", summary="移出或恢复一份作业的错题")
+def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentArchiveIn,
+                                    db: Session = Depends(get_db),
+                                    current: User = Depends(require_student)):
+    if assignment_id < 0:
+        capture = db.query(StudentQuestionCapture).filter_by(
+            id=-assignment_id, student_id=current.id
+        ).first()
+        if not capture or capture.saved_at is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这份错题记录")
+        capture.archived_at = datetime.now() if body.archived else None
+        db.commit()
+        return {"assignment_id": assignment_id, "archived_ids": [assignment_id],
+                "archived_at": capture.archived_at}
+
+    rows = (
+        db.query(Error, Question)
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .filter(Submission.student_id == current.id, Question.assignment_id == assignment_id)
+        .all()
+    )
+    if not rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业没有可整理的错题")
+
+    error_ids = [error.id for error, _ in rows]
+    archive_states = db.query(StudentMistakeArchive).filter(
+        StudentMistakeArchive.student_id == current.id,
+        StudentMistakeArchive.error_id.in_(error_ids),
+    ).all()
+    archived_by_error = {state.error_id: state for state in archive_states}
+
+    if body.archived:
+        active_rows = [(error, question) for error, question in rows if error.id not in archived_by_error]
+        if not active_rows:
+            return {"assignment_id": assignment_id, "archived_ids": []}
+        categories = {
+            _mistake_category(question.subject, error.error_type, error.knowledge_point)[0]
+            for error, question in active_rows
+        }
+        reviewed = {
+            item.category_key for item in db.query(StudentMistakeCategoryReview)
+            .filter_by(student_id=current.id, assignment_id=assignment_id).all()
+        }
+        remaining = categories - reviewed
+        if remaining:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"还有 {len(remaining)} 类错误没有标记为已学习。")
+        now = datetime.now()
+        archived_ids = [error.id for error, _ in active_rows]
+        db.add_all(StudentMistakeArchive(student_id=current.id, error_id=error_id, archived_at=now)
+                    for error_id in archived_ids)
+        _record_mistake_event(db, current.id, assignment_id, "mistake_assignment_archived",
+                              {"student_id": current.id, "occurrence_ids": archived_ids}, now)
+        db.commit()
+        return {"assignment_id": assignment_id, "archived_ids": archived_ids, "archived_at": now}
+
+    occurrence_ids = list(dict.fromkeys(body.occurrence_ids))
+    if not occurrence_ids:
+        return {"assignment_id": assignment_id, "archived_ids": []}
+    restore_states = (
+        db.query(StudentMistakeArchive)
+        .join(Error, StudentMistakeArchive.error_id == Error.id)
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .filter(
+            StudentMistakeArchive.student_id == current.id,
+            StudentMistakeArchive.error_id.in_(occurrence_ids),
+            Submission.student_id == current.id,
+            Question.assignment_id == assignment_id,
+        ).all()
+    )
+    restored_ids = [state.error_id for state in restore_states]
+    if restored_ids:
+        for state in restore_states:
+            db.delete(state)
+        now = datetime.now()
+        _record_mistake_event(db, current.id, assignment_id, "mistake_assignment_restored",
+                              {"student_id": current.id, "occurrence_ids": restored_ids}, now)
+        db.commit()
+    return {"assignment_id": assignment_id, "archived_ids": restored_ids}
 
 
 # ---------- 作文 ----------
@@ -357,6 +746,125 @@ _PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",
 _PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 
+@router.post("/photo-review", response_model=PhotoReviewOut, summary="识别题目图片并按作答情况分流")
+async def photo_review(
+    file: UploadFile = File(...),
+    question_id: Optional[int] = Form(default=None),
+    question_context: str = Form(default=""),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """没有学生作答时只进入问答，并暂存图片供学生之后主动收录；有作答时复用数学诊断。"""
+    if file.content_type not in _PHOTO_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
+    if len(data) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+
+    question = None
+    if question_id is not None:
+        question = db.query(Question).filter(Question.id == question_id).first()
+        if question is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+        if question.subject != "math":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "原图自动诊断目前仅支持数学题")
+    context = question.stem if question else question_context
+    recognition = await run_in_threadpool(
+        get_provider().transcribe_image, data, file.content_type, context, question is None
+    )
+    confidence = float(recognition.get("confidence", 0.0) or 0.0)
+    if recognition.get("needs_image_review") or confidence < 0.45:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "照片暂时无法可靠辨认，没有生成错题记录。请拍清楚后重试。",
+        )
+
+    question_text = str(recognition.get("question_text", "")).strip() or (question.stem if question else "")
+    steps = [str(step).strip() for step in recognition.get("steps", []) if str(step).strip()]
+    has_work = bool(recognition.get("student_work_detected", bool(steps)))
+    if not has_work:
+        if not question_text:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "没有识别到题目内容，请拍清楚题干后重试。",
+            )
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        filename = "{}_{}{}".format(
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            secrets.token_hex(4),
+            _PHOTO_TYPES[file.content_type],
+        )
+        with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as image_file:
+            image_file.write(data)
+        capture = StudentQuestionCapture(
+            student_id=current.id,
+            question_id=question.id if question else None,
+            subject=question.subject if question else "math",
+            question_text=question_text,
+            image_path=filename,
+        )
+        db.add(capture)
+        db.commit()
+        db.refresh(capture)
+        return {"mode": "answer", "question_text": question_text, "steps": [],
+                "capture_id": capture.id, "diagnosis": None}
+
+    if not steps:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "照片里似乎有作答，但步骤无法辨认。请重拍，或手动整理步骤后再提交。",
+        )
+    if question is None:
+        if not question_text:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "题目内容没有识别清楚，暂时无法核对作答。请重拍，或在聊天里补充题干。",
+            )
+        # 自由上传且检测到作答时，为这次诊断建立仅归属学生自己的作业容器，
+        # 保持现有 Submission → Step → Error 错题链路不变。学生作业列表会隐藏该容器。
+        assignment = Assignment(
+            title=f"自主上传题目 · {datetime.now():%Y-%m-%d %H:%M}",
+            description="由学生在学习助手上传并自动诊断的题目。",
+            created_by=current.id,
+        )
+        db.add(assignment)
+        db.flush()
+        question = Question(
+            assignment_id=assignment.id,
+            subject="math",
+            knowledge_point="自主上传题",
+            stem=question_text,
+            order_num=1,
+        )
+        db.add(question)
+        db.flush()
+
+    submission, _, _ = diagnose_submission(db, current, question, steps)
+    diagnosis = present_diagnosis(submission, db)
+    return {"mode": "diagnosis", "question_text": question_text,
+            "steps": steps, "capture_id": None, "diagnosis": diagnosis}
+
+
+@router.post("/photo-captures/{capture_id}/save", summary="将自主上传题目加入错题本")
+def save_photo_capture(capture_id: int, body: PhotoCaptureSaveIn,
+                       db: Session = Depends(get_db),
+                       current: User = Depends(require_student)):
+    capture = db.query(StudentQuestionCapture).filter_by(
+        id=capture_id, student_id=current.id
+    ).first()
+    if not capture:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这道暂存题目")
+    if capture.saved_at is None:
+        capture.saved_at = datetime.now()
+    if body.explanation.strip():
+        capture.explanation = body.explanation.strip()
+    capture.archived_at = None
+    db.commit()
+    return {"capture_id": capture.id, "saved": True, "saved_at": capture.saved_at}
+
+
 @router.post("/photo-transcribe", response_model=PhotoTranscribeOut, summary="拍照转写作业")
 async def photo_transcribe(file: UploadFile = File(...),
                            current: User = Depends(require_student)):
@@ -377,13 +885,75 @@ async def photo_transcribe(file: UploadFile = File(...),
     )
     with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
         f.write(data)
-    result = get_provider().transcribe_image(data, file.content_type)
+    result = await run_in_threadpool(get_provider().transcribe_image, data, file.content_type)
     return {
         "image_id": filename,
         "image_url": f"/api/uploads/{filename}",
         "question_text": result.get("question_text", ""),
         "steps": result.get("steps", []),
+        "student_work_detected": result.get("student_work_detected"),
+        "needs_image_review": result.get("needs_image_review"),
+        "confidence": result.get("confidence"),
     }
+
+
+@router.post(
+    "/photo-diagnose",
+    response_model=PhotoDiagnosisOut,
+    summary="直接用作答原图进行数学诊断",
+)
+async def photo_diagnose(
+    question_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """将学生原图送入视觉 Provider，识别证据充分后复用 Remedi 数学分步诊断。
+
+    不清晰或没有学生作答时不创建 Submission/Error，避免把题目本身或识别噪声
+    写进错题本。手动转写/编辑入口仍由 /photo-transcribe + /submissions 提供。
+    """
+    if file.content_type not in _PHOTO_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
+    if len(data) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+
+    question = db.query(Question).filter(Question.id == question_id).first()
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    if question.subject != "math":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前原图诊断入口仅支持数学题")
+
+    recognition = await run_in_threadpool(
+        get_provider().transcribe_image,
+        data,
+        file.content_type,
+        question.stem,
+    )
+    confidence = float(recognition.get("confidence", 0.0) or 0.0)
+    steps = [str(step).strip() for step in recognition.get("steps", []) if str(step).strip()]
+    if recognition.get("needs_image_review") or confidence < 0.45:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "这张照片暂时无法可靠辨认，没有生成错题记录。请拍清楚题目和作答过程后重试。",
+        )
+    if not recognition.get("student_work_detected", bool(steps)) or not steps:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "照片中没有识别到学生作答，没有生成错题记录。请上传包含作答过程的照片。",
+        )
+
+    submission, _, _ = diagnose_submission(db, current, question, steps)
+    result = present_diagnosis(submission, db)
+    result.update({
+        "recognized_question_text": recognition.get("question_text", ""),
+        "recognized_steps": steps,
+        "recognition_confidence": confidence,
+    })
+    return result
 
 
 # ---------- 主页 Agent 对话（v0.3.0 新增，LangGraph；v0.6.0 改会话制） ----------

@@ -23,9 +23,9 @@
     </header>
     <div v-if="sidebarOpen" class="sidebar-mask" @click="sidebarOpen = false"></div>
 
-    <aside class="app-sidebar" :class="{ open: sidebarOpen }">
+    <aside class="app-sidebar" :class="{ open: sidebarOpen, 'student-chat-route-hidden': isStudentChatRoute }">
       <div class="sidebar-brand-row">
-        <span class="brand-badge"><BrandLogo :size="25" /></span>
+        <span class="brand-badge" title="Remedi"><BrandLogo :size="25" /></span>
         <div>
           <div class="brand-name">Remedi</div>
           <div class="brand-sub">{{ auth.role === 'teacher' ? '教师端 · 班级诊断' : '智能作业诊断' }}</div>
@@ -37,10 +37,14 @@
           v-for="item in navItems"
           :key="item.to"
           :to="item.to"
+          :data-label="item.label"
+          :title="item.label"
+          :aria-label="item.label"
+          :class="{ active: item.to === '/student/feedback' && route.path === '/student/diagnosis' }"
           :active-class="item.exact ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
         >
-          <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span> {{ item.label }}
+          <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span><span class="nav-label">{{ item.label }}</span>
         </router-link>
       </nav>
 
@@ -49,7 +53,7 @@
         <div class="user-meta">
           <div class="user-name">{{ auth.name }}</div>
           <div class="user-role">
-            {{ auth.role === 'teacher' ? '教师' : '学生' }}<template v-if="auth.user?.student_no"> · {{ auth.user.student_no }}</template>
+            {{ auth.role === 'teacher' ? '教师' : '学生' }}<template v-if="auth.role === 'student' && auth.user?.student_no"> · {{ auth.user.student_no }}</template>
           </div>
         </div>
         <button class="icon-btn" title="退出登录" @click="logout">
@@ -117,7 +121,7 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/assignments', icon: 'clipboard', label: '作业列表' },
   { to: '/student/submit', icon: 'edit', label: '交作业' },
-  { to: '/student/feedback', icon: 'file', label: '诊断报告' },
+  { to: '/student/feedback', icon: 'book', label: '错题本' },
   { to: '/student/report', icon: 'chart', label: '学习报告' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
   { to: '/student/profile', icon: 'user', label: '我的档案' }
@@ -136,6 +140,7 @@ const TEACHER_NAV: NavItem[] = [
 ]
 
 const navItems = computed<NavItem[]>(() => (auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV))
+const isStudentChatRoute = computed(() => auth.role === 'student' && route.path === '/student/chat')
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------

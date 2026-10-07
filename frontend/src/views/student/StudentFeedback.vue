@@ -1,12 +1,15 @@
-<!-- 学生端：诊断报告（单次提交的分步诊断详情）
+<!-- 学生端：诊断详情（单次提交的分步诊断）
      数学：分步诊断（首次出错步骤高亮）、错因三色徽标、鼓励性文案。
      支持 ?submission_id= 预选某次提交（学习报告的错题时间线从这里跳进来）。
      文案伦理：学生端不出现「顽固误区」「疑似」「置信度」等术语。 -->
 <template>
   <div class="page">
     <div class="page-head">
-      <h2>诊断报告</h2>
-      <p class="page-sub">看看每一次作答的诊断，错过的知识点一个一个修复。</p>
+      <div>
+        <h2>诊断详情</h2>
+        <p class="page-sub">查看这次作答的分步诊断与错因。</p>
+      </div>
+      <router-link class="btn secondary small" to="/student/feedback">返回错题本</router-link>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -55,7 +58,7 @@
           </p>
           <p class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
           <div class="toolbar" style="margin-top: 8px; margin-bottom: 0">
-            <router-link to="/student/corrections"><button class="btn small secondary">去订正这道题</button></router-link>
+            <router-link :to="{ path: '/student/corrections', query: { error_id: e.id } }"><button class="btn small secondary">去订正这道题</button></router-link>
           </div>
         </div>
         <!-- 追问（v0.4.0）：订正之前先想一想 -->

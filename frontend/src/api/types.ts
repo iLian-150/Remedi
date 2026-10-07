@@ -72,6 +72,48 @@ export interface GradingError {
   created_at: string
 }
 
+export interface StudentMistake {
+  id: number
+  submission_id: number
+  question_id: number
+  assignment_id: number
+  assignment_title: string
+  assignment_created_at: string
+  question_subject: string
+  question_order: number
+  question_stem: string
+  knowledge_point: string
+  error_type: ErrorType | string
+  is_stubborn: boolean
+  detail: string | null
+  step_seq: number | null
+  step_text: string | null
+  created_at: string
+  category_key: string
+  category_label: string
+  category_studied: boolean
+  archived_at: string | null
+  similar_occurrences: Array<{
+    id: number
+    submission_id: number
+    assignment_id: number
+    assignment_title: string
+    assignment_created_at: string
+    question_stem: string
+  }>
+  latest_correction: {
+    id: number
+    content: string
+    is_correct: boolean | null
+    note: string | null
+    submitted_at: string
+  } | null
+  verification_status: VerificationStatus | null
+  source_kind?: 'diagnosed' | 'student_saved'
+  capture_id?: number | null
+  image_url?: string | null
+}
+
 // POST /api/student/submissions 与 GET /api/student/submissions/{id} 的响应体
 export interface SubmissionResult {
   submission_id: number
@@ -223,6 +265,17 @@ export interface PhotoTranscribeResult {
   image_url: string
   question_text: string
   steps: string[]
+  student_work_detected?: boolean | null
+  needs_image_review?: boolean | null
+  confidence?: number | null
+}
+
+export interface PhotoReviewResult {
+  mode: 'answer' | 'diagnosis' | 'transcribe'
+  question_text: string
+  steps: string[]
+  capture_id: number | null
+  diagnosis: SubmissionResult | null
 }
 
 // ---------- 主页 Agent 对话（v0.3.0） ----------

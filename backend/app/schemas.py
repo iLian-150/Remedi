@@ -123,6 +123,13 @@ class DiagnosisOut(BaseModel):
     follow_up_question: Optional[str] = None   # v0.4.0：按主错因+知识点生成的启发式追问，无错时为 None
 
 
+class PhotoDiagnosisOut(DiagnosisOut):
+    """原图批改结果；诊断主体复用分步提交结果，并附视觉识别依据。"""
+    recognized_question_text: str = ""
+    recognized_steps: List[str] = Field(default_factory=list)
+    recognition_confidence: float = 0.0
+
+
 class SubmissionBrief(BaseModel):
     id: int
     question_id: int
@@ -131,6 +138,68 @@ class SubmissionBrief(BaseModel):
     status: str
     error_count: int
     submitted_at: datetime
+
+
+class MistakeCorrectionBrief(BaseModel):
+    id: int
+    content: str
+    is_correct: Optional[bool] = None
+    note: Optional[str] = None
+    submitted_at: datetime
+
+
+class SimilarMistakeBrief(BaseModel):
+    id: int
+    submission_id: int
+    assignment_id: int
+    assignment_title: str
+    assignment_created_at: datetime
+    question_stem: str
+
+
+class StudentMistakeOut(BaseModel):
+    """错题本记录，附带作业分类、复习状态与历史同类错误。"""
+    id: int
+    submission_id: int
+    question_id: int
+    assignment_id: int
+    assignment_title: str
+    assignment_created_at: datetime
+    question_subject: str
+    question_order: int
+    question_stem: str
+    knowledge_point: str
+    error_type: str
+    is_stubborn: bool
+    detail: Optional[str] = None
+    step_seq: Optional[int] = None
+    step_text: Optional[str] = None
+    created_at: datetime
+    category_key: str
+    category_label: str
+    category_studied: bool
+    archived_at: Optional[datetime] = None
+    similar_occurrences: List[SimilarMistakeBrief] = Field(default_factory=list)
+    latest_correction: Optional[MistakeCorrectionBrief] = None
+    verification_status: Optional[str] = None
+    source_kind: str = "diagnosed"
+    capture_id: Optional[int] = None
+    image_url: Optional[str] = None
+
+
+class MistakeCategoryStudyIn(BaseModel):
+    assignment_id: int
+    category_key: str = Field(min_length=1, max_length=256)
+    studied: bool
+
+
+class MistakeAssignmentArchiveIn(BaseModel):
+    archived: bool
+    occurrence_ids: List[int] = Field(default_factory=list)
+
+
+class MistakeArchiveIn(BaseModel):
+    archived: bool
 
 
 # ---------- 学生：作文 ----------
@@ -226,6 +295,21 @@ class PhotoTranscribeOut(BaseModel):
     image_url: str                # 图片相对访问路径（/uploads/<文件名>）
     question_text: str
     steps: List[str]
+    student_work_detected: Optional[bool] = None
+    needs_image_review: Optional[bool] = None
+    confidence: Optional[float] = None
+
+
+class PhotoReviewOut(BaseModel):
+    mode: str  # answer | diagnosis | transcribe
+    question_text: str = ""
+    steps: List[str] = Field(default_factory=list)
+    capture_id: Optional[int] = None
+    diagnosis: Optional[DiagnosisOut] = None
+
+
+class PhotoCaptureSaveIn(BaseModel):
+    explanation: str = Field(default="", max_length=12000)
 
 
 class PendingAssignmentItem(BaseModel):

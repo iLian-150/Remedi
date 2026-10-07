@@ -10,7 +10,23 @@ from sqlalchemy.orm import Session
 from ..auth import require_teacher
 from ..config import settings
 from ..database import get_db
-from ..models import Assignment, AssignmentExt, ChatMessage, Correction, Error, Essay, Notification, Question, Step, Submission, User, Workbook
+from ..models import (
+    Assignment,
+    AssignmentExt,
+    ChatMessage,
+    Correction,
+    Error,
+    Essay,
+    Notification,
+    Question,
+    Step,
+    StudentMistakeArchive,
+    StudentMistakeCategoryReview,
+    StudentMistakeEvent,
+    Submission,
+    User,
+    Workbook,
+)
 from ..schemas import (
     AgentChatIn,
     AgentChatOut,
@@ -274,6 +290,8 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
             if err_ids:
                 db.query(Correction).filter(Correction.error_id.in_(err_ids)) \
                     .delete(synchronize_session=False)
+                db.query(StudentMistakeArchive).filter(StudentMistakeArchive.error_id.in_(err_ids)) \
+                    .delete(synchronize_session=False)
             db.query(Notification).filter(
                 Notification.related_submission_id.in_(sub_ids)
             ).delete(synchronize_session=False)
@@ -287,6 +305,11 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
         db.query(Question).filter(Question.id.in_(qids)).delete(synchronize_session=False)
     # v0.5.0：作业扩展行（发布模式/练习册关联）一并删除
     db.query(AssignmentExt).filter(AssignmentExt.assignment_id == assignment.id) \
+        .delete(synchronize_session=False)
+    # 错题本学习/归档状态随作业一并清理，避免留下孤儿记录
+    db.query(StudentMistakeCategoryReview).filter(StudentMistakeCategoryReview.assignment_id == assignment.id) \
+        .delete(synchronize_session=False)
+    db.query(StudentMistakeEvent).filter(StudentMistakeEvent.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
     db.delete(assignment)
     db.commit()

@@ -202,6 +202,53 @@ class Verification(Base):
     completed_at = Column(DateTime, nullable=True, comment="通过时间")
 
 
+class StudentMistakeCategoryReview(Base):
+    """学生错题本中，某份作业的某类错因是否已学习。"""
+    __tablename__ = "student_mistake_category_reviews"
+
+    student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
+    category_key = Column(String(256), primary_key=True)
+    studied_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class StudentMistakeArchive(Base):
+    """逐条保存错题本移出状态，不删除原始诊断记录。"""
+    __tablename__ = "student_mistake_archives"
+
+    student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    error_id = Column(Integer, ForeignKey("errors.id"), primary_key=True)
+    archived_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class StudentMistakeEvent(Base):
+    """错题本批量移出/恢复审计记录，与参考系统的 event log 对齐。"""
+    __tablename__ = "student_mistake_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
+    event_type = Column(String(48), nullable=False)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class StudentQuestionCapture(Base):
+    """Student-owned photo question that is answered first and only later saved on request."""
+    __tablename__ = "student_question_captures"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=True, index=True)
+    subject = Column(String(32), nullable=False, default="math")
+    question_text = Column(Text, nullable=False)
+    image_path = Column(String(256), nullable=False)
+    explanation = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    saved_at = Column(DateTime, nullable=True, index=True)
+    archived_at = Column(DateTime, nullable=True)
+
+
 class Workbook(Base):
     """练习册知识库（v0.5.0 新增表）：教师上传的整本练习册 PDF，
     发布线下作业时可直接选用。file_path 为相对 UPLOAD_DIR 的路径

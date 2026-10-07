@@ -23,6 +23,15 @@
     </p>
     <div v-if="errorText" class="error-msg" style="margin-top: 10px">{{ errorText }}</div>
 
+    <div v-if="phase === 'answered'" class="pgf-card">
+      <p class="pgf-card-title"><AppIcon name="book" :size="16" /> 先看题目讲解</p>
+      <p class="pgf-answer-question">{{ questionText }}</p>
+      <p class="pgf-answer-copy">{{ answerText }}</p>
+      <button class="btn small secondary" :disabled="savingCapture || savedCapture" @click="saveCapture">
+        {{ savedCapture ? '已加入错题本' : savingCapture ? '正在收录…' : '加入错题本' }}
+      </button>
+    </div>
+
     <!-- 转写卡片（direct 模式默认不出现，仅在诊断卡里展开「修改重交」时显示） -->
     <div v-if="cardVisible" class="pgf-card">
       <p class="pgf-card-title"><AppIcon name="camera" :size="16" /> 照片转写结果</p>
@@ -55,6 +64,7 @@
         <AppIcon name="check" :size="16" /> 老师批改结果
         <span v-if="questionStem" class="badge badge-blue">{{ questionStem }}</span>
       </p>
+      <p v-if="result.errors.length" class="pgf-auto-booked">发现 {{ result.errors.length }} 个错误点，已自动加入错题本。</p>
       <div
         v-for="st in result.steps"
         :key="st.seq"
@@ -130,7 +140,7 @@ const emit = defineEmits<{ (e: 'graded', result: SubmissionResult): void }>()
 
 const student = useStudentStore()
 
-type Phase = 'idle' | 'transcribing' | 'transcribed' | 'submitting' | 'done'
+type Phase = 'idle' | 'transcribing' | 'transcribed' | 'submitting' | 'done' | 'answered'
 const phase = ref<Phase>('idle')
 const busy = ref(false)
 const fileRef = ref<HTMLInputElement | null>(null)
@@ -142,6 +152,10 @@ const confirmed = ref(false)
 const result = ref<SubmissionResult | null>(null)
 /** direct 模式下，诊断卡里展开原编辑器改步骤重交 */
 const fixOpen = ref(false)
+const captureId = ref<number | null>(null)
+const answerText = ref('')
+const savedCapture = ref(false)
+const savingCapture = ref(false)
 
 /** 转写卡片可见性：确认模式下转写后即显示；direct 模式仅在展开修改时显示 */
 const cardVisible = computed(
@@ -177,9 +191,25 @@ async function onFileChange(e: Event) {
   phase.value = 'transcribing'
   busy.value = true
   try {
-    const res = await student.transcribePhoto(file)
+    const res = await student.reviewPhoto(file, props.questionId, props.questionStem || '')
     questionText.value = res.question_text
     steps.value = [...res.steps]
+    if (res.mode === 'answer') {
+      captureId.value = res.capture_id
+      const answer = await student.agentChat(
+        `学生上传的是只有题目、没有作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。\n识别出的题目：${res.question_text.slice(0, 1600)}`
+      )
+      answerText.value = answer.reply
+      phase.value = 'answered'
+      return
+    }
+    if (res.mode === 'diagnosis' && res.diagnosis) {
+      result.value = res.diagnosis
+      confirmed.value = true
+      phase.value = 'done'
+      emit('graded', res.diagnosis)
+      return
+    }
     phase.value = 'transcribed'
     // direct 模式（v0.6.0）：转写完立刻提交诊断，不停在确认步
     if (props.direct) {
@@ -188,11 +218,29 @@ async function onFileChange(e: Event) {
       return
     }
   } catch (err) {
-    phase.value = 'idle'
-    errorText.value = '识别失败：' + (errDetail(err) || '请稍后重试。')
+    if (captureId.value) {
+      phase.value = 'answered'
+      answerText.value = `题目已经识别为「${questionText.value}」，但暂时无法生成讲解。你可以先把题目加入错题本。`
+    } else {
+      phase.value = 'idle'
+      errorText.value = '识别失败：' + (errDetail(err) || '请稍后重试。')
+    }
     console.error(err)
   } finally {
     busy.value = false
+  }
+}
+
+async function saveCapture() {
+  if (!captureId.value || savedCapture.value || savingCapture.value) return
+  savingCapture.value = true
+  try {
+    await student.savePhotoCapture(captureId.value, answerText.value)
+    savedCapture.value = true
+  } catch (err) {
+    errorText.value = '加入错题本失败：' + (errDetail(err) || '请稍后重试。')
+  } finally {
+    savingCapture.value = false
   }
 }
 
@@ -232,6 +280,9 @@ function reset() {
   steps.value = []
   confirmed.value = false
   result.value = null
+  captureId.value = null
+  answerText.value = ''
+  savedCapture.value = false
   errorText.value = ''
   fixOpen.value = false
 }
@@ -241,6 +292,9 @@ function reset() {
 .pgf { margin-top: 12px; }
 .pgf-idle { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pgf-preview { max-width: 300px; max-height: 340px; border-radius: 10px; border: 1px solid var(--border); display: block; margin-bottom: 10px; }
+.pgf-answer-question { color: var(--text-2); font-weight: 600; white-space: pre-wrap; }
+.pgf-answer-copy { color: var(--text); line-height: 1.7; white-space: pre-wrap; }
+.pgf-auto-booked { margin: 0 0 10px; color: #55765c; font-size: 12px; font-weight: 600; }
 .pgf-status { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: var(--text-2); padding: 8px 0; }
 .pgf-card {
   background: var(--card); border: 1px solid #EDF0F4; border-radius: 12px;

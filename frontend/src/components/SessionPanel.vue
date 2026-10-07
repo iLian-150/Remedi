@@ -1,10 +1,10 @@
 <!-- 历史对话面板（v0.6.0 新增，双端共用）：参考 Muse 式会话列表——
-     干净的列表行：标题 + 相对时间 + 消息数，当前会话高亮；顶部「+ 新对话」；
+     干净的列表行：标题 + 相对时间，当前会话高亮；顶部「+ 新对话」；
      每行右侧垃圾桶可单独删除（点一次变「确认删除？」轻确认，再点才删）。
      本组件只管呈现与事件分发，数据由对话页经 store 拉取后传入。 -->
 <template>
-  <div class="session-panel" role="dialog" aria-label="历史对话">
-    <div class="session-panel-head">
+  <div class="session-panel" :class="`session-panel-${variant}`" :role="variant === 'sidebar' ? 'region' : 'dialog'" aria-label="历史对话">
+    <div v-if="variant === 'popover'" class="session-panel-head">
       <span class="session-panel-title"><AppIcon name="history" :size="16" /> 历史对话</span>
       <button class="icon-btn" title="关闭" @click="emit('close')">
         <AppIcon name="x" :size="16" />
@@ -13,6 +13,10 @@
     <button class="session-new-btn" @click="emit('create')">
       <AppIcon name="plus" :size="15" /> 新对话
     </button>
+    <slot v-if="variant === 'sidebar'" name="navigation" />
+    <div v-if="variant === 'sidebar'" class="session-panel-head">
+      <span class="session-panel-title"><AppIcon name="history" :size="16" /> 历史对话</span>
+    </div>
     <div v-if="loading" class="session-empty">加载中…</div>
     <div v-else-if="!sessions.length" class="session-empty">还没有历史对话，先开始聊聊吧。</div>
     <div v-else class="session-list">
@@ -25,7 +29,7 @@
         <button class="session-main" @click="emit('select', s)">
           <span class="session-title">{{ s.title }}</span>
           <span class="session-meta">
-            {{ relativeTime(s.updated_at) }} · {{ s.message_count }} 条消息
+            {{ relativeTime(s.updated_at) }}
           </span>
         </button>
         <template v-if="confirmId === s.id">
@@ -50,11 +54,12 @@ import { ref } from 'vue'
 import type { ChatSession } from '../api/types'
 import AppIcon from './icons/AppIcon.vue'
 
-defineProps<{
+withDefaults(defineProps<{
   sessions: ChatSession[]
   currentId: number | null
   loading: boolean
-}>()
+  variant?: 'popover' | 'sidebar'
+}>(), { variant: 'popover' })
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -90,6 +95,27 @@ function relativeTime(iso: string): string {
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
   padding: 12px; animation: session-pop 0.18s ease both;
 }
+.session-panel-sidebar {
+  position: relative;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+.session-panel-sidebar .session-panel-head { padding: 14px 20px 10px; }
+.session-panel-sidebar .session-new-btn { width: auto; margin: 0 14px 12px; padding: 9px 12px; border-style: solid; }
+.session-panel-sidebar .session-list { min-height: 0; max-height: none; flex: 1 1 auto; padding: 0 10px 12px; }
+.session-panel-sidebar .session-empty { padding: 20px 16px; }
 @keyframes session-pop {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }

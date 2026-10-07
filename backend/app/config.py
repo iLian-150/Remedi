@@ -43,7 +43,7 @@ class Settings:
     # CORS。默认放行所有来源方便前端 dev server 联调；生产请收紧。
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    APP_VERSION: str = "0.6.0"
+    APP_VERSION: str = "0.8.0"
 
 
 settings = Settings()
