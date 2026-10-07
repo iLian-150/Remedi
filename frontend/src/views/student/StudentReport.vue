@@ -1,6 +1,9 @@
-<!-- 学生端：学习报告（v0.2.1 新增；v0.4.0 双列详情 + 二次验证）
+<!-- 学生端：学习报告（v0.2.1 新增；v0.4.0 双列详情 + 二次验证；v0.5.0 科目卡掉落动画）
      对应开题报告「学习记忆层 + 教学反馈层」，四级下钻：
        科目 → 知识点（状态/错误率） → 错题时间线（纵向） → 步骤诊断（跳现有诊断报告页定位到该次提交）
+     v0.5.0：点可用科目吊牌先播掉落动画（挂绳断开、卡片加速下坠淡出，约 450ms），
+       动画结束再展开详情，详情内容从上方落下带一次小回弹；占位卡不触发，
+       prefers-reduced-motion 时直接展开不播动画。
      v0.4.0：科目详情改双列（左知识点列表、右错题时间线）；知识点四态
        （待修复 / 反复出错 / 已订正待验证 / 已修复），未修复的提供「去验证」，
        在右列内嵌 VerifyPanel 做变式题，通过后刷新状态与修复进度。
@@ -24,6 +27,7 @@
           v-for="(s, i) in subjectCards"
           :key="s.key"
           class="hang-wrap"
+          :class="{ dropping: droppingKey === s.key }"
           :style="{ animationDuration: `${4.6 + i * 0.45}s`, animationDelay: `${-i * 1.25}s` }"
         >
           <button
@@ -53,7 +57,7 @@
         还没有作答记录，先去 <router-link to="/student/chat" style="color: var(--primary)">智能批改</router-link> 拍一张作业照片，报告就会慢慢长出来。
       </p>
 
-      <div v-if="activeSubject" ref="detailRef">
+      <div v-if="activeSubject" ref="detailRef" :class="{ 'land-in': landDetail }">
       <section v-for="subj in detailSubjects" :key="subj.subject">
         <!-- 一级：科目总览 -->
         <div class="card">
@@ -231,11 +235,32 @@ const detailSubjects = computed(() =>
   report.value.filter((r) => r.subject === activeSubject.value)
 )
 
-async function enterSubject(s: SubjectCard) {
-  if (s.placeholder) return
+// ---------- 掉落动画（v0.5.0）：点科目吊牌 → 挂绳断开、卡片加速下坠出视口 → 跳进详情，
+// 详情内容从上方落下带一次小回弹。占位卡不触发；prefers-reduced-motion 时直接展开不播动画。
+const droppingKey = ref('')
+const landDetail = ref(false)
+
+async function showDetail(s: SubjectCard) {
   activeSubject.value = s.key
   await nextTick()
   detailRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function enterSubject(s: SubjectCard) {
+  if (s.placeholder || droppingKey.value) return
+  const reduceMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (reduceMotion) {
+    await showDetail(s)
+    return
+  }
+  droppingKey.value = s.key
+  await new Promise((r) => setTimeout(r, 460))
+  droppingKey.value = ''
+  landDetail.value = true
+  await showDetail(s)
+  setTimeout(() => (landDetail.value = false), 650)
 }
 
 // ---------- 知识点选中（v0.4.0：时间线移到右列，选中态驱动右列面板） ----------
@@ -394,9 +419,35 @@ onMounted(async () => {
   font-size: 12.5px; font-weight: 600; color: var(--text-3);
   border: 1px dashed #C7CEDA; border-radius: 999px; padding: 3px 12px; margin-top: 8px;
 }
+/* ---------- 掉落动画（v0.5.0） ---------- */
+/* 挂绳先"断"（快速消失），卡片以加速曲线（近似重力）下坠、轻微旋转并淡出 */
+.hang-wrap.dropping {
+  position: relative; z-index: 6; pointer-events: none;
+  animation: card-fall 0.45s cubic-bezier(0.55, 0.06, 0.68, 0.19) forwards;
+}
+@keyframes card-fall {
+  0% { transform: rotate(0deg) translateY(0); opacity: 1; }
+  15% { transform: rotate(1.4deg) translateY(8px); opacity: 1; }
+  100% { transform: rotate(7deg) translateY(105vh); opacity: 0.1; }
+}
+.hang-wrap.dropping .hang-string {
+  opacity: 0; transform: scaleY(0.25); transform-origin: top center;
+  transition: opacity 0.09s ease, transform 0.09s ease;
+}
+.hang-wrap.dropping .hang-hole { opacity: 0.35; }
+/* 详情入场：从上方落下，落定带一次小回弹 */
+.land-in { animation: land-drop 0.6s cubic-bezier(0.22, 1.15, 0.36, 1) both; }
+@keyframes land-drop {
+  0% { transform: translateY(-36px); opacity: 0; }
+  55% { transform: translateY(6px); opacity: 1; }
+  78% { transform: translateY(-2px); }
+  100% { transform: translateY(0); opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   .hang-wrap { animation: none; }
   .hang-card { transition: none; }
+  .hang-wrap.dropping { animation: none; }
+  .land-in { animation: none; }
 }
 
 .fix-progress { margin-top: 16px; }

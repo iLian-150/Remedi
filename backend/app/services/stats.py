@@ -3,8 +3,26 @@ from typing import Dict, List
 
 from sqlalchemy import func
 
-from ..models import Assignment, Correction, Error, Essay, Question, Step, Submission, User, Verification
+from ..models import Assignment, AssignmentExt, Correction, Error, Essay, Question, Step, Submission, User, Verification, Workbook
 from .providers import get_provider
+
+
+def assignment_ext_fields(db, assignment_id: int) -> Dict:
+    """作业扩展字段（v0.5.0）：无 ext 行 = 线上作业，其余字段为 None。
+    学生/教师作业列表与详情、学生简报共用同一口径拼装。"""
+    ext = db.query(AssignmentExt).filter(AssignmentExt.assignment_id == assignment_id).first()
+    if not ext:
+        return {"mode": "online", "workbook_title": None, "page_range": None, "deadline": None}
+    workbook_title = None
+    if ext.workbook_id:
+        wb = db.query(Workbook).filter(Workbook.id == ext.workbook_id).first()
+        workbook_title = wb.title if wb else None
+    return {
+        "mode": ext.mode or "online",
+        "workbook_title": workbook_title,
+        "page_range": ext.page_range,
+        "deadline": ext.deadline,
+    }
 
 
 def top_error_questions(db, n: int = 10) -> List[Dict]:
@@ -165,6 +183,8 @@ def student_briefing(db, student: User) -> Dict:
                 "question_count": len(questions),
                 "remaining_count": remaining,
                 "created_at": a.created_at,
+                # v0.5.0：线下作业在简报里同样带模式/练习册/页码/截止字段
+                **assignment_ext_fields(db, a.id),
             })
 
     # 错误集合（待订正判定 + 薄弱点聚合共用）

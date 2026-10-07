@@ -45,6 +45,7 @@ from ..services.diagnosis import diagnose_submission, present_diagnosis, present
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
+    assignment_ext_fields,
     knowledge_point_errors,
     student_briefing,
     student_profile,
@@ -65,6 +66,8 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
         result.append({
             "id": a.id, "title": a.title, "description": a.description,
             "question_count": qc, "created_at": a.created_at,
+            # v0.5.0：发布模式与线下作业信息（mode/workbook_title/page_range/deadline）
+            **assignment_ext_fields(db, a.id),
         })
     return {"total": len(result), "items": result}
 
@@ -82,6 +85,7 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
     return AssignmentDetail(
         id=a.id, title=a.title, description=a.description,
         questions=[QuestionOut.model_validate(q) for q in questions],
+        **assignment_ext_fields(db, a.id),
     )
 
 
@@ -435,6 +439,18 @@ def agent_history(db: Session = Depends(get_db), current: User = Depends(require
         {"role": r.role, "content": r.content, "created_at": r.created_at}
         for r in reversed(rows)
     ]
+
+
+@router.post("/agent/new-session", summary="开始新对话（清空我的对话记录，v0.5.0 新增）")
+def agent_new_session(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    """「新对话」：删除本人在 chat_messages 的全部记录，前端对话区随之重置。"""
+    cleared = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == current.id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"cleared_count": cleared}
 
 
 # ---------- 站内提醒（v0.3.0 新增） ----------
