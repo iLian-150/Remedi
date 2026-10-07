@@ -144,6 +144,7 @@
 
 - 索引：`ix_chat_messages_user_id`。
 - 说明：学生主页 Agent 的对话持久化；组上下文取最近 20 条，历史接口返回最近 50 条。
+- **v0.6.0 起停用**：对话改走 `chat_sessions` / `chat_session_messages`（2.14 / 2.15）；本表存量数据在用户首次访问会话接口时迁入一条「之前的对话」会话后删除对应行，本表不再写入。
 
 ### 2.10 notifications —— 站内提醒（v0.3.0 新增）
 
@@ -201,6 +202,33 @@
 | deadline | TIMESTAMP | 是 | NULL | 线下作业截止时间 |
 
 - 说明：**无 ext 行 = 线上作业**（`assignments` 老数据零迁移）；`mode=offline` 发布时才写行。删除作业时应用层一并删除 ext 行；删除练习册时把引用它的 `workbook_id` 置 NULL（只更新本新表，不动老表）。
+- v0.6.0 备注：练习册封面图不落库——上传时把 PDF 第一页渲染为 `UPLOAD_DIR/covers/{workbook_id}.jpg`（列表时缺失则懒生成），按文件名与本表 id 约定关联。
+
+### 2.14 chat_sessions —— Agent 对话会话（v0.6.0 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| id | INTEGER PK 自增 | 否 | — | 主键 |
+| user_id | INTEGER FK → users.id | 否 | — | 会话所属用户（学生/教师共用，按 user_id 隔离） |
+| title | VARCHAR(128) | 否 | `新对话` | 会话标题；首条用户消息到达时自动改为该消息前 20 字；迁移生成的会话为「之前的对话」 |
+| created_at | TIMESTAMP | 否 | now | 创建时间 |
+| updated_at | TIMESTAMP | 否 | now | 最近活动时间（每次追加消息刷新）；「当前会话」= 本人 updated_at 最大的一条 |
+
+- 索引：`ix_chat_sessions_user_id`。
+- 说明：v0.6.0 对话会话化。旧表 `chat_messages` 停用：用户首次访问会话接口且尚无任何会话时，其旧消息被整体复制为一条「之前的对话」会话后删除旧行（防重复迁移）。
+
+### 2.15 chat_session_messages —— 会话内消息（v0.6.0 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| id | INTEGER PK 自增 | 否 | — | 主键 |
+| session_id | INTEGER FK → chat_sessions.id | 否 | — | 所属会话 |
+| role | VARCHAR(16) | 否 | — | `user` \| `assistant` |
+| content | TEXT | 否 | — | 消息文本 |
+| created_at | TIMESTAMP | 否 | now | 发送时间 |
+
+- 索引：`ix_chat_session_messages_session_id`。
+- 说明：上下文组装只取当前会话最近 20 条，会话之间隔离；删除会话时应用层一并删除其消息。
 
 ## 3. 关系图（ER，文本版）
 
@@ -211,7 +239,9 @@ users 1 ──< corrections (student_id)
 users 1 ──< essays (student_id)
 users 1 ──< verifications (student_id)
 users 1 ──< workbooks (teacher_id)
+users 1 ──< chat_sessions (user_id)
 errors 1 ──< verifications (source_error_id, 可空)
+chat_sessions 1 ──< chat_session_messages (session_id)
 
 assignments 1 ──< questions (assignment_id)
 assignments 1 ─── assignment_ext (assignment_id, 1:0..1)
@@ -282,3 +312,4 @@ WHERE s.student_id = S
 | v0.3.0 | 2026-10-07 | 新增两张表：`chat_messages`（Agent 对话记录）、`notifications`（站内提醒）；不改任何现有表/列。删除作业走应用层级联（见 api-contract 4.10） |
 | v0.4.0 | 2026-10-07 | 新增一张表：`verifications`（二次验证记录）；不改任何现有表/列。知识点状态口径升级为四态（见 api-contract 3.13），「已修复」只认 verifications 的 passed 记录 |
 | v0.5.0 | 2026-10-07 | 新增两张表：`workbooks`（练习册知识库）、`assignment_ext`（作业发布模式扩展）；不改任何现有表/列。教师 Agent 对话复用 `chat_messages`（按 user_id 区分），提醒未交复用 `notifications`（新 type 值 `teacher_reminder`） |
+| v0.6.0 | 2026-10-07 | 新增两张表：`chat_sessions`（对话会话）、`chat_session_messages`（会话内消息）；不改任何现有表/列。`chat_messages` 停用（旧数据首次访问会话接口时迁移为「之前的对话」会话后清空对应行）。练习册封面走文件约定（UPLOAD_DIR/covers/{id}.jpg），不给 `workbooks` 加列 |

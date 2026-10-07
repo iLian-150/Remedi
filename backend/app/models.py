@@ -142,6 +142,31 @@ class ChatMessage(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class ChatSession(Base):
+    """Agent 对话会话（v0.6.0 新增表）：一次「新对话」= 一条会话，
+    旧会话保留在历史列表里可找回、可单独删除。标题默认「新对话」，
+    第一条用户消息到达时自动改为该消息前 20 字。"""
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(128), nullable=False, default="新对话")
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class ChatSessionMessage(Base):
+    """会话内消息（v0.6.0 新增表）：与旧 chat_messages 分开存，
+    上下文组装时只取当前会话的消息，会话之间互不串扰。"""
+    __tablename__ = "chat_session_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id"), nullable=False, index=True)
+    role = Column(String(16), nullable=False, comment="user | assistant")
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class Notification(Base):
     """站内提醒（v0.3.0 新增表）：如教师一键纠错后提醒被纠错的学生。"""
     __tablename__ = "notifications"

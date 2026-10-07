@@ -1,6 +1,9 @@
 <!-- 拍照批改流程组件（v0.3.0 抽取）：选图 → 转写卡片（可编辑） → 确认批改 → 诊断卡片。
      props.questionId 为归属题目（固定，不再让学生选）；批改完成 emit('graded', 诊断结果)。
      供交作业页原地展开使用；对话页保留其消息流内的同款流程。
+     v0.6.0 新增 direct 模式（交作业页用）：选完照片自动转写并立刻提交诊断，
+     不再出现转写确认这一步，直接出诊断卡；诊断卡上保留补救——展示识别到的
+     步骤原文，并可展开原编辑器修改后重新提交。对话页仍用默认确认模式。
      学生端文案口径：批改结果署名统一为「老师批改/批改结果」，不出现「顽固」「置信度」。 -->
 <template>
   <div class="pgf">
@@ -15,33 +18,34 @@
 
     <img v-if="previewUrl" :src="previewUrl" alt="作答照片" class="pgf-preview" />
 
-    <p v-if="phase === 'transcribing'" class="pgf-status">
-      <AppIcon name="spinner" :size="15" class="spin" /> 正在识别照片里的解题步骤…
+    <p v-if="phase === 'transcribing' || (direct && phase === 'submitting')" class="pgf-status">
+      <AppIcon name="spinner" :size="15" class="spin" /> {{ direct ? '正在识别并批改…' : '正在识别照片里的解题步骤…' }}
     </p>
     <div v-if="errorText" class="error-msg" style="margin-top: 10px">{{ errorText }}</div>
 
-    <!-- 转写卡片 -->
-    <div v-if="phase === 'transcribed' || phase === 'submitting' || phase === 'done'" class="pgf-card">
+    <!-- 转写卡片（direct 模式默认不出现，仅在诊断卡里展开「修改重交」时显示） -->
+    <div v-if="cardVisible" class="pgf-card">
       <p class="pgf-card-title"><AppIcon name="camera" :size="16" /> 照片转写结果</p>
       <p class="hint" style="margin-bottom: 8px">先把照片里的内容转写出来，认错的地方可以直接改，确认无误后点「确认批改」。</p>
       <label class="mini-label">题干</label>
-      <input v-model="questionText" type="text" :disabled="confirmed" />
+      <input v-model="questionText" type="text" :disabled="confirmed && !fixOpen" />
       <label class="mini-label">解题步骤（每行一步，不用写题干）</label>
       <div v-for="(s, i) in steps" :key="i" class="transcribe-step">
         <span class="tnum step-idx">{{ i + 1 }}</span>
-        <input v-model="steps[i]" type="text" :disabled="confirmed" />
-        <button class="icon-btn" title="删除这一步" :disabled="confirmed" @click="steps.splice(i, 1)">
+        <input v-model="steps[i]" type="text" :disabled="confirmed && !fixOpen" />
+        <button class="icon-btn" title="删除这一步" :disabled="confirmed && !fixOpen" @click="steps.splice(i, 1)">
           <AppIcon name="x" :size="15" />
         </button>
       </div>
-      <button class="btn small secondary inline-icon" :disabled="confirmed" @click="steps.push('')">
+      <button class="btn small secondary inline-icon" :disabled="confirmed && !fixOpen" @click="steps.push('')">
         <AppIcon name="plus" :size="14" /> 添加一步
       </button>
       <div class="toolbar" style="margin: 12px 0 0">
-        <button class="btn" :disabled="confirmed || phase === 'submitting'" @click="confirm">
-          {{ confirmed ? '已批改' : phase === 'submitting' ? '批改中…' : '确认批改' }}
+        <button class="btn" :disabled="(confirmed && !fixOpen) || phase === 'submitting'" @click="confirm">
+          {{ phase === 'submitting' ? '批改中…' : fixOpen ? '重新提交批改' : confirmed ? '已批改' : '确认批改' }}
         </button>
-        <button v-if="phase === 'done'" class="btn secondary" @click="reset">再拍一张</button>
+        <button v-if="fixOpen" class="btn secondary" @click="fixOpen = false">收起修改</button>
+        <button v-if="phase === 'done' && !fixOpen" class="btn secondary" @click="reset">再拍一张</button>
       </div>
     </div>
 
@@ -87,12 +91,24 @@
         <span class="followup-icon"><AppIcon name="lightbulb" :size="15" /></span>
         <p><b>想一想：</b>{{ result.follow_up_question }}</p>
       </div>
+
+      <!-- direct 模式补救（v0.6.0）：展示本次识别到的步骤原文，可展开编辑器改后重交 -->
+      <div v-if="direct" class="fix-box">
+        <p class="fix-title">这次是按下面这些步骤批改的（照片识别结果）：</p>
+        <ol class="fix-steps">
+          <li v-for="(s, i) in steps" :key="i">{{ s }}</li>
+        </ol>
+        <button v-if="!fixOpen" class="btn small secondary" @click="fixOpen = true">
+          识别不准？展开修改并重新提交
+        </button>
+        <button class="btn small ghost" style="margin-left: 8px" @click="reset">再拍一张</button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useStudentStore } from '../stores/student'
 import type { StepStatus, SubmissionResult } from '../api/types'
 import { STEP_STATUS_TEXT } from '../api/types'
@@ -101,10 +117,15 @@ import AppIcon from './icons/AppIcon.vue'
 import type { IconName } from './icons/paths'
 import ErrorTypeBadge from './ErrorTypeBadge.vue'
 
-const props = defineProps<{
-  questionId: number
-  questionStem?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    questionId: number
+    questionStem?: string
+    /** v0.6.0：direct 模式——选完照片自动转写并立刻提交诊断，跳过转写确认步 */
+    direct?: boolean
+  }>(),
+  { direct: false }
+)
 const emit = defineEmits<{ (e: 'graded', result: SubmissionResult): void }>()
 
 const student = useStudentStore()
@@ -119,6 +140,15 @@ const questionText = ref('')
 const steps = ref<string[]>([])
 const confirmed = ref(false)
 const result = ref<SubmissionResult | null>(null)
+/** direct 模式下，诊断卡里展开原编辑器改步骤重交 */
+const fixOpen = ref(false)
+
+/** 转写卡片可见性：确认模式下转写后即显示；direct 模式仅在展开修改时显示 */
+const cardVisible = computed(
+  () =>
+    (phase.value === 'transcribed' || phase.value === 'submitting' || phase.value === 'done') &&
+    (!props.direct || fixOpen.value)
+)
 
 function stepIcon(s: StepStatus): IconName {
   return { stem: 'file', ok: 'check', error: 'x', unparseable: 'help', skipped: 'minus' }[s] as IconName
@@ -151,6 +181,12 @@ async function onFileChange(e: Event) {
     questionText.value = res.question_text
     steps.value = [...res.steps]
     phase.value = 'transcribed'
+    // direct 模式（v0.6.0）：转写完立刻提交诊断，不停在确认步
+    if (props.direct) {
+      busy.value = false
+      await submitGrade()
+      return
+    }
   } catch (err) {
     phase.value = 'idle'
     errorText.value = '识别失败：' + (errDetail(err) || '请稍后重试。')
@@ -160,10 +196,12 @@ async function onFileChange(e: Event) {
   }
 }
 
-async function confirm() {
+async function submitGrade() {
   const cleaned = steps.value.map((s) => s.trim()).filter(Boolean)
   if (!cleaned.length) {
-    errorText.value = '转写卡片里的步骤是空的，先补上步骤再确认批改。'
+    errorText.value = '识别到的步骤是空的，展开修改补上步骤再重新提交。'
+    phase.value = 'transcribed'
+    if (props.direct) fixOpen.value = true
     return
   }
   errorText.value = ''
@@ -172,13 +210,19 @@ async function confirm() {
     const res = await student.submitMath({ question_id: props.questionId, steps: cleaned })
     result.value = res
     confirmed.value = true
+    fixOpen.value = false
     phase.value = 'done'
     emit('graded', res)
   } catch (e) {
-    phase.value = 'transcribed'
+    // 已有诊断结果时（改后重交失败）留在 done 展示旧结果；首次失败回转写卡
+    phase.value = result.value ? 'done' : 'transcribed'
     errorText.value = '批改失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
   }
+}
+
+async function confirm() {
+  await submitGrade()
 }
 
 function reset() {
@@ -189,6 +233,7 @@ function reset() {
   confirmed.value = false
   result.value = null
   errorText.value = ''
+  fixOpen.value = false
 }
 </script>
 
@@ -235,6 +280,14 @@ function reset() {
   display: flex; align-items: center; justify-content: center;
 }
 .followup-box p { padding-top: 2px; }
+.fix-box {
+  margin-top: 14px; padding-top: 12px; border-top: 1px dashed #E4E9F2;
+}
+.fix-title { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.fix-steps {
+  margin: 0 0 10px; padding-left: 22px;
+  font-size: 13.5px; color: var(--text-2); line-height: 1.7;
+}
 .spin { animation: pgf-spin 1s linear infinite; }
 @keyframes pgf-spin { to { transform: rotate(360deg); } }
 </style>

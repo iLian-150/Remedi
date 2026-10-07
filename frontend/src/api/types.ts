@@ -298,7 +298,26 @@ export interface Workbook {
   id: number
   title: string
   file_url: string // /api/uploads/workbooks/<文件名>
+  cover_url: string | null // v0.6.0 新增：PDF 首页封面图，无封面时为 null（前端用纯色书脊兜底）
   created_at: string
+}
+
+// ---------- v0.6.0 新增：对话会话（双端共用结构） ----------
+// 契约见 docs/api-contract.md v0.6.0 第 3.23~3.26 / 4.19~4.22 节
+
+export interface ChatSession {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+  message_count: number
+}
+
+// POST /api/{role}/agent/chat 响应：回复 + 建议追问 + 实际写入的会话
+export interface AgentChatResult {
+  reply: string
+  suggestions: string[]
+  session_id: number | null
 }
 
 // ---------- v0.2.1 新增：学习报告（科目 → 知识点 → 错题时间线 → 步骤诊断） ----------
