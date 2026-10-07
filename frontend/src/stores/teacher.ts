@@ -3,6 +3,7 @@
 import { defineStore } from 'pinia'
 import api from '../api/client'
 import type {
+  ClassRepairRate,
   GradingError,
   KnowledgePointStat,
   PageResult,
@@ -25,7 +26,14 @@ export interface ErrorFilter {
 }
 
 export const useTeacherStore = defineStore('teacher', {
+  state: () => ({
+    /** 作业管理页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
+    assignmentDateFilter: ''
+  }),
   actions: {
+    setAssignmentDateFilter(date: string) {
+      this.assignmentDateFilter = date
+    },
     // 4.1 错误记录列表（批改列表）
     async fetchErrors(filter: ErrorFilter = {}): Promise<PageResult<TeacherErrorItem>> {
       const { data } = await api.get<PageResult<TeacherErrorItem>>('/api/teacher/errors', { params: filter })
@@ -47,6 +55,11 @@ export const useTeacherStore = defineStore('teacher', {
     async fetchKnowledgePoints(): Promise<KnowledgePointStat[]> {
       const { data } = await api.get<{ items: KnowledgePointStat[] }>('/api/teacher/stats/knowledge-points')
       return data.items
+    },
+    // 4.11 班级知识修复率（v0.4.0）：全班口径 + 各知识点修复率
+    async fetchRepairRate(): Promise<ClassRepairRate> {
+      const { data } = await api.get<ClassRepairRate>('/api/teacher/stats/repair-rate')
+      return data
     },
     // 4.5 学生列表
     async fetchStudents(): Promise<StudentSummary[]> {

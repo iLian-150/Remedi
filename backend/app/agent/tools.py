@@ -16,7 +16,8 @@ from ..services.stats import (
 _STATUS_LABEL = {
     "pending": "待修复",
     "stubborn": "需要加固（反复出错）",
-    "fixed": "已加固",
+    "awaiting_verify": "已订正，待验证",
+    "fixed": "已修复",
 }
 
 
@@ -95,7 +96,7 @@ def build_tools(db: Session, student: User) -> list:
 
     @tool
     def get_my_report() -> str:
-        """查询学生的学习报告摘要：各科目提交次数、正确率，以及每个知识点的错误率和状态（待修复/需要加固/已加固）。当学生问"我学得怎么样""哪个知识点最弱"时调用。"""
+        """查询学生的学习报告摘要：各科目提交次数、正确率，以及每个知识点的错误率和状态（待修复/需要加固/已订正待验证/已修复）。当学生问"我学得怎么样""哪个知识点最弱"时调用。"""
         return report_to_text(student_report(db, student))
 
     @tool

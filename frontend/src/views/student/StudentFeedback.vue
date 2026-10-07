@@ -58,6 +58,11 @@
             <router-link to="/student/corrections"><button class="btn small secondary">去订正这道题</button></router-link>
           </div>
         </div>
+        <!-- 追问（v0.4.0）：订正之前先想一想 -->
+        <div v-if="mathDetail.follow_up_question" class="followup-box">
+          <span class="followup-icon"><AppIcon name="lightbulb" :size="15" /></span>
+          <p><b>想一想：</b>{{ mathDetail.follow_up_question }}</p>
+        </div>
       </div>
       <div class="card" v-else>
         <div class="empty">这次全对，继续保持！</div>
@@ -78,6 +83,7 @@ import type { SubmissionResult, SubmissionSummary } from '../../api/types'
 import { STEP_STATUS_TEXT, SUBMISSION_STATUS_TEXT } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
 const route = useRoute()
@@ -128,4 +134,15 @@ onMounted(async () => {
 .error-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .encourage { margin-top: 8px; font-size: 14px; color: var(--text); }
 .detail { margin-top: 6px; font-size: 14px; color: var(--text-2); }
+.followup-box {
+  display: flex; gap: 9px; align-items: flex-start;
+  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  padding: 11px 14px; margin-top: 4px; font-size: 14px;
+}
+.followup-icon {
+  width: 25px; height: 25px; border-radius: 50%; flex-shrink: 0;
+  background: var(--primary); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.followup-box p { padding-top: 2px; }
 </style>
