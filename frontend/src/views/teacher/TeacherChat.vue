@@ -2,8 +2,8 @@
      班级数据助理：可问某份作业提交情况、知识点错误率、班级知识修复率、学生画像等，
      回答全部来自系统真实数据（LangGraph 教师 Agent，接口 4.12~4.22）。
      v0.6.0：版式改全屏（内容铺满、对话列居中放宽至约 960px、输入区固定底部整宽）；
-     对话按会话组织——「新对话」新建会话，旧会话经页头「历史对话」面板找回/删除；
-     每轮回复后在最新回复下方弹出建议气泡（后端 suggestions 字段，点击直接发送）。 -->
+     对话按会话组织；每轮回复后在最新回复下方弹出建议气泡（后端 suggestions 字段，点击直接发送）。
+     v0.6.2：会话导航移入左侧栏（ChatGPT 式），本页只管消息流；输入区改悬浮毛玻璃卡。 -->
 <template>
   <div class="tchat-shell">
     <div class="tchat-col">
@@ -11,26 +11,6 @@
         <div>
           <h2>AI 助手</h2>
           <p class="tchat-sub">问问班级的情况：谁还没交作业、哪个知识点最严重、修复率怎么样。</p>
-        </div>
-        <div class="tchat-head-actions">
-          <div class="session-anchor">
-            <button class="btn secondary inline-icon" @click="togglePanel">
-              <AppIcon name="history" :size="15" /> 历史对话
-            </button>
-            <SessionPanel
-              v-if="panelOpen"
-              :sessions="sessions"
-              :current-id="currentSessionId"
-              :loading="sessionsLoading"
-              @close="panelOpen = false"
-              @create="startNewSession"
-              @select="switchSession"
-              @remove="removeSession"
-            />
-          </div>
-          <button class="btn secondary inline-icon" :disabled="resetting" @click="startNewSession">
-            <AppIcon name="plus" :size="15" /> 新对话
-          </button>
         </div>
       </div>
 
@@ -76,6 +56,8 @@
           <div v-if="loadingInit" class="loading">正在加载对话…</div>
         </div>
 
+        <!-- 输入区（v0.6.2 改悬浮卡：毛玻璃卡悬浮在面板底部，消息从卡下滚过；
+             输入框无边框融入卡内，发送是卡内右侧主色圆形钮） -->
         <div class="tchat-composer">
           <input
             v-model="input"
@@ -85,8 +67,13 @@
             :disabled="sending"
             @keyup.enter="sendText(input)"
           />
-          <button class="btn inline-icon" :disabled="sending || !input.trim()" @click="sendText(input)">
-            <AppIcon name="send" :size="16" /> 发送
+          <button
+            class="send-circle"
+            title="发送"
+            :disabled="sending || !input.trim()"
+            @click="sendText(input)"
+          >
+            <AppIcon name="send" :size="17" />
           </button>
         </div>
       </div>
@@ -95,12 +82,10 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
-import type { ChatSession } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
-import SessionPanel from '../../components/SessionPanel.vue'
 
 const auth = useAuthStore()
 const teacher = useTeacherStore()
@@ -123,18 +108,13 @@ const messages = ref<Msg[]>([])
 let seq = 0
 const input = ref('')
 const sending = ref(false)
-const resetting = ref(false)
 const loadingInit = ref(true)
 const toast = ref('')
 const error = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
 
-// ---------- 会话（v0.6.0） ----------
-const sessions = ref<ChatSession[]>([])
-const currentSessionId = ref<number | null>(null)
-const panelOpen = ref(false)
-const sessionsLoading = ref(false)
-
+// ---------- 会话（v0.6.0 会话制；v0.6.2 导航移入左侧栏，会话状态归 store 与侧栏共用） ----------
+// 本页不持有会话列表：侧栏操作改 store.sessionView，本页 watch seq 变化后同步重渲染。
 // ---------- 建议气泡（v0.6.0）：只存最新一轮的建议 ----------
 const suggestions = ref<string[]>([])
 
@@ -182,10 +162,12 @@ async function sendText(raw: string) {
   const wait = pushMsg('ai', '正在查询…', true)
   sending.value = true
   try {
-    const res = await teacher.agentChat(text, currentSessionId.value)
+    const res = await teacher.agentChat(text, teacher.activeSessionId)
     wait.text = res.reply
-    if (res.session_id) currentSessionId.value = res.session_id
+    if (res.session_id) teacher.setActiveSession(res.session_id)
     suggestions.value = res.suggestions ?? []
+    // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排
+    teacher.loadSessions(true)
   } catch (e) {
     wait.text = '查询失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
@@ -194,23 +176,6 @@ async function sendText(raw: string) {
     sending.value = false
     scrollToBottom()
   }
-}
-
-// ---------- 会话操作（v0.6.0） ----------
-async function loadSessions() {
-  sessionsLoading.value = true
-  try {
-    sessions.value = await teacher.fetchSessions()
-  } catch (e) {
-    console.error(e)
-  } finally {
-    sessionsLoading.value = false
-  }
-}
-
-function togglePanel() {
-  panelOpen.value = !panelOpen.value
-  if (panelOpen.value) loadSessions()
 }
 
 function renderHistory(rows: { role: string; content: string }[]) {
@@ -222,73 +187,43 @@ function renderHistory(rows: { role: string; content: string }[]) {
   }
 }
 
-async function startNewSession() {
-  if (resetting.value) return
-  resetting.value = true
-  try {
-    const s = await teacher.newAgentSession()
-    currentSessionId.value = s.id
+// ---------- 会话查看同步（v0.6.2）：侧栏操作 → store.sessionView.seq 递增 → 本页重渲染 ----------
+let appliedViewSeq = 0
+watch(
+  () => teacher.sessionView.seq,
+  async (seq) => {
+    if (seq === appliedViewSeq) return
+    appliedViewSeq = seq
+    const view = teacher.sessionView
     suggestions.value = []
-    panelOpen.value = false
-    renderHistory([])
-    showToast('已开始新对话')
-  } catch (e) {
-    error.value = '开启新对话失败：' + (errDetail(e) || '请稍后重试。')
-    console.error(e)
-  } finally {
-    resetting.value = false
-  }
-}
-
-async function switchSession(s: ChatSession) {
-  if (s.id === currentSessionId.value) {
-    panelOpen.value = false
-    return
-  }
-  try {
-    const rows = await teacher.fetchSessionMessages(s.id)
-    currentSessionId.value = s.id
-    suggestions.value = []
-    panelOpen.value = false
-    renderHistory(rows)
-    scrollToBottom()
-  } catch (e) {
-    error.value = '打开这条对话失败：' + (errDetail(e) || '请稍后重试。')
-    console.error(e)
-  }
-}
-
-async function removeSession(s: ChatSession) {
-  try {
-    await teacher.deleteSession(s.id)
-    sessions.value = sessions.value.filter((x) => x.id !== s.id)
-    if (s.id === currentSessionId.value) {
-      // 删掉的是当前会话：切到列表里最新的一条，没有就回到欢迎态
-      const next = sessions.value[0]
-      if (next) {
-        const rows = await teacher.fetchSessionMessages(next.id)
-        currentSessionId.value = next.id
+    error.value = ''
+    if (view.fresh) {
+      renderHistory([])
+      showToast('已开始新对话')
+    } else if (view.id != null) {
+      try {
+        const rows = await teacher.fetchSessionMessages(view.id)
         renderHistory(rows)
-      } else {
-        currentSessionId.value = null
-        renderHistory([])
+      } catch (e) {
+        error.value = '打开这条对话失败：' + (errDetail(e) || '请稍后重试。')
+        console.error(e)
       }
-      suggestions.value = []
+    } else {
+      // 会话全删光了：回到欢迎态
+      renderHistory([])
     }
-    showToast('已删除这条对话')
-  } catch (e) {
-    error.value = '删除失败：' + (errDetail(e) || '请稍后重试。')
-    console.error(e)
+    scrollToBottom()
   }
-}
+)
 
 onMounted(async () => {
   try {
     const history = await teacher.fetchAgentHistory()
     renderHistory(history)
-    // 当前会话 = 列表里最近更新的一条
-    await loadSessions()
-    currentSessionId.value = sessions.value[0]?.id ?? null
+    // 当前会话定位（v0.6.2）：会话状态归 store 与侧栏共用；
+    // appliedViewSeq 对齐当前值，避免把挂载前的查看请求误当新切换
+    await teacher.loadSessions()
+    appliedViewSeq = teacher.sessionView.seq
   } catch (e) {
     renderHistory([])
     console.error(e)
@@ -306,8 +241,6 @@ onMounted(async () => {
 .tchat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .tchat-head h2 { font-size: 24px; letter-spacing: 0.2px; }
 .tchat-sub { font-size: 13.5px; color: var(--text-2); margin-top: 4px; }
-.tchat-head-actions { display: flex; gap: 8px; align-items: flex-start; }
-.session-anchor { position: relative; }
 
 .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .chip {
@@ -325,9 +258,10 @@ onMounted(async () => {
 .tchat-panel {
   background: var(--card); border: 1px solid #EDF0F4; border-radius: 14px;
   box-shadow: var(--shadow); display: flex; flex-direction: column;
-  flex: 1; min-height: 380px; overflow: hidden;
+  flex: 1; min-height: 380px; overflow: hidden; position: relative;
 }
-.tchat-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+/* 底部留白给悬浮输入卡让位，最后的消息不被卡片遮住 */
+.tchat-body { flex: 1; overflow-y: auto; padding: 18px 20px 118px; }
 .msg-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
 .msg-row.user { flex-direction: row-reverse; }
 .msg-avatar {
@@ -356,21 +290,51 @@ onMounted(async () => {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* 悬浮输入卡（v0.6.2）：毛玻璃卡悬浮在面板底部，滚动内容从卡下透过去；
+   输入框无边框融入卡内，发送是卡内右侧主色圆形钮，聚焦时卡带主色光晕 */
 .tchat-composer {
-  border-top: 1px solid var(--border); padding: 12px 14px;
-  display: flex; gap: 10px; align-items: center;
+  position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 5;
+  display: flex; gap: 8px; align-items: center;
+  background: rgba(255, 255, 255, 0.88);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid #E2E9F5; border-radius: 20px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06);
+  padding: 10px 12px;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
 }
-.tchat-input { flex: 1; min-width: 0; padding: 12px 14px; font-size: 14.5px; }
+.tchat-composer:focus-within {
+  border-color: #B9CFF7;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 0 0 3px rgba(29, 78, 216, 0.14);
+}
+.tchat-input {
+  flex: 1; min-width: 0; padding: 10px 6px; font-size: 15px;
+  border: none; background: transparent; box-shadow: none;
+}
+.tchat-input:focus { border: none; box-shadow: none; outline: none; }
+.send-circle {
+  width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--primary); border: 1px solid var(--primary); color: #fff;
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.35); cursor: pointer; font-family: var(--font);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.send-circle:hover:not(:disabled) { transform: scale(1.07); box-shadow: 0 6px 16px rgba(29, 78, 216, 0.42); }
+.send-circle:disabled { opacity: 0.45; cursor: not-allowed; }
 .spin { animation: tchat-spin 1s linear infinite; flex-shrink: 0; margin-top: 2px; }
 @keyframes tchat-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .chip, .suggest-chip { transition: none; }
   .suggest-chip { animation: none; }
   .spin { animation: none; }
+  .tchat-composer, .send-circle { transition: none; }
+  .send-circle:hover:not(:disabled) { transform: none; }
 }
 @media (max-width: 960px) {
   .tchat-shell { height: calc(100dvh - 52px); padding: 14px 14px 16px; }
   .bubble { max-width: 88%; }
   .suggest-row { margin-left: 0; }
+  .tchat-composer { left: 10px; right: 10px; bottom: 10px; border-radius: 18px; }
+  .tchat-body { padding-bottom: 112px; }
 }
 </style>
