@@ -11,13 +11,30 @@
           <AppIcon name="sparkles" :size="20" />
           <span>智能批改</span>
           <span class="hint">拍一张作业照片，老师会逐步帮你检查；也可以直接打字问我问题</span>
-          <button
-            class="btn small secondary inline-icon new-session-btn"
-            :disabled="resettingSession"
-            @click="newSession"
-          >
-            <AppIcon name="plus" :size="14" /> 新对话
-          </button>
+          <span class="head-actions">
+            <span class="session-anchor">
+              <button class="btn small secondary inline-icon" @click="togglePanel">
+                <AppIcon name="history" :size="14" /> 历史对话
+              </button>
+              <SessionPanel
+                v-if="panelOpen"
+                :sessions="sessions"
+                :current-id="currentSessionId"
+                :loading="sessionsLoading"
+                @close="panelOpen = false"
+                @create="newSession"
+                @select="switchSession"
+                @remove="removeSession"
+              />
+            </span>
+            <button
+              class="btn small secondary inline-icon new-session-btn"
+              :disabled="resettingSession"
+              @click="newSession"
+            >
+              <AppIcon name="plus" :size="14" /> 新对话
+            </button>
+          </span>
         </div>
         <div class="chat-selectors">
           <select v-model="assignmentId" @change="onAssignmentChange" aria-label="选择作业">
@@ -209,6 +226,19 @@
           <div v-else-if="msg.side === 'user'" class="bubble user-bubble">{{ msg.text }}</div>
         </div>
 
+        <!-- 建议气泡（v0.6.0）：只挂最新一轮对话回复，stagger 淡入上浮，点击直接发送 -->
+        <div v-if="suggestions.length && !chatSending" class="suggest-row">
+          <button
+            v-for="(s, i) in suggestions"
+            :key="s"
+            class="suggest-chip"
+            :style="{ animationDelay: `${i * 70}ms` }"
+            @click="sendChat(s)"
+          >
+            {{ s }}
+          </button>
+        </div>
+
         <div v-if="loadingInit" class="loading">正在为你准备学习简报…</div>
       </div>
     </div>
@@ -225,9 +255,9 @@
             type="text"
             placeholder="输入你的问题，回车发送"
             :disabled="chatSending"
-            @keyup.enter="sendChat"
+            @keyup.enter="sendChat()"
           />
-          <button class="btn inline-icon send-btn" :disabled="chatSending || !chatInput.trim()" @click="sendChat">
+          <button class="btn inline-icon send-btn" :disabled="chatSending || !chatInput.trim()" @click="sendChat()">
             <AppIcon name="send" :size="16" /> 发送
           </button>
           <button class="btn photo-main-btn" :disabled="busy" @click="fileRef?.click()">
@@ -249,6 +279,7 @@ import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type {
   Assignment,
+  ChatSession,
   PendingAssignment,
   Question,
   StepStatus,
@@ -261,6 +292,7 @@ import { sanitizeStudentCopy } from '../../utils/errorType'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import SessionPanel from '../../components/SessionPanel.vue'
 
 const auth = useAuthStore()
 const student = useStudentStore()
@@ -399,36 +431,72 @@ async function gotoAssignment(p: PendingAssignment) {
 const chatInput = ref('')
 const chatSending = ref(false)
 
-// ---------- 新对话（v0.5.0）：清空服务端记录，对话区重置回简报置顶 ----------
+// ---------- 会话（v0.6.0）：新对话 = 新建会话，旧会话在「历史对话」里找回 ----------
+const sessions = ref<ChatSession[]>([])
+const currentSessionId = ref<number | null>(null)
+const panelOpen = ref(false)
+const sessionsLoading = ref(false)
+
+// ---------- 建议气泡（v0.6.0）：只存最新一轮回复的建议 ----------
+const suggestions = ref<string[]>([])
+
 const resettingSession = ref(false)
+
+/** 把简报卡作为第一条消息放回对话区（新对话/切换会话后复用） */
+async function prependBriefing() {
+  try {
+    const briefing = await student.fetchBriefing()
+    messages.value.unshift({
+      id: ++seq,
+      side: 'ai',
+      kind: 'briefing',
+      text: '',
+      url: '',
+      briefing,
+      questionText: '',
+      steps: [],
+      questionId: null,
+      confirmed: false,
+      submitting: false,
+      pending: false,
+      result: null
+    })
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function loadSessions() {
+  sessionsLoading.value = true
+  try {
+    sessions.value = await student.fetchSessions()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    sessionsLoading.value = false
+  }
+}
+
+function togglePanel() {
+  panelOpen.value = !panelOpen.value
+  if (panelOpen.value) loadSessions()
+}
 
 async function newSession() {
   if (resettingSession.value || chatSending.value) return
   resettingSession.value = true
   try {
-    await student.newAgentSession()
+    const s = await student.newAgentSession()
+    currentSessionId.value = s.id
+    suggestions.value = []
+    panelOpen.value = false
     messages.value = []
-    try {
-      const briefing = await student.fetchBriefing()
-      messages.value.unshift({
-        id: ++seq,
-        side: 'ai',
-        kind: 'briefing',
-        text: '',
-        url: '',
-        briefing,
-        questionText: '',
-        steps: [],
-        questionId: null,
-        confirmed: false,
-        submitting: false,
-        pending: false,
-        result: null
-      })
-    } catch (e) {
-      console.error(e)
-    }
-    pushMsg({ side: 'ai', kind: 'text', text: '已开始新对话。之前的聊天记录清空啦，有什么想问的尽管说。' })
+    await prependBriefing()
+    pushMsg({
+      side: 'ai',
+      kind: 'text',
+      text: '已开始新对话。之前的对话没有删，点上方「历史对话」随时能找回接着聊。'
+    })
   } catch (e) {
     pushMsg({ side: 'ai', kind: 'error', text: '开启新对话失败：' + (errDetail(e) || '请稍后重试。') })
     console.error(e)
@@ -438,20 +506,65 @@ async function newSession() {
   }
 }
 
-async function sendChat() {
-  const text = chatInput.value.trim()
+/** 切换到某条历史会话：简报卡保留置顶，其余消息换成该会话的记录 */
+async function switchSession(s: ChatSession) {
+  if (s.id === currentSessionId.value) {
+    panelOpen.value = false
+    return
+  }
+  try {
+    const rows = await student.fetchSessionMessages(s.id)
+    currentSessionId.value = s.id
+    suggestions.value = []
+    panelOpen.value = false
+    messages.value = messages.value.filter((m) => m.kind === 'briefing')
+    rows.forEach((h) =>
+      pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content })
+    )
+    scrollToBottom()
+  } catch (e) {
+    pushMsg({ side: 'ai', kind: 'error', text: '打开这条对话失败：' + (errDetail(e) || '请稍后重试。') })
+    console.error(e)
+  }
+}
+
+async function removeSession(s: ChatSession) {
+  try {
+    await student.deleteSession(s.id)
+    sessions.value = sessions.value.filter((x) => x.id !== s.id)
+    if (s.id === currentSessionId.value) {
+      const next = sessions.value[0]
+      if (next) {
+        await switchSession(next)
+      } else {
+        currentSessionId.value = null
+        messages.value = messages.value.filter((m) => m.kind === 'briefing')
+      }
+      suggestions.value = []
+    }
+  } catch (e) {
+    pushMsg({ side: 'ai', kind: 'error', text: '删除这条对话失败：' + (errDetail(e) || '请稍后重试。') })
+    console.error(e)
+  }
+}
+
+async function sendChat(raw?: string) {
+  const text = (typeof raw === 'string' ? raw : chatInput.value).trim()
   if (!text || chatSending.value) return
   if (text.length > 2000) {
     pushMsg({ side: 'ai', kind: 'error', text: '这条消息有点太长了（最多 2000 字），拆成两条发给我吧。' })
     return
   }
   chatInput.value = ''
+  suggestions.value = []
   pushMsg({ side: 'user', kind: 'text', text })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
   chatSending.value = true
   try {
-    const reply = await student.agentChat(text)
-    wait.text = reply
+    const res = await student.agentChat(text, currentSessionId.value)
+    wait.text = res.reply
+    if (res.session_id) currentSessionId.value = res.session_id
+    suggestions.value = res.suggestions ?? []
   } catch (e) {
     wait.kind = 'error'
     wait.text = '发送失败：' + (errDetail(e) || '请稍后重试。')
@@ -577,7 +690,7 @@ onMounted(async () => {
     pushMsg({ side: 'ai', kind: 'error', text: '学习简报加载失败，刷新页面可以重试。' })
     console.error(e)
   }
-  // 历史对话接在简报下方（v0.3.0：GET agent/history，最近 50 条时间正序）
+  // 历史对话接在简报下方（v0.3.0：GET agent/history；v0.6.0 起为当前会话的消息）
   try {
     const history = await student.fetchAgentHistory()
     history.forEach((h) =>
@@ -585,10 +698,12 @@ onMounted(async () => {
     )
   } catch (e) {
     console.error(e)
-  } finally {
-    loadingInit.value = false
-    scrollToBottom()
   }
+  // 当前会话定位（v0.6.0）：会话列表按最近更新倒序，第一条即当前会话
+  await loadSessions()
+  currentSessionId.value = sessions.value[0]?.id ?? null
+  loadingInit.value = false
+  scrollToBottom()
 })
 </script>
 
@@ -598,7 +713,26 @@ onMounted(async () => {
 .chat-header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 0; }
 .chat-title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; color: var(--primary); }
 .chat-title .hint { font-weight: 400; }
-.new-session-btn { margin-left: auto; flex-shrink: 0; }
+.head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.session-anchor { position: relative; display: inline-flex; }
+.new-session-btn { flex-shrink: 0; }
+
+/* 建议气泡（v0.6.0）：只挂最新一轮回复，淡入上浮 stagger */
+.suggest-row { display: flex; gap: 8px; flex-wrap: wrap; margin: -4px 0 16px 40px; }
+.suggest-chip {
+  border: 1px solid #D7E3FA;
+  background: linear-gradient(135deg, #FFFFFF 0%, #EFF5FF 100%);
+  color: var(--primary);
+  border-radius: 999px; padding: 6px 13px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: var(--font);
+  animation: suggest-in 0.35s ease both;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.suggest-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+@keyframes suggest-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .brief-item-sub { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
 .chat-selectors { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .chat-selectors select { flex: 1 1 240px; width: auto; }
@@ -703,6 +837,9 @@ onMounted(async () => {
 .composer-hint { font-size: 13px; color: var(--text-2); margin-top: 9px; }
 .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .suggest-chip { animation: none; transition: none; }
+}
 
 @media (max-width: 960px) {
   .chat-layout { height: calc(100dvh - 52px); }
