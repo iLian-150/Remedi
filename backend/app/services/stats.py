@@ -4,7 +4,6 @@ from typing import Dict, List
 from sqlalchemy import func
 
 from ..models import Assignment, AssignmentExt, Correction, Error, Essay, Question, Step, Submission, User, Verification, Workbook
-from .providers import get_provider
 
 
 def assignment_ext_fields(db, assignment_id: int) -> Dict:
@@ -100,6 +99,39 @@ def _student_submissions(db, student: User, visible_only: bool):
     return submissions
 
 
+def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
+                        stubborn_errors: List[Dict], errors: List) -> str:
+    """学习建议（v0.9.1 改本地模板生成，不再同步调 LLM）。
+
+    画像是学生/教师双端高频读接口，线上大模型一次往返要数秒到数十秒，
+    页面明显卡顿；建议文案只依赖已算好的画像数据即可拼出：
+    先肯定已订正的成果，再点名最弱（仍有待订正错题）的知识点给具体动作
+    （订正 → 变式题验证），全部订正完给收尾鼓励，无错题给保持类鼓励。
+    口径与前端「老师寄语」一致，学生端措辞用「需要加固」不用「顽固」。"""
+    fixed_ids = _fixed_error_ids(db, student)
+    corrected = sum(1 for e in errors if e.id in fixed_ids)
+    pending = [e for e in errors if e.id not in fixed_ids]
+    pending_kps = {e.knowledge_point for e in pending}
+    stubborn_kps = {e.get("knowledge_point") for e in stubborn_errors}
+    # knowledge_points 已按掌握度升序（最弱在前），取第一个仍有待订正错题的
+    weak = next((k for k in knowledge_points if k["knowledge_point"] in pending_kps), None)
+
+    parts = []
+    if corrected:
+        parts.append(f"已经订正对了 {corrected} 条错题，这股认真劲儿保持住")
+    if pending and weak:
+        kp = weak["knowledge_point"]
+        if kp in stubborn_kps:
+            parts.append(f"「{kp}」反复出错、需要加固：先重看一遍规则，把错题订正掉，再做一道变式题验证一下")
+        else:
+            parts.append(f"眼下最需要补的是「{kp}」：先把它的错题订正掉，再做一道变式题验证，这个知识点就修复啦")
+    elif errors and not pending:
+        parts.append("错题都订正完了，再做几道变式题验证一下，把知识点彻底修复")
+    if not parts:
+        parts.append("最近的作业完成得很稳，继续保持；可以试着挑战难一点的综合题")
+    return f"{student.name}，" + "；".join(parts) + "。"
+
+
 def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
     submissions = _student_submissions(db, student, visible_only)
@@ -153,10 +185,8 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
 
     recent_errors = [present_error(e, db) for e in errors[:5]]
 
-    suggestion = get_provider().generate_feedback(
-        student_name=student.name,
-        summary={"knowledge_points": knowledge_points, "stubborn_errors": stubborn_errors},
-    )
+    # v0.9.1：建议改本地模板拼装（见 _profile_suggestion），画像接口不再同步等 LLM
+    suggestion = _profile_suggestion(db, student, knowledge_points, stubborn_errors, errors)
 
     return {
         "student": {"id": student.id, "name": student.name,

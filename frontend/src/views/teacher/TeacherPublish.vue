@@ -115,7 +115,7 @@
       </button>
     </div>
 
-    <div v-for="(q, idx) in questions" :key="idx" class="card">
+    <div v-for="(q, idx) in questions" :key="idx" class="card" :class="{ 'q-suspect': showResult(q) && q.check_status === 'suspect' }">
       <div class="q-head">
         <h3 style="margin-bottom: 0">第 {{ idx + 1 }} 题 · 数学</h3>
         <div class="q-actions">
@@ -139,16 +139,34 @@
         <textarea v-model="q.standard_steps_text" rows="4" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
       </div>
       <div class="form-row" style="margin-bottom: 0">
-        <label>参考答案（选填）</label>
+        <div class="answer-label-row">
+          <label>参考答案（选填）</label>
+          <button
+            type="button"
+            class="btn small secondary inline-icon"
+            :disabled="q.check_status === 'checking' || !q.prompt.trim() || !q.reference_answer.trim()"
+            @click="checkOne(idx)"
+          >
+            <AppIcon name="sparkles" :size="13" /> {{ q.check_status === 'checking' ? '验算中…' : 'AI 验算' }}
+          </button>
+        </div>
         <input v-model="q.reference_answer" type="text" placeholder="例如：x=5" />
+        <p v-if="q.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
+        <p v-else-if="showResult(q) && q.check_status === 'ok'" class="check-note ok" :title="q.check_detail">
+          <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
+        </p>
+        <p v-else-if="showResult(q) && q.check_status === 'suspect'" class="check-note warn">
+          <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
+          <span>参考答案可能有误：{{ q.check_detail }}（只是提醒，仍可照常发布）</span>
+        </p>
       </div>
     </div>
 
     <input ref="photoRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhotoChange" />
     <div class="toolbar">
       <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加一题</button>
-      <button class="btn" :disabled="submitting" @click="submit">
-        {{ submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
+      <button class="btn" :disabled="submitting || checkingAll" @click="submit">
+        {{ checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
       </button>
     </div>
   </div>
@@ -157,6 +175,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignmentInput, Workbook } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
@@ -172,6 +191,11 @@ interface QuestionForm {
   reference_answer: string
   recognized: boolean   // 是否刚通过照片识别填入（展示检查提示）
   recognizing: boolean  // 识别请求进行中
+  // 参考答案 AI 验算（v0.9.3）：check_stamp 是验算时「题干+答案」的指纹，
+  // 老师改了题干或答案后指纹对不上，旧验算标记自动不显示
+  check_status: 'idle' | 'checking' | 'ok' | 'suspect' | 'unknown'
+  check_detail: string
+  check_stamp: string
 }
 
 const mode = ref<'online' | 'offline'>('online')
@@ -179,10 +203,12 @@ const title = ref('')
 const subject = ref<'math'>('math')
 const blankQuestion = (): QuestionForm => ({
   prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '',
-  recognized: false, recognizing: false
+  recognized: false, recognizing: false,
+  check_status: 'idle', check_detail: '', check_stamp: ''
 })
 const questions = ref<QuestionForm[]>([blankQuestion()])
 const submitting = ref(false)
+const checkingAll = ref(false)  // 发布前批量验算进行中（v0.9.3）
 const error = ref('')
 const ok = ref(false)
 
@@ -193,6 +219,48 @@ function errMsg(e: unknown, fallback: string): string {
 
 function addQuestion() {
   questions.value.push(blankQuestion())
+}
+
+// ---------- 参考答案 AI 验算（v0.9.3）：只提醒、永不拦截发布 ----------
+
+interface AnswerCheckResult {
+  status: 'ok' | 'suspect' | 'unknown'
+  detail: string
+  method: 'sympy' | 'llm' | 'none'
+}
+
+/** 验算指纹：题干或答案被改过后，旧验算结果视为过期、不再显示 */
+function stampOf(q: QuestionForm): string {
+  return `${q.prompt.trim()}\n${q.reference_answer.trim()}`
+}
+
+function showResult(q: QuestionForm): boolean {
+  return q.check_stamp !== '' && q.check_stamp === stampOf(q)
+}
+
+async function runCheck(q: QuestionForm): Promise<void> {
+  q.check_stamp = stampOf(q)
+  q.check_status = 'checking'
+  q.check_detail = ''
+  try {
+    const { data } = await api.post<AnswerCheckResult>('/api/teacher/questions/check-answer', {
+      stem: q.prompt.trim(),
+      reference_answer: q.reference_answer.trim(),
+      knowledge_point: q.knowledge_point.trim() || undefined
+    })
+    q.check_status = data.status
+    q.check_detail = data.detail
+  } catch (e) {
+    // 验算接口异常按 unknown 处理：不显示任何标记，更不能挡住发布
+    q.check_status = 'unknown'
+    q.check_detail = ''
+    console.error(e)
+  }
+}
+
+async function checkOne(idx: number) {
+  const q = questions.value[idx]
+  if (q) await runCheck(q)
 }
 
 // ---------- 练习册知识库（v0.5.0） ----------
@@ -347,6 +415,28 @@ async function submit() {
       return
     }
   }
+  // 发布前批量验算参考答案（v0.9.3）：填了答案的题全部验一遍；
+  // suspect 只在题下留黄色标记并弹一次确认，教师确认后照常发布，绝不拦截
+  const withAnswer = valid.filter((q) => q.reference_answer.trim())
+  if (withAnswer.length) {
+    checkingAll.value = true
+    try {
+      await Promise.all(withAnswer.map((q) => runCheck(q)))
+    } catch (e) {
+      console.error(e) // runCheck 内部已兜底，这里只防万一：验算出问题不挡发布
+    } finally {
+      checkingAll.value = false
+    }
+    const suspects = withAnswer.filter((q) => q.check_status === 'suspect')
+    if (suspects.length) {
+      const nums = suspects.map((q) => questions.value.indexOf(q) + 1).join('、')
+      const go = window.confirm(
+        `有 ${suspects.length} 道题的参考答案可能有误（第 ${nums} 题），验算说明已标在对应题目下方。\n` +
+        'AI 验算只是提醒，确认仍要发布吗？'
+      )
+      if (!go) return
+    }
+  }
   const payload: TeacherAssignmentInput = {
     title: title.value.trim(),
     subject: subject.value,
@@ -440,6 +530,16 @@ onMounted(async () => {
 .btn.danger-outline { background: #fff; color: var(--red); border: 1px solid #FECACA; }
 .btn.danger-outline:hover { background: var(--red-bg); }
 .offline-photo-card { border: 1px dashed #B7C9F5; background: #FBFCFF; }
+/* 参考答案 AI 验算（v0.9.3） */
+.answer-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.answer-label-row label { margin-bottom: 0; }
+.card.q-suspect { border: 1.5px solid var(--amber); background: #FFFBEB; }
+.check-note { display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; line-height: 1.5; margin-top: 7px; }
+.check-note .check-ic { flex: none; display: inline-flex; margin-top: 1px; }
+.check-note.ok { color: var(--green); align-items: center; }
+.check-note.ok .check-ic { margin-top: 0; }
+.check-note.warn { color: #92400E; }
+.check-note.muted { color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) {
   .mode-card { transition: none; }
 }
