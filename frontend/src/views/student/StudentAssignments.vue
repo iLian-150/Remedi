@@ -33,7 +33,14 @@
         <div v-for="a in visibleAssignments" :key="a.id" class="card assign-card">
           <h3>{{ a.title }}</h3>
           <p class="assign-desc">{{ a.description || '暂无说明' }}</p>
+          <p v-if="a.mode === 'offline'" class="assign-offline">
+            <AppIcon name="book" :size="14" />
+            <span v-if="a.workbook_title">{{ a.workbook_title }}</span>
+            <span v-if="a.page_range">{{ a.page_range }}</span>
+            <span v-if="a.deadline">截止 {{ fmtTime(a.deadline) }}</span>
+          </p>
           <div class="assign-meta">
+            <span v-if="a.mode === 'offline'" class="badge badge-amber">线下练习</span>
             <span class="badge badge-blue tnum">{{ a.question_count }} 道题</span>
             <span :class="`badge ${statusBadge(a)}`">{{ statusText(a) }}</span>
             <span class="assign-time">{{ fmtTime(a.created_at) }} 发布</span>
@@ -146,6 +153,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.assign-offline {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; color: #92400E;
+  background: var(--amber-bg); border-radius: 8px;
+  padding: 7px 10px; margin-bottom: 10px;
+}
 .rail-note {
   display: flex; align-items: center; gap: 7px;
   font-size: 13.5px; color: var(--text-2);

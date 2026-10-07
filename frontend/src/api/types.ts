@@ -29,6 +29,11 @@ export interface Assignment {
   description: string
   question_count: number
   created_at: string
+  // v0.5.0：发布模式与线下作业信息（线上作业 mode='online'、其余为 null）
+  mode: 'online' | 'offline'
+  workbook_title: string | null
+  page_range: string | null
+  deadline: string | null
 }
 
 export interface Question {
@@ -191,6 +196,11 @@ export interface PendingAssignment {
   question_count: number
   remaining_count: number
   created_at: string
+  // v0.5.0：简报待办卡上的线下作业信息
+  mode: 'online' | 'offline'
+  workbook_title: string | null
+  page_range: string | null
+  deadline: string | null
 }
 
 export interface WeakPointDetail {
@@ -254,6 +264,11 @@ export interface TeacherAssignment {
   description: string | null
   created_at: string
   questions: TeacherAssignmentQuestion[]
+  // v0.5.0：发布模式与线下作业信息
+  mode: 'online' | 'offline'
+  workbook_title: string | null
+  page_range: string | null
+  deadline: string | null
 }
 
 export interface TeacherQuestionInput {
@@ -269,6 +284,21 @@ export interface TeacherAssignmentInput {
   subject?: 'math' | 'english'
   description?: string
   questions: TeacherQuestionInput[]
+  // v0.5.0：发布模式（不传 = 线上）；线下模式带练习册/页码/截止
+  mode?: 'online' | 'offline'
+  workbook_id?: number
+  page_range?: string
+  deadline?: string
+}
+
+// ---------- v0.5.0 新增：教师 AI 助手 / 练习册知识库 ----------
+// 契约见 docs/api-contract.md v0.5.0 第 4.12~4.18 节
+
+export interface Workbook {
+  id: number
+  title: string
+  file_url: string // /api/uploads/workbooks/<文件名>
+  created_at: string
 }
 
 // ---------- v0.2.1 新增：学习报告（科目 → 知识点 → 错题时间线 → 步骤诊断） ----------

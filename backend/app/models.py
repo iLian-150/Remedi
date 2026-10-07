@@ -175,3 +175,30 @@ class Verification(Base):
     attempts = Column(Integer, nullable=False, default=0, comment="提交作答次数")
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     completed_at = Column(DateTime, nullable=True, comment="通过时间")
+
+
+class Workbook(Base):
+    """练习册知识库（v0.5.0 新增表）：教师上传的整本练习册 PDF，
+    发布线下作业时可直接选用。file_path 为相对 UPLOAD_DIR 的路径
+    （如 workbooks/xxx.pdf），经 /api/uploads/ 访问。"""
+    __tablename__ = "workbooks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(128), nullable=False, comment="练习册名（默认取 PDF 文件名）")
+    file_path = Column(String(256), nullable=False, comment="相对 UPLOAD_DIR 的文件路径")
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class AssignmentExt(Base):
+    """作业扩展信息（v0.5.0 新增表）：一份作业一行，记录发布模式等附加字段。
+    无 ext 行 = 线上作业（mode=online）；mode=offline 时关联练习册与页码范围。"""
+    __tablename__ = "assignment_ext"
+
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
+    mode = Column(String(16), nullable=False, default="online",
+                  comment="online | offline（线下练习册作业）")
+    workbook_id = Column(Integer, ForeignKey("workbooks.id"), nullable=True,
+                         comment="线下作业关联的练习册，可空")
+    page_range = Column(String(64), nullable=True, comment="页码/题号范围，如 第12-14页 第1-8题")
+    deadline = Column(DateTime, nullable=True, comment="线下作业截止时间，可空")

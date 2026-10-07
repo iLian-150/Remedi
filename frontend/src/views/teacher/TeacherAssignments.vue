@@ -30,12 +30,27 @@
       <div v-for="a in visibleAssignments" :key="a.id" class="card">
         <div class="card-head-row">
           <div>
-            <h3>{{ a.title }}</h3>
-            <p class="card-sub" style="margin-bottom: 0">{{ fmtTime(a.created_at) }} 发布 · 共 {{ a.questions.length }} 题</p>
+            <h3>
+              {{ a.title }}
+              <span v-if="a.mode === 'offline'" class="badge badge-amber" style="margin-left: 6px">线下练习</span>
+            </h3>
+            <p class="card-sub" style="margin-bottom: 0">
+              {{ fmtTime(a.created_at) }} 发布 · 共 {{ a.questions.length }} 题
+              <template v-if="a.mode === 'offline'">
+                <template v-if="a.workbook_title"> · {{ a.workbook_title }}</template>
+                <template v-if="a.page_range"> · {{ a.page_range }}</template>
+                <template v-if="a.deadline"> · 截止 {{ fmtTime(a.deadline) }}</template>
+              </template>
+            </p>
           </div>
-          <button class="btn small danger-outline inline-icon" @click="askDelete(a)">
-            <AppIcon name="trash" :size="15" /> 删除
-          </button>
+          <div class="head-actions">
+            <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click="remind(a)">
+              <AppIcon name="megaphone" :size="15" /> {{ remindingId === a.id ? '提醒中…' : '提醒未交' }}
+            </button>
+            <button class="btn small danger-outline inline-icon" @click="askDelete(a)">
+              <AppIcon name="trash" :size="15" /> 删除
+            </button>
+          </div>
         </div>
         <table class="table">
           <thead>
@@ -129,6 +144,24 @@ function askDelete(a: TeacherAssignment) {
   pendingDelete.value = a
 }
 
+// ---------- 一键提醒未交学生（v0.5.0）：只提醒还没提交全部题目的学生 ----------
+const remindingId = ref<number | null>(null)
+
+async function remind(a: TeacherAssignment) {
+  if (remindingId.value !== null) return
+  remindingId.value = a.id
+  try {
+    const n = await teacher.remindAssignment(a.id)
+    toast.value = n > 0 ? `已提醒 ${n} 位学生` : '全班都交齐了，没有需要提醒的学生。'
+    setTimeout(() => (toast.value = ''), 4000)
+  } catch (e) {
+    error.value = '提醒发送失败，请稍后重试。'
+    console.error(e)
+  } finally {
+    remindingId.value = null
+  }
+}
+
 async function confirmDelete() {
   if (!pendingDelete.value) return
   deleting.value = true
@@ -182,6 +215,7 @@ onUnmounted(() => window.removeEventListener('assignments-changed', onAssignment
   padding: 10px 14px; margin-bottom: 16px;
 }
 .card-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .filter-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
   background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 12px;

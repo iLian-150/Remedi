@@ -50,6 +50,11 @@ class AssignmentBrief(BaseModel):
     description: Optional[str] = None
     question_count: int
     created_at: datetime
+    # v0.5.0 新增（只加字段）：发布模式与线下作业信息，无 ext 行时 mode=online、其余为 null
+    mode: str = "online"
+    workbook_title: Optional[str] = None
+    page_range: Optional[str] = None
+    deadline: Optional[datetime] = None
 
 
 class AssignmentDetail(BaseModel):
@@ -57,6 +62,11 @@ class AssignmentDetail(BaseModel):
     title: str
     description: Optional[str] = None
     questions: List[QuestionOut]
+    # v0.5.0 新增（只加字段）：同 AssignmentBrief
+    mode: str = "online"
+    workbook_title: Optional[str] = None
+    page_range: Optional[str] = None
+    deadline: Optional[datetime] = None
 
 
 # ---------- 学生：数学诊断 ----------
@@ -224,6 +234,11 @@ class PendingAssignmentItem(BaseModel):
     question_count: int           # 作业总题目数
     remaining_count: int          # 该生尚未提交的题目数
     created_at: datetime
+    # v0.5.0 新增（只加字段）：线下作业在简报卡上要展示模式/练习册/页码/截止
+    mode: str = "online"
+    workbook_title: Optional[str] = None
+    page_range: Optional[str] = None
+    deadline: Optional[datetime] = None
 
 
 class WeakPointDetail(BaseModel):
@@ -334,6 +349,11 @@ class TeacherAssignmentCreate(BaseModel):
     subject: Optional[str] = Field(default=None, pattern="^(math|english)$")
     description: Optional[str] = Field(default=None, max_length=2000)
     questions: List[TeacherQuestionIn] = Field(min_length=1, max_length=50)
+    # v0.5.0 新增（只加可选字段）：发布模式。mode=offline 时把后三项写进 assignment_ext
+    mode: str = Field(default="online", pattern="^(online|offline)$")
+    workbook_id: Optional[int] = None                       # 关联练习册知识库中的一本（须为本人上传）
+    page_range: Optional[str] = Field(default=None, max_length=64)   # 如「第12-14页 第1-8题」
+    deadline: Optional[datetime] = None                     # 截止时间（ISO 8601）
 
 
 class TeacherAssignmentQuestionOut(BaseModel):
@@ -351,6 +371,24 @@ class TeacherAssignmentOut(BaseModel):
     description: Optional[str] = None
     created_at: datetime
     questions: List[TeacherAssignmentQuestionOut]
+    # v0.5.0 新增（只加字段）：发布模式与线下作业信息
+    mode: str = "online"
+    workbook_title: Optional[str] = None
+    page_range: Optional[str] = None
+    deadline: Optional[datetime] = None
+
+
+# ---------- 教师：练习册知识库 + 提醒未交（v0.5.0 新增） ----------
+
+class WorkbookOut(BaseModel):
+    id: int
+    title: str
+    file_url: str                 # /api/uploads/workbooks/<文件名>，可直接打开 PDF
+    created_at: datetime
+
+
+class RemindOut(BaseModel):
+    reminded_count: int           # 本次实际写入提醒的学生数
 
 
 # ---------- 主页 Agent 对话（v0.3.0 新增） ----------

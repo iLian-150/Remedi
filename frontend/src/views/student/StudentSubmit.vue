@@ -16,8 +16,17 @@
     <template v-else>
       <div class="card">
         <div v-if="presetAssignment" class="problem-info" style="margin-bottom: 0">
-          <p><strong>{{ presetAssignment.title }}</strong></p>
+          <p>
+            <strong>{{ presetAssignment.title }}</strong>
+            <span v-if="presetAssignment.mode === 'offline'" class="badge badge-amber" style="margin-left: 8px">线下练习</span>
+          </p>
           <p class="kp">{{ presetAssignment.description || '暂无说明' }}</p>
+          <p v-if="presetAssignment.mode === 'offline'" class="kp" style="margin-top: 4px">
+            <template v-if="presetAssignment.workbook_title">{{ presetAssignment.workbook_title }}</template>
+            <template v-if="presetAssignment.page_range"> · {{ presetAssignment.page_range }}</template>
+            <template v-if="presetAssignment.deadline"> · 截止 {{ presetAssignment.deadline.replace('T', ' ').slice(0, 16) }}</template>
+            —— 在练习册上做完后，逐题拍照提交就可以啦。
+          </p>
           <p style="margin-top: 8px">
             <router-link to="/student/assignments"><button class="btn small ghost inline-icon"><AppIcon name="chevron-left" :size="14" /> 换一份作业</button></router-link>
           </p>

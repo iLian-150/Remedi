@@ -177,6 +177,31 @@
 - 索引：`ix_verifications_student_id`、`ix_verifications_knowledge_point`。
 - 说明：`variant_json` 中的 `standard_steps` / `answer` 只在后端判定用，**永不下发学生端**（接口只回 `prompt`）。知识点「已修复」的唯一依据 = 该生该知识点存在一条 `status=passed` 的记录（见 api-contract 3.13 四态口径）。
 
+### 2.12 workbooks —— 练习册知识库（v0.5.0 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| id | INTEGER PK 自增 | 否 | — | 主键 |
+| teacher_id | INTEGER FK → users.id | 否 | — | 上传的教师（知识库按教师隔离） |
+| title | VARCHAR(128) | 否 | — | 练习册名（默认取 PDF 文件名去扩展名） |
+| file_path | VARCHAR(256) | 否 | — | 相对 UPLOAD_DIR 的路径，如 `workbooks/20261007xxxx_ab12cd34.pdf`，经 `/api/uploads/` 访问 |
+| created_at | TIMESTAMP | 否 | now | 上传时间 |
+
+- 索引：`ix_workbooks_teacher_id`。
+- 说明：PDF 文件只存磁盘（UPLOAD_DIR/workbooks/，≤30MB），本表只存元信息；删除练习册时连文件一并删除。
+
+### 2.13 assignment_ext —— 作业扩展信息（v0.5.0 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| assignment_id | INTEGER PK FK → assignments.id | 否 | — | 一份作业至多一行 |
+| mode | VARCHAR(16) | 否 | `online` | `online`（线上作业）\| `offline`（线下练习册作业） |
+| workbook_id | INTEGER FK → workbooks.id | 是 | NULL | 线下作业关联的练习册 |
+| page_range | VARCHAR(64) | 是 | NULL | 页码/题号范围，如「第12-14页 第1-8题」 |
+| deadline | TIMESTAMP | 是 | NULL | 线下作业截止时间 |
+
+- 说明：**无 ext 行 = 线上作业**（`assignments` 老数据零迁移）；`mode=offline` 发布时才写行。删除作业时应用层一并删除 ext 行；删除练习册时把引用它的 `workbook_id` 置 NULL（只更新本新表，不动老表）。
+
 ## 3. 关系图（ER，文本版）
 
 ```
@@ -185,9 +210,12 @@ users 1 ──< submissions (student_id)
 users 1 ──< corrections (student_id)
 users 1 ──< essays (student_id)
 users 1 ──< verifications (student_id)
+users 1 ──< workbooks (teacher_id)
 errors 1 ──< verifications (source_error_id, 可空)
 
 assignments 1 ──< questions (assignment_id)
+assignments 1 ─── assignment_ext (assignment_id, 1:0..1)
+workbooks 1 ──< assignment_ext (workbook_id, 可空)
 questions 1 ──< submissions (question_id)
 questions 1 ──< essays (question_id, 可空)
 
@@ -253,3 +281,4 @@ WHERE s.student_id = S
 | v0.2.1 | 2026-10-07 | 无表结构变更：学习报告/错题时间线均为现有表聚合查询 |
 | v0.3.0 | 2026-10-07 | 新增两张表：`chat_messages`（Agent 对话记录）、`notifications`（站内提醒）；不改任何现有表/列。删除作业走应用层级联（见 api-contract 4.10） |
 | v0.4.0 | 2026-10-07 | 新增一张表：`verifications`（二次验证记录）；不改任何现有表/列。知识点状态口径升级为四态（见 api-contract 3.13），「已修复」只认 verifications 的 passed 记录 |
+| v0.5.0 | 2026-10-07 | 新增两张表：`workbooks`（练习册知识库）、`assignment_ext`（作业发布模式扩展）；不改任何现有表/列。教师 Agent 对话复用 `chat_messages`（按 user_id 区分），提醒未交复用 `notifications`（新 type 值 `teacher_reminder`） |

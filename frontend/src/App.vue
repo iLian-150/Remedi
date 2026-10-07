@@ -125,6 +125,7 @@ const STUDENT_NAV: NavItem[] = [
 
 const TEACHER_NAV: NavItem[] = [
   { to: '/teacher/dashboard', icon: 'chart', label: '总览' },
+  { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
   { to: '/teacher/submissions', icon: 'file', label: '批改' },
   { to: '/teacher/students', icon: 'users', label: '学生' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', exact: true },
