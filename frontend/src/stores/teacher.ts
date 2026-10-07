@@ -32,7 +32,19 @@ export interface ErrorFilter {
 export const useTeacherStore = defineStore('teacher', {
   state: () => ({
     /** 作业管理页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
-    assignmentDateFilter: ''
+    assignmentDateFilter: '',
+    /** 会话区状态（v0.6.2）：左侧栏会话导航与对话页共用同一份 */
+    sessions: [] as ChatSession[],
+    activeSessionId: null as number | null,
+    sessionsLoading: false,
+    sessionsLoaded: false,
+    /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
+     *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
+    sessionView: { id: null, fresh: false, seq: 0 } as {
+      id: number | null
+      fresh: boolean
+      seq: number
+    }
   }),
   actions: {
     setAssignmentDateFilter(date: string) {
@@ -137,6 +149,63 @@ export const useTeacherStore = defineStore('teacher', {
     async newAgentSession(): Promise<ChatSession> {
       const { data } = await api.post<ChatSession>('/api/teacher/agent/new-session', {})
       return data
+    },
+    // ---- 会话区状态层（v0.6.2）：左侧栏会话导航与对话页共用 ----
+    /** 拉取会话列表进 store；首次自动定位当前会话 = 最近更新的一条 */
+    async loadSessions(force = false) {
+      if (this.sessionsLoading) return
+      if (this.sessionsLoaded && !force) return
+      this.sessionsLoading = true
+      try {
+        this.sessions = await this.fetchSessions()
+        this.sessionsLoaded = true
+        if (this.activeSessionId == null) {
+          this.activeSessionId = this.sessions[0]?.id ?? null
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        this.sessionsLoading = false
+      }
+    },
+    setActiveSession(id: number | null) {
+      this.activeSessionId = id
+    },
+    /** 侧栏点「新对话」：新建会话、置顶高亮，并通知对话页切到空白新会话态 */
+    async startSidebarSession(): Promise<ChatSession> {
+      const s = await this.newAgentSession()
+      this.sessions = [s, ...this.sessions.filter((x) => x.id !== s.id)]
+      this.activeSessionId = s.id
+      this.sessionView = { id: s.id, fresh: true, seq: this.sessionView.seq + 1 }
+      return s
+    },
+    /** 侧栏点选某条会话：通知对话页加载该会话的消息 */
+    selectSidebarSession(id: number) {
+      if (id === this.activeSessionId) return
+      this.activeSessionId = id
+      this.sessionView = { id, fresh: false, seq: this.sessionView.seq + 1 }
+    },
+    /** 侧栏删除会话：删的是当前会话时自动切到最新一条（都没有则空白态），并通知对话页 */
+    async removeSidebarSession(id: number) {
+      await this.deleteSession(id)
+      const wasActive = id === this.activeSessionId
+      this.sessions = this.sessions.filter((x) => x.id !== id)
+      if (wasActive) {
+        this.activeSessionId = this.sessions[0]?.id ?? null
+        this.sessionView = {
+          id: this.activeSessionId,
+          fresh: false,
+          seq: this.sessionView.seq + 1
+        }
+      }
+    },
+    /** 退出登录时清空会话区状态，避免换人后残留 */
+    clearSessionState() {
+      this.sessions = []
+      this.activeSessionId = null
+      this.sessionsLoading = false
+      this.sessionsLoaded = false
+      this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     // 4.15 上传练习册 PDF 到知识库（v0.5.0，≤30MB）
     async uploadWorkbook(file: File): Promise<Workbook> {

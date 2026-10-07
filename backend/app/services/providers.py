@@ -354,7 +354,7 @@ class CloudflareProvider(DeepSeekProvider):
 
     base_url 形如 https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1，
     其 /chat/completions 与 DeepSeek 的请求/响应结构一致，直接复用父类逻辑。
-    默认模型 @cf/qwen/qwen3-30b-a3b-fp8（中文好、单价低，免费额度内约数百次/天）。
+    默认模型 @cf/qwen/qwen3.8-27b（质量更高；单价约为旧 30b-a3b 的 9 倍，免费额度内约数十次对话/天）。
     未配置 account_id / token 时构造抛错，由工厂降级为 Mock。
     """
 

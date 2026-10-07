@@ -691,6 +691,7 @@ async function removeSession(s: ChatSession) {
 
 function logoutFromChatSidebar() {
   student.setAssignmentDateFilter('')
+  student.clearSessionState()
   auth.logout()
   void router.push('/')
 }

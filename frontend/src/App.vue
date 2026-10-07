@@ -6,6 +6,9 @@
      右栏可收起：收起后内容区右上角出现悬浮按钮，图标随场景变
      （notes=邮件+未读角标；calendar=日历图标无角标），点它重新展开；
      展开状态存 localStorage（remedi-rail-open），首次默认展开，移动端默认收起（抽屉式）。
+     v0.6.2：双端对话页时左侧栏主导航下方多一段会话区（SidebarSessions，ChatGPT 式：
+     新对话按钮 + 按今天/昨天/更早分组的会话列表）；左侧栏本身可收起（品牌行收起按钮，
+     状态存 remedi-sidebar-open，收起后内容区左上角悬浮展开按钮；移动端沿用抽屉不受影响）。
      未登录只渲染登录页。 -->
 <template>
   <!-- 未登录：仅登录页 -->
@@ -23,13 +26,21 @@
     </header>
     <div v-if="sidebarOpen" class="sidebar-mask" @click="sidebarOpen = false"></div>
 
-    <aside class="app-sidebar" :class="{ open: sidebarOpen, 'student-chat-route-hidden': isStudentChatRoute }">
+    <aside class="app-sidebar" :class="{ open: sidebarOpen, collapsed: auth.role === 'teacher' && sidebarCollapsed, 'student-chat-route-hidden': isStudentChatRoute }">
       <div class="sidebar-brand-row">
-        <span class="brand-badge" title="Remedi"><BrandLogo :size="25" /></span>
+        <span class="brand-badge"><BrandLogo :size="25" /></span>
         <div>
           <div class="brand-name">Remedi</div>
           <div class="brand-sub">{{ auth.role === 'teacher' ? '教师端 · 班级诊断' : '智能作业诊断' }}</div>
         </div>
+        <button
+          v-if="auth.role === 'teacher'"
+          class="icon-btn sidebar-collapse-btn"
+          title="收起侧栏"
+          @click="setSidebarCollapsed(true)"
+        >
+          <AppIcon name="panel-left" :size="19" />
+        </button>
       </div>
 
       <nav class="sidebar-nav" @click="sidebarOpen = false">
@@ -48,6 +59,10 @@
         </router-link>
       </nav>
 
+      <!-- 会话区（v0.6.2）：仅双端对话页出现，随侧栏一起收起/展开 -->
+      <!-- 学生对话页自带会话导航，教师对话页复用全局侧栏会话组件。 -->
+      <SidebarSessions v-if="isChatRoute && auth.role === 'teacher'" @navigate="sidebarOpen = false" />
+
       <div class="sidebar-user">
         <span class="user-avatar">{{ avatarLetter }}</span>
         <div class="user-meta">
@@ -65,6 +80,16 @@
     <main class="shell-main">
       <router-view />
     </main>
+
+    <!-- 侧栏收起态入口（v0.6.2，桌面端）：内容区左上角悬浮展开按钮 -->
+    <button
+      v-if="auth.role === 'teacher' && sidebarCollapsed"
+      class="sidebar-expand-fab"
+      title="展开侧栏"
+      @click="setSidebarCollapsed(false)"
+    >
+      <AppIcon name="panel-left" :size="19" />
+    </button>
 
     <!-- 右侧栏：有场景时才挂载；用 class 控制展开/收起动画 -->
     <aside
@@ -104,11 +129,37 @@ import AppIcon from './components/icons/AppIcon.vue'
 import type { IconName } from './components/icons/paths'
 import BrandLogo from './components/BrandLogo.vue'
 import RightRail from './components/RightRail.vue'
+import SidebarSessions from './components/SidebarSessions.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const sidebarOpen = ref(false)
+
+// ---------- 对话页路由判定（v0.6.2）：侧栏会话区仅在双端对话页出现 ----------
+const isChatRoute = computed(
+  () => route.path === '/student/chat' || route.path === '/teacher/chat'
+)
+
+// ---------- 左侧栏收起状态（v0.6.2，桌面端）：localStorage 记忆，首次默认展开 ----------
+// 移动端沿用抽屉逻辑（sidebarOpen），不受此状态影响。
+const SIDEBAR_KEY = 'remedi-sidebar-open'
+function initSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '0'
+  } catch {
+    return false
+  }
+}
+const sidebarCollapsed = ref(initSidebarCollapsed())
+function setSidebarCollapsed(collapsed: boolean) {
+  sidebarCollapsed.value = collapsed
+  try {
+    localStorage.setItem(SIDEBAR_KEY, collapsed ? '0' : '1')
+  } catch {
+    /* 忽略写入失败 */
+  }
+}
 
 interface NavItem {
   to: string
@@ -179,9 +230,11 @@ function setRail(open: boolean) {
 }
 
 function logout() {
-  // 退出时清掉双端的日历日期筛选，避免换人登录后残留旧筛选
+  // 退出时清掉双端的日历日期筛选与会话区状态，避免换人登录后残留旧状态
   useStudentStore().setAssignmentDateFilter('')
   useTeacherStore().setAssignmentDateFilter('')
+  useStudentStore().clearSessionState()
+  useTeacherStore().clearSessionState()
   auth.logout()
   router.push('/')
 }
