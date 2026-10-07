@@ -224,8 +224,15 @@ export const useStudentStore = defineStore('student', {
     setActiveSession(id: number | null) {
       this.activeSessionId = id
     },
-    /** 侧栏点「新对话」：新建会话、置顶高亮，并通知对话页切到空白新会话态 */
+    /** 侧栏点「新对话」：新建会话、置顶高亮，并通知对话页切到空白新会话态。
+     * v0.9.0 防重复：当前激活会话还是空会话（message_count=0）时不再新建，
+     * 直接切回它，避免连点攒出一串空会话（会话列表接口已返回 message_count）。 */
     async startSidebarSession(): Promise<ChatSession> {
+      const active = this.sessions.find((x) => x.id === this.activeSessionId)
+      if (active && active.message_count === 0) {
+        this.sessionView = { id: active.id, fresh: true, seq: this.sessionView.seq + 1 }
+        return active
+      }
       const s = await this.newAgentSession()
       this.sessions = [s, ...this.sessions.filter((x) => x.id !== s.id)]
       this.activeSessionId = s.id

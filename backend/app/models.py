@@ -249,6 +249,21 @@ class StudentQuestionCapture(Base):
     archived_at = Column(DateTime, nullable=True)
 
 
+class SubmissionReview(Base):
+    """提交审核（v0.9.0 新增表）：AI 批改完先过教师审核，通过后学生才看得到诊断。
+    只有经实时批改入口（提交/拍照批改）产生的新提交才建行，status=pending；
+    历史/种子提交没有审核行，一律视为 approved（学生可见），演示数据不受影响。"""
+    __tablename__ = "submission_reviews"
+
+    submission_id = Column(Integer, ForeignKey("submissions.id"), primary_key=True)
+    status = Column(String(16), nullable=False, default="pending",
+                    comment="pending | approved")
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True,
+                         comment="审核教师，pending 时为空")
+    reviewed_at = Column(DateTime, nullable=True, comment="审核时间")
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class Workbook(Base):
     """练习册知识库（v0.5.0 新增表）：教师上传的整本练习册 PDF，
     发布线下作业时可直接选用。file_path 为相对 UPLOAD_DIR 的路径

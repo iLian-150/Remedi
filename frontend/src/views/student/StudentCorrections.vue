@@ -1,8 +1,11 @@
 <!-- 学生端：订正错题
-     从学习画像取错题（需要加固的知识点 + 最近错误），针对某条 error 提交订正，
-     后端自动判定正误（is_correct：true/false/null）。
+     从错题本取可订正的错题（诊断产生的错题；自主收录题没有诊断记录不在此列），
+     针对某条 error 提交订正，后端自动判定正误（is_correct：true/false/null）。
      v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时引导去学习报告
-     做二次验证，通过验证该知识点才算「已修复」。本地 fixedIds 仅表示已订正。 -->
+     做二次验证，通过验证该知识点才算「已修复」。本地 fixedIds 仅表示已订正。
+     v0.9.0：顶部加订正日历（复用 AssignmentCalendar），按错题所属提交的日期打点，
+     点某天只看那天的错题，「查看全部」清除；教师审核流下待审核的错题在后端
+     错题本接口已滤除，本页自然看不到。 -->
 <template>
   <div class="page">
     <div class="page-head">
@@ -14,6 +17,23 @@
     <div v-if="loading" class="loading">加载错题中…</div>
 
     <template v-else>
+      <!-- 订正日历（v0.9.0）：有错题的日期打点+计数，点选后列表只显示那天的错题 -->
+      <div class="card" v-if="mistakes.length">
+        <h3>订正日历</h3>
+        <p class="card-sub">圆点是哪天交的作业里出了错题，点一天就只看那天的。</p>
+        <AssignmentCalendar :marks="calendarMarks" :selected="selectedDate" @select="onSelectDate" />
+        <div v-if="selectedDate" class="date-filter-bar">
+          <span class="date-filter-text">
+            {{ selectedDateLabel }} 的错题 <b class="tnum">{{ errorList.length }}</b> 条
+          </span>
+          <button class="btn small secondary" @click="clearDateFilter">查看全部</button>
+        </div>
+      </div>
+
+      <div class="card" v-if="selectedDate && !errorList.length && mistakes.length">
+        <div class="empty">这一天没有需要订正的错题，换一天看看，或者点上方「查看全部」。</div>
+      </div>
+
       <div class="card" v-if="errorList.length">
         <div class="form-row" style="margin-bottom: 0">
           <label>选择要订正的题目</label>
@@ -75,7 +95,7 @@
         </div>
       </template>
 
-      <div v-if="!errorList.length" class="card">
+      <div v-if="!mistakes.length" class="card">
         <div class="empty">太棒了，目前没有需要订正的题目，去 <router-link to="/student/assignments" style="color: var(--primary)">作业列表</router-link> 继续挑战吧。</div>
       </div>
     </template>
@@ -91,20 +111,75 @@ import type { CorrectionResult, GradingError, StudentMistake } from '../../api/t
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import AssignmentCalendar from '../../components/AssignmentCalendar.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
 const auth = useAuthStore()
 const route = useRoute()
 
-const errorList = ref<GradingError[]>([])
+/** 全部可订正错题（原始错题本条目，仅诊断产生的；自主收录题无诊断记录不能订正） */
+const mistakes = ref<StudentMistake[]>([])
 const selectedErrorId = ref<number | ''>('')
+/** 订正日历选中的日期（yyyy-mm-dd，空 = 全部） */
+const selectedDate = ref('')
 const content = ref('')
 const result = ref<CorrectionResult | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const fixedIds = ref<Set<number>>(new Set())
+
+/** 错题所属提交的日期键：优先后端 submitted_at，缺失时用错题产生时间兜底 */
+function mistakeDateKey(item: StudentMistake): string {
+  return (item.submitted_at ?? item.created_at).slice(0, 10)
+}
+
+/** 日历标记：yyyy-mm-dd → 当天错题条数 */
+const calendarMarks = computed(() => {
+  const marks: Record<string, number> = {}
+  mistakes.value.forEach((item) => {
+    const key = mistakeDateKey(item)
+    marks[key] = (marks[key] ?? 0) + 1
+  })
+  return marks
+})
+
+const selectedDateLabel = computed(() => {
+  if (!selectedDate.value) return ''
+  const [y, m, d] = selectedDate.value.split('-')
+  return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`
+})
+
+/** 当前可见错题（选了日期就只剩那天的），下拉与详情都消费这份 */
+const errorList = computed<GradingError[]>(() =>
+  mistakes.value
+    .filter((item) => !selectedDate.value || mistakeDateKey(item) === selectedDate.value)
+    .map(toGradingError)
+)
+
+function onSelectDate(date: string) {
+  // 点同一天 = 取消筛选；点没有错题的日子也可以（下方有友好空态）
+  selectedDate.value = date === selectedDate.value ? '' : date
+  syncSelection()
+}
+
+function clearDateFilter() {
+  selectedDate.value = ''
+  syncSelection()
+}
+
+/** 筛选变化后把选中错题对齐到当前可见列表（不在列表里就选第一条） */
+function syncSelection() {
+  if (!errorList.value.length) {
+    selectedErrorId.value = ''
+    return
+  }
+  if (!errorList.value.some((e) => e.id === selectedErrorId.value)) {
+    selectedErrorId.value = errorList.value[0].id
+    onSelect()
+  }
+}
 
 const selectedError = computed(() => errorList.value.find((e) => e.id === selectedErrorId.value) ?? null)
 
@@ -156,10 +231,12 @@ onMounted(async () => {
       student.fetchMyMistakes(false),
       student.fetchMyMistakes(true)
     ])
-    const mistakes = [...new Map([...currentMistakes, ...archivedMistakes].map((item) => [item.id, item])).values()]
-    errorList.value = mistakes.map(toGradingError)
+    const merged = [...new Map([...currentMistakes, ...archivedMistakes].map((item) => [item.id, item])).values()]
+    // 只保留诊断产生的错题：自主收录题（id<0 / source_kind=student_saved）没有
+    // errors 记录，进不了订正判定，从本页列表与日历里剔除（错题本里照常可见）
+    mistakes.value = merged.filter((item) => item.id > 0 && item.source_kind !== 'student_saved')
     if (auth.user) {
-      const serverFixed = mistakes.filter((item) => item.latest_correction?.is_correct === true).map((item) => item.id)
+      const serverFixed = mistakes.value.filter((item) => item.latest_correction?.is_correct === true).map((item) => item.id)
       fixedIds.value = new Set([...fixedIds.value, ...serverFixed])
     }
     if (errorList.value.length) {
@@ -195,6 +272,12 @@ function toGradingError(item: StudentMistake): GradingError {
 </script>
 
 <style scoped>
+.date-filter-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid #F1F3F6;
+}
+.date-filter-text { font-size: 14px; color: var(--text-2); }
+.date-filter-text b { color: var(--primary); }
 .step-text { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .detail { font-size: 14px; color: var(--text-2); }
 .note { margin-top: 8px; font-size: 14px; color: var(--text); }

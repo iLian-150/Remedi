@@ -58,12 +58,21 @@
       </div>
     </div>
 
-    <!-- 诊断卡片（老师批改结果） -->
+    <!-- 诊断卡片（老师批改结果）；v0.9.0：待审核时只显示已提交状态卡 -->
     <div v-if="phase === 'done' && result" class="pgf-card">
       <p class="pgf-card-title">
-        <AppIcon name="check" :size="16" /> 老师批改结果
+        <AppIcon :name="result.status === 'pending_review' ? 'history' : 'check'" :size="16" />
+        {{ result.status === 'pending_review' ? '已提交 · 待老师审核' : '老师批改结果' }}
         <span v-if="questionStem" class="badge badge-blue">{{ questionStem }}</span>
       </p>
+      <div v-if="result.status === 'pending_review'" class="review-pending-box">
+        <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
+        <div>
+          <p class="review-pending-title">已提交，老师审核后你会收到诊断</p>
+          <p class="review-pending-sub">老师确认批改无误后，诊断和错题会自动出现在报告与错题本里。</p>
+        </div>
+      </div>
+      <template v-else>
       <p v-if="result.errors.length" class="pgf-auto-booked">发现 {{ result.errors.length }} 个错误点，已自动加入错题本。</p>
       <div
         v-for="st in result.steps"
@@ -101,6 +110,7 @@
         <span class="followup-icon"><AppIcon name="lightbulb" :size="15" /></span>
         <p><b>想一想：</b>{{ result.follow_up_question }}</p>
       </div>
+      </template>
 
       <!-- direct 模式补救（v0.6.0）：展示本次识别到的步骤原文，可展开编辑器改后重交 -->
       <div v-if="direct" class="fix-box">
@@ -296,6 +306,11 @@ function reset() {
 .pgf-answer-copy { color: var(--text); line-height: 1.7; white-space: pre-wrap; }
 .pgf-auto-booked { margin: 0 0 10px; color: var(--green); font-size: 12px; font-weight: 600; }
 .pgf-status { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: var(--text-2); padding: 8px 0; }
+/* 待老师审核状态盒（v0.9.0，与对话页诊断卡同一套语义） */
+.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px; padding: 13px 15px; }
+.review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
+.review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
+.review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
 .pgf-card {
   background: var(--card); border: 1px solid #EDF0F4; border-radius: 12px;
   box-shadow: var(--shadow); padding: 14px 16px; margin-top: 10px;

@@ -7,6 +7,7 @@ export interface User {
   name: string
   student_no: string | null
   role: 'teacher' | 'student'
+  created_at?: string | null // v0.9.0：加入时间（档案黑板用）
 }
 
 export interface LoginResponse {
@@ -89,6 +90,7 @@ export interface StudentMistake {
   step_seq: number | null
   step_text: string | null
   created_at: string
+  submitted_at?: string | null // v0.9.0：错题所属提交的提交时间（订正页日历打点用）
   category_key: string
   category_label: string
   category_studied: boolean
@@ -118,11 +120,13 @@ export interface StudentMistake {
 export interface SubmissionResult {
   submission_id: number
   question_id: number
-  status: 'submitted' | 'graded'
+  // v0.9.0：新增 'pending_review'——已提交、等老师审核，steps/errors 为空
+  status: 'submitted' | 'graded' | 'pending_review'
   first_error_seq: number | null
   steps: StepDiagnosis[]
   errors: GradingError[]
   follow_up_question?: string | null // v0.4.0：启发式追问，无错时为 null
+  review_status?: 'pending' | 'approved' // v0.9.0：教师审核状态
 }
 
 export interface SubmissionSummary {
@@ -133,6 +137,7 @@ export interface SubmissionSummary {
   status: string
   error_count: number
   submitted_at: string
+  review_status?: 'pending' | 'approved' // v0.9.0：教师审核状态（pending 时 error_count=0）
 }
 
 // ---------- 英语作文 ----------
@@ -192,7 +197,7 @@ export interface KnowledgeStat {
 }
 
 export interface StudentProfile {
-  student: { id: number; name: string; student_no: string }
+  student: { id: number; name: string; student_no: string; role?: string; created_at?: string | null }
   knowledge_points: KnowledgeStat[]
   stubborn_errors: GradingError[]
   recent_errors: GradingError[]
@@ -203,6 +208,33 @@ export interface StudentProfile {
 export interface TeacherErrorItem extends GradingError {
   student: { id: number; name: string; student_no: string }
   question: { id: number; stem: string; subject: string }
+  review_status?: 'pending' | 'approved' // v0.9.0：所属提交的审核状态
+}
+
+// ---------- v0.9.0 新增：教师审核流 ----------
+// 契约见 docs/api-contract.md v0.9.0 第 4.23~4.26 节
+
+export interface ReviewPendingItem {
+  submission_id: number
+  student: { id: number; name: string; student_no: string | null }
+  assignment_id: number | null
+  assignment_title: string
+  question_id: number
+  question_stem: string
+  subject: string
+  knowledge_point: string
+  error_count: number
+  submitted_at: string
+}
+
+export interface ReviewDetail {
+  submission_id: number
+  student: { id: number; name: string; student_no: string | null }
+  assignment_title: string
+  question: Question
+  submitted_at: string
+  review_status: 'pending' | 'approved'
+  diagnosis: SubmissionResult
 }
 
 export interface TopQuestion {
