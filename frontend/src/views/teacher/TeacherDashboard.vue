@@ -1,5 +1,6 @@
-<!-- 教师端：班级总览 Dashboard
-     数据源：4.1 错误列表（总数/顽固数/错因分布）/ 4.3 高频错题 TopN / 4.4 知识点错误率 / 4.5 学生列表
+<!-- 教师端：班级总览 Dashboard（v0.4.0 版式重构：KPI 横排 → 双列网格 → 底部双列）
+     数据源：4.1 错误列表（总数/顽固数/错因分布）/ 4.3 高频错题 TopN / 4.4 知识点错误率 /
+             4.5 学生列表 / 4.11 班级知识修复率（v0.4.0 新增）
      错因三色全局统一：计算失误=琥珀 / 概念混淆=红 / 审题遗漏=紫 -->
 <template>
   <div class="page">
@@ -12,90 +13,98 @@
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="!loading">
-      <!-- 关键指标 -->
-      <div class="stat-row" style="margin-bottom: 16px">
+      <!-- KPI 指标卡横排（v0.4.0：含新增「班级知识修复率」卡） -->
+      <div class="stat-row kpi-row" style="margin-bottom: 16px">
         <div class="stat red"><div class="stat-num tnum">{{ overview.totalErrors }}</div><div class="stat-label">累计错误记录</div></div>
         <div class="stat amber"><div class="stat-num tnum">{{ overview.stubbornErrors }}</div><div class="stat-label">顽固误区</div></div>
         <div class="stat"><div class="stat-num tnum">{{ overview.studentCount }}</div><div class="stat-label">班级学生</div></div>
-        <div class="stat purple"><div class="stat-num tnum">{{ overview.kpCount }}</div><div class="stat-label">涉及知识点</div></div>
-      </div>
-
-      <!-- 一级：科目总览（v0.2.1 分层卡片：科目 → 知识点 → 高频错题 → 学生） -->
-      <div class="card">
-        <h3><AppIcon name="book" :size="18" /> 科目总览 · 数学</h3>
-        <p class="card-sub">当前班级作业均为数学科目，下面按知识点、题目、学生逐层细分。</p>
-        <div class="stat-row">
-          <div class="stat"><div class="stat-num tnum">{{ subjectTotals.submissions }}</div><div class="stat-label">全班提交（次）</div></div>
-          <div class="stat red"><div class="stat-num tnum">{{ overview.totalErrors }}</div><div class="stat-label">累计错误（条）</div></div>
-          <div class="stat amber"><div class="stat-num tnum">{{ Math.round(subjectTotals.errorRate * 100) }}%</div><div class="stat-label">整体错误率</div></div>
-          <div class="stat purple"><div class="stat-num tnum">{{ overview.kpCount }}</div><div class="stat-label">涉及知识点</div></div>
+        <div class="stat green repair-stat">
+          <div class="stat-num tnum">{{ Math.round(repairRate.class_repair_rate * 100) }}%</div>
+          <div class="stat-label">班级知识修复率</div>
+          <div class="repair-bar"><span :style="{ width: `${Math.round(repairRate.class_repair_rate * 100)}%` }"></span></div>
+          <div class="repair-sub tnum">已修复 {{ repairRate.fixed_knowledge_point_pairs }} / 出过错 {{ repairRate.total_knowledge_point_pairs }} 个知识点（按学生计）</div>
         </div>
       </div>
 
-      <!-- 二级：知识点错误率（卡片列表 + 图表） -->
-      <div class="card">
-        <h3><AppIcon name="target" :size="18" /> 知识点错误率排行</h3>
-        <div v-if="kpStats.length" class="kp-cards">
-          <div v-for="kp in kpStats" :key="kp.knowledge_point" class="kp-card">
-            <div class="kp-card-head">
-              <span class="kp-card-name">{{ kp.knowledge_point }}</span>
-              <span class="kp-card-rate tnum">{{ Math.round(kp.error_rate * 100) }}%</span>
+      <!-- 科目概览条（原科目总览卡压缩为一行：提交 / 整体错误率 / 涉及知识点） -->
+      <div class="subject-strip">
+        <span class="strip-subject"><AppIcon name="book" :size="15" /> 数学</span>
+        <span>全班提交 <b class="tnum">{{ subjectTotals.submissions }}</b> 次</span>
+        <span>整体错误率 <b class="tnum">{{ Math.round(subjectTotals.errorRate * 100) }}%</b></span>
+        <span>涉及知识点 <b class="tnum">{{ overview.kpCount }}</b> 个</span>
+        <span class="strip-note">修复 = 订正错题后通过二次验证</span>
+      </div>
+
+      <!-- 双列：左 知识点错误率 | 右 高频错题 -->
+      <div class="dash-grid">
+        <div class="card">
+          <h3><AppIcon name="target" :size="18" /> 知识点错误率排行</h3>
+          <div v-if="kpStats.length" class="kp-cards">
+            <div v-for="kp in kpStats" :key="kp.knowledge_point" class="kp-card">
+              <div class="kp-card-head">
+                <span class="kp-card-name">{{ kp.knowledge_point }}</span>
+                <span class="kp-card-rate tnum">{{ Math.round(kp.error_rate * 100) }}%</span>
+              </div>
+              <div class="kp-card-bar"><span :style="{ width: `${Math.round(kp.error_rate * 100)}%` }"></span></div>
+              <p class="kp-card-meta">
+                提交 <span class="tnum">{{ kp.submissions }}</span> 次 · 错误 <span class="tnum">{{ kp.errors }}</span> 次
+                <template v-if="repairText(kp.knowledge_point)"> · {{ repairText(kp.knowledge_point) }}</template>
+              </p>
             </div>
-            <div class="kp-card-bar"><span :style="{ width: `${Math.round(kp.error_rate * 100)}%` }"></span></div>
-            <p class="kp-card-meta">提交 <span class="tnum">{{ kp.submissions }}</span> 次 · 错误 <span class="tnum">{{ kp.errors }}</span> 次</p>
           </div>
+          <EChart v-if="kpStats.length" :option="knowledgeOption" />
+          <div v-else class="empty">暂无数据。</div>
         </div>
-        <EChart v-if="kpStats.length" :option="knowledgeOption" />
-        <div v-else class="empty">暂无数据。</div>
-      </div>
 
-      <!-- 三级：高频错题（图表 + 列表） -->
-      <div class="card">
-        <h3><AppIcon name="alert" :size="18" /> 高频错题 Top{{ topN }}</h3>
-        <div class="toolbar">
-          <label style="font-size: 14px; color: var(--text-2)">Top N：</label>
-          <select v-model="topN" @change="loadStats" style="width: auto">
-            <option :value="5">5</option>
-            <option :value="10">10</option>
-            <option :value="20">20</option>
-          </select>
-        </div>
-        <EChart v-if="topQuestions.length" :option="topQuestionsOption" />
-        <div v-else class="empty">暂无数据。</div>
-        <div v-if="topQuestions.length" class="top-list">
-          <div v-for="q in topQuestions" :key="q.question_id" class="top-row">
-            <span class="top-main">{{ q.stem }}</span>
-            <span class="badge badge-blue">{{ q.knowledge_point }}</span>
-            <span class="top-meta tnum">错误 {{ q.error_count }} 次 · {{ q.student_count }} 名学生</span>
+        <div class="card">
+          <h3><AppIcon name="alert" :size="18" /> 高频错题 Top{{ topN }}</h3>
+          <div class="toolbar">
+            <label style="font-size: 14px; color: var(--text-2)">Top N：</label>
+            <select v-model="topN" @change="loadStats" style="width: auto">
+              <option :value="5">5</option>
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+            </select>
+          </div>
+          <EChart v-if="topQuestions.length" :option="topQuestionsOption" />
+          <div v-else class="empty">暂无数据。</div>
+          <div v-if="topQuestions.length" class="top-list">
+            <div v-for="q in topQuestions" :key="q.question_id" class="top-row">
+              <span class="top-main">{{ q.stem }}</span>
+              <span class="badge badge-blue">{{ q.knowledge_point }}</span>
+              <span class="top-meta tnum">错误 {{ q.error_count }} 次 · {{ q.student_count }} 名学生</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="card">
-        <h3>错因类型分布</h3>
-        <p class="card-sub">基于最近 100 条错误记录统计（契约 4.1 未提供聚合接口，前端本地汇总）。</p>
-        <EChart v-if="typeOptionData.length" :option="typeOption" />
-        <div v-else class="empty">暂无数据。</div>
-      </div>
+      <!-- 底部双列：错因分布 | 学生概览 -->
+      <div class="dash-grid">
+        <div class="card">
+          <h3>错因类型分布</h3>
+          <p class="card-sub">基于最近 100 条错误记录统计（契约 4.1 未提供聚合接口，前端本地汇总）。</p>
+          <EChart v-if="typeOptionData.length" :option="typeOption" />
+          <div v-else class="empty">暂无数据。</div>
+        </div>
 
-      <!-- 四级：学生概览（点进学生画像） -->
-      <div class="card">
-        <h3><AppIcon name="users" :size="18" /> 学生概览</h3>
-        <p class="card-sub">点击任意学生，查看他的个人学习画像与错题轨迹。</p>
-        <div v-if="!studentsList.length" class="empty">暂无学生数据。</div>
-        <router-link
-          v-for="s in studentsList"
-          :key="s.id"
-          :to="`/teacher/students/${s.id}`"
-          class="student-row"
-        >
-          <span class="student-main">
-            <span class="student-name">{{ s.name }}</span>
-            <span class="student-no">{{ s.student_no || '—' }}</span>
-          </span>
-          <span class="student-meta tnum">提交 {{ s.submission_count }} 次 · 错误 {{ s.error_count }} 条</span>
-          <AppIcon name="chevron-right" :size="16" />
-        </router-link>
+        <div class="card">
+          <h3><AppIcon name="users" :size="18" /> 学生概览</h3>
+          <p class="card-sub">点击任意学生，查看他的个人学习画像与错题轨迹。</p>
+          <div v-if="!studentsList.length" class="empty">暂无学生数据。</div>
+          <router-link
+            v-for="s in studentsList"
+            :key="s.id"
+            :to="`/teacher/students/${s.id}`"
+            class="student-row"
+          >
+            <span class="student-main">
+              <span class="student-name">{{ s.name }}</span>
+              <span class="student-no">{{ s.student_no || '—' }}</span>
+            </span>
+            <span class="student-meta tnum">提交 {{ s.submission_count }} 次 · 错误 {{ s.error_count }} 条</span>
+            <AppIcon name="chevron-right" :size="16" />
+          </router-link>
+        </div>
       </div>
     </template>
   </div>
@@ -104,7 +113,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useTeacherStore } from '../../stores/teacher'
-import type { KnowledgePointStat, StudentSummary, TopQuestion } from '../../api/types'
+import type { ClassRepairRate, KnowledgePointStat, StudentSummary, TopQuestion } from '../../api/types'
 import { errorTypeKey, ERROR_TYPE_CHART_COLORS } from '../../utils/errorType'
 import EChart from '../../components/EChart.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
@@ -119,6 +128,20 @@ const error = ref('')
 
 const overview = reactive({ totalErrors: 0, stubbornErrors: 0, studentCount: 0, kpCount: 0 })
 const typeOptionData = ref<Array<{ name: string; value: number }>>([])
+
+// 班级知识修复率（4.11）：KPI 卡 + 各知识点修复率（并入知识点卡片）
+const repairRate = ref<ClassRepairRate>({
+  class_repair_rate: 0,
+  students_with_errors: 0,
+  total_knowledge_point_pairs: 0,
+  fixed_knowledge_point_pairs: 0,
+  knowledge_points: []
+})
+function repairText(kpName: string): string {
+  const item = repairRate.value.knowledge_points.find((k) => k.knowledge_point === kpName)
+  if (!item) return ''
+  return `已修复率 ${Math.round(item.repair_rate * 100)}%（${item.students_fixed}/${item.students_errored} 名学生）`
+}
 
 // 科目层汇总（数学）：提交总数取知识点排行的提交合计，整体错误率与学生画像同口径（上限 1.0）
 const subjectTotals = computed(() => {
@@ -204,16 +227,18 @@ async function loadStats() {
   loading.value = true
   error.value = ''
   try {
-    const [tq, kp, errAll, errStubborn, students] = await Promise.all([
+    const [tq, kp, errAll, errStubborn, students, repair] = await Promise.all([
       teacher.fetchTopQuestions(topN.value),
       teacher.fetchKnowledgePoints(),
       teacher.fetchErrors({ limit: 1, offset: 0 }),
       teacher.fetchErrors({ limit: 1, offset: 0, stubborn_only: true }),
-      teacher.fetchStudents()
+      teacher.fetchStudents(),
+      teacher.fetchRepairRate().catch(() => null)
     ])
     topQuestions.value = tq
     kpStats.value = kp
     studentsList.value = students
+    if (repair) repairRate.value = repair
     overview.totalErrors = errAll.total
     overview.stubbornErrors = errStubborn.total
     overview.studentCount = students.length
@@ -236,6 +261,32 @@ onMounted(loadStats)
 </script>
 
 <style scoped>
+/* v0.4.0 双列网格：宽屏并排，窄屏堆叠 */
+.dash-grid {
+  display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 16px; align-items: start; margin-bottom: 16px;
+}
+.dash-grid > .card { margin-bottom: 0; }
+@media (max-width: 1080px) {
+  .dash-grid { grid-template-columns: 1fr; }
+}
+.kpi-row .repair-stat { flex: 1.5 1 200px; }
+.repair-bar { height: 7px; background: #EDF0F4; border-radius: 4px; overflow: hidden; margin-top: 9px; }
+.repair-bar > span { display: block; height: 100%; background: var(--green); border-radius: 4px; transition: width 0.35s ease; }
+.repair-sub { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.subject-strip {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  background: var(--card); border: 1px solid #EDF0F4; border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 11px 18px; margin-bottom: 16px;
+  font-size: 13.5px; color: var(--text-2);
+}
+.subject-strip b { color: var(--text); }
+.strip-subject { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--primary); font-size: 14.5px; }
+.strip-note { margin-left: auto; font-size: 12.5px; color: var(--text-3); }
+@media (prefers-reduced-motion: reduce) {
+  .repair-bar > span { transition: none; }
+}
+
 .kp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .kp-card { background: var(--bg); border-radius: 10px; padding: 12px 14px; }
 .kp-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }

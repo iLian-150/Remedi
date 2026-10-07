@@ -12,6 +12,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import Assignment, Correction, Error, Essay, Notification, Question, Step, Submission, User
 from ..schemas import (
+    ClassRepairRateOut,
     ErrorCorrectIn,
     KnowledgePointRankItem,
     PhotoTranscribeOut,
@@ -27,7 +28,13 @@ from ..schemas import (
 )
 from ..services.diagnosis import present_error
 from ..services.providers import get_provider
-from ..services.stats import knowledge_point_ranking, list_students, student_profile, top_error_questions
+from ..services.stats import (
+    class_repair_rate,
+    knowledge_point_ranking,
+    list_students,
+    student_profile,
+    top_error_questions,
+)
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 
@@ -128,6 +135,13 @@ def stats_top_questions(n: int = Query(default=10, ge=1, le=50),
 def stats_knowledge_points(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     items = knowledge_point_ranking(db)
     return {"items": [KnowledgePointRankItem(**it) for it in items]}
+
+
+@router.get("/stats/repair-rate", response_model=ClassRepairRateOut, summary="班级知识修复率（v0.4.0 新增）")
+def stats_repair_rate(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    """班级知识修复率 + 各知识点修复率：口径与学生学习报告四态一致
+    （已修复 = 错题订正后通过二次验证）。"""
+    return class_repair_rate(db)
 
 
 @router.get("/students", summary="学生列表")

@@ -81,6 +81,12 @@
         </div>
       </template>
       <p v-else class="ok-line"><AppIcon name="check" :size="15" /> 太棒了，这道题全部正确，继续保持！</p>
+
+      <!-- 追问（v0.4.0）：先想一想，再看解析 -->
+      <div v-if="result.follow_up_question" class="followup-box">
+        <span class="followup-icon"><AppIcon name="lightbulb" :size="15" /></span>
+        <p><b>想一想：</b>{{ result.follow_up_question }}</p>
+      </div>
     </div>
   </div>
 </template>
@@ -218,6 +224,17 @@ function reset() {
 .encourage { margin-top: 7px; font-size: 14px; }
 .detail { margin-top: 5px; font-size: 14px; color: var(--text-2); }
 .ok-line { margin-top: 9px; font-size: 14.5px; color: #065F46; display: flex; align-items: center; gap: 6px; }
+.followup-box {
+  display: flex; gap: 9px; align-items: flex-start;
+  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  padding: 11px 14px; margin-top: 12px; font-size: 14px;
+}
+.followup-icon {
+  width: 25px; height: 25px; border-radius: 50%; flex-shrink: 0;
+  background: var(--primary); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.followup-box p { padding-top: 2px; }
 .spin { animation: pgf-spin 1s linear infinite; }
 @keyframes pgf-spin { to { transform: rotate(360deg); } }
 </style>

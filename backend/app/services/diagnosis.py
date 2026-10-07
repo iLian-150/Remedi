@@ -399,6 +399,21 @@ def present_diagnosis(submission: Submission, db) -> dict:
             if status_by_step_id.get(e.step_id) == "unparseable":
                 first_error_seq = seq_by_step_id.get(e.step_id)
                 break
+    # 追问（v0.4.0）：取主错误（与 first_error_seq 同口径：优先真正不等价步的
+    # 错误，其次无法解析步）生成一句启发式追问；无错时为 None。
+    from .followup import generate_follow_up
+    main_error = None
+    if errors:
+        for e in errors:
+            if seq_by_step_id.get(e.step_id) == first_error_seq:
+                main_error = e
+                break
+        if main_error is None:
+            main_error = errors[0]
+    follow_up_question = (
+        generate_follow_up(main_error.error_type, main_error.knowledge_point)
+        if main_error else None
+    )
     return {
         "submission_id": submission.id,
         "question_id": submission.question_id,
@@ -406,4 +421,5 @@ def present_diagnosis(submission: Submission, db) -> dict:
         "first_error_seq": first_error_seq,
         "steps": [{"seq": s.seq, "text": s.text, "status": s.status} for s in steps],
         "errors": [present_error(e, db) for e in errors],
+        "follow_up_question": follow_up_question,
     }

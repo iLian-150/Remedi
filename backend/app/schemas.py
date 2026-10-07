@@ -110,6 +110,7 @@ class DiagnosisOut(BaseModel):
     first_error_seq: Optional[int] = None
     steps: List[StepOut]
     errors: List[ErrorOut]
+    follow_up_question: Optional[str] = None   # v0.4.0：按主错因+知识点生成的启发式追问，无错时为 None
 
 
 class SubmissionBrief(BaseModel):
@@ -177,6 +178,9 @@ class CorrectionOut(BaseModel):
     is_correct: Optional[bool] = None
     note: Optional[str] = None
     submitted_at: datetime
+    # v0.4.0 新增（只加字段）：订正成功时为 True，提示前端引导去做二次验证
+    can_verify: bool = False
+    knowledge_point: Optional[str] = None   # 该错题所属知识点（供前端直达验证）
 
 
 # ---------- 画像 ----------
@@ -244,7 +248,8 @@ class ReportKnowledgePointOut(BaseModel):
     attempts: int                 # 该知识点题目的提交次数
     error_count: int              # 该知识点累计错题数
     error_rate: float             # error_count / attempts（上限 1.0，口径同学生画像）
-    status: str                   # pending（待修复）| stubborn（反复出错）| fixed（已加固）
+    # v0.4.0 四态：pending（待修复）| stubborn（反复出错）| awaiting_verify（已订正待验证）| fixed（已修复，通过二次验证）
+    status: str
     last_error_at: Optional[datetime] = None
 
 
@@ -252,8 +257,8 @@ class SubjectReportOut(BaseModel):
     subject: str                  # math | english
     submission_count: int         # 该科目提交总数
     correct_rate: float           # 1 - 错误率（口径同学生画像 mastery）
-    pending_fix_count: int        # 待修复知识点数（status != fixed 的知识点数）
-    fixed_ratio: float            # 已修复知识点 / 出过错的知识点（无错题知识点时为 1.0）
+    pending_fix_count: int        # 未修复知识点数（status != fixed 的知识点数）
+    fixed_ratio: float            # 知识修复率 = 已修复（通过二次验证）知识点 / 出过错的知识点（无错题知识点时为 1.0）
     knowledge_points: List[ReportKnowledgePointOut]
 
 
@@ -388,6 +393,77 @@ class NotificationReadIn(BaseModel):
 class NotificationReadOut(BaseModel):
     updated: int                  # 本次标已读的条数
     unread_count: int             # 标后的未读数
+
+
+# ---------- 二次验证（v0.4.0 新增） ----------
+
+class VerificationCreate(BaseModel):
+    knowledge_point: str = Field(min_length=1, max_length=64)
+    source_error_id: Optional[int] = None   # 触发验证的错题，可空（后端默认取该知识点最近错题）
+
+
+class VerificationOut(BaseModel):
+    id: int
+    knowledge_point: str
+    prompt: str                   # 只下发题干，答案与标准步骤不下发
+    status: str                   # pending | passed | failed
+    attempts: int
+    source_error_id: Optional[int] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class VerificationSubmitIn(BaseModel):
+    steps: List[str] = Field(min_length=1, max_length=20)
+
+    from pydantic import field_validator
+
+    @field_validator("steps")
+    @classmethod
+    def _check_steps(cls, v: List[str]) -> List[str]:
+        cleaned = []
+        for s in v:
+            if not isinstance(s, str) or not s.strip():
+                raise ValueError("每个作答步骤不能为空")
+            if len(s) > 500:
+                raise ValueError("单个步骤不能超过 500 字符")
+            cleaned.append(s.strip())
+        return cleaned
+
+
+class VerificationStepOut(BaseModel):
+    seq: int
+    text: str
+    status: str                   # ok | error | unparseable | skipped
+
+
+class VerificationSubmitOut(BaseModel):
+    id: int
+    knowledge_point: str
+    status: str                   # passed | failed
+    attempts: int
+    passed: bool
+    first_error_seq: Optional[int] = None   # 首个出错步序号（通过时为 None）
+    error_type: Optional[str] = None        # 首个出错步的错因（最终步未完成时为 None）
+    detail: Optional[str] = None            # 解析/判定说明
+    steps: List[VerificationStepOut]
+
+
+# ---------- 教师：班级知识修复率（v0.4.0 新增） ----------
+
+class KnowledgePointRepairItem(BaseModel):
+    knowledge_point: str
+    students_errored: int         # 在该知识点出过错的学生数
+    students_fixed: int           # 其中已修复（订正+通过验证）的学生数
+    repair_rate: float            # students_fixed / students_errored
+
+
+class ClassRepairRateOut(BaseModel):
+    class_repair_rate: float                 # 全班知识修复率 = 已修复（学生×知识点）/ 出过错（学生×知识点）
+    students_with_errors: int                # 有过错题的学生数
+    total_knowledge_point_pairs: int         # 出过错的（学生, 知识点）组合数
+    fixed_knowledge_point_pairs: int         # 其中已修复的组合数
+    knowledge_points: List[KnowledgePointRepairItem]
 
 
 # ---------- 健康检查 ----------
