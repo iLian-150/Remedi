@@ -181,6 +181,12 @@
               </div>
             </template>
             <p v-else class="ok-line"><AppIcon name="check" :size="16" /> 太棒了，这道题全部正确，继续保持！</p>
+
+            <!-- 追问（v0.4.0）：先想一想，再看解析 -->
+            <div v-if="msg.result.follow_up_question" class="followup-box">
+              <span class="followup-icon"><AppIcon name="lightbulb" :size="16" /></span>
+              <p><b>想一想：</b>{{ msg.result.follow_up_question }}</p>
+            </div>
           </div>
 
           <!-- 用户消息 -->
@@ -560,10 +566,10 @@ onMounted(async () => {
 }
 .ai-card-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 
-/* 简报卡片区（v0.2.1） */
-.briefing-card { width: min(720px, 100%); }
+/* 简报卡片区（v0.2.1 卡片化；v0.4.0 放宽卡宽，统计卡真正横向并排） */
+.briefing-card { width: min(820px, 100%); }
 .brief-hello { font-size: 14.5px; margin-bottom: 12px; }
-.brief-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.brief-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .brief-stat-card { border-radius: 12px; padding: 14px 16px; border: 1px solid #EDF0F4; }
 .brief-assign { background: var(--primary-50); }
 .brief-corr { background: #FFFBEB; }
@@ -616,6 +622,17 @@ onMounted(async () => {
 .encourage { margin-top: 8px; font-size: 14px; }
 .detail { margin-top: 6px; font-size: 14px; color: var(--text-2); }
 .ok-line { margin-top: 10px; font-size: 14.5px; color: #065F46; display: flex; align-items: center; gap: 6px; }
+.followup-box {
+  display: flex; gap: 9px; align-items: flex-start;
+  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  padding: 11px 14px; margin-top: 14px; font-size: 14px;
+}
+.followup-icon {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  background: var(--primary); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.followup-box p { padding-top: 3px; }
 
 .chat-composer { background: var(--card); border-top: 1px solid var(--border); padding: 12px 0 16px; }
 .composer-tip { font-size: 13px; color: var(--text-2); margin-bottom: 9px; }

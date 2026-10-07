@@ -17,8 +17,11 @@
   --gray: #6B7280;  --gray-bg: #F3F4F6;
   --green: #059669; --green-bg: #D1FAE5;
   --blue-bg: #DBEAFE;
-  --radius: 12px;
+  --radius: 14px;
+  --radius-sm: 10px;
   --shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.13);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -380,7 +383,7 @@ table.table tr:hover td { background: #F8FAFF; }
   .app-sidebar .sidebar-nav { flex-direction: column; overflow: visible; }
 }
 
-/* ---------- 右侧栏（v0.3.0：提醒便利贴 + 日历） ---------- */
+/* ---------- 右侧栏（v0.3.0 首版；v0.3.1 按页面分工：提醒 / 日历） ---------- */
 .app-rail {
   width: 308px; flex-shrink: 0;
   border-left: 1px solid var(--border); background: #FBFCFE;
@@ -436,4 +439,67 @@ table.table tr:hover td { background: #F8FAFF; }
   .app-rail { transition: none; }
   .mail-fab.has-unread { animation: none; }
   .mail-badge { animation: none; }
+}
+
+/* ---------- v0.4.0 视觉系统：卡片层级 / 图标动效 ---------- */
+/* 卡片统一过渡；.hoverable 的卡片 hover 时轻微上浮 + 阴影加深（仅 transform/opacity 系动效） */
+.card { transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.card.hoverable:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.assign-card { transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.assign-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.page-head h2 { font-size: 24px; letter-spacing: 0.2px; }
+
+/* 导航图标：外层 span.nav-ic 承载动效，按图标类型差异化（App.vue 以 ni-<icon> 标记） */
+.sidebar-nav a .nav-ic { display: inline-flex; align-items: center; justify-content: center; }
+.sidebar-nav a .app-icon, .btn .app-icon, .icon-btn .app-icon {
+  transition: transform 0.18s ease;
+}
+.sidebar-nav a.active .nav-ic { color: var(--primary); }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* hover 微动效：按图标语义分组 */
+  .sidebar-nav a:hover .ni-chat,
+  .sidebar-nav a:hover .ni-user,
+  .sidebar-nav a:hover .ni-users { animation: nav-bob 0.55s ease; }
+  .sidebar-nav a:hover .ni-clipboard,
+  .sidebar-nav a:hover .ni-file { animation: nav-wiggle 0.55s ease; }
+  .sidebar-nav a:hover .ni-chart,
+  .sidebar-nav a:hover .ni-check,
+  .sidebar-nav a:hover .ni-lightbulb { animation: nav-pop 0.45s ease; }
+  .sidebar-nav a:hover .ni-edit { animation: nav-nudge 0.5s ease; }
+  .sidebar-nav a:hover .ni-plus-circle .app-icon { transform: rotate(90deg); }
+  /* 当前页图标：缓慢呼吸，标示所在位置 */
+  .sidebar-nav a.active .nav-ic { animation: nav-active 2.6s ease-in-out infinite; }
+  /* 按钮里的图标 hover 跟随轻动 */
+  .btn:hover .app-icon { transform: scale(1.12); }
+  .btn:hover .ni-send { transform: translate(2px, -2px); }
+  .icon-btn:hover .app-icon { transform: scale(1.14); }
+}
+@keyframes nav-bob {
+  0%, 100% { transform: translateY(0); }
+  35% { transform: translateY(-3.5px); }
+  70% { transform: translateY(0.5px); }
+}
+@keyframes nav-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-7deg); }
+  65% { transform: rotate(5deg); }
+}
+@keyframes nav-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+@keyframes nav-nudge {
+  0%, 100% { transform: translate(0, 0); }
+  40% { transform: translate(2.5px, -2.5px); }
+}
+@keyframes nav-active {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.13); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .assign-card,
+  .sidebar-nav a .app-icon, .btn .app-icon, .icon-btn .app-icon { transition: none; }
+  .card.hoverable:hover, .assign-card:hover { transform: none; }
 }

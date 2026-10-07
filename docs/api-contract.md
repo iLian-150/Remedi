@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.3.0（2026-10-07）
+> 版本：v0.4.0（2026-10-07）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -203,7 +203,8 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
       "teacher_note": null,
       "created_at": "2026-10-06T15:45:00"
     }
-  ]
+  ],
+  "follow_up_question": "把 +3 从等号左边拿走时，右边要做什么，天平才不会倾斜？"
 }
 ```
 
@@ -215,6 +216,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `errors[].error_type` 枚举：`计算失误` | `概念混淆` | `审题遗漏` | `无法解析`。
 - `errors[].confidence`：0~1。规则命中概念误区 0.85 / 算术小偏差 0.7 / 兜底 0.5 / 无法解析 0.3。
 - `errors[].is_stubborn`：该生该知识点近 N 天（默认 30 天，可配 `STUBBORN_WINDOW_DAYS`）内再次出错即为 `true`（顽固误区），否则为偶发失误。
+- `follow_up_question`（v0.4.0 新增）：按主错因（与 `first_error_seq` 同口径）+ 知识点由模板生成的一句启发式追问，引导学生先自己想明白错在哪；全对（`errors` 为空）时为 `null`。GET 3.5 提交详情同结构，同样带此字段。
 
 错误：`400`（题目是作文题，请用 `/api/student/essays`）、`404`（题目不存在）、`422`（steps 为空/超限）。
 
@@ -332,11 +334,15 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
   "content": "2x=7-3",
   "is_correct": true,
   "note": "订正步骤与出错前一步等价，订正正确",
-  "submitted_at": "2026-10-06T16:00:00"
+  "submitted_at": "2026-10-06T16:00:00",
+  "can_verify": true,
+  "knowledge_point": "一元一次方程"
 }
 ```
 
 - `is_correct`：`true` 正确 / `false` 仍不正确 / `null` 无法判定（订正内容无法解析或非数学题，需教师确认）。
+- `can_verify`（v0.4.0 新增，只加字段）：订正成功（`is_correct=true`）时为 `true`，提示前端引导学生去做二次验证（3.19）；其余情况为 `false`。
+- `knowledge_point`（v0.4.0 新增，只加字段）：该条错题所属知识点，供前端直达对应知识点的验证。
 
 错误：`403`（该 error 不属于本人）；`404`（error 不存在）。
 
@@ -457,8 +463,13 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 - `correct_rate`：`1 - error_rate`，错误率口径与 3.10 学生画像一致（该科目累计 error 数 / 提交数，上限截断 1.0）。
 - `knowledge_points`：仅包含出过错的知识点，按 `error_rate` 降序。
-- `status` 口径：`fixed` = 该知识点每条错题都已有 `is_correct=true` 的订正；`stubborn` = 命中既有顽固判定（该知识点任一错题 `is_stubborn=true`，即诊断时同知识点在窗口天数内重复出错）；其余有未订正错题为 `pending`。
-- `pending_fix_count`：`status != fixed` 的知识点数；`fixed_ratio` = `fixed` 知识点数 / 出过错的知识点数（无出过错知识点时为 1.0）。
+- `status` 口径（**v0.4.0 升级为四态**）：
+  - `fixed`（已修复）= 该生已**通过该知识点的二次验证**（3.19 创建、3.21 判定通过）；
+  - `awaiting_verify`（已订正待验证）= 该知识点每条错题都已有 `is_correct=true` 的订正，但尚未通过二次验证；
+  - `stubborn`（反复出错）= 命中既有顽固判定（该知识点任一错题 `is_stubborn=true`，即诊断时同知识点在窗口天数内重复出错），且仍有未订正错题；
+  - `pending`（待修复）= 其余有未订正错题的情况。
+- **口径变更说明**：v0.3 及以前「错题全部订正即 `fixed`」的口径自 v0.4.0 起废弃——订正只证明这一步改对了，必须再独立做对一道同知识点变式题（二次验证）才算修复。受影响的既有字段仅语义收紧，字段名与类型不变：`status` 新增枚举值 `awaiting_verify`（前端需兼容四态），`fixed_ratio` 数值会因新口径下降。
+- `pending_fix_count`：`status != fixed` 的知识点数；`fixed_ratio` 即**知识修复率** = `fixed` 知识点数 / 出过错的知识点数（无出过错知识点时为 1.0）。
 
 ### 3.14 GET /api/student/report/knowledge-points/{name}/errors —— 知识点错题时间线（v0.2.1 新增）
 
@@ -551,6 +562,77 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 请求：`{ "ids": [5] }` —— `ids` 选填，不传或为空数组表示全部标已读；传入时只标本人的这些条。
 
 响应 `200`：`{ "updated": 1, "unread_count": 0 }`。
+
+### 3.19 POST /api/student/verifications —— 创建二次验证（变式题）（v0.4.0 新增）⭐
+
+权限：学生。闭环的「验证」一环：为某知识点生成一道**变式题**（同知识点、换数字/情境的新题），学生独立做对才算该知识点修复（见 3.13 状态口径）。
+
+请求：
+
+```json
+{ "knowledge_point": "一元一次方程", "source_error_id": 9 }
+```
+
+- `knowledge_point`：必填。
+- `source_error_id`：选填，触发本次验证的错题 id（必须属于本人，否则 `400`）；不传时后端默认取该生该知识点最近一条错题，可为空。
+
+行为：
+
+- 该知识点已有未完成的验证（`status=pending`）时**直接复用**返回，不重复出题；已有 `failed` 记录的不复用，重新生成新题（即「换一道题重试」走本接口再调一次）。
+- 出题方式：优先参数化模板（系数随机，标准步骤与答案由 sympy 验算）——覆盖 `一元一次方程`（ax+b=c 型）、`完全平方公式`（展开）、`去括号` / `去括号与合并同类项`；无模板的知识点走 Provider 兜底生成同类题，生成结果能通过 sympy 逐步验算的按严格模式判定，不能的标为练习模式（仍可走 3.21 的步骤诊断判定）。
+
+响应 `200`（**只下发题干，答案与标准步骤永不下发**）：
+
+```json
+{
+  "id": 1,
+  "knowledge_point": "一元一次方程",
+  "prompt": "解方程：6x+2=44",
+  "status": "pending",
+  "attempts": 0,
+  "source_error_id": 9,
+  "created_at": "2026-10-07T10:00:00",
+  "completed_at": null
+}
+```
+
+错误：`400`（`source_error_id` 不是本人的错题）、`422`（`knowledge_point` 为空）。
+
+### 3.20 GET /api/student/verifications —— 我的验证列表（v0.4.0 新增）
+
+权限：学生。返回本人最近 50 条验证记录（时间倒序），元素结构同 3.19 响应（含 `status`：`pending` | `passed` | `failed`）。
+
+### 3.21 POST /api/student/verifications/{id}/submit —— 提交验证作答（v0.4.0 新增）⭐
+
+权限：学生（只能提交自己的验证，否则 `403`；不存在 `404`；已 `passed` 的再提交返回 `400`）。
+
+请求：`{ "steps": ["6x+2=44", "6x=44-2", "6x=42", "x=7"] }` —— `steps` 规则同 3.3（1~20 步、每步 ≤500 字符，不用传题干之外的说明文字）。
+
+判定口径：与 3.3 诊断管线一致——从题干基准起逐步校验等价性，首个不等价步用同一套规则分类给出错因与解析；`无法解析` 的步骤记问题但不中断。全程无误且最后一步与参考答案等价 → 通过。
+
+响应 `200`：
+
+```json
+{
+  "id": 1,
+  "knowledge_point": "一元一次方程",
+  "status": "passed",
+  "attempts": 1,
+  "passed": true,
+  "first_error_seq": null,
+  "error_type": null,
+  "detail": "全部步骤正确，这道同类题做对了！",
+  "steps": [
+    {"seq": 1, "text": "6x+2=44", "status": "ok"},
+    {"seq": 2, "text": "6x=44-2", "status": "ok"},
+    {"seq": 3, "text": "6x=42", "status": "ok"},
+    {"seq": 4, "text": "x=7", "status": "ok"}
+  ]
+}
+```
+
+- 通过：`status=passed`、`completed_at` 落库，该知识点在 3.13 中随即变 `fixed`。
+- 失败：`status=failed`、`attempts+1`，`first_error_seq` / `error_type` / `detail` 指向首个出错步与解析（最后一步未化简到最终结果时 `error_type` 为 `null`、`detail` 给出提示）；可对同一条记录再次 POST 本接口重做本题，或重新调 3.19 换一道新题。
 
 ---
 
@@ -752,6 +834,28 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - **级联删除**（同一事务内按外键依赖顺序）：该作业的题目（questions）→ 学生提交（submissions）及其步骤（steps）、错题（errors）、订正（corrections）→ 关联到这些提交的提醒（notifications）→ 作文提交（essays，如有）。删除后学生端作业列表、学习报告与班级统计中都不再出现该作业的任何数据。
 - 错误：`403`（学生调用）；`404`（作业不存在或非本人发布）。
 
+### 4.11 GET /api/teacher/stats/repair-rate —— 班级知识修复率（v0.4.0 新增）
+
+权限：教师。只读聚合，口径与学生学习报告（3.13）四态完全一致：某个（学生 × 知识点）组合「已修复」= 该生该知识点的错题全部订正且通过了二次验证。
+
+响应 `200`：
+
+```json
+{
+  "class_repair_rate": 0.5,
+  "students_with_errors": 2,
+  "total_knowledge_point_pairs": 2,
+  "fixed_knowledge_point_pairs": 1,
+  "knowledge_points": [
+    {"knowledge_point": "一元一次方程", "students_errored": 1, "students_fixed": 1, "repair_rate": 1.0},
+    {"knowledge_point": "去括号", "students_errored": 1, "students_fixed": 0, "repair_rate": 0.0}
+  ]
+}
+```
+
+- `class_repair_rate`：全班知识修复率 = 已修复的（学生 × 知识点）组合数 / 出过错的组合数（无任何错题时为 0.0）。
+- `knowledge_points[].repair_rate`：该知识点已修复学生数 / 出过错学生数；数组按修复率升序（最需要教学干预的知识点在前）。
+
 ---
 
 ## 5. /api/health —— 健康检查
@@ -765,7 +869,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```json
 {
   "status": "ok",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "provider": "mock",
   "time": "2026-10-06T15:40:35"
 }
@@ -784,6 +888,8 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 | `error_type` | `计算失误` / `概念混淆` / `审题遗漏` / `无法解析` |
 | `step.status` | `stem` / `ok` / `error` / `unparseable` / `skipped` |
 | `submission.status` | `submitted` / `graded` |
+| 报告知识点 `status` | `pending`（待修复）/ `stubborn`（反复出错）/ `awaiting_verify`（已订正待验证，v0.4.0 新增）/ `fixed`（已修复） |
+| `verification.status` | `pending` / `passed` / `failed` |
 
 ## 7. 变更记录
 
@@ -793,3 +899,5 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 | v0.2.0 | 2026-10-07 | 新增 3.11 拍照转写、3.12 首页简报、4.7 发布作业、4.8 教师作业列表；无 breaking 变更 |
 | v0.2.1 | 2026-10-07 | 新增 3.13 学习报告、3.14 知识点错题时间线、4.9 教师拍照识别题目；3.12 简报新增 `weak_point_details` 字段（非 breaking）。产品侧变更（无接口 breaking）：作答方式以拍照上传为主，学生端线上文本输入作答入口下线（3.3 接口保留，转写确认后仍走它）；英语作文相关前端入口与文案全部下线（3.6–3.8 接口保留，后续可能恢复）；seed 演示数据改为数学-only（作业更名「第一周数学作业」、去作文题）——仅影响新建数据库，线上已有数据库不受影响；学生/教师作业列表 `created_at` 字段确认为作业日历数据源（双端均有，无变更） |
 | v0.3.0 | 2026-10-07 | 新增 3.15 Agent 对话、3.16 对话历史、3.17 提醒列表、3.18 提醒标已读、4.10 删除已发布作业（级联删除，见 4.10）；4.2 教师纠错成功后新增给学生生成提醒的行为。新增表 `chat_messages`、`notifications`（仅新增表，不改现有表结构）。产品侧变更：学生主页对话升级为 LangGraph 交互 Agent（自由聊天问数学 + 工具查本人数据），拍照批改确定性管线不变；学生端批改结果署名统一为「老师批改/批改结果」；作业日历从作业列表页迁至全局右侧栏（通知区 + 日历），学习报告落地层改为四科悬挂卡（数学真实下钻，英语/物理/化学为占位）；交作业页拍照批改改为原地展开，不再跳对话页 |
+| v0.3.1 | 2026-10-07 | 无接口变化。产品侧变更：右侧栏按页面分工——学生主页等普通页只放便利贴提醒、学生/教师作业列表页只放日历（点选日期经前端 store 状态筛选本页作业列表，学生页显示当天完成进度条，均带「返回查看全部作业」清除筛选），教师其他页面不挂右栏；收起态悬浮按钮图标随场景变（提醒=邮件+未读角标、日历=日历图标无角标） |
+| v0.4.0 | 2026-10-07 | 闭环补完：新增 3.19 创建二次验证（变式题：参数模板 sympy 验算 + Provider 兜底练习模式）、3.20 验证列表、3.21 提交验证作答、4.11 班级知识修复率；3.3/3.5 诊断响应新增 `follow_up_question`（追问，无错为 null）；3.9 订正响应新增 `can_verify`、`knowledge_point`（只加字段）。**口径变更（语义收紧，非字段 breaking）**：3.13 知识点状态升级四态（新增 `awaiting_verify`），「全订正即 fixed」废弃，`fixed` 专指通过二次验证，`fixed_ratio` 定义随之为知识修复率＝通过验证的知识点 / 出过错知识点。新增表 `verifications`（仅新增表，不改现有表结构）。产品侧变更：前端排版整体重做（教师总览 KPI + 双列网格、学习报告双列 + 内嵌验证面板、学生卡片网格、登录左右分栏、品牌动态 Logo 与导航图标动效） |
