@@ -20,6 +20,7 @@ import TeacherStudentPortrait from '../views/teacher/TeacherStudentPortrait.vue'
 import TeacherSuggestions from '../views/teacher/TeacherSuggestions.vue'
 import TeacherAssignments from '../views/teacher/TeacherAssignments.vue'
 import TeacherPublish from '../views/teacher/TeacherPublish.vue'
+import TeacherChat from '../views/teacher/TeacherChat.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', component: RoleSelect, meta: { public: true, title: '登录' } },
@@ -42,7 +43,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/students/:id', component: TeacherStudentPortrait, meta: { role: 'teacher', title: '学生画像' } },
   { path: '/teacher/suggestions', component: TeacherSuggestions, meta: { role: 'teacher', title: '教学建议' } },
   { path: '/teacher/assignments', component: TeacherAssignments, meta: { role: 'teacher', title: '作业管理' } },
-  { path: '/teacher/assignments/new', component: TeacherPublish, meta: { role: 'teacher', title: '发布作业' } }
+  { path: '/teacher/assignments/new', component: TeacherPublish, meta: { role: 'teacher', title: '发布作业' } },
+  { path: '/teacher/chat', component: TeacherChat, meta: { role: 'teacher', title: 'AI 助手' } }
 ]
 
 const router = createRouter({

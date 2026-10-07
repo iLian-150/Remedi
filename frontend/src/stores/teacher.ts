@@ -3,6 +3,7 @@
 import { defineStore } from 'pinia'
 import api from '../api/client'
 import type {
+  AgentHistoryItem,
   ClassRepairRate,
   GradingError,
   KnowledgePointStat,
@@ -13,7 +14,8 @@ import type {
   TeacherAssignment,
   TeacherAssignmentInput,
   TeacherErrorItem,
-  TopQuestion
+  TopQuestion,
+  Workbook
 } from '../api/types'
 
 export interface ErrorFilter {
@@ -93,6 +95,46 @@ export const useTeacherStore = defineStore('teacher', {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       return data
+    },
+    // 4.12 与班级数据助理对话（v0.5.0，LangGraph 教师 Agent；接口内部已做降级）
+    async agentChat(message: string): Promise<string> {
+      const { data } = await api.post<{ reply: string }>('/api/teacher/agent/chat', { message })
+      return data.reply
+    },
+    // 4.13 教师对话历史（v0.5.0）：最近 50 条，时间正序
+    async fetchAgentHistory(): Promise<AgentHistoryItem[]> {
+      const { data } = await api.get<AgentHistoryItem[]>('/api/teacher/agent/history')
+      return data
+    },
+    // 4.14 开始新对话（v0.5.0）：删除服务端我的全部对话记录
+    async newAgentSession(): Promise<number> {
+      const { data } = await api.post<{ cleared_count: number }>('/api/teacher/agent/new-session')
+      return data.cleared_count
+    },
+    // 4.15 上传练习册 PDF 到知识库（v0.5.0，≤30MB）
+    async uploadWorkbook(file: File): Promise<Workbook> {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post<Workbook>('/api/teacher/workbooks', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      return data
+    },
+    // 4.16 我的练习册知识库（v0.5.0）
+    async fetchWorkbooks(): Promise<Workbook[]> {
+      const { data } = await api.get<PageResult<Workbook>>('/api/teacher/workbooks')
+      return data.items
+    },
+    // 4.17 删除练习册（v0.5.0）：连文件删；已被作业引用的会解除关联
+    async deleteWorkbook(id: number): Promise<void> {
+      await api.delete(`/api/teacher/workbooks/${id}`)
+    },
+    // 4.18 一键提醒未交学生（v0.5.0）：给未提交全部题目的学生发站内提醒，返回提醒人数
+    async remindAssignment(id: number): Promise<number> {
+      const { data } = await api.post<{ reminded_count: number }>(
+        `/api/teacher/assignments/${id}/remind`
+      )
+      return data.reminded_count
     }
   }
 })

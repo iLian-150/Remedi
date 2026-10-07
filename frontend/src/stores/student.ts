@@ -119,6 +119,11 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<AgentHistoryItem[]>('/api/student/agent/history')
       return data
     },
+    // 3.22 开始新对话（v0.5.0）：删除服务端我的全部对话记录，返回清掉的条数
+    async newAgentSession(): Promise<number> {
+      const { data } = await api.post<{ cleared_count: number }>('/api/student/agent/new-session')
+      return data.cleared_count
+    },
     // 3.17 我的提醒列表（v0.3.0）：最近 30 条倒序 + 未读数
     async fetchNotifications(): Promise<NotificationList> {
       const { data } = await api.get<NotificationList>('/api/student/notifications')
