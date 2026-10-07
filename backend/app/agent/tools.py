@@ -92,17 +92,18 @@ def build_tools(db: Session, student: User) -> list:
     @tool
     def get_my_briefing() -> str:
         """查询学生当前的待办情况：未完成的作业、还没订正的错题数、需要加固的知识点。当学生问"我还有什么没做""作业做完了吗"之类的问题时调用。"""
-        return briefing_to_text(student_briefing(db, student))
+        # v0.9.0：学生侧口径——待教师审核的批改结果不计入（与学生端页面一致）
+        return briefing_to_text(student_briefing(db, student, visible_only=True))
 
     @tool
     def get_my_report() -> str:
         """查询学生的学习报告摘要：各科目提交次数、正确率，以及每个知识点的错误率和状态（待修复/需要加固/已订正待验证/已修复）。当学生问"我学得怎么样""哪个知识点最弱"时调用。"""
-        return report_to_text(student_report(db, student))
+        return report_to_text(student_report(db, student, visible_only=True))
 
     @tool
     def get_knowledge_point_errors(knowledge_point: str) -> str:
         """查询学生在某个知识点下的错题时间线。参数 knowledge_point 是知识点名称，例如「一元一次方程」。当学生问"我在某个知识点错过哪些题"时调用。"""
-        items = knowledge_point_errors(db, student, knowledge_point)
+        items = knowledge_point_errors(db, student, knowledge_point, visible_only=True)
         return kp_errors_to_text(knowledge_point, items)
 
     return [get_my_briefing, get_my_report, get_knowledge_point_errors]
