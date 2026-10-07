@@ -3,7 +3,7 @@ from typing import Dict, List
 
 from sqlalchemy import func
 
-from ..models import Assignment, Correction, Error, Essay, Question, Step, Submission, User
+from ..models import Assignment, Correction, Error, Essay, Question, Step, Submission, User, Verification
 from .providers import get_provider
 
 
@@ -258,11 +258,15 @@ def list_students(db) -> List[Dict]:
 
 # ---------------------------------------------------------------- 学习报告（v0.2.1 新增）
 # 对应开题报告「学习记忆层 + 教学反馈层」：科目 → 知识点 → 错题时间线 → 步骤诊断 四级下钻。
-# 知识点状态口径：
-#   fixed    —— 该知识点有过错，且每条错题都已有 is_correct=True 的订正
-#   stubborn —— 命中既有顽固判定（该知识点任一错题 is_stubborn=True，即诊断时
-#               check_stubborn 命中：同知识点在窗口天数内重复出错）
-#   pending  —— 其余有未订正错题的情况
+# 知识点状态口径（v0.4.0 升级为四态）：
+#   fixed           —— 已通过该知识点的二次验证（verifications 有 passed 记录）
+#   awaiting_verify —— 错题已全部订正正确，但尚未通过二次验证
+#   stubborn        —— 命中既有顽固判定（该知识点任一错题 is_stubborn=True，即诊断时
+#                      check_stubborn 命中：同知识点在窗口天数内重复出错），且仍有未订正错题
+#   pending         —— 其余有未订正错题的情况
+# 【口径变更】v0.3 及以前「错题全订正即 fixed」已废弃：订正对了只是把这一步改对，
+# 必须再独立做对一道同知识点变式题（二次验证）才算修复。
+# 知识修复率 fixed_ratio = fixed 知识点数 / 出过错知识点数（与本口径配套）。
 
 def _fixed_error_ids(db, student: User):
     """该生已订正正确的 error id 集合（口径与 student_briefing 一致）。"""
@@ -272,6 +276,27 @@ def _fixed_error_ids(db, student: User):
             Correction.student_id == student.id, Correction.is_correct.is_(True)
         ).all()
     }
+
+
+def _passed_verification_kps(db, student_id: int):
+    """该生已通过二次验证的知识点集合（verifications.status = passed）。"""
+    return {
+        v.knowledge_point
+        for v in db.query(Verification).filter(
+            Verification.student_id == student_id, Verification.status == "passed"
+        ).all()
+    }
+
+
+def _knowledge_point_status(errs, fixed_ids, passed_kps, kp_name: str) -> str:
+    """单个知识点的四态判定（学生报告与教师班级修复率共用同一口径）。"""
+    if kp_name in passed_kps:
+        return "fixed"
+    if all(e.id in fixed_ids for e in errs):
+        return "awaiting_verify"
+    if any(e.is_stubborn for e in errs):
+        return "stubborn"
+    return "pending"
 
 
 def student_report(db, student: User) -> List[Dict]:
@@ -289,6 +314,7 @@ def student_report(db, student: User) -> List[Dict]:
             .all()
         )
     fixed_ids = _fixed_error_ids(db, student)
+    passed_kps = _passed_verification_kps(db, student.id)
     sub_by_id = {s.id: s for s in submissions}
 
     # 按 (科目, 知识点) 聚合提交数与错题
@@ -309,12 +335,7 @@ def student_report(db, student: User) -> List[Dict]:
         err_n = len(errs)
         # 错误率口径与学生画像一致：errors / attempts，上限截断 1.0
         rate = round(min(1.0, err_n / att), 3) if att else 0.0
-        if all(e.id in fixed_ids for e in errs):
-            kp_status = "fixed"
-        elif any(e.is_stubborn for e in errs):
-            kp_status = "stubborn"
-        else:
-            kp_status = "pending"
+        kp_status = _knowledge_point_status(errs, fixed_ids, passed_kps, kp)
         entry = by_subject.setdefault(subject, {
             "subject": subject,
             "submission_count": 0,
@@ -396,3 +417,56 @@ def knowledge_point_errors(db, student: User, knowledge_point: str) -> List[Dict
             "submission_id": e.submission_id,
         })
     return items
+
+
+# ---------------------------------------------------------------- 班级知识修复率（v0.4.0 新增）
+# 全班口径与学生报告一致（四态判定共用 _knowledge_point_status）：
+#   班级知识修复率 = 已修复的（学生 × 知识点）组合数 / 出过错的（学生 × 知识点）组合数
+#   各知识点修复率 = 该知识点已修复学生数 / 该知识点出过错学生数
+
+def class_repair_rate(db) -> Dict:
+    """教师端：班级知识修复率 + 各知识点修复率（只读聚合，不改任何已有口径）。"""
+    students = db.query(User).filter(User.role == "student").order_by(User.id).all()
+    total_pairs = 0
+    fixed_pairs = 0
+    students_with_errors = 0
+    per_kp: Dict[str, Dict] = {}
+    for st in students:
+        sub_ids = [s.id for s in db.query(Submission).filter(Submission.student_id == st.id).all()]
+        if not sub_ids:
+            continue
+        errs = db.query(Error).filter(Error.submission_id.in_(sub_ids)).all()
+        if not errs:
+            continue
+        students_with_errors += 1
+        fixed_ids = _fixed_error_ids(db, st)
+        passed_kps = _passed_verification_kps(db, st.id)
+        by_kp: Dict[str, List] = {}
+        for e in errs:
+            by_kp.setdefault(e.knowledge_point, []).append(e)
+        for kp, kerrs in by_kp.items():
+            status = _knowledge_point_status(kerrs, fixed_ids, passed_kps, kp)
+            total_pairs += 1
+            cell = per_kp.setdefault(kp, {
+                "knowledge_point": kp, "students_errored": 0, "students_fixed": 0,
+            })
+            cell["students_errored"] += 1
+            if status == "fixed":
+                fixed_pairs += 1
+                cell["students_fixed"] += 1
+    kp_items = []
+    for cell in per_kp.values():
+        kp_items.append({
+            **cell,
+            "repair_rate": round(cell["students_fixed"] / cell["students_errored"], 3)
+            if cell["students_errored"] else 0.0,
+        })
+    # 修复率低的排前面（最需要教学干预的知识点置顶），同率按出错学生数降序
+    kp_items.sort(key=lambda x: (x["repair_rate"], -x["students_errored"]))
+    return {
+        "class_repair_rate": round(fixed_pairs / total_pairs, 3) if total_pairs else 0.0,
+        "students_with_errors": students_with_errors,
+        "total_knowledge_point_pairs": total_pairs,
+        "fixed_knowledge_point_pairs": fixed_pairs,
+        "knowledge_points": kp_items,
+    }

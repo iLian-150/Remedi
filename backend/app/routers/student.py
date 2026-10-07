@@ -1,4 +1,5 @@
 # /api/student/* 学生端
+import json
 import os
 import secrets
 from datetime import datetime
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_student
 from ..config import settings
 from ..database import get_db
-from ..models import Assignment, ChatMessage, Correction, Error, Essay, Notification, Question, Submission, User
+from ..models import Assignment, ChatMessage, Correction, Error, Essay, Notification, Question, Submission, User, Verification
 from ..schemas import (
     AgentChatIn,
     AgentChatOut,
@@ -34,7 +35,12 @@ from ..schemas import (
     KnowledgePointErrorItem,
     SubmissionBrief,
     SubmissionCreate,
+    VerificationCreate,
+    VerificationOut,
+    VerificationSubmitIn,
+    VerificationSubmitOut,
 )
+from ..services import variant_gen
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
@@ -183,7 +189,131 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
     db.add(c)
     db.commit()
     db.refresh(c)
-    return CorrectionOut.model_validate(c)
+    out = CorrectionOut.model_validate(c)
+    # v0.4.0：订正成功 → 提示可去做二次验证（通过验证才算知识点已修复）
+    out.can_verify = is_correct is True
+    out.knowledge_point = err.knowledge_point
+    return out
+
+
+# ---------- 二次验证（v0.4.0 新增）：订正后做变式题，通过才算知识点已修复 ----------
+
+def _verification_out(v: Verification) -> dict:
+    """出参组装：只下发题干，variant_json 里的答案/标准步骤不外泄。"""
+    try:
+        variant = json.loads(v.variant_json)
+    except Exception:
+        variant = {}
+    return {
+        "id": v.id,
+        "knowledge_point": v.knowledge_point,
+        "prompt": variant.get("prompt", ""),
+        "status": v.status,
+        "attempts": v.attempts,
+        "source_error_id": v.source_error_id,
+        "created_at": v.created_at,
+        "completed_at": v.completed_at,
+    }
+
+
+@router.post("/verifications", response_model=VerificationOut, summary="创建二次验证（变式题）")
+def create_verification(body: VerificationCreate, db: Session = Depends(get_db),
+                        current: User = Depends(require_student)):
+    """为某知识点创建一道变式题；已有未完成的（pending）直接复用，不重复出题。
+    已 failed 的不复用——重新 POST 即生成新题重试。"""
+    kp = body.knowledge_point.strip()
+    existing = (
+        db.query(Verification)
+        .filter(Verification.student_id == current.id,
+                Verification.knowledge_point == kp,
+                Verification.status == "pending")
+        .order_by(Verification.created_at.desc(), Verification.id.desc())
+        .first()
+    )
+    if existing:
+        return _verification_out(existing)
+
+    source_error_id = body.source_error_id
+    if source_error_id is not None:
+        err = db.query(Error).filter(Error.id == source_error_id).first()
+        sub = db.query(Submission).filter(Submission.id == err.submission_id).first() if err else None
+        if not err or not sub or sub.student_id != current.id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_error_id 不是你的错题记录")
+    else:
+        latest = (
+            db.query(Error)
+            .join(Submission, Error.submission_id == Submission.id)
+            .filter(Submission.student_id == current.id, Error.knowledge_point == kp)
+            .order_by(Error.created_at.desc(), Error.id.desc())
+            .first()
+        )
+        source_error_id = latest.id if latest else None
+
+    variant = variant_gen.generate_variant(kp)
+    v = Verification(
+        student_id=current.id,
+        knowledge_point=kp,
+        source_error_id=source_error_id,
+        variant_json=json.dumps(variant, ensure_ascii=False),
+        status="pending",
+        attempts=0,
+    )
+    db.add(v)
+    db.commit()
+    db.refresh(v)
+    return _verification_out(v)
+
+
+@router.get("/verifications", response_model=List[VerificationOut], summary="我的验证列表")
+def list_verifications(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    rows = (
+        db.query(Verification)
+        .filter(Verification.student_id == current.id)
+        .order_by(Verification.created_at.desc(), Verification.id.desc())
+        .limit(50)
+        .all()
+    )
+    return [_verification_out(v) for v in rows]
+
+
+@router.post("/verifications/{verification_id}/submit", response_model=VerificationSubmitOut,
+             summary="提交验证作答并判定")
+def submit_verification(verification_id: int, body: VerificationSubmitIn,
+                        db: Session = Depends(get_db), current: User = Depends(require_student)):
+    """用 variant_gen.judge_steps 按步骤等价判定：全对 → passed 并落 completed_at；
+    有错 → failed、attempts+1，返回首个出错步与解析，可对同一条继续提交（重做本题）
+    或重新 POST /verifications 换一道新题。"""
+    v = db.query(Verification).filter(Verification.id == verification_id).first()
+    if not v:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "验证记录不存在")
+    if v.student_id != current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只能提交自己的验证")
+    if v.status == "passed":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这道验证已经通过啦，去学习报告里再开一道新的吧")
+    try:
+        variant = json.loads(v.variant_json)
+    except Exception:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "验证题目数据损坏，请重新创建")
+    result = variant_gen.judge_steps(variant, body.steps)
+    v.attempts += 1
+    if result["passed"]:
+        v.status = "passed"
+        v.completed_at = datetime.now()
+    else:
+        v.status = "failed"
+    db.commit()
+    db.refresh(v)
+    return {
+        "id": v.id,
+        "knowledge_point": v.knowledge_point,
+        "status": v.status,
+        "attempts": v.attempts,
+        "passed": result["passed"],
+        "first_error_seq": result["first_error_seq"],
+        "error_type": result["error_type"],
+        "detail": result["detail"],
+        "steps": result["steps"],
+    }
 
 
 # ---------- 画像 ----------

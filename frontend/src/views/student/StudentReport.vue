@@ -1,8 +1,12 @@
-<!-- 学生端：学习报告（v0.2.1 新增）
+<!-- 学生端：学习报告（v0.2.1 新增；v0.4.0 双列详情 + 二次验证）
      对应开题报告「学习记忆层 + 教学反馈层」，四级下钻：
        科目 → 知识点（状态/错误率） → 错题时间线（纵向） → 步骤诊断（跳现有诊断报告页定位到该次提交）
-     数据源：GET /api/student/report、GET /api/student/report/knowledge-points/{name}/errors
-     文案伦理：学生端用「待修复 / 反复出错 / 已加固」，不出现「顽固」「置信度」。 -->
+     v0.4.0：科目详情改双列（左知识点列表、右错题时间线）；知识点四态
+       （待修复 / 反复出错 / 已订正待验证 / 已修复），未修复的提供「去验证」，
+       在右列内嵌 VerifyPanel 做变式题，通过后刷新状态与修复进度。
+     数据源：GET /api/student/report、GET /api/student/report/knowledge-points/{name}/errors、
+             POST /api/student/verifications（验证，见 VerifyPanel）
+     文案伦理：学生端用「待修复 / 反复出错 / 已订正待验证 / 已修复」，不出现「顽固」「置信度」。 -->
 <template>
   <div class="page">
     <div class="page-head">
@@ -74,33 +78,63 @@
               <span class="tnum">{{ Math.round(subj.fixed_ratio * 100) }}%</span>
             </div>
             <div class="fix-bar"><div :style="{ width: `${Math.round(subj.fixed_ratio * 100)}%` }"></div></div>
-            <p class="hint">出过错的知识点里，已经通过订正加固好的比例。</p>
+            <p class="hint">订正好错题、再做对一道同类题通过验证，才算真正修复——这里是已修复知识点占出过错知识点的比例。</p>
           </div>
         </div>
 
-        <!-- 二级：知识点列表 -->
-        <div class="card">
-          <h3><AppIcon name="target" :size="18" /> 知识点明细</h3>
-          <p class="card-sub">按错误率从高到低排，点任意知识点可以展开它下面的错题时间线。</p>
-          <div v-if="!subj.knowledge_points.length" class="empty">这个科目暂时没有错题记录，继续保持。</div>
-          <div v-for="kp in subj.knowledge_points" :key="kp.name" class="kp-block">
-            <button type="button" class="kp-row" @click="toggleKp(subj.subject, kp)">
-              <span class="kp-main">
-                <span class="kp-name">{{ kp.name }}</span>
-                <span class="kp-meta">
-                  出错 <span class="tnum">{{ kp.error_count }}</span> 次 · 提交 <span class="tnum">{{ kp.attempts }}</span> 次
-                  <template v-if="kp.last_error_at"> · 最近出错 {{ fmtDate(kp.last_error_at) }}</template>
-                </span>
-                <span class="kp-bar"><span :style="{ width: `${Math.round(kp.error_rate * 100)}%` }"></span></span>
-              </span>
-              <span :class="`badge ${STATUS_BADGE[kp.status]}`">{{ STATUS_TEXT[kp.status] }}</span>
-              <span class="kp-rate tnum">{{ Math.round(kp.error_rate * 100) }}%</span>
-              <AppIcon :name="expandedKey === kpKey(subj.subject, kp.name) ? 'chevron-down' : 'chevron-right'" :size="16" />
-            </button>
+        <!-- 二级 + 三级（v0.4.0 双列）：左 知识点列表 | 右 验证面板 + 错题时间线 -->
+        <div class="report-grid">
+          <div class="card">
+            <h3><AppIcon name="target" :size="18" /> 知识点明细</h3>
+            <p class="card-sub">按错误率从高到低排。点知识点在右列看错题时间线；还没修复的可以点「去验证」做一道同类题。</p>
+            <div v-if="!subj.knowledge_points.length" class="empty">这个科目暂时没有错题记录，继续保持。</div>
+            <div v-for="kp in subj.knowledge_points" :key="kp.name" class="kp-block">
+              <div class="kp-row" :class="{ selected: selectedKey === kpKey(subj.subject, kp.name) }">
+                <button type="button" class="kp-main-btn" @click="selectKp(subj.subject, kp)">
+                  <span class="kp-main">
+                    <span class="kp-name">{{ kp.name }}</span>
+                    <span class="kp-meta">
+                      出错 <span class="tnum">{{ kp.error_count }}</span> 次 · 提交 <span class="tnum">{{ kp.attempts }}</span> 次
+                      <template v-if="kp.last_error_at"> · 最近出错 {{ fmtDate(kp.last_error_at) }}</template>
+                    </span>
+                    <span class="kp-bar"><span :style="{ width: `${Math.round(kp.error_rate * 100)}%` }"></span></span>
+                  </span>
+                  <span :class="`badge ${STATUS_BADGE[kp.status]}`">{{ STATUS_TEXT[kp.status] }}</span>
+                  <span class="kp-rate tnum">{{ Math.round(kp.error_rate * 100) }}%</span>
+                </button>
+                <button
+                  v-if="kp.status !== 'fixed'"
+                  type="button"
+                  class="btn small verify-btn"
+                  @click="openVerify(subj.subject, kp)"
+                >
+                  去验证
+                </button>
+                <span v-else class="verify-done"><AppIcon name="check" :size="14" /> 已通过验证</span>
+              </div>
+            </div>
+          </div>
 
-            <!-- 三级：错题时间线 -->
-            <div v-if="expandedKey === kpKey(subj.subject, kp.name)" class="kp-timeline">
-              <div v-if="timelineLoading" class="loading" style="padding: 16px 0">加载错题时间线…</div>
+          <div class="report-side">
+            <VerifyPanel
+              v-if="verifyKpName"
+              :key="verifyKpName"
+              :knowledge-point="verifyKpName"
+              @passed="onVerifyPassed"
+              @close="verifyKpName = ''"
+            />
+
+            <div class="card timeline-card">
+              <h3>
+                <AppIcon name="file" :size="18" /> 错题时间线
+                <span v-if="selectedKp" class="badge badge-blue">{{ selectedKp.name }}</span>
+              </h3>
+              <p v-if="selectedKp" class="card-sub">
+                当前状态：{{ STATUS_TEXT[selectedKp.status] }} · 出错 <span class="tnum">{{ selectedKp.error_count }}</span> 次
+                <template v-if="selectedKp.status === 'awaiting_verify'">—— 错题都订正好了，点左边的「去验证」做对一道同类题，这个知识点就修复啦。</template>
+              </p>
+              <div v-if="!selectedKp" class="empty" style="padding: 22px 0">点左边任意一个知识点，这里会展开它下面的错题时间线。</div>
+              <div v-else-if="timelineLoading" class="loading" style="padding: 16px 0">加载错题时间线…</div>
               <div v-else-if="!timeline.length" class="empty" style="padding: 16px 0">这个知识点下还没有错题记录。</div>
               <div v-else class="timeline">
                 <div v-for="(item, i) in timeline" :key="i" class="timeline-item">
@@ -136,7 +170,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type {
   ErrorType,
@@ -148,19 +182,24 @@ import type {
 import { errorTypeDotClass } from '../../utils/errorType'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import VerifyPanel from '../../components/VerifyPanel.vue'
 
 const student = useStudentStore()
 const router = useRouter()
+const route = useRoute()
 
 const SUBJECT_TEXT: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学' }
+// v0.4.0 四态文案：fixed 专指「订正 + 通过二次验证」，与后端新口径一致
 const STATUS_TEXT: Record<KnowledgePointStatus, string> = {
   pending: '待修复',
   stubborn: '反复出错',
-  fixed: '已加固'
+  awaiting_verify: '已订正待验证',
+  fixed: '已修复'
 }
 const STATUS_BADGE: Record<KnowledgePointStatus, string> = {
   pending: 'badge-amber',
   stubborn: 'badge-red',
+  awaiting_verify: 'badge-blue',
   fixed: 'badge-green'
 }
 
@@ -199,9 +238,18 @@ async function enterSubject(s: SubjectCard) {
   detailRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-const expandedKey = ref('')
+// ---------- 知识点选中（v0.4.0：时间线移到右列，选中态驱动右列面板） ----------
+const selectedKey = ref('')
+const selectedSubject = ref('')
+const selectedKpName = ref('')
 const timeline = ref<KnowledgePointErrorItem[]>([])
 const timelineLoading = ref(false)
+
+/** 从最新报告数据里取选中的知识点（刷新报告后状态自动跟随） */
+const selectedKp = computed<ReportKnowledgePoint | null>(() => {
+  const subj = report.value.find((r) => r.subject === selectedSubject.value)
+  return subj?.knowledge_points.find((k) => k.name === selectedKpName.value) ?? null
+})
 
 function kpKey(subject: string, name: string): string {
   return `${subject}::${name}`
@@ -214,17 +262,12 @@ function fmtDateTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
-async function toggleKp(subject: string, kp: ReportKnowledgePoint) {
-  const key = kpKey(subject, kp.name)
-  if (expandedKey.value === key) {
-    expandedKey.value = ''
-    return
-  }
-  expandedKey.value = key
+async function loadTimeline() {
+  if (!selectedKpName.value) return
   timeline.value = []
   timelineLoading.value = true
   try {
-    timeline.value = await student.fetchKnowledgePointErrors(kp.name)
+    timeline.value = await student.fetchKnowledgePointErrors(selectedKpName.value)
   } catch (e) {
     error.value = '错题时间线加载失败。'
     console.error(e)
@@ -233,14 +276,57 @@ async function toggleKp(subject: string, kp: ReportKnowledgePoint) {
   }
 }
 
+async function selectKp(subject: string, kp: ReportKnowledgePoint) {
+  selectedKey.value = kpKey(subject, kp.name)
+  selectedSubject.value = subject
+  selectedKpName.value = kp.name
+  await loadTimeline()
+}
+
+// ---------- 二次验证（v0.4.0） ----------
+const verifyKpName = ref('')
+
+async function openVerify(subject: string, kp: ReportKnowledgePoint) {
+  await selectKp(subject, kp)
+  verifyKpName.value = kp.name
+}
+
+async function onVerifyPassed() {
+  // 通过验证 → 刷新报告（知识点状态变已修复、修复进度更新）与时间线
+  try {
+    report.value = await student.fetchReport()
+  } catch (e) {
+    console.error(e)
+  }
+  await loadTimeline()
+}
+
 function gotoDiagnosis(submissionId: number) {
   router.push({ path: '/student/feedback', query: { submission_id: submissionId } })
+}
+
+async function loadReport() {
+  report.value = await student.fetchReport()
 }
 
 onMounted(async () => {
   loading.value = true
   try {
-    report.value = await student.fetchReport()
+    await loadReport()
+    // 深链：订正页「去验证」带 ?verify=<知识点名> 跳入时，直接展开该科目并打开验证面板
+    const want = typeof route.query.verify === 'string' ? route.query.verify : ''
+    if (want) {
+      for (const subj of report.value) {
+        const kp = subj.knowledge_points.find((k) => k.name === want)
+        if (kp) {
+          activeSubject.value = subj.subject
+          await nextTick()
+          detailRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          await openVerify(subj.subject, kp)
+          break
+        }
+      }
+    }
   } catch (e) {
     error.value = '学习报告加载失败，请确认后端已启动。'
     console.error(e)
@@ -319,20 +405,43 @@ onMounted(async () => {
 .fix-bar > div { height: 100%; background: var(--green); border-radius: 5px; transition: width 0.3s; }
 .fix-progress .hint { margin-top: 6px; }
 
+/* ---------- v0.4.0 双列详情：左知识点 / 右时间线 ---------- */
+.report-grid {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px; align-items: start;
+}
+.report-grid > .card { margin-bottom: 0; }
+.report-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.report-side > .card { margin-bottom: 0; }
+@media (max-width: 1080px) {
+  .report-grid { grid-template-columns: 1fr; }
+}
+
 .kp-block { border-bottom: 1px solid #F1F3F6; }
 .kp-block:last-child { border-bottom: none; }
 .kp-row {
-  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 4px; border-radius: 10px;
+}
+.kp-row.selected { background: var(--primary-50); }
+.kp-main-btn {
+  flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 10px;
   background: transparent; border: none; cursor: pointer;
-  padding: 12px 4px; font-family: inherit; text-align: left; color: var(--text);
+  padding: 4px; font-family: inherit; text-align: left; color: var(--text);
+  border-radius: 8px;
 }
-.kp-row:hover { background: #F8FAFF; }
+.kp-main-btn:hover { background: #F8FAFF; }
+.kp-row.selected .kp-main-btn:hover { background: transparent; }
 .kp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .kp-name { font-size: 15px; font-weight: 600; }
 .kp-meta { font-size: 12.5px; color: var(--text-2); }
 .kp-bar { display: block; height: 6px; background: #EDF0F4; border-radius: 3px; overflow: hidden; max-width: 340px; }
 .kp-bar > span { display: block; height: 100%; background: var(--amber); border-radius: 3px; }
 .kp-rate { font-size: 15px; font-weight: 700; color: var(--amber); min-width: 44px; text-align: right; }
-.kp-timeline { padding: 6px 4px 14px 10px; }
+.verify-btn { flex-shrink: 0; }
+.verify-done {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12.5px; font-weight: 600; color: var(--green);
+}
 </style>

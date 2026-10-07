@@ -37,6 +37,18 @@ class LLMProvider(ABC):
         """拍照转写：把作业照片转写为结构化文本。
         返回 {question_text: str, steps: [str, ...]}（steps 只含作答步骤，不含题干）。"""
 
+    def generate_variant_question(self, *, knowledge_point: str) -> Dict:
+        """兜底出题（v0.4.0）：变式题服务在知识点无参数模板时调用。
+        返回 {prompt, standard_steps, answer}（此处不验算，由 variant_gen 用
+        sympy 复核：通过 → 严格模式，未通过 → 练习模式）。
+        默认实现返回一道预置同类题，保证 mock 模式全流程可跑；
+        真实 Provider 覆写为调模型生成。"""
+        return {
+            "prompt": "解方程：3x+5=20",
+            "standard_steps": ["3x+5=20", "3x=20-5", "3x=15", "x=5"],
+            "answer": "x=5",
+        }
+
 
 # ---------------------------------------------------------------- Mock（确定性）
 
@@ -294,6 +306,31 @@ class DeepSeekProvider(LLMProvider):
         # DeepSeek 文本接口无视觉能力，直接用 Mock 转写兜底，保证流程不中断
         logger.info("DeepSeek 无视觉能力，拍照转写降级为 Mock 转写结果")
         return self._mock.transcribe_image(image_bytes, content_type)
+
+    def generate_variant_question(self, *, knowledge_point: str) -> Dict:
+        """调模型为无模板的知识点生成同类题；异常/结构不合法时降级为预置题。"""
+        try:
+            out = self._chat(
+                "你是数学出题助手。只返回 JSON，不要解释。",
+                f"请为知识点「{knowledge_point}」出一道初中数学同类练习题，要求有明确的分步解法。\n"
+                "返回 JSON：{prompt: 题干（以「解方程：」或「计算：」开头，公式用纯文本如 "
+                "2x+3=7、(x+1)^2，不要 LaTeX）, standard_steps: 标准解题步骤数组"
+                "（第一步为原式，其余为逐步变形，纯文本）, answer: 最终答案}。",
+                temperature=0.7,
+            )
+            data = self._extract_json(out)
+            steps = [str(s).strip() for s in data.get("standard_steps", []) if str(s).strip()]
+            prompt = str(data.get("prompt", "")).strip()
+            if not prompt or len(steps) < 2:
+                raise ValueError("生成的题目结构不完整")
+            return {
+                "prompt": prompt,
+                "standard_steps": steps,
+                "answer": str(data.get("answer", "")).strip(),
+            }
+        except Exception as e:
+            logger.warning("LLM generate_variant_question 失败，降级为预置题: %s", e)
+            return super().generate_variant_question(knowledge_point=knowledge_point)
 
 
 # ---------------------------------------------------------------- Cloudflare Workers AI
