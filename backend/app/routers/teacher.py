@@ -24,6 +24,7 @@ from ..models import (
     StudentMistakeCategoryReview,
     StudentMistakeEvent,
     Submission,
+    SubmissionReview,
     User,
     Workbook,
 )
@@ -39,6 +40,11 @@ from ..schemas import (
     ProfileOut,
     QuestionOut,
     RemindOut,
+    ReviewApproveAllOut,
+    ReviewApproveOut,
+    ReviewDetailOut,
+    ReviewPendingItem,
+    ReviewPendingOut,
     StudentBrief,
     TeacherAssignmentCreate,
     TeacherAssignmentOut,
@@ -48,7 +54,8 @@ from ..schemas import (
     UserOut,
     WorkbookOut,
 )
-from ..services.diagnosis import present_error
+from ..services import reviews as review_svc
+from ..services.diagnosis import present_diagnosis, present_error
 from ..services.providers import get_provider
 from ..services.stats import (
     assignment_ext_fields,
@@ -72,6 +79,9 @@ def _teacher_error_item(err: Error, db: Session) -> TeacherErrorItem:
     base = present_error(err, db)
     return TeacherErrorItem(
         id=base["id"],
+        submission_id=err.submission_id,
+        # v0.9.0：所属提交的审核状态，批改列表据此打「待审核」标并直达审核详情
+        review_status=review_svc.review_status(db, err.submission_id),
         student=UserOut.model_validate(student),
         question=QuestionOut.model_validate(question),
         step_seq=base["step_seq"],
@@ -125,8 +135,10 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     err.teacher_note = body.teacher_note
     err.teacher_corrected = True
     # v0.3.0：纠错成功后给被纠错的学生写一条站内提醒（主流程：AI 初批 → 老师干预 → 学生收到提醒去订正）
+    # v0.9.0：所属提交还在待审核时不发这条提醒（诊断对学生尚不可见，
+    # 审核详情里改完再点「通过」时统一发 review_approved 提醒）
     sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
-    if sub is not None:
+    if sub is not None and review_svc.review_status(db, sub.id) != review_svc.PENDING:
         question = db.query(Question).filter(Question.id == sub.question_id).first()
         assignment = (
             db.query(Assignment).filter(Assignment.id == question.assignment_id).first()
@@ -146,6 +158,80 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     db.commit()
     db.refresh(err)
     return _teacher_error_item(err, db)
+
+
+# ---------- 提交审核（v0.9.0 新增）：AI 批改 → 教师审核 → 学生可见 ----------
+
+def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
+    student = db.query(User).filter(User.id == sub.student_id).first()
+    question = sub.question
+    assignment = question.assignment if question else None
+    err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
+    return ReviewPendingItem(
+        submission_id=sub.id,
+        student=UserOut.model_validate(student),
+        assignment_id=assignment.id if assignment else None,
+        assignment_title=assignment.title if assignment else "",
+        question_id=question.id if question else 0,
+        question_stem=question.stem if question else "",
+        subject=question.subject if question else "",
+        knowledge_point=question.knowledge_point if question else "",
+        error_count=err_n,
+        submitted_at=sub.submitted_at,
+    )
+
+
+@router.get("/reviews/pending", response_model=ReviewPendingOut, summary="待审核队列（v0.9.0 新增）")
+def reviews_pending(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    """待审核提交列表（按提交时间正序）+ 总数，教师导航角标与待审核页共用。"""
+    subs = review_svc.pending_reviews(db)
+    items = [_review_pending_item(s, db) for s in subs]
+    return {"count": len(items), "items": items}
+
+
+@router.post("/reviews/approve-all", response_model=ReviewApproveAllOut, summary="全部通过审核（v0.9.0 新增）")
+def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    """把当前队列里全部 pending 提交置为 approved，逐个给学生发审核通过提醒。"""
+    subs = review_svc.pending_reviews(db)
+    for sub in subs:
+        review_svc.approve_submission(db, sub, current)
+    return {"approved_count": len(subs)}
+
+
+@router.get("/reviews/{submission_id}", response_model=ReviewDetailOut, summary="审核详情（v0.9.0 新增）")
+def review_detail(submission_id: int, db: Session = Depends(get_db),
+                  current: User = Depends(require_teacher)):
+    """一份提交的完整 AI 分步诊断（教师端全量可见）+ 审核状态，供审核详情页复核与纠错。"""
+    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not sub:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    student = db.query(User).filter(User.id == sub.student_id).first()
+    question = sub.question
+    assignment = question.assignment if question else None
+    diagnosis = present_diagnosis(sub, db)
+    rstatus = review_svc.review_status(db, sub.id)
+    diagnosis["review_status"] = rstatus
+    return ReviewDetailOut(
+        submission_id=sub.id,
+        student=UserOut.model_validate(student),
+        assignment_title=assignment.title if assignment else "",
+        question=QuestionOut.model_validate(question),
+        submitted_at=sub.submitted_at,
+        review_status=rstatus,
+        diagnosis=diagnosis,
+    )
+
+
+@router.post("/reviews/{submission_id}/approve", response_model=ReviewApproveOut, summary="审核通过（v0.9.0 新增）")
+def review_approve(submission_id: int, db: Session = Depends(get_db),
+                   current: User = Depends(require_teacher)):
+    """通过一份提交的 AI 批改结果：置 approved 并给学生发提醒。
+    幂等：已通过的重复调用不重复发提醒。改错因走既有的一键纠错接口，保存后再调本接口即「改后通过」。"""
+    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not sub:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    review_svc.approve_submission(db, sub, current)
+    return {"submission_id": sub.id, "review_status": "approved"}
 
 
 @router.get("/stats/top-questions", summary="高频错题 TopN")
@@ -294,6 +380,10 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                     .delete(synchronize_session=False)
             db.query(Notification).filter(
                 Notification.related_submission_id.in_(sub_ids)
+            ).delete(synchronize_session=False)
+            # v0.9.0：审核行随提交一并清理，避免待审核队列出现孤儿
+            db.query(SubmissionReview).filter(
+                SubmissionReview.submission_id.in_(sub_ids)
             ).delete(synchronize_session=False)
             db.query(Error).filter(Error.submission_id.in_(sub_ids)) \
                 .delete(synchronize_session=False)

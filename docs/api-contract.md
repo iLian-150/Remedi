@@ -218,6 +218,12 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `errors[].confidence`：0~1。规则命中概念误区 0.85 / 算术小偏差 0.7 / 兜底 0.5 / 无法解析 0.3。
 - `errors[].is_stubborn`：该生该知识点近 N 天（默认 30 天，可配 `STUBBORN_WINDOW_DAYS`）内再次出错即为 `true`（顽固误区），否则为偶发失误。
 - `follow_up_question`（v0.4.0 新增）：按主错因（与 `first_error_seq` 同口径）+ 知识点由模板生成的一句启发式追问，引导学生先自己想明白错在哪；全对（`errors` 为空）时为 `null`。GET 3.5 提交详情同结构，同样带此字段。
+- **教师审核可见性（v0.9.0 新增口径）**：经实时批改入口（3.3 / 3.31 / photo-diagnose）产生的新提交先进教师审核队列（新表 `submission_reviews`，`status=pending`）。**审核通过前**，学生侧一切入口都看不到诊断结论：
+  - 3.3 / 3.5 / 拍照批改的诊断响应返回占位：`status = "pending_review"`、`review_status = "pending"`、`steps = []`、`errors = []`、`first_error_seq = null`、`follow_up_question = null`；通过后同一响应返回完整诊断且 `review_status = "approved"`。诊断响应另在所有情况下带 `review_status` 字段（只加字段）。
+  - 3.4 提交记录每项带 `review_status`；`pending` 时 `error_count` 固定为 `0`（不泄露诊断结论）。
+  - 错题本（3.27）不出现待审核提交产生的错题（学生自助收录的 captures 不受影响）；3.9 订正、3.19 创建验证指向待审核错题时返回 `400`。
+  - 简报（3.12）、学习报告（3.13 / 3.14）、学习画像（3.10 学生自查）与学生 Agent 工具（get_my_briefing / get_my_report / get_knowledge_point_errors）统计一律滤掉待审核提交（简报的「未完成作业」按已提交口径算，交过的不再重复出现）；教师端（含 4.6 教师查画像、教师 Agent）不受影响，全量可见。
+  - **无审核行的历史/种子提交一律视为 `approved`**，演示数据不受审核流影响。通过动作见 4.23~4.26；通过后学生收到 `type = "review_approved"` 的提醒。
 
 错误：`400`（题目是作文题，请用 `/api/student/essays`）、`404`（题目不存在）、`422`（steps 为空/超限）。
 
@@ -708,6 +714,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
     "step_seq": 2,
     "step_text": "2x=7+3",
     "created_at": "2026-10-07T10:35:00",
+    "submitted_at": "2026-10-07T10:35:00",
     "category_key": "math:calculation",
     "category_label": "计算与运算",
     "category_studied": false,
@@ -721,6 +728,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 - `category_studied` 是当前学生对该作业、该错误类别的学习标记；`archived_at` 非空表示这条错题已移出当前错题本。
 - `similar_occurrences` 只包含该学生在更早作业中同类别的错题；`latest_correction` 与 `verification_status` 是这条错题最近一次订正和二次验证状态，没有记录时为 `null`。
+- `submitted_at`（v0.9.0 新增，只加字段）：错题所属提交的提交时间（订正页日历按此打点）；自主收录条目无提交，取收录时间兜底。
 - 列表也包含学生主动收录的题目，`source_kind="student_saved"`，带有 `capture_id` 与 `image_url`；这类条目不属于诊断错误，不计入学习报告或教师错误统计。
 - 错误类别分类规则与 Learning-Diagnosis-System 一致：结合学科、错因和知识点关键词归类；通用诊断类型优先按知识点归类，未命中规则时用规范化后的错因文本作为稳定类别键。
 
@@ -1063,6 +1071,47 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 权限：教师。语义同学生端 3.26（连同消息一并删除；不存在/非本人 `404`）。响应 `200`：`{ "deleted": true }`。
 
+### 4.23 GET /api/teacher/reviews/pending —— 待审核队列（v0.9.0 新增）
+
+权限：教师。AI 批改完还在等老师审核的提交，按提交时间正序（先交先审）。导航「待审核」角标与待审核页共用本接口。
+
+响应 `200`：`{ "count": 待审总数, "items": [...] }`，每项：
+
+```json
+{
+  "submission_id": 12,
+  "student": { "id": 2, "name": "林小夏", "student_no": "S2026001", "role": "student", "created_at": "…" },
+  "assignment_id": 1,
+  "assignment_title": "第一周数学作业",
+  "question_id": 1,
+  "question_stem": "解方程：2x+3=7",
+  "subject": "math",
+  "knowledge_point": "一元一次方程",
+  "error_count": 1,
+  "submitted_at": "2026-10-08T01:00:00"
+}
+```
+
+### 4.24 GET /api/teacher/reviews/{submission_id} —— 审核详情（v0.9.0 新增）
+
+权限：教师。一份提交的完整 AI 分步诊断（教师端全量可见，不受学生侧可见性口径影响）+ 审核状态。不存在 `404`。
+
+响应 `200`：`{ submission_id, student(UserOut), assignment_title, question(QuestionOut), submitted_at, review_status("pending"|"approved"), diagnosis(同 3.5 DiagnosisOut，另带 review_status) }`。
+
+### 4.25 POST /api/teacher/reviews/{submission_id}/approve —— 审核通过（v0.9.0 新增）
+
+权限：教师。把该提交置为 `approved` 并给学生写一条提醒（`notifications.type = "review_approved"`，`related_submission_id` 指向该提交，文案口径为「老师已审核通过……去看看诊断吧」）。幂等：已通过的重复调用不重复发提醒。不存在 `404`。
+
+「改后通过」不设单独接口：审核详情里先调 4.2 一键纠错改错因（待审核期间纠错**不**发 `teacher_correction` 提醒，避免向学生泄露未放行的诊断），再调本接口即可。
+
+响应 `200`：`{ "submission_id": 12, "review_status": "approved" }`。
+
+### 4.26 POST /api/teacher/reviews/approve-all —— 全部通过（v0.9.0 新增）
+
+权限：教师。把当前队列全部 pending 提交置为 `approved`，逐个给学生发 `review_approved` 提醒。
+
+响应 `200`：`{ "approved_count": 本次通过条数 }`。
+
 ---
 
 ## 5. /api/health —— 健康检查
@@ -1098,7 +1147,8 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 | 报告知识点 `status` | `pending`（待修复）/ `stubborn`（反复出错）/ `awaiting_verify`（已订正待验证，v0.4.0 新增）/ `fixed`（已修复） |
 | `verification.status` | `pending` / `passed` / `failed` |
 | 作业 `mode`（v0.5.0 新增） | `online`（线上作业）/ `offline`（线下练习册作业） |
-| 提醒 `type` | `teacher_correction`（教师纠错）/ `teacher_reminder`（教师提醒未交，v0.5.0 新增） |
+| 提醒 `type` | `teacher_correction`（教师纠错）/ `teacher_reminder`（教师提醒未交，v0.5.0 新增）/ `review_approved`（审核通过，v0.9.0 新增） |
+| 审核 `review_status`（v0.9.0 新增） | `pending`（待教师审核，学生不可见诊断）/ `approved`（已通过；无审核行的历史/种子提交按此口径）；学生侧诊断响应 `status` 在 pending 时为 `pending_review` |
 
 ## 7. 变更记录
 
@@ -1117,3 +1167,4 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 | v0.8.0 | 2026-10-07 | 学习助手照片流程按作答证据分流：无作答先回答，明确收录后才进入错题本；有作答则自动诊断并把识别出的错误写入既有错题管线。新增 3.31 / 3.32 及 `student_question_captures` 表；自由上传的诊断容器隐藏在学生作业列表之外。 |
 | v0.8.1 | 2026-10-07 | 无接口变化。合并修复：学生对话页（StudentChat）在错题本合并时退回的旧会话实现已修复——移除弹层式历史面板与页面自持会话状态，改走 v0.6.2 的 store 会话状态层（本页侧栏挂同款 SidebarSessions + watch `sessionView` 同步重渲染，发送后回写当前会话并刷新侧栏列表，与教师端同一套会话行为）；底部输入区恢复悬浮毛玻璃卡。错题本相关功能（消息「加入错题本」、意图识别收录、批改自动收录提示、错题本入口）完整保留。 |
 | v0.8.2 | 2026-10-08 | 无接口变化。产品侧统一重做：全局侧栏成为双端唯一侧栏（学生对话页页内侧栏删除，会话区与收起机制双端统一走 App.vue 全局侧栏）；导航图标动效补齐 sparkles/book；右栏未读数改由 student store 持有（进学生页面刷新），展开状态按场景分键存储，提醒/日历 FAB 拆为专属按钮；错题本样式收编为一份作用域样式表并整体换回设计令牌色板，便利贴与右栏统一配色，字符图标全量 SVG 化；路由正名：错题本 canonical 改为 `/student/mistakes`，`/student/feedback` 保留重定向到 `/student/diagnosis`，诊断页组件更名 StudentDiagnosis。 |
+| v0.9.0 | 2026-10-08 | **教师审核流**：新增表 `submission_reviews`（仅新增表，不给现有表加列）；新增 4.23 待审核队列、4.24 审核详情、4.25 审核通过、4.26 全部通过。经实时批改入口（3.3 / 3.31 / photo-diagnose）产生的新提交先建 `pending` 审核行，教师通过前学生侧全入口不可见诊断（3.3/3.5 诊断响应返回 `status="pending_review"` 占位、3.4 带 `review_status` 且 pending 时 `error_count=0`、错题本过滤、订正/验证拦截、简报/报告/画像/Agent 工具统计过滤；口径全文见 3.3 下「教师审核可见性」）；无审核行的历史/种子提交视为 `approved`。通过后给学生发 `review_approved` 提醒；4.2 纠错在待审核期间不提前发学生提醒（改后通过 = 4.2 + 4.25 组合）。只加字段：诊断响应与 3.4 新增 `review_status`、4.1 教师错误项新增 `submission_id` / `review_status`、3.27 错题新增 `submitted_at`（订正日历打点）、`UserOut` 新增 `created_at`（档案黑板「加入时间」）。会话列表（3.23 / 4.19）本就返回 `message_count`，前端新建会话动作据此防重复：当前激活会话为空（0 条消息）时点「新对话」不再新建。产品侧变更：左侧栏收起改图标轨（68px 只留图标+悬停气泡，删整条滑出+FAB）；教师导航新增「待审核」带待审数角标，批改列表给 pending 打标并可直达审核详情；学生欢迎屏简报改卡片组（未完成作业/待订正/需加固三卡，整卡可点）；交作业页作业切换改顶部 sticky 独立条、拍照批改全程本题内完成不跳级；订正页新增订正日历按提交日期筛选错题；学生「我的档案」黑板化（木框黑板 + 粉笔字个人信息与掌握度粉笔条 + 奖状墙 + 课表式成长记录表）。 |
