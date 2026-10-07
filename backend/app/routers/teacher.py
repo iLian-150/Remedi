@@ -2,7 +2,7 @@
 import os
 import secrets
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
@@ -10,14 +10,18 @@ from sqlalchemy.orm import Session
 from ..auth import require_teacher
 from ..config import settings
 from ..database import get_db
-from ..models import Assignment, Correction, Error, Essay, Notification, Question, Step, Submission, User
+from ..models import Assignment, AssignmentExt, ChatMessage, Correction, Error, Essay, Notification, Question, Step, Submission, User, Workbook
 from ..schemas import (
+    AgentChatIn,
+    AgentChatOut,
+    AgentHistoryItem,
     ClassRepairRateOut,
     ErrorCorrectIn,
     KnowledgePointRankItem,
     PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
+    RemindOut,
     StudentBrief,
     TeacherAssignmentCreate,
     TeacherAssignmentOut,
@@ -25,16 +29,19 @@ from ..schemas import (
     TeacherErrorItem,
     TopQuestionItem,
     UserOut,
+    WorkbookOut,
 )
 from ..services.diagnosis import present_error
 from ..services.providers import get_provider
 from ..services.stats import (
+    assignment_ext_fields,
     class_repair_rate,
     knowledge_point_ranking,
     list_students,
     student_profile,
     top_error_questions,
 )
+from ..services.teacher_stats import students_not_fully_submitted
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 
@@ -181,6 +188,8 @@ def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
     return TeacherAssignmentOut(
         id=a.id, title=a.title, description=a.description,
         created_at=a.created_at, questions=items,
+        # v0.5.0：发布模式与线下作业信息
+        **assignment_ext_fields(db, a.id),
     )
 
 
@@ -188,7 +197,18 @@ def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
 def create_assignment(body: TeacherAssignmentCreate,
                       db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """创建一份作业并落库，学生端立即可见。
-    standard_steps 无独立存储列：落库时并入 standard_answer（参考答案优先）。"""
+    standard_steps 无独立存储列：落库时并入 standard_answer（参考答案优先）。
+    v0.5.0：mode=offline 时把 mode/workbook_id/page_range/deadline 写进 assignment_ext；
+    workbook_id 必须指向本人上传的练习册。"""
+    workbook = None
+    if body.mode == "offline" and body.workbook_id is not None:
+        workbook = (
+            db.query(Workbook)
+            .filter(Workbook.id == body.workbook_id, Workbook.teacher_id == current.id)
+            .first()
+        )
+        if not workbook:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "所选练习册不存在或不是你上传的")
     assignment = Assignment(
         title=body.title, description=body.description, created_by=current.id,
     )
@@ -205,6 +225,14 @@ def create_assignment(body: TeacherAssignmentCreate,
             stem=q.prompt,
             standard_answer=standard_answer,
             order_num=i,
+        ))
+    if body.mode == "offline":
+        db.add(AssignmentExt(
+            assignment_id=assignment.id,
+            mode="offline",
+            workbook_id=workbook.id if workbook else None,
+            page_range=(body.page_range or "").strip() or None,
+            deadline=body.deadline,
         ))
     db.commit()
     db.refresh(assignment)
@@ -256,9 +284,188 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                 .delete(synchronize_session=False)
         db.query(Essay).filter(Essay.question_id.in_(qids)).delete(synchronize_session=False)
         db.query(Question).filter(Question.id.in_(qids)).delete(synchronize_session=False)
+    # v0.5.0：作业扩展行（发布模式/练习册关联）一并删除
+    db.query(AssignmentExt).filter(AssignmentExt.assignment_id == assignment.id) \
+        .delete(synchronize_session=False)
     db.delete(assignment)
     db.commit()
     return {"deleted": True}
+
+
+@router.post("/assignments/{assignment_id}/remind", response_model=RemindOut,
+             summary="一键提醒未交学生（v0.5.0 新增）")
+def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
+                      current: User = Depends(require_teacher)):
+    """给「还没提交全部题目」的学生各写一条站内提醒（便利贴通知），
+    只统计/只提醒未全交的学生；全部完成的学生不会收到。仅限本人发布的作业。"""
+    assignment = (
+        db.query(Assignment)
+        .filter(Assignment.id == assignment_id, Assignment.created_by == current.id)
+        .first()
+    )
+    if not assignment:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    targets = students_not_fully_submitted(db, assignment)
+    for st in targets:
+        db.add(Notification(
+            user_id=st.id,
+            type="teacher_reminder",
+            content=f"{current.name}提醒你：《{assignment.title}》还没有完成，记得及时提交哦",
+            related_submission_id=None,
+        ))
+    db.commit()
+    return {"reminded_count": len(targets)}
+
+
+# ---------- 练习册知识库（v0.5.0 新增） ----------
+
+_WORKBOOK_MAX_BYTES = 30 * 1024 * 1024
+_WORKBOOK_SUBDIR = "workbooks"
+
+
+def _workbook_out(w: Workbook) -> WorkbookOut:
+    return WorkbookOut(
+        id=w.id,
+        title=w.title,
+        file_url=f"/api/uploads/{w.file_path}",
+        created_at=w.created_at,
+    )
+
+
+@router.post("/workbooks", response_model=WorkbookOut, summary="上传练习册 PDF")
+async def upload_workbook(file: UploadFile = File(...),
+                          db: Session = Depends(get_db),
+                          current: User = Depends(require_teacher)):
+    """上传整本练习册 PDF 存入知识库（UPLOAD_DIR/workbooks/），发布线下作业时可直接选用。
+    仅 PDF、≤30MB；标题默认取文件名（去扩展名），文件只存盘、元信息落 workbooks 表。"""
+    filename = (file.filename or "").strip()
+    is_pdf = file.content_type == "application/pdf" or filename.lower().endswith(".pdf")
+    if not is_pdf:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只支持上传 PDF 文件")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件内容为空，请重新上传")
+    if len(data) > _WORKBOOK_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF 大小不能超过 30MB")
+    target_dir = os.path.join(settings.UPLOAD_DIR, _WORKBOOK_SUBDIR)
+    os.makedirs(target_dir, exist_ok=True)
+    stored_name = "{}_{}.pdf".format(
+        datetime.now().strftime("%Y%m%d%H%M%S"), secrets.token_hex(4)
+    )
+    with open(os.path.join(target_dir, stored_name), "wb") as f:
+        f.write(data)
+    base = os.path.splitext(os.path.basename(filename))[0].strip()
+    w = Workbook(
+        teacher_id=current.id,
+        title=base or "未命名练习册",
+        file_path=f"{_WORKBOOK_SUBDIR}/{stored_name}",
+    )
+    db.add(w)
+    db.commit()
+    db.refresh(w)
+    return _workbook_out(w)
+
+
+@router.get("/workbooks", summary="我的练习册知识库")
+def list_workbooks(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    rows = (
+        db.query(Workbook)
+        .filter(Workbook.teacher_id == current.id)
+        .order_by(Workbook.created_at.desc(), Workbook.id.desc())
+        .all()
+    )
+    return {"total": len(rows), "items": [_workbook_out(w) for w in rows]}
+
+
+@router.delete("/workbooks/{workbook_id}", summary="删除练习册")
+def delete_workbook(workbook_id: int, db: Session = Depends(get_db),
+                    current: User = Depends(require_teacher)):
+    """删除本人上传的一本练习册（连同 PDF 文件）。已被线下作业引用的也可删除：
+    对应 assignment_ext.workbook_id 置空，作业本身与其余信息保留。非本人/不存在统一 404。"""
+    w = (
+        db.query(Workbook)
+        .filter(Workbook.id == workbook_id, Workbook.teacher_id == current.id)
+        .first()
+    )
+    if not w:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "练习册不存在")
+    db.query(AssignmentExt).filter(AssignmentExt.workbook_id == w.id) \
+        .update({AssignmentExt.workbook_id: None}, synchronize_session=False)
+    try:
+        os.remove(os.path.join(settings.UPLOAD_DIR, w.file_path))
+    except OSError:
+        pass  # 文件已不在磁盘上时不阻塞删除元信息
+    db.delete(w)
+    db.commit()
+    return {"deleted": True}
+
+
+# ---------- 教师 AI 助手（v0.5.0 新增，LangGraph；与学生端同图结构、工具换班级数据） ----------
+
+_AGENT_MSG_MAX = 2000
+_AGENT_HISTORY_WINDOW = 20
+_AGENT_HISTORY_RETURN = 50
+
+
+@router.post("/agent/chat", response_model=AgentChatOut, summary="与班级数据助理对话")
+def teacher_agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
+                       current: User = Depends(require_teacher)):
+    """教师端自由对话：取最近 20 条历史组上下文 → 跑教师 Agent 图（或规则兜底）
+    → 两条消息落 chat_messages（user_id 区分身份）→ 返回回复。LLM 异常已在 Agent 层降级。"""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from ..agent.teacher_graph import teacher_agent_reply
+
+    text = body.message.strip()
+    if not text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息不能为空")
+    if len(text) > _AGENT_MSG_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
+
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == current.id)
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(_AGENT_HISTORY_WINDOW)
+        .all()
+    )
+    history = [
+        HumanMessage(content=r.content) if r.role == "user" else AIMessage(content=r.content)
+        for r in reversed(rows)
+    ]
+    reply = teacher_agent_reply(db, current, history, text)
+
+    db.add(ChatMessage(user_id=current.id, role="user", content=text))
+    db.add(ChatMessage(user_id=current.id, role="assistant", content=reply))
+    db.commit()
+    return {"reply": reply}
+
+
+@router.get("/agent/history", response_model=List[AgentHistoryItem], summary="教师对话历史")
+def teacher_agent_history(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == current.id)
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(_AGENT_HISTORY_RETURN)
+        .all()
+    )
+    return [
+        AgentHistoryItem(role=r.role, content=r.content, created_at=r.created_at)
+        for r in reversed(rows)
+    ]
+
+
+@router.post("/agent/new-session", summary="开始新对话（清空教师对话记录，v0.5.0 新增）")
+def teacher_agent_new_session(db: Session = Depends(get_db),
+                              current: User = Depends(require_teacher)):
+    cleared = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == current.id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"cleared_count": cleared}
 
 
 # ---------- 拍照识别题目（v0.2.1 新增） ----------

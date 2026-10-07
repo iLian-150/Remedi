@@ -11,6 +11,13 @@
           <AppIcon name="sparkles" :size="20" />
           <span>智能批改</span>
           <span class="hint">拍一张作业照片，老师会逐步帮你检查；也可以直接打字问我问题</span>
+          <button
+            class="btn small secondary inline-icon new-session-btn"
+            :disabled="resettingSession"
+            @click="newSession"
+          >
+            <AppIcon name="plus" :size="14" /> 新对话
+          </button>
         </div>
         <div class="chat-selectors">
           <select v-model="assignmentId" @change="onAssignmentChange" aria-label="选择作业">
@@ -61,7 +68,13 @@
                   <div v-for="p in msg.briefing.pending_assignments" :key="p.id" class="brief-item">
                     <span class="brief-item-main">
                       {{ p.title }}
+                      <span v-if="p.mode === 'offline'" class="badge badge-amber">线下练习</span>
                       <span class="badge badge-blue tnum">还剩 {{ p.remaining_count }} 题</span>
+                      <span v-if="p.mode === 'offline'" class="brief-item-sub">
+                        <template v-if="p.workbook_title">{{ p.workbook_title }}</template>
+                        <template v-if="p.page_range"> · {{ p.page_range }}</template>
+                        <template v-if="p.deadline"> · 截止 {{ fmtDateTime(p.deadline) }}</template>
+                      </span>
                     </span>
                     <button class="btn small" @click="gotoAssignment(p)">去完成</button>
                   </div>
@@ -347,6 +360,9 @@ function stepIcon(s: StepStatus): IconName {
 function fmtDate(t: string): string {
   return t.replace('T', ' ').slice(0, 10)
 }
+function fmtDateTime(t: string): string {
+  return t.replace('T', ' ').slice(0, 16)
+}
 
 // ---------- 简报 ----------
 function briefingAllDone(b: StudentBriefing): boolean {
@@ -382,6 +398,45 @@ async function gotoAssignment(p: PendingAssignment) {
 // ---------- 学习助手文本聊天（v0.3.0：LangGraph Agent） ----------
 const chatInput = ref('')
 const chatSending = ref(false)
+
+// ---------- 新对话（v0.5.0）：清空服务端记录，对话区重置回简报置顶 ----------
+const resettingSession = ref(false)
+
+async function newSession() {
+  if (resettingSession.value || chatSending.value) return
+  resettingSession.value = true
+  try {
+    await student.newAgentSession()
+    messages.value = []
+    try {
+      const briefing = await student.fetchBriefing()
+      messages.value.unshift({
+        id: ++seq,
+        side: 'ai',
+        kind: 'briefing',
+        text: '',
+        url: '',
+        briefing,
+        questionText: '',
+        steps: [],
+        questionId: null,
+        confirmed: false,
+        submitting: false,
+        pending: false,
+        result: null
+      })
+    } catch (e) {
+      console.error(e)
+    }
+    pushMsg({ side: 'ai', kind: 'text', text: '已开始新对话。之前的聊天记录清空啦，有什么想问的尽管说。' })
+  } catch (e) {
+    pushMsg({ side: 'ai', kind: 'error', text: '开启新对话失败：' + (errDetail(e) || '请稍后重试。') })
+    console.error(e)
+  } finally {
+    resettingSession.value = false
+    scrollToBottom()
+  }
+}
 
 async function sendChat() {
   const text = chatInput.value.trim()
@@ -543,6 +598,8 @@ onMounted(async () => {
 .chat-header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 0; }
 .chat-title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; color: var(--primary); }
 .chat-title .hint { font-weight: 400; }
+.new-session-btn { margin-left: auto; flex-shrink: 0; }
+.brief-item-sub { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
 .chat-selectors { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .chat-selectors select { flex: 1 1 240px; width: auto; }
 

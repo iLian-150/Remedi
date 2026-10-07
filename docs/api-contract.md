@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.4.0（2026-10-07）
+> 版本：v0.5.0（2026-10-07）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -123,6 +123,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```
 
 - `created_at`：作业发布时间（ISO 8601），学生/教师两端作业日历的数据源（v0.2.1 确认双端均有此字段，无变更）。
+- v0.5.0 新增字段（只加字段）：`mode`（`online | offline`，无扩展记录时为 `online`）、`workbook_title`（线下作业关联的练习册名，未关联时为 `null`）、`page_range`（如「第12-14页 第1-8题」，可空）、`deadline`（截止时间 ISO 8601，可空）。3.2 作业详情同样包含这四个字段；3.12 简报的 `pending_assignments[]` 亦同步包含。
 
 ### 3.2 GET /api/student/assignments/{assignment_id} —— 作业详情（含题目）
 
@@ -634,6 +635,14 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - 通过：`status=passed`、`completed_at` 落库，该知识点在 3.13 中随即变 `fixed`。
 - 失败：`status=failed`、`attempts+1`，`first_error_seq` / `error_type` / `detail` 指向首个出错步与解析（最后一步未化简到最终结果时 `error_type` 为 `null`、`detail` 给出提示）；可对同一条记录再次 POST 本接口重做本题，或重新调 3.19 换一道新题。
 
+### 3.22 POST /api/student/agent/new-session —— 开始新对话（v0.5.0 新增）
+
+权限：学生。删除本人在 `chat_messages` 中的全部对话记录（学生与教师共用同一张表、按 `user_id` 隔离，只清自己的），前端对话区随之重置为初始状态（简报置顶）。
+
+请求：无请求体。
+
+响应 `200`：`{ "cleared_count": 12 }`（本次删除的记录条数）。
+
 ---
 
 ## 4. /api/teacher/* —— 教师端
@@ -786,6 +795,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `questions[].type`：`math | essay`，分别落库为题目 `subject=math | english`；`prompt` 落库为题干 `stem`；`order_num` 按数组顺序从 1 开始。
 - `standard_steps` / `reference_answer`：选填，仅教师可见（学生端详情不返回标准答案，沿用 3.2 约定）。`standard_steps` 无独立存储列：当 `reference_answer` 为空时，它按行拼入 `standard_answer` 字段保存。
 - 校验：`questions` 至少 1 道；`title` / `prompt` / `knowledge_point` 非空，否则 `422`。
+- v0.5.0 新增选填字段（不传 = 线上作业）：`mode`（`online | offline`，默认 `online`）、`workbook_id`、`page_range`、`deadline`（ISO 8601）。`mode=offline` 时把这四项写入新表 `assignment_ext`（题目仍走原 `questions` 结构，由教师拍照识别题目页产生）；`workbook_id` 必须指向本人经 4.15 上传的练习册，否则 `400`。响应同步新增 `mode` / `workbook_title` / `page_range` / `deadline` 四个字段。
 
 响应 `200`：
 
@@ -856,6 +866,63 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `class_repair_rate`：全班知识修复率 = 已修复的（学生 × 知识点）组合数 / 出过错的组合数（无任何错题时为 0.0）。
 - `knowledge_points[].repair_rate`：该知识点已修复学生数 / 出过错学生数；数组按修复率升序（最需要教学干预的知识点在前）。
 
+### 4.12 POST /api/teacher/agent/chat —— 与班级数据助理对话（v0.5.0 新增）
+
+权限：教师。与学生端 Agent（3.15）同一套 LangGraph 图结构，工具换成班级数据：班级总览、按标题查某份作业提交情况（已交/未交名单）、知识点错误率排行、班级知识修复率（复用 4.11 口径）、按姓名查学生画像、订正未完成名单。教师身份以闭包注入工具，模型不能传 `user_id`；只报系统真实数据，不编造。`LLM_PROVIDER=mock` / 无凭证 / 调用异常时降级为规则回复（关键词路由到同一批数据函数拼模板），接口不返回 500。对话落库复用 `chat_messages` 表（按 `user_id` 区分），不新增表。
+
+请求：`{ "message": "《第一周数学作业》谁还没交？" }` —— 非空、≤2000 字（超长返回 `400`，空消息 `400`）。
+
+响应 `200`：`{ "reply": "《第一周数学作业》共 3 道题，班级 2 名学生：已全部完成 0 人。部分完成 2 人：林小夏（已交 1/3 题）、陈默（已交 1/3 题）。" }`
+
+- 错误：`403`（学生调用）。
+
+### 4.13 GET /api/teacher/agent/history —— 教师对话历史（v0.5.0 新增）
+
+权限：教师。响应 `200`：最近 50 条（时间正序），元素结构同 3.16（`role` / `content` / `created_at`）。
+
+### 4.14 POST /api/teacher/agent/new-session —— 开始新对话（v0.5.0 新增）
+
+权限：教师。删除本人在 `chat_messages` 中的全部对话记录（只清自己的）。请求无请求体。
+
+响应 `200`：`{ "cleared_count": 8 }`。
+
+### 4.15 POST /api/teacher/workbooks —— 上传练习册 PDF（v0.5.0 新增）
+
+权限：教师。把整本练习册 PDF 存入练习册知识库（新表 `workbooks`），发布线下作业（4.7 `mode=offline`）时可直接选用。
+
+请求：`multipart/form-data`，字段 `file`（仅 PDF，≤30MB）。文件存 `UPLOAD_DIR/workbooks/`，标题默认取文件名（去扩展名）。
+
+响应 `200`：
+
+```json
+{
+  "id": 1,
+  "title": "数学练习册",
+  "file_url": "/api/uploads/workbooks/20261007120000_ab12cd34.pdf",
+  "created_at": "2026-10-07T12:00:00"
+}
+```
+
+- 错误：`400`（非 PDF / 内容为空 / 超过 30MB）；`403`（学生调用）。
+
+### 4.16 GET /api/teacher/workbooks —— 我的练习册知识库（v0.5.0 新增）
+
+权限：教师（只查本人上传的）。响应 `200`：`{ "total": n, "items": [...] }`，item 结构同 4.15 响应，按上传时间倒序。
+
+### 4.17 DELETE /api/teacher/workbooks/{workbook_id} —— 删除练习册（v0.5.0 新增）
+
+权限：教师，且**只能删自己上传的**；非本人或不存在统一返回 `404`。连同磁盘上的 PDF 文件一并删除；已被线下作业引用的也可删除，对应 `assignment_ext.workbook_id` 自动置空（作业与页码等其余信息保留）。
+
+响应 `200`：`{ "deleted": true }`。
+
+### 4.18 POST /api/teacher/assignments/{assignment_id}/remind —— 一键提醒未交学生（v0.5.0 新增）
+
+权限：教师，且**只能提醒自己发布的作业**；非本人发布或不存在统一返回 `404`。
+
+行为：找出「还没提交该作业全部题目」的学生（口径与 3.12 简报的完成判定一致：每道题都有 Submission 或 Essay 记录才算完成），给每人写一条站内提醒（复用 `notifications` 表，`type=teacher_reminder`，`related_submission_id` 为 `null`），文案为「{教师名}提醒你：《{作业标题}》还没有完成，记得及时提交哦」，学生在主页便利贴提醒区收到。已全部完成的学生不会收到。
+
+请求：无请求体。响应 `200`：`{ "reminded_count": 2 }`（本次实际写入提醒的学生数）。
+
 ---
 
 ## 5. /api/health —— 健康检查
@@ -869,7 +936,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```json
 {
   "status": "ok",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "provider": "mock",
   "time": "2026-10-06T15:40:35"
 }
@@ -890,6 +957,8 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 | `submission.status` | `submitted` / `graded` |
 | 报告知识点 `status` | `pending`（待修复）/ `stubborn`（反复出错）/ `awaiting_verify`（已订正待验证，v0.4.0 新增）/ `fixed`（已修复） |
 | `verification.status` | `pending` / `passed` / `failed` |
+| 作业 `mode`（v0.5.0 新增） | `online`（线上作业）/ `offline`（线下练习册作业） |
+| 提醒 `type` | `teacher_correction`（教师纠错）/ `teacher_reminder`（教师提醒未交，v0.5.0 新增） |
 
 ## 7. 变更记录
 
@@ -901,3 +970,4 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 | v0.3.0 | 2026-10-07 | 新增 3.15 Agent 对话、3.16 对话历史、3.17 提醒列表、3.18 提醒标已读、4.10 删除已发布作业（级联删除，见 4.10）；4.2 教师纠错成功后新增给学生生成提醒的行为。新增表 `chat_messages`、`notifications`（仅新增表，不改现有表结构）。产品侧变更：学生主页对话升级为 LangGraph 交互 Agent（自由聊天问数学 + 工具查本人数据），拍照批改确定性管线不变；学生端批改结果署名统一为「老师批改/批改结果」；作业日历从作业列表页迁至全局右侧栏（通知区 + 日历），学习报告落地层改为四科悬挂卡（数学真实下钻，英语/物理/化学为占位）；交作业页拍照批改改为原地展开，不再跳对话页 |
 | v0.3.1 | 2026-10-07 | 无接口变化。产品侧变更：右侧栏按页面分工——学生主页等普通页只放便利贴提醒、学生/教师作业列表页只放日历（点选日期经前端 store 状态筛选本页作业列表，学生页显示当天完成进度条，均带「返回查看全部作业」清除筛选），教师其他页面不挂右栏；收起态悬浮按钮图标随场景变（提醒=邮件+未读角标、日历=日历图标无角标） |
 | v0.4.0 | 2026-10-07 | 闭环补完：新增 3.19 创建二次验证（变式题：参数模板 sympy 验算 + Provider 兜底练习模式）、3.20 验证列表、3.21 提交验证作答、4.11 班级知识修复率；3.3/3.5 诊断响应新增 `follow_up_question`（追问，无错为 null）；3.9 订正响应新增 `can_verify`、`knowledge_point`（只加字段）。**口径变更（语义收紧，非字段 breaking）**：3.13 知识点状态升级四态（新增 `awaiting_verify`），「全订正即 fixed」废弃，`fixed` 专指通过二次验证，`fixed_ratio` 定义随之为知识修复率＝通过验证的知识点 / 出过错知识点。新增表 `verifications`（仅新增表，不改现有表结构）。产品侧变更：前端排版整体重做（教师总览 KPI + 双列网格、学习报告双列 + 内嵌验证面板、学生卡片网格、登录左右分栏、品牌动态 Logo 与导航图标动效） |
+| v0.5.0 | 2026-10-07 | 教师端 AI 入口 + 发布双模式：新增 4.12 教师 Agent 对话、4.13 教师对话历史、4.14 教师新对话、3.22 学生新对话（双端「新对话」均删除本人在 `chat_messages` 的记录，复用同一张表不加列）；新增练习册知识库 4.15 上传 PDF（≤30MB）、4.16 列表、4.17 删除（连文件删，被引用时 `assignment_ext.workbook_id` 置空）；4.7 发布作业新增选填 `mode` / `workbook_id` / `page_range` / `deadline`，`mode=offline` 写新表 `assignment_ext`；3.1 / 3.2 / 3.12 与教师作业列表/详情响应新增 `mode` / `workbook_title` / `page_range` / `deadline` 字段（只加字段）；新增 4.18 一键提醒未交学生（写 `notifications`，`type=teacher_reminder`）。新增表 `workbooks`、`assignment_ext`（仅新增表，不改现有表结构）。产品侧变更：教师端新增「AI 助手」对话页（快捷提问 chips）；双端对话页右上角加「新对话」按钮（不进左侧导航）；发布页第一步选模式（线上 / 线下·练习册两张大选项卡），线下模式选练习册 + 页码 + 拍照识别题目页成草稿题；学生作业卡/简报/交作业页与教师作业列表展示「线下练习」徽标 + 练习册名 + 页码 + 截止，学生作答方式与线上一致；教师作业列表新增「提醒未交」按钮；学习报告科目吊牌点击播放掉落动画（挂绳断开、卡片加速下坠淡出后展开详情，详情从上方落下带小回弹，`prefers-reduced-motion` 时直接展开） |
