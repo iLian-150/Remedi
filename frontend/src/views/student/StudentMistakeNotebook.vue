@@ -5,13 +5,13 @@
         <div class="mistake-view-switch" role="group" aria-label="切换错题本样式">
           <button v-for="item in viewOptions" :key="item.key" type="button" :class="{ selected: view === item.key }" :aria-pressed="view === item.key" @click="setView(item.key)"><AppIcon :name="item.icon" :size="15"/>{{ item.label }}</button>
         </div>
-        <button class="mistake-board-refresh" type="button" :disabled="loading" aria-label="刷新错题本" title="刷新错题" @click="loadMistakes">↻</button>
+        <button class="mistake-board-refresh" type="button" :disabled="loading" aria-label="刷新错题本" title="刷新错题" @click="loadMistakes"><AppIcon name="refresh" :size="17"/></button>
       </div>
 
       <div v-if="removedAssignment" class="mistake-removal-notice" role="status">
         <span>已将「{{ removedAssignment.title }}」的整份错题移出，历史记录仍保留。<em v-if="actionError">{{ actionError }}</em></span>
         <button type="button" :disabled="workingKey === `restore:${removedAssignment.id}`" @click="restoreAssignment">{{ workingKey === `restore:${removedAssignment.id}` ? '恢复中…' : '撤销' }}</button>
-        <button type="button" class="mistake-notice-close" aria-label="关闭移出提示" @click="removedAssignment = null">×</button>
+        <button type="button" class="mistake-notice-close" aria-label="关闭移出提示" @click="removedAssignment = null"><AppIcon name="x" :size="14"/></button>
       </div>
       <p v-if="loadError" class="notebook-action-error" role="alert">{{ loadError }}</p>
 
@@ -31,7 +31,7 @@
           </div>
 
           <div class="notebook-workspace">
-            <div class="notebook-section-head"><div><h2>从一份作业开始</h2><p>同类错误会合并显示，也会提醒你以前在哪份作业错过。</p></div><button class="notebook-review-button" type="button" :disabled="loading || !nextMistake" @click="nextMistake && openAssistant(nextMistake)">开始复习<span aria-hidden="true">→</span></button></div>
+            <div class="notebook-section-head"><div><h2>从一份作业开始</h2><p>同类错误会合并显示，也会提醒你以前在哪份作业错过。</p></div><button class="notebook-review-button" type="button" :disabled="loading || !nextMistake" @click="nextMistake && openAssistant(nextMistake)">开始复习<AppIcon name="arrow-right" :size="13"/></button></div>
             <div class="notebook-subjects" role="group" aria-label="按学科筛选">
               <button type="button" :class="{ selected: subject === 'all' }" :aria-pressed="subject === 'all'" @click="subject = 'all'">全部学科<small>{{ allMistakes.length }}</small></button>
               <button v-for="option in subjectOptions" :key="option.key" type="button" :class="{ selected: subject === option.key }" :aria-pressed="subject === option.key" @click="subject = option.key">{{ option.label }}<small>{{ allMistakes.filter((item) => item.question_subject === option.key).length }}</small></button>
@@ -41,7 +41,7 @@
                 <button v-for="option in statusOptions" :key="option.key" type="button" :class="{ selected: status === option.key }" :aria-pressed="status === option.key" @click="status = option.key">{{ option.label }}<small>{{ option.count }}</small></button>
               </div>
               <div class="notebook-search-tools">
-                <label class="notebook-search"><AppIcon name="file" :size="15"/><input v-model="query" type="search" placeholder="搜索作业、错因、知识点…" aria-label="搜索作业和错因"/><button v-if="query" type="button" aria-label="清空搜索" @click="query = ''">×</button></label>
+                <label class="notebook-search"><AppIcon name="file" :size="15"/><input v-model="query" type="search" placeholder="搜索作业、错因、知识点…" aria-label="搜索作业和错因"/><button v-if="query" type="button" aria-label="清空搜索" @click="query = ''"><AppIcon name="x" :size="13"/></button></label>
                 <label class="notebook-sort"><select v-model="sort" aria-label="作业排序"><option value="recent">最近作业</option><option value="oldest">最早作业</option><option value="priority">优先看重复错因</option></select></label>
               </div>
             </div>
@@ -51,7 +51,7 @@
             <div v-else-if="visibleAssignments.length" class="notebook-assignment-list">
               <details v-for="(assignment, index) in visibleAssignments" :key="assignment.id" class="notebook-assignment" :open="index === 0">
                 <summary>
-                  <span class="notebook-assignment-chevron" aria-hidden="true">⌄</span>
+                  <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="16"/></span>
                   <span class="notebook-subject-badge"><AppIcon name="book" :size="14"/>{{ subjectName(assignment.subject) }}</span>
                   <span class="notebook-assignment-title"><strong>{{ assignment.title }}</strong><small>{{ formatDate(assignment.createdAt) }} · {{ assignmentSummary(assignment) }}</small></span>
                   <span class="notebook-assignment-progress">{{ assignment.items.every(isStudentSaved) ? '自主收录' : `${assignment.categories.filter((item) => item.studied).length}/${assignment.categories.length} 类` }}</span>
@@ -63,7 +63,7 @@
                     <div v-if="category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in category.similar" :key="previous.id" type="button" @click="openDiagnosis(previous.submission_id)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
                     <div class="notebook-category-questions"><article v-for="mistake in category.items" :key="mistake.id">
                       <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.id === mistake.id }" @click="openAssistant(mistake)"><strong>{{ isStudentSaved(mistake) ? '自主收录题目' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</strong><small>{{ mistake.knowledge_point }} · {{ mistake.error_type }}</small><span class="notebook-question-excerpt">{{ mistake.question_stem }}</span><span class="notebook-question-detail">{{ safe(mistake.detail || '') }}</span></button>
-                      <button v-if="!isStudentSaved(mistake)" type="button" @click="openDiagnosis(mistake.submission_id)">查看原题<span aria-hidden="true">→</span></button>
+                      <button v-if="!isStudentSaved(mistake)" type="button" @click="openDiagnosis(mistake.submission_id)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
                       <button v-else type="button" :disabled="workingKey === `archive:${mistake.assignment_id}`" @click="archiveSaved(mistake)">{{ workingKey === `archive:${mistake.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
                     </article></div>
                   </section>
@@ -71,7 +71,7 @@
                 </div>
               </details>
             </div>
-            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '留一页，给每一次进步' }}</h3><p>{{ allMistakes.length ? '换个关键词，或调整学科与学习进度试试。' : '完成作业诊断后，错题会按作业和错误类别整理在这里。' }}</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 →</button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 →</button></div>
+            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '留一页，给每一次进步' }}</h3><p>{{ allMistakes.length ? '换个关键词，或调整学科与学习进度试试。' : '完成作业诊断后，错题会按作业和错误类别整理在这里。' }}</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
           </div>
           <div class="notebook-footer-note"><AppIcon name="book" :size="14"/>每学会一类错误，就离下一次做对更近一步。</div>
         </div>
@@ -101,11 +101,8 @@ import MistakeRelationshipMap from '../../components/mistake-book/MistakeRelatio
 import MistakeStickyNotes from '../../components/mistake-book/MistakeStickyNotes.vue'
 import type { IconName } from '../../components/icons/paths'
 import { sanitizeStudentCopy } from '../../utils/errorType'
-import '../../assets/mistake-book-reference/mistake-notebook.css'
-import '../../assets/mistake-book-reference/mistake-sticky-notes.css'
-import '../../assets/mistake-book-reference/mistake-mindmap.css'
-import '../../assets/mistake-book-reference/mistake-network.css'
-import '../../assets/mistake-book-reference/mistake-point-assistant.css'
+import '../../assets/mistake-book.css'
+import '../../assets/mistake-book-2.css'
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
 interface MistakeCategory { key: string; label: string; items: StudentMistake[]; studied: boolean; similar: StudentMistake['similar_occurrences'] }
@@ -135,7 +132,7 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
   { key: 'mindmap', label: '思维导图', icon: 'chart' },
   { key: 'network', label: '关联图谱', icon: 'target' },
 ]
-const subjectNames: Record<string, string> = { math: '数学', english: '英语作文', english_exercise: '英语练习', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
+const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
 
 const subjectOptions = computed(() => Array.from(new Set(allMistakes.value.map((item) => item.question_subject))).map((key) => ({ key, label: subjectName(key) })))
 const categoryCount = computed(() => new Set(allMistakes.value.filter((item) => !isStudentSaved(item)).map((item) => `${item.assignment_id}:${item.category_key}`)).size)
@@ -310,33 +307,33 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book .mistake-network-viewport { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-network-topic-nav { top: 62px; }
-.remedi-mistake-book .notebook-header h1 { color: #334338; font-size: clamp(28px, 3vw, 39px); }
-.remedi-mistake-book .notebook-header h1 span { color: #55765c; }
-.remedi-mistake-book .notebook-header p { color: #8b9485; }
-.remedi-mistake-book .notebook-eyebrow { color: #55765c; }
+.remedi-mistake-book .notebook-header h1 { color: var(--text); font-size: clamp(28px, 3vw, 39px); }
+.remedi-mistake-book .notebook-header h1 span { color: var(--primary); }
+.remedi-mistake-book .notebook-header p { color: var(--text-2); }
+.remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
 .remedi-mistake-book .notebook-overview { margin: 24px 0 30px; }
-.remedi-mistake-book .notebook-stat, .remedi-mistake-book .notebook-progress { border-color: #e5e8de; background: #fffefa; box-shadow: 0 2px 7px #34432c0a; }
-.remedi-mistake-book .notebook-stat-icon, .remedi-mistake-book .notebook-progress-track span { color: #55765c; background: #edf3e8; }
+.remedi-mistake-book .notebook-stat, .remedi-mistake-book .notebook-progress { border-color: var(--border); background: var(--card); box-shadow: var(--shadow); }
+.remedi-mistake-book .notebook-stat-icon, .remedi-mistake-book .notebook-progress-track span { color: var(--primary); background: var(--primary-50); }
 .remedi-mistake-book .notebook-progress-track span { display: block; height: 100%; border-radius: inherit; }
-.remedi-mistake-book .notebook-review-button { border-color: #55765c; background: #55765c; }
-.remedi-mistake-book .notebook-subjects button.selected, .remedi-mistake-book .notebook-status-tabs button.selected { border-color: #d7e2d0; color: #55765c; background: #edf4e9; }
-.remedi-mistake-book .notebook-search:focus-within { border-color: #789579; box-shadow: 0 0 0 3px #edf4e9; }
-.remedi-mistake-book .notebook-assignment { border-color: #e2e7dc; background: #fffefa; }
-.remedi-mistake-book .notebook-assignment[open] { border-color: #d3dec9; box-shadow: 0 5px 18px #46533508; }
-.remedi-mistake-book .notebook-subject-badge { color: #66805d; background: #edf4e8; }
+.remedi-mistake-book .notebook-review-button { border-color: var(--primary); background: var(--primary); }
+.remedi-mistake-book .notebook-subjects button.selected, .remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
+.remedi-mistake-book .notebook-search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
+.remedi-mistake-book .notebook-assignment { border-color: var(--border); background: var(--card); }
+.remedi-mistake-book .notebook-assignment[open] { border-color: var(--blue-bg); box-shadow: var(--shadow-md); }
+.remedi-mistake-book .notebook-subject-badge { color: var(--primary); background: var(--primary-50); }
 .remedi-mistake-book .notebook-assignment-content { padding: 0 16px 16px; }
-.remedi-mistake-book .notebook-category { border-color: #e7e9e2; background: #fffefa; }
-.remedi-mistake-book .notebook-category.studied { border-color: #d6e6d8; background: #f7fbf5; }
-.remedi-mistake-book .notebook-question-open { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px; border: 0; border-radius: 6px; color: #465247; background: transparent; text-align: left; cursor: pointer; }
-.remedi-mistake-book .notebook-question-open:hover, .remedi-mistake-book .notebook-question-open.active { background: #f1f6ed; }
+.remedi-mistake-book .notebook-category { border-color: var(--border); background: var(--card); }
+.remedi-mistake-book .notebook-category.studied { border-color: var(--green-bg); background: var(--card); }
+.remedi-mistake-book .notebook-question-open { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px; border: 0; border-radius: 6px; color: var(--text); background: transparent; text-align: left; cursor: pointer; }
+.remedi-mistake-book .notebook-question-open:hover, .remedi-mistake-book .notebook-question-open.active { background: var(--primary-50); }
 .remedi-mistake-book .notebook-question-open strong { font-size: 12px; }
-.remedi-mistake-book .notebook-question-open small, .remedi-mistake-book .notebook-question-detail { color: #8a9486; font-size: 11px; }
-.remedi-mistake-book .notebook-question-excerpt { color: #566252; font-size: 12px; }
+.remedi-mistake-book .notebook-question-open small, .remedi-mistake-book .notebook-question-detail { color: var(--text-3); font-size: 11px; }
+.remedi-mistake-book .notebook-question-excerpt { color: var(--text-2); font-size: 12px; }
 .remedi-mistake-book .notebook-question-detail { line-height: 1.55; }
-.remedi-mistake-book .notebook-category-questions article > button:last-child { display: inline-flex; align-items: center; gap: 4px; padding: 6px; border: 0; color: #66805d; background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer; }
-.remedi-mistake-book .notebook-assignment-footer button { border-color: #55765c; background: #55765c; }
-.remedi-mistake-book .notebook-footer-note { padding-top: 12px; color: #8b9485; }
-.remedi-mistake-book .notebook-action-error { margin: 10px 0; color: #a25e50; font-size: 12px; }
+.remedi-mistake-book .notebook-category-questions article > button:last-child { display: inline-flex; align-items: center; gap: 4px; padding: 6px; border: 0; color: var(--primary); background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.remedi-mistake-book .notebook-assignment-footer button { border-color: var(--primary); background: var(--primary); }
+.remedi-mistake-book .notebook-footer-note { padding-top: 12px; color: var(--text-2); }
+.remedi-mistake-book .notebook-action-error { margin: 10px 0; color: #991B1B; font-size: 12px; }
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 960px) {
