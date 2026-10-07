@@ -294,7 +294,7 @@ function reset() {
 .pgf-preview { max-width: 300px; max-height: 340px; border-radius: 10px; border: 1px solid var(--border); display: block; margin-bottom: 10px; }
 .pgf-answer-question { color: var(--text-2); font-weight: 600; white-space: pre-wrap; }
 .pgf-answer-copy { color: var(--text); line-height: 1.7; white-space: pre-wrap; }
-.pgf-auto-booked { margin: 0 0 10px; color: #55765c; font-size: 12px; font-weight: 600; }
+.pgf-auto-booked { margin: 0 0 10px; color: var(--green); font-size: 12px; font-weight: 600; }
 .pgf-status { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: var(--text-2); padding: 8px 0; }
 .pgf-card {
   background: var(--card); border: 1px solid #EDF0F4; border-radius: 12px;

@@ -39,55 +39,10 @@ a { text-decoration: none; color: inherit; }
 /* 数字等宽对齐 */
 .tnum, .stat-num, .score-num, table.table td.num, .conf-text { font-variant-numeric: tabular-nums; }
 
-/* ---------- 顶栏 ---------- */
-.topbar {
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
-  padding: 0 24px;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-.topbar .brand { font-weight: 800; font-size: 20px; color: var(--primary); letter-spacing: 0.5px; }
-.topbar .brand small { font-weight: 500; font-size: 12px; color: var(--text-3); margin-left: 8px; }
-.topbar .nav { display: flex; gap: 4px; margin-left: 16px; }
-.topbar .nav a { padding: 8px 14px; border-radius: 8px; color: var(--text-2); font-size: 14px; }
-.topbar .nav a:hover { background: var(--bg); }
-.topbar .nav a.active { background: var(--primary-50); color: var(--primary); font-weight: 600; }
-.topbar .user-info { margin-left: auto; display: flex; gap: 12px; align-items: center; color: var(--text-2); font-size: 14px; }
-
-/* 班级切换器（MVP 占位） */
-.class-switcher {
-  width: auto;
-  padding: 8px 12px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--text-2);
-  background: var(--bg);
-  cursor: not-allowed;
-}
-
-/* ---------- 教师端：侧边栏布局 ---------- */
-.teacher-shell { display: flex; min-height: 100vh; }
-.sidebar {
-  width: 224px;
-  flex-shrink: 0;
-  background: var(--card);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  padding: 20px 12px;
-}
-.sidebar-brand { font-weight: 800; font-size: 20px; color: var(--primary); padding: 0 12px 4px; }
-.sidebar-brand small { display: block; font-size: 12px; font-weight: 500; color: var(--text-3); }
+/* ---------- 全局侧栏导航（v0.1 基础样式，现由 App.vue 的 .app-sidebar 承载） ----------
+ * v0.8.2 清理：v0.1 的 .topbar / .class-switcher / .teacher-shell / .sidebar /
+ * .sidebar-brand / .sidebar-foot / .teacher-main 已确认全仓零引用，整段删除；
+ * .sidebar-nav 仍是现行导航的基础样式（App.vue 在用），保留。 */
 .sidebar-nav { display: flex; flex-direction: column; gap: 4px; margin-top: 16px; }
 .sidebar-nav a {
   padding: 10px 14px;
@@ -100,9 +55,6 @@ a { text-decoration: none; color: inherit; }
 }
 .sidebar-nav a:hover { background: var(--bg); }
 .sidebar-nav a.active { background: var(--primary-50); color: var(--primary); font-weight: 600; }
-.sidebar-foot { margin-top: auto; padding: 12px; font-size: 12px; color: var(--text-3); }
-.teacher-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.teacher-main .page { width: 100%; }
 
 /* ---------- 页面容器 ---------- */
 .page { max-width: 1120px; margin: 0 auto; padding: 24px; width: 100%; }
@@ -302,13 +254,7 @@ table.table tr:hover td { background: #F8FAFF; }
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 960px) {
-  .teacher-shell { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; position: static; padding: 12px; }
-  .sidebar-nav { flex-direction: row; overflow-x: auto; margin-top: 8px; }
-  .sidebar-nav a { white-space: nowrap; }
-  .sidebar-foot { display: none; }
   .page { padding: 16px; }
-  .topbar .nav { overflow-x: auto; }
 }
 
 /* ---------- v0.2.0 统一侧栏外壳（Muse 式） ---------- */
@@ -326,7 +272,6 @@ table.table tr:hover td { background: #F8FAFF; }
   padding: 18px 12px;
   z-index: 200;
 }
-.app-sidebar.student-chat-route-hidden { display: none; }
 .sidebar-brand-row { display: flex; align-items: center; gap: 10px; padding: 2px 10px 6px; }
 .brand-badge {
   width: 38px; height: 38px; border-radius: 10px;
@@ -376,7 +321,6 @@ table.table tr:hover td { background: #F8FAFF; }
     position: fixed; left: 0; top: 0; height: 100dvh;
     transform: translateX(-105%); transition: transform 0.2s ease;
   }
-  .app-sidebar.student-chat-route-hidden { display: flex; }
   .app-sidebar.open { transform: none; box-shadow: 0 8px 32px rgba(15, 23, 42, 0.18); }
   .sidebar-mask {
     display: block; position: fixed; inset: 0;
@@ -397,29 +341,47 @@ table.table tr:hover td { background: #F8FAFF; }
   width: 0; padding-left: 0; padding-right: 0;
   opacity: 0; overflow: hidden; border-left: none; pointer-events: none;
 }
-.mail-fab {
+/* ---------- 悬浮层 z-index 梳理（v0.8.2） ----------
+ *    6  对话页悬浮输入卡（.chat-composer，StudentChat scoped，属内容区内部层级，
+ *       位于内容底部中央，与右上角的右栏 FAB 不在同一区域，不冲突）
+ *  150  移动端顶栏（.mobile-topbar）
+ *  160  右栏收起态 FAB（.notes-fab / .cal-fab，右上角；移动端 top 改 64px 下移到顶栏下方避让）
+ *  190  移动端侧栏遮罩（.sidebar-mask）
+ *  200  侧栏本体（.app-sidebar）与窄屏/移动端的右栏抽屉（.app-rail）
+ *  210  侧栏收起态展开 FAB（.sidebar-expand-fab，左上角；与右栏 FAB 分居左右，互不重叠） */
+/* 右栏收起态入口（v0.8.2 拆分）：两场景各有专属类名与视觉身份，不再共用按钮换图标。
+ * notes-fab：白底 + 主色信封，未读时轻晃并带红色未读角标（数字读 student store）。
+ * cal-fab：主色浅底 + 中性色日历，无角标、无动效，与提醒按钮一眼可辨。 */
+.notes-fab, .cal-fab {
   position: fixed; top: 14px; right: 16px; z-index: 160;
   width: 42px; height: 42px; border-radius: 12px;
-  background: var(--card); border: 1px solid var(--border);
+  border: 1px solid var(--border);
   box-shadow: var(--shadow);
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: var(--primary);
+  cursor: pointer;
 }
-.mail-fab:hover { border-color: var(--primary); }
-.mail-fab.has-unread { animation: mail-nudge 3.6s ease-in-out infinite; transform-origin: top center; }
-@keyframes mail-nudge {
+.notes-fab { background: var(--card); color: var(--primary); }
+.notes-fab:hover { border-color: var(--primary); }
+.cal-fab { background: var(--primary-50); color: var(--text-2); }
+.cal-fab:hover { border-color: var(--primary); color: var(--primary); }
+.notes-fab.has-unread { animation: fab-nudge 3.6s ease-in-out infinite; transform-origin: top center; }
+@keyframes fab-nudge {
   0%, 86%, 100% { transform: rotate(0deg); }
   89% { transform: rotate(-9deg); }
   92% { transform: rotate(7deg); }
   95% { transform: rotate(-5deg); }
   97% { transform: rotate(3deg); }
 }
-.mail-badge {
+.notes-badge {
   position: absolute; top: -6px; right: -6px;
   min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px;
   background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
   animation: badge-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (max-width: 960px) {
+  /* 移动端：FAB 下移到 52px 顶栏下方，避免压住顶栏的菜单/品牌区 */
+  .notes-fab, .cal-fab { top: 64px; }
 }
 @keyframes badge-pop {
   0% { transform: scale(0.4); opacity: 0; }
@@ -439,8 +401,8 @@ table.table tr:hover td { background: #F8FAFF; }
 }
 @media (prefers-reduced-motion: reduce) {
   .app-rail { transition: none; }
-  .mail-fab.has-unread { animation: none; }
-  .mail-badge { animation: none; }
+  .notes-fab.has-unread { animation: none; }
+  .notes-badge { animation: none; }
 }
 
 /* ---------- v0.4.0 视觉系统：卡片层级 / 图标动效 ---------- */
@@ -459,15 +421,18 @@ table.table tr:hover td { background: #F8FAFF; }
 .sidebar-nav a.active .nav-ic { color: var(--primary); }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* hover 微动效：按图标语义分组 */
+  /* hover 微动效：按图标语义分组（v0.8.2 补齐 sparkles / book，
+     导航全部图标均有归组：sparkles 与灯泡同属「灵感」组用 pop，book 与纸面类同组用 wiggle） */
   .sidebar-nav a:hover .ni-chat,
   .sidebar-nav a:hover .ni-user,
   .sidebar-nav a:hover .ni-users { animation: nav-bob 0.55s ease; }
   .sidebar-nav a:hover .ni-clipboard,
-  .sidebar-nav a:hover .ni-file { animation: nav-wiggle 0.55s ease; }
+  .sidebar-nav a:hover .ni-file,
+  .sidebar-nav a:hover .ni-book { animation: nav-wiggle 0.55s ease; }
   .sidebar-nav a:hover .ni-chart,
   .sidebar-nav a:hover .ni-check,
-  .sidebar-nav a:hover .ni-lightbulb { animation: nav-pop 0.45s ease; }
+  .sidebar-nav a:hover .ni-lightbulb,
+  .sidebar-nav a:hover .ni-sparkles { animation: nav-pop 0.45s ease; }
   .sidebar-nav a:hover .ni-edit { animation: nav-nudge 0.5s ease; }
   .sidebar-nav a:hover .ni-plus-circle .app-icon { transform: rotate(90deg); }
   /* 当前页图标：缓慢呼吸，标示所在位置 */
@@ -506,7 +471,7 @@ table.table tr:hover td { background: #F8FAFF; }
   .card.hoverable:hover, .assign-card:hover { transform: none; }
 }
 
-/* ---------- 左侧栏收起（v0.6.2，仅桌面端；移动端抽屉不受此状态影响） ---------- */
+/* ---------- 左侧栏收起（v0.6.2，仅桌面端；移动端抽屉不受此状态影响；v0.8.2 起双端全角色统一） ---------- */
 .sidebar-collapse-btn { margin-left: auto; flex-shrink: 0; }
 .sidebar-expand-fab { display: none; }
 @media (min-width: 961px) {

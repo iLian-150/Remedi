@@ -2,7 +2,7 @@
   <section v-if="mode === 'mindmap'" class="mistake-map-section" :class="{ 'is-split': split, 'is-reversed': reversed, 'is-assistant-fullscreen': fullscreen }" aria-label="错题思维导图">
     <template v-if="subjects.length">
       <div class="mistake-map-guide"><div class="mistake-map-tools" role="group" aria-label="导图操作">
-        <button type="button" :disabled="zoom <= 0.65" aria-label="缩小导图" @click="zoomBy(-0.1)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button type="button" :disabled="zoom >= 1.4" aria-label="放大导图" @click="zoomBy(0.1)">+</button><button type="button" class="mistake-map-home" @click="resetMap">回到中心</button>
+        <button type="button" :disabled="zoom <= 0.65" aria-label="缩小导图" @click="zoomBy(-0.1)"><AppIcon name="minus" :size="14"/></button><span>{{ Math.round(zoom * 100) }}%</span><button type="button" :disabled="zoom >= 1.4" aria-label="放大导图" @click="zoomBy(0.1)"><AppIcon name="plus" :size="14"/></button><button type="button" class="mistake-map-home" @click="resetMap">回到中心</button>
       </div></div>
       <div class="mistake-map-branch-nav" role="group" aria-label="选择学科">
         <button v-for="branch in branches" :key="branch.key" type="button" :class="{ selected: branch.key === selectedSubjectKey }" :aria-pressed="branch.key === selectedSubjectKey" @click="selectSubject(branch.key)"><span class="mistake-map-branch-swatch" :style="{ backgroundColor: branch.color }"/><span>{{ branch.label }}</span><small>{{ branch.recordCount }}</small></button>
@@ -27,7 +27,7 @@
                   <button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-map-topic-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(topicPoints[index]), '--accent': activeBranch?.color }" :aria-pressed="topic.key === selectedTopicKey" @click="selectTopic(topic.key)"><strong>{{ topic.label }}</strong><small>{{ topic.entries.length }} 条错题 · {{ topic.errorPoints.length }} 个错误点{{ topic.studied ? ' · 已学完' : '' }}</small></button>
                 </template>
                 <template v-if="activeTopic">
-                  <button v-for="(point, index) in activeTopic.errorPoints" :key="point.key" class="mistake-map-leaf-node" :class="{ studied: point.studied, selected: point.key === selectedPointKey }" type="button" :style="{ ...pointStyle(leafPoints[index]), '--accent': activeBranch?.color }" @click="openPoint(point)" :aria-label="`打开错误点问答：${point.label}`"><strong>{{ point.label }}</strong><small>{{ point.entries.length }} 道相关错题 · {{ point.studied ? '已学会' : '查看问答 ↗' }}</small></button>
+                  <button v-for="(point, index) in activeTopic.errorPoints" :key="point.key" class="mistake-map-leaf-node" :class="{ studied: point.studied, selected: point.key === selectedPointKey }" type="button" :style="{ ...pointStyle(leafPoints[index]), '--accent': activeBranch?.color }" @click="openPoint(point)" :aria-label="`打开错误点问答：${point.label}`"><strong>{{ point.label }}</strong><small>{{ point.entries.length }} 道相关错题 · {{ point.studied ? '已学会' : '查看问答 <AppIcon name="arrow-up-right" :size="11"/>' }}</small></button>
                 </template>
               </div>
             </div>
@@ -41,7 +41,7 @@
 
   <section v-else class="mistake-network" :class="{ 'is-split': split, 'is-reversed': reversed, 'is-assistant-fullscreen': fullscreen }" aria-label="错题知识点关联图谱">
     <template v-if="subjects.length">
-      <div class="mistake-network-heading"><div class="mistake-network-heading-actions"><div class="mistake-network-controls" role="group" aria-label="图谱缩放与定位"><button type="button" :disabled="zoom <= 0.6" aria-label="缩小图谱" @click="zoomBy(-0.15)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button type="button" :disabled="zoom >= 1.4" aria-label="放大图谱" @click="zoomBy(0.15)">+</button><button class="mistake-network-center-button" type="button" @click="resetMap">回到中心</button></div></div></div>
+      <div class="mistake-network-heading"><div class="mistake-network-heading-actions"><div class="mistake-network-controls" role="group" aria-label="图谱缩放与定位"><button type="button" :disabled="zoom <= 0.6" aria-label="缩小图谱" @click="zoomBy(-0.15)"><AppIcon name="minus" :size="14"/></button><span>{{ Math.round(zoom * 100) }}%</span><button type="button" :disabled="zoom >= 1.4" aria-label="放大图谱" @click="zoomBy(0.15)"><AppIcon name="plus" :size="14"/></button><button class="mistake-network-center-button" type="button" @click="resetMap">回到中心</button></div></div></div>
       <div v-if="activeSubject" class="mistake-network-topic-nav" role="group" aria-label="快速切换学科和知识点">
         <select aria-label="选择学科" :value="activeSubject.key" @change="selectSubject(($event.target as HTMLSelectElement).value)"><option v-for="subject in subjects" :key="subject.key" :value="subject.key">{{ subject.label }}</option></select>
         <button v-for="topic in activeSubject.topics" :key="topic.key" type="button" :class="{ selected: topic.key === selectedTopicKey }" @click="selectTopic(topic.key)">{{ topic.label }} · {{ topic.entries.length }}</button>
@@ -61,7 +61,7 @@
                 </svg>
                 <button v-for="(subject, index) in subjects" :key="subject.key" class="mistake-network-node subject-node" :class="{ selected: subjectExpanded && subject.key === activeSubject?.key }" type="button" :style="{ ...pointStyle(subjectPoints[index]), '--accent': subjectColor(index) }" @click="selectSubject(subject.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ subject.label }}</strong><small>{{ subject.topics.length }} 个知识点 · {{ subject.recordCount }} 条错题</small></button>
                 <template v-if="subjectExpanded && activeSubject"><button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-network-node topic-node knowledge-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(topicPoints[index]), '--accent': activeColor }" @click="selectTopic(topic.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ topic.label }}</strong><small>{{ topic.entries.length }} 条错题 · {{ topic.errorPoints.length }} 个错误点{{ topic.studied ? ' · 已学完' : '' }}</small></button></template>
-                <template v-if="activeTopic"><button v-for="(point, index) in activeTopic.errorPoints" :key="point.key" class="mistake-network-node leaf-node" :class="{ studied: point.studied, selected: point.key === selectedPointKey }" type="button" :style="{ ...pointStyle(pointPoints[index]), '--accent': activeColor }" @click="openPoint(point)"><strong>{{ point.label }}</strong><small>{{ point.entries.length }} 道相关错题 · {{ point.studied ? '已学会' : '查看问答 ↗' }}</small></button></template>
+                <template v-if="activeTopic"><button v-for="(point, index) in activeTopic.errorPoints" :key="point.key" class="mistake-network-node leaf-node" :class="{ studied: point.studied, selected: point.key === selectedPointKey }" type="button" :style="{ ...pointStyle(pointPoints[index]), '--accent': activeColor }" @click="openPoint(point)"><strong>{{ point.label }}</strong><small>{{ point.entries.length }} 道相关错题 · {{ point.studied ? '已学会' : '查看问答 <AppIcon name="arrow-up-right" :size="11"/>' }}</small></button></template>
                 <div class="mistake-network-hub" :style="pointStyle(hub)"><span>知</span><strong>{{ studentName || '我的' }}</strong><small>{{ recordCount }} 条错题</small></div>
               </div>
             </div>
@@ -77,6 +77,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { StudentMistake } from '../../api/types'
+import AppIcon from '../icons/AppIcon.vue'
 
 type Point = { x: number; y: number }
 type ErrorPoint = { key: string; label: string; entries: StudentMistake[]; studied: boolean }
@@ -91,8 +92,8 @@ const selectedTopicKey = ref<string | null>(null)
 const selectedPointKey = ref<string | null>(null)
 const viewport = ref<HTMLElement | null>(null)
 
-const subjectNames: Record<string, string> = { math: '数学', english: '英语作文', english_exercise: '英语练习', physics: '物理', chemistry: '化学', biology: '生物', chinese: '语文', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
-const colors = ['#4f46e5', '#0d9488', '#d97706', '#e11d48', '#7c3aed', '#0284c7', '#db2777', '#65a30d']
+const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', biology: '生物', chinese: '语文', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
+const colors = ['#1D4ED8', '#059669', '#D97706', '#DC2626', '#7C3AED', '#0284C7', '#DB2777', '#65A30D']
 const subjects = computed<SubjectGroup[]>(() => {
   const result = new Map<string, SubjectGroup>()
   for (const entry of props.mistakes) {

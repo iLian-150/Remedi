@@ -7,7 +7,7 @@
   >
     <div class="sticky-notes-inner">
       <header class="sticky-notes-header">
-        <div class="sticky-notes-kicker"><span aria-hidden="true">✳</span>{{ studentName ? `${studentName} · 学习记录` : '把错因贴在眼前' }}</div>
+        <div class="sticky-notes-kicker"><span aria-hidden="true"><AppIcon name="sparkles" :size="15"/></span>{{ studentName ? `${studentName} · 学习记录` : '把错因贴在眼前' }}</div>
         <h1>{{ selectedCategory ? selectedCategory.label : selectedSubject ? displaySubject(selectedSubject.key) : '错题便利贴' }}</h1>
         <p>{{ screen === 'subjects' ? '选一个科目，从最需要复习的错误类别开始。' : screen === 'categories' ? '每张便利贴是一类错误；同类错题会放在一起。' : `${selectedCategory!.entries.length} 道错题，来自 ${selectedCategory!.assignmentCount} 份作业。` }}</p>
       </header>
@@ -22,10 +22,10 @@
         <div v-for="index in 4" :key="index" class="sticky-note sticky-note-skeleton" :style="noteStyle(index)" />
       </div>
       <div v-else-if="!mistakes.length" class="sticky-notes-empty">
-        <div class="sticky-notes-empty-icon">✳</div>
+        <div class="sticky-notes-empty-icon"><AppIcon name="sparkles" :size="32"/></div>
         <h2>第一张便利贴，等你来写</h2>
         <p>完成一份作业诊断后，错题会按科目和错误类别整理在这里。</p>
-        <button type="button" @click="$emit('start-assignment')">去作业列表 <span aria-hidden="true">↗</span></button>
+        <button type="button" @click="$emit('start-assignment')">去作业列表 <AppIcon name="arrow-up-right" :size="13"/></button>
       </div>
       <div v-else-if="screen === 'subjects'" class="sticky-notes-grid" aria-label="科目便利贴">
         <button v-for="(subject, index) in subjects" :key="subject.key" type="button" class="sticky-note" :class="`sticky-note-${noteColors[subject.key] || 'lilac'}`" :style="noteStyle(index)" @click="selectSubject(subject.key)">
@@ -33,7 +33,7 @@
           <strong class="sticky-note-title">{{ displaySubject(subject.key) }}</strong>
           <span class="sticky-note-rule" />
           <span class="sticky-note-stat"><b>{{ subject.categories.length }}</b> 类错误 · <b>{{ subject.entries.length }}</b> 道错题</span>
-          <span class="sticky-note-foot"><span>{{ subject.categories.filter((category) => !category.studied).length ? `还有 ${subject.categories.filter((category) => !category.studied).length} 类待学习` : '全部类别已学完' }}</span><span aria-hidden="true">↗</span></span>
+          <span class="sticky-note-foot"><span>{{ subject.categories.filter((category) => !category.studied).length ? `还有 ${subject.categories.filter((category) => !category.studied).length} 类待学习` : '全部类别已学完' }}</span><AppIcon name="arrow-up-right" :size="13"/></span>
         </button>
       </div>
       <div v-else-if="screen === 'categories'" class="sticky-notes-grid" aria-label="错误类别便利贴">
@@ -43,7 +43,7 @@
           <span class="sticky-note-rule" />
           <span class="sticky-note-stat"><b>{{ category.entries.length }}</b> 道错题 · <b>{{ category.assignmentCount }}</b> 份作业</span>
           <span v-if="category.tags.length" class="sticky-note-tags">{{ category.tags.join(' · ') }}</span>
-          <span class="sticky-note-foot"><span>{{ category.studied ? '已学完' : category.assignmentCount > 1 ? '在多份作业中出现' : '继续复习' }}</span><span aria-hidden="true">↗</span></span>
+          <span class="sticky-note-foot"><span>{{ category.studied ? '已学完' : category.assignmentCount > 1 ? '在多份作业中出现' : '继续复习' }}</span><AppIcon name="arrow-up-right" :size="13"/></span>
         </button>
       </div>
       <div v-else class="sticky-notes-detail" :aria-label="`${selectedCategory!.label}错题`">
@@ -61,7 +61,7 @@
                   <p class="sticky-question-excerpt">{{ entry.question_stem }}</p>
                   <p class="sticky-question-diagnosis">{{ entry.detail || entry.error_type }}</p>
                 </div>
-                <div class="sticky-question-actions"><button type="button" @click.stop="selectQuestion(entry)">{{ entry.source_kind === 'student_saved' ? '继续复习' : '查看错题讲解' }} <span aria-hidden="true">↗</span></button><button v-if="entry.source_kind !== 'student_saved'" type="button" @click.stop="$emit('review', entry)">查看原题 <span aria-hidden="true">↗</span></button></div>
+                <div class="sticky-question-actions"><button type="button" @click.stop="selectQuestion(entry)">{{ entry.source_kind === 'student_saved' ? '继续复习' : '查看错题讲解' }} <AppIcon name="arrow-up-right" :size="13"/></button><button v-if="entry.source_kind !== 'student_saved'" type="button" @click.stop="$emit('review', entry)">查看原题 <AppIcon name="arrow-up-right" :size="13"/></button></div>
               </article>
             </div>
             <div class="sticky-assignment-actions">
@@ -80,6 +80,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { StudentMistake } from '../../api/types'
+import AppIcon from '../icons/AppIcon.vue'
 
 type Category = { key: string; label: string; entries: StudentMistake[]; studied: boolean; assignmentCount: number; tags: string[] }
 type SubjectGroup = { key: string; categories: Category[]; entries: StudentMistake[] }
