@@ -33,6 +33,7 @@
             <div class="welcome-briefing-heading">
               <span class="welcome-briefing-icon"><AppIcon name="clipboard" :size="16" /></span>
               <div><strong>学习简报</strong><small>根据你的作业和订正情况整理</small></div>
+              <router-link class="welcome-briefing-book" to="/student/mistakes">打开错题本 <AppIcon name="chevron-right" :size="13" /></router-link>
             </div>
 
             <div v-if="briefingAllDone(welcomeBriefing)" class="welcome-briefing-done">
@@ -43,22 +44,62 @@
               </div>
             </div>
 
+            <!-- v0.9.0：欢迎屏简报改卡片组——与对话内简报卡同一套视觉（大数字+色块），
+                 整卡可点：作业卡→作业列表、订正卡→订正页、加固卡→学习报告 -->
             <template v-else>
-              <div class="welcome-briefing-stats">
-                <div><b>{{ welcomeBriefing.pending_assignments.length }}</b><span>份作业待完成</span></div>
-                <div><b>{{ welcomeBriefing.pending_corrections_count }}</b><span>处错题待订正</span></div>
-                <router-link to="/student/mistakes">打开错题本 <AppIcon name="chevron-right" :size="13" /></router-link>
-              </div>
-              <div v-if="welcomeBriefing.pending_assignments.length" class="welcome-briefing-assignments">
-                <div v-for="p in welcomeBriefing.pending_assignments.slice(0, 2)" :key="p.id" class="welcome-briefing-assignment">
-                  <span><strong>{{ p.title }}</strong><small>还剩 {{ p.remaining_count }} 题<template v-if="p.deadline"> · 截止 {{ fmtDateTime(p.deadline) }}</template></small></span>
-                  <button type="button" @click="gotoAssignment(p)">继续 <AppIcon name="chevron-right" :size="13" /></button>
+              <div class="brief-grid welcome-brief-grid">
+                <div
+                  v-if="welcomeBriefing.pending_assignments.length"
+                  class="brief-stat-card brief-assign brief-clickable"
+                  @click="router.push('/student/assignments')"
+                >
+                  <div class="brief-stat-head">
+                    <span class="brief-big tnum">{{ welcomeBriefing.pending_assignments.length }}</span>
+                    <span class="brief-stat-label">份作业待完成</span>
+                  </div>
+                  <div v-for="p in welcomeBriefing.pending_assignments.slice(0, 2)" :key="p.id" class="brief-item">
+                    <span class="brief-item-main">
+                      {{ p.title }}
+                      <span class="badge badge-blue tnum">还剩 {{ p.remaining_count }} 题</span>
+                      <span v-if="p.deadline" class="brief-item-sub">截止 {{ fmtDateTime(p.deadline) }}</span>
+                    </span>
+                    <button class="btn small" @click.stop="gotoAssignment(p)">继续</button>
+                  </div>
+                  <p class="brief-card-more">查看全部作业 <AppIcon name="chevron-right" :size="13" /></p>
                 </div>
-              </div>
-              <p v-if="welcomeBriefing.pending_corrections_count && welcomeBriefing.pending_corrections_knowledge_points.length" class="welcome-briefing-feedback">待订正知识点：{{ welcomeBriefing.pending_corrections_knowledge_points.join('、') }}</p>
-              <div v-if="briefWeakDetails(welcomeBriefing).length" class="welcome-briefing-weak">
-                <span>近期关注</span>
-                <span v-for="d in briefWeakDetails(welcomeBriefing).slice(0, 3)" :key="d.knowledge_point">{{ d.knowledge_point }} · {{ d.error_count }} 次</span>
+
+                <div
+                  v-if="welcomeBriefing.pending_corrections_count"
+                  class="brief-stat-card brief-corr brief-clickable"
+                  @click="router.push('/student/corrections')"
+                >
+                  <div class="brief-stat-head">
+                    <span class="brief-big tnum">{{ welcomeBriefing.pending_corrections_count }}</span>
+                    <span class="brief-stat-label">处错题待订正</span>
+                  </div>
+                  <p class="brief-one-line" v-if="welcomeBriefing.pending_corrections_knowledge_points.length">
+                    涉及知识点：{{ welcomeBriefing.pending_corrections_knowledge_points.join('、') }}
+                  </p>
+                  <p class="brief-card-more">去订正 <AppIcon name="chevron-right" :size="13" /></p>
+                </div>
+
+                <div
+                  v-if="briefWeakDetails(welcomeBriefing).length"
+                  class="brief-stat-card brief-weakstat brief-clickable"
+                  @click="router.push('/student/report')"
+                >
+                  <div class="brief-stat-head">
+                    <span class="brief-big tnum">{{ briefWeakDetails(welcomeBriefing).length }}</span>
+                    <span class="brief-stat-label">个知识点需要加固</span>
+                  </div>
+                  <div class="brief-weak-list">
+                    <p v-for="d in briefWeakDetails(welcomeBriefing).slice(0, 3)" :key="d.knowledge_point" class="brief-weak-line">
+                      <span class="brief-weak-name">{{ d.knowledge_point }}</span>
+                      <span class="brief-weak-meta">出错 <span class="tnum">{{ d.error_count }}</span> 次</span>
+                    </p>
+                  </div>
+                  <p class="brief-card-more">去学习报告 <AppIcon name="chevron-right" :size="13" /></p>
+                </div>
               </div>
               <p v-if="welcomeBriefing.recent_feedback" class="welcome-briefing-feedback">{{ sanitizeStudentCopy(welcomeBriefing.recent_feedback) }}</p>
             </template>
@@ -199,6 +240,15 @@
               <AppIcon name="check" :size="17" /> 批改结果
               <span class="badge badge-blue">{{ questionStem(msg.result.question_id) }}</span>
             </p>
+            <!-- v0.9.0：待老师审核——只报已提交状态，不展示任何诊断结论 -->
+            <div v-if="msg.result.status === 'pending_review'" class="review-pending-box">
+              <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
+              <div>
+                <p class="review-pending-title">已提交，正在等老师审核</p>
+                <p class="review-pending-sub">老师审核通过后，批改结果会显示出来，有错题也会自动进错题本。</p>
+              </div>
+            </div>
+            <template v-else>
             <div
               v-for="st in msg.result.steps"
               :key="st.seq"
@@ -235,6 +285,7 @@
               <span class="followup-icon"><AppIcon name="lightbulb" :size="16" /></span>
               <p><b>想一想：</b>{{ msg.result.follow_up_question }}</p>
             </div>
+            </template>
           </div>
 
           <!-- 用户消息 -->
@@ -297,7 +348,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type {
@@ -318,6 +369,7 @@ import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 const auth = useAuthStore()
 const student = useStudentStore()
 const route = useRoute()
+const router = useRouter()
 
 // ---------- 对话消息 ----------
 interface ChatMsg {
@@ -604,9 +656,12 @@ async function onFileChange(e: Event) {
       suggestions.value = answer.suggestions ?? []
       student.loadSessions(true)
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
-      wait.text = res.diagnosis.errors.length
-        ? '识别到作答过程并完成批改，发现的错题已自动加入错题本。'
-        : '识别到作答过程并完成批改，这道题目前没有发现错误。'
+      // v0.9.0：新批改先过老师审核，pending 时不报对错结论
+      wait.text = res.diagnosis.status === 'pending_review'
+        ? '识别到作答过程并完成提交，老师审核后你就能看到批改结果了。'
+        : res.diagnosis.errors.length
+          ? '识别到作答过程并完成批改，发现的错题已自动加入错题本。'
+          : '识别到作答过程并完成批改，这道题目前没有发现错误。'
       pushMsg({ side: 'ai', kind: 'diagnosis', result: res.diagnosis })
     } else {
       wait.kind = 'transcribe'
@@ -771,22 +826,22 @@ onMounted(async () => {
 .welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
 .welcome-briefing-heading small { color: var(--text-3); font-size: 11px; }
 .welcome-briefing-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; background: var(--primary-50); color: var(--text-2); }
-.welcome-briefing-stats { display: flex; align-items: baseline; gap: 24px; margin: 13px 0 0 37px; }
-.welcome-briefing-stats > div { display: flex; align-items: baseline; gap: 7px; }
-.welcome-briefing-stats b { color: var(--text); font-size: 18px; font-weight: 650; }
-.welcome-briefing-stats span { color: var(--text-2); font-size: 12px; }
-.welcome-briefing-stats a { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; color: var(--primary); font-size: 12px; font-weight: 550; }
-.welcome-briefing-stats a :deep(svg) { flex: 0 0 auto; }
-.welcome-briefing-assignments { margin: 10px 0 0 37px; border-top: 1px solid var(--border); }
-.welcome-briefing-assignment { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0 0; }
-.welcome-briefing-assignment > span { display: flex; min-width: 0; flex-direction: column; }
-.welcome-briefing-assignment strong { overflow: hidden; color: var(--text); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.welcome-briefing-assignment small { color: var(--text-3); font-size: 11px; }
-.welcome-briefing-assignment button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
-.welcome-briefing-weak { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 11px 0 0 37px; }
-.welcome-briefing-weak > span:first-child { margin-right: 2px; color: var(--text-3); font-size: 11px; }
-.welcome-briefing-weak > span:not(:first-child) { border-radius: 999px; background: var(--gray-bg); padding: 4px 8px; color: var(--text-2); font-size: 10.5px; }
-.welcome-briefing-feedback { margin: 11px 0 0 37px; border-top: 1px solid var(--border); padding-top: 9px; color: var(--text-2); font-size: 11.5px; }
+.welcome-briefing-book { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; color: var(--primary); font-size: 12px; font-weight: 600; white-space: nowrap; }
+/* 欢迎屏简报卡组（v0.9.0）：复用对话内简报卡的大数字+色块规格，整卡可点跳转 */
+.welcome-brief-grid { margin-top: 14px; }
+.brief-clickable { cursor: pointer; transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.brief-clickable:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.brief-card-more { display: inline-flex; align-items: center; gap: 2px; margin-top: 10px; color: var(--primary); font-size: 12.5px; font-weight: 600; }
+.brief-weakstat { background: var(--amber-bg); }
+.brief-weakstat .brief-big { color: var(--amber); }
+.brief-weak-list { display: flex; flex-direction: column; gap: 4px; }
+.brief-weak-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.welcome-briefing-feedback { margin: 11px 0 0; border-top: 1px solid var(--border); padding-top: 9px; color: var(--text-2); font-size: 11.5px; }
+/* 待老师审核状态盒（v0.9.0）：对话诊断卡与详情共用语义 */
+.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px; padding: 13px 15px; }
+.review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
+.review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
+.review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
 .welcome-briefing-done { display: flex; align-items: flex-start; gap: 10px; margin-top: 13px; border-radius: 10px; background: var(--green-bg); padding: 12px 13px; }
 .welcome-done-mark { display: grid; width: 27px; height: 27px; flex: 0 0 27px; place-items: center; border-radius: 50%; background: var(--green); color: #fff; }
 .welcome-briefing-done strong { color: #065F46; font-size: 13px; font-weight: 650; }
@@ -954,10 +1009,6 @@ onMounted(async () => {
   .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
   .welcome-description { max-width: 330px; font-size: 13px; }
   .welcome-briefing { margin-top: 17px; padding: 12px; }
-  .welcome-briefing-stats { flex-wrap: wrap; gap: 12px; margin-left: 0; }
-  .welcome-briefing-stats > div { flex-direction: column; gap: 0; }
-  .welcome-briefing-stats a { margin-left: auto; font-size: 11px; }
-  .welcome-briefing-assignments, .welcome-briefing-weak, .welcome-briefing-feedback { margin-left: 0; }
   .composer-bottom-row { gap: 6px; }
   .composer-tools { gap: 5px; }
   .composer-context { max-width: 38vw; }
