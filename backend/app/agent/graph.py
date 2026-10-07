@@ -91,16 +91,28 @@ def _message_text(msg: BaseMessage) -> str:
     return str(content).strip()
 
 
-def agent_reply(db: Session, student: User,
-                history: List[BaseMessage], user_text: str) -> str:
-    """Agent 回复入口：优先跑 LangGraph 图；不可用/异常时降级规则回复。"""
+def _tools_used(messages: list) -> List[str]:
+    """从图执行轨迹里抽本轮真实调用过的工具名（供建议气泡按意图映射，v0.6.0）。"""
+    names: List[str] = []
+    for msg in messages or []:
+        for call in getattr(msg, "tool_calls", None) or []:
+            name = call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def agent_reply_full(db: Session, student: User,
+                     history: List[BaseMessage], user_text: str) -> dict:
+    """Agent 回复入口（带元信息）：优先跑 LangGraph 图；不可用/异常时降级规则回复。
+    返回 {"reply": 回复文本, "tools_used": 本轮真实调用的工具名列表（降级时为空）}。"""
     try:
         llm = _build_llm()
     except Exception as e:
         logger.warning("Agent LLM 构造失败，降级为规则回复: %s", e)
-        return mock_reply(db, student, user_text)
+        return {"reply": mock_reply(db, student, user_text), "tools_used": []}
     if llm is None:
-        return mock_reply(db, student, user_text)
+        return {"reply": mock_reply(db, student, user_text), "tools_used": []}
     try:
         from langgraph.graph import START, StateGraph
         from langgraph.graph.message import add_messages
@@ -129,7 +141,13 @@ def agent_reply(db: Session, student: User,
         reply = _message_text(result["messages"][-1])
         if not reply:
             raise ValueError("模型返回了空回复")
-        return reply
+        return {"reply": reply, "tools_used": _tools_used(result["messages"])}
     except Exception as e:
         logger.warning("Agent 图调用失败，降级为规则回复: %s", e)
-        return mock_reply(db, student, user_text)
+        return {"reply": mock_reply(db, student, user_text), "tools_used": []}
+
+
+def agent_reply(db: Session, student: User,
+                history: List[BaseMessage], user_text: str) -> str:
+    """兼容旧签名的纯文本入口（v0.6.0 起内部走 agent_reply_full）。"""
+    return agent_reply_full(db, student, history, user_text)["reply"]

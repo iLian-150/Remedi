@@ -8,3 +8,4 @@ python-multipart>=0.0.9
 langgraph>=1.2
 langchain-core>=1.6
 langchain-openai>=1.6
+pymupdf>=1.24

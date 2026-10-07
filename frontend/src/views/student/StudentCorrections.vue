@@ -106,10 +106,11 @@ const fixedIds = ref<Set<number>>(new Set())
 
 const selectedError = computed(() => errorList.value.find((e) => e.id === selectedErrorId.value) ?? null)
 
-/** 「去验证」深链：带知识点名跳学习报告，报告页会直接打开验证面板 */
+/** 「去验证」深链（v0.6.0）：带知识点名跳科目详情页，详情页会直接打开验证面板
+ * （当前真实报告只有数学科目；详情页内部还会按知识点所属科目自动纠偏跳转） */
 const verifyLink = computed(() => {
   const kp = result.value?.knowledge_point ?? selectedError.value?.knowledge_point ?? ''
-  return kp ? `/student/report?verify=${encodeURIComponent(kp)}` : '/student/report'
+  return kp ? `/student/report/math?verify=${encodeURIComponent(kp)}` : '/student/report'
 })
 
 function onSelect() {

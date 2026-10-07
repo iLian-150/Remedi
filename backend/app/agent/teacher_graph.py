@@ -37,16 +37,17 @@ def _teacher_context_summary(db: Session) -> str:
         return ""
 
 
-def teacher_agent_reply(db: Session, teacher: User,
-                        history: List[BaseMessage], user_text: str) -> str:
-    """教师 Agent 回复入口：优先跑 LangGraph 图；不可用/异常时降级规则回复。"""
+def teacher_agent_reply_full(db: Session, teacher: User,
+                             history: List[BaseMessage], user_text: str) -> dict:
+    """教师 Agent 回复入口（带元信息）：优先跑 LangGraph 图；不可用/异常时降级规则回复。
+    返回 {"reply": 回复文本, "tools_used": 本轮真实调用的工具名列表（降级时为空）}。"""
     try:
         llm = _build_llm()
     except Exception as e:
         logger.warning("教师 Agent LLM 构造失败，降级为规则回复: %s", e)
-        return teacher_mock_reply(db, teacher, user_text)
+        return {"reply": teacher_mock_reply(db, teacher, user_text), "tools_used": []}
     if llm is None:
-        return teacher_mock_reply(db, teacher, user_text)
+        return {"reply": teacher_mock_reply(db, teacher, user_text), "tools_used": []}
     try:
         from typing import Annotated, TypedDict
 
@@ -77,7 +78,15 @@ def teacher_agent_reply(db: Session, teacher: User,
         reply = _message_text(result["messages"][-1])
         if not reply:
             raise ValueError("模型返回了空回复")
-        return reply
+        from .graph import _tools_used
+
+        return {"reply": reply, "tools_used": _tools_used(result["messages"])}
     except Exception as e:
         logger.warning("教师 Agent 图调用失败，降级为规则回复: %s", e)
-        return teacher_mock_reply(db, teacher, user_text)
+        return {"reply": teacher_mock_reply(db, teacher, user_text), "tools_used": []}
+
+
+def teacher_agent_reply(db: Session, teacher: User,
+                        history: List[BaseMessage], user_text: str) -> str:
+    """兼容旧签名的纯文本入口（v0.6.0 起内部走 teacher_agent_reply_full）。"""
+    return teacher_agent_reply_full(db, teacher, history, user_text)["reply"]

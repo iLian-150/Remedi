@@ -3,7 +3,9 @@
 import { defineStore } from 'pinia'
 import api from '../api/client'
 import type {
+  AgentChatResult,
   AgentHistoryItem,
+  ChatSession,
   ClassRepairRate,
   GradingError,
   KnowledgePointStat,
@@ -96,20 +98,45 @@ export const useTeacherStore = defineStore('teacher', {
       })
       return data
     },
-    // 4.12 与班级数据助理对话（v0.5.0，LangGraph 教师 Agent；接口内部已做降级）
-    async agentChat(message: string): Promise<string> {
-      const { data } = await api.post<{ reply: string }>('/api/teacher/agent/chat', { message })
-      return data.reply
+    // 4.12 与班级数据助理对话（v0.5.0，LangGraph 教师 Agent；v0.6.0 会话制：可指定
+    // session_id，响应含建议追问 suggestions 与实际写入的 session_id）
+    async agentChat(message: string, sessionId?: number | null): Promise<AgentChatResult> {
+      const { data } = await api.post<AgentChatResult>('/api/teacher/agent/chat', {
+        message,
+        session_id: sessionId ?? undefined
+      })
+      return data
     },
-    // 4.13 教师对话历史（v0.5.0）：最近 50 条，时间正序
+    // 4.13 教师对话历史（v0.5.0；v0.6.0 起返回当前会话最近 50 条）
     async fetchAgentHistory(): Promise<AgentHistoryItem[]> {
       const { data } = await api.get<AgentHistoryItem[]>('/api/teacher/agent/history')
       return data
     },
-    // 4.14 开始新对话（v0.5.0）：删除服务端我的全部对话记录
-    async newAgentSession(): Promise<number> {
-      const { data } = await api.post<{ cleared_count: number }>('/api/teacher/agent/new-session')
-      return data.cleared_count
+    // 4.19 教师对话会话列表（v0.6.0）：按最近更新倒序，含消息数
+    async fetchSessions(): Promise<ChatSession[]> {
+      const { data } = await api.get<ChatSession[]>('/api/teacher/agent/sessions')
+      return data
+    },
+    // 4.20 新建教师对话会话（v0.6.0）
+    async createSession(): Promise<ChatSession> {
+      const { data } = await api.post<ChatSession>('/api/teacher/agent/sessions', {})
+      return data
+    },
+    // 4.21 某会话的全部消息（v0.6.0），时间正序
+    async fetchSessionMessages(sessionId: number): Promise<AgentHistoryItem[]> {
+      const { data } = await api.get<AgentHistoryItem[]>(
+        `/api/teacher/agent/sessions/${sessionId}/messages`
+      )
+      return data
+    },
+    // 4.22 删除一条教师对话会话（v0.6.0）
+    async deleteSession(sessionId: number): Promise<void> {
+      await api.delete(`/api/teacher/agent/sessions/${sessionId}`)
+    },
+    // 4.14 开始新对话（v0.5.0 新增；v0.6.0 语义变更：新建一条会话，旧会话保留可找回）
+    async newAgentSession(): Promise<ChatSession> {
+      const { data } = await api.post<ChatSession>('/api/teacher/agent/new-session', {})
+      return data
     },
     // 4.15 上传练习册 PDF 到知识库（v0.5.0，≤30MB）
     async uploadWorkbook(file: File): Promise<Workbook> {

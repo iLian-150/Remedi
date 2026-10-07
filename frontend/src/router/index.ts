@@ -9,6 +9,7 @@ import StudentAssignments from '../views/student/StudentAssignments.vue'
 import StudentSubmit from '../views/student/StudentSubmit.vue'
 import StudentFeedback from '../views/student/StudentFeedback.vue'
 import StudentReport from '../views/student/StudentReport.vue'
+import StudentReportSubject from '../views/student/StudentReportSubject.vue'
 import StudentProfile from '../views/student/StudentProfile.vue'
 import StudentCorrections from '../views/student/StudentCorrections.vue'
 // 教师端
@@ -21,6 +22,7 @@ import TeacherSuggestions from '../views/teacher/TeacherSuggestions.vue'
 import TeacherAssignments from '../views/teacher/TeacherAssignments.vue'
 import TeacherPublish from '../views/teacher/TeacherPublish.vue'
 import TeacherChat from '../views/teacher/TeacherChat.vue'
+import TeacherWorkbooks from '../views/teacher/TeacherWorkbooks.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', component: RoleSelect, meta: { public: true, title: '登录' } },
@@ -32,6 +34,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/student/submit', component: StudentSubmit, meta: { role: 'student', title: '交作业' } },
   { path: '/student/feedback', component: StudentFeedback, meta: { role: 'student', title: '诊断报告' } },
   { path: '/student/report', component: StudentReport, meta: { role: 'student', title: '学习报告' } },
+  // 学习报告科目详情（v0.6.0 从报告页拆出独立页，带返回键；?verify= 深链打开验证面板）
+  { path: '/student/report/:subject', component: StudentReportSubject, meta: { role: 'student', title: '学习报告' } },
   { path: '/student/profile', component: StudentProfile, meta: { role: 'student', title: '我的档案' } },
   { path: '/student/corrections', component: StudentCorrections, meta: { role: 'student', title: '订正错题' } },
 
@@ -44,7 +48,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/suggestions', component: TeacherSuggestions, meta: { role: 'teacher', title: '教学建议' } },
   { path: '/teacher/assignments', component: TeacherAssignments, meta: { role: 'teacher', title: '作业管理' } },
   { path: '/teacher/assignments/new', component: TeacherPublish, meta: { role: 'teacher', title: '发布作业' } },
-  { path: '/teacher/chat', component: TeacherChat, meta: { role: 'teacher', title: 'AI 助手' } }
+  { path: '/teacher/chat', component: TeacherChat, meta: { role: 'teacher', title: 'AI 助手' } },
+  // 我的练习（v0.6.0）：练习册知识库的书架式管理页，与 4.15~4.17 同一批接口
+  { path: '/teacher/workbooks', component: TeacherWorkbooks, meta: { role: 'teacher', title: '我的练习' } }
 ]
 
 const router = createRouter({

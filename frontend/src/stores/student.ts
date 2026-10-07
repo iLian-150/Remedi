@@ -3,9 +3,11 @@
 import { defineStore } from 'pinia'
 import api from '../api/client'
 import type {
+  AgentChatResult,
   AgentHistoryItem,
   Assignment,
   AssignmentDetail,
+  ChatSession,
   CorrectionResult,
   EssayResult,
   EssaySummary,
@@ -109,20 +111,45 @@ export const useStudentStore = defineStore('student', {
       )
       return data
     },
-    // 3.15 与学习助手对话（v0.3.0，LangGraph Agent；接口内部已做降级，不会 500）
-    async agentChat(message: string): Promise<string> {
-      const { data } = await api.post<{ reply: string }>('/api/student/agent/chat', { message })
-      return data.reply
+    // 3.15 与学习助手对话（v0.3.0，LangGraph Agent；v0.6.0 会话制：可指定 session_id，
+    // 响应含建议追问 suggestions 与实际写入的 session_id）
+    async agentChat(message: string, sessionId?: number | null): Promise<AgentChatResult> {
+      const { data } = await api.post<AgentChatResult>('/api/student/agent/chat', {
+        message,
+        session_id: sessionId ?? undefined
+      })
+      return data
     },
-    // 3.16 我的对话历史（v0.3.0）：最近 50 条，时间正序
+    // 3.16 我的对话历史（v0.3.0；v0.6.0 起返回当前会话最近 50 条，时间正序）
     async fetchAgentHistory(): Promise<AgentHistoryItem[]> {
       const { data } = await api.get<AgentHistoryItem[]>('/api/student/agent/history')
       return data
     },
-    // 3.22 开始新对话（v0.5.0）：删除服务端我的全部对话记录，返回清掉的条数
-    async newAgentSession(): Promise<number> {
-      const { data } = await api.post<{ cleared_count: number }>('/api/student/agent/new-session')
-      return data.cleared_count
+    // 3.23 我的对话会话列表（v0.6.0）：按最近更新倒序，含消息数
+    async fetchSessions(): Promise<ChatSession[]> {
+      const { data } = await api.get<ChatSession[]>('/api/student/agent/sessions')
+      return data
+    },
+    // 3.24 新建对话会话（v0.6.0）
+    async createSession(): Promise<ChatSession> {
+      const { data } = await api.post<ChatSession>('/api/student/agent/sessions', {})
+      return data
+    },
+    // 3.25 某会话的全部消息（v0.6.0），时间正序
+    async fetchSessionMessages(sessionId: number): Promise<AgentHistoryItem[]> {
+      const { data } = await api.get<AgentHistoryItem[]>(
+        `/api/student/agent/sessions/${sessionId}/messages`
+      )
+      return data
+    },
+    // 3.26 删除一条对话会话（v0.6.0）：连同其消息一并删除
+    async deleteSession(sessionId: number): Promise<void> {
+      await api.delete(`/api/student/agent/sessions/${sessionId}`)
+    },
+    // 3.22 开始新对话（v0.5.0 新增；v0.6.0 语义变更：新建一条会话，旧会话保留可找回）
+    async newAgentSession(): Promise<ChatSession> {
+      const { data } = await api.post<ChatSession>('/api/student/agent/new-session', {})
+      return data
     },
     // 3.17 我的提醒列表（v0.3.0）：最近 30 条倒序 + 未读数
     async fetchNotifications(): Promise<NotificationList> {
