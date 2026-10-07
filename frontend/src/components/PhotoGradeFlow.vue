@@ -4,17 +4,13 @@
      v0.6.0 新增 direct 模式（交作业页用）：选完照片自动转写并立刻提交诊断，
      不再出现转写确认这一步，直接出诊断卡；诊断卡上保留补救——展示识别到的
      步骤原文，并可展开原编辑器修改后重新提交。对话页仍用默认确认模式。
+     v0.9.2：点按直达图库——组件内不再有「先展开面板再点一次选图」的中间层：
+     父级按钮点击时调 openPicker()（defineExpose）当下就打开系统图库/文件选择；
+     未选图取消则组件保持 idle 且不渲染任何可见内容；「再拍一张/重新选图」同理直达。
      学生端文案口径：批改结果署名统一为「老师批改/批改结果」，不出现「顽固」「置信度」。 -->
 <template>
   <div class="pgf">
-    <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
-
-    <div v-if="phase === 'idle'" class="pgf-idle">
-      <button class="btn inline-icon" :disabled="busy" @click="fileRef?.click()">
-        <AppIcon name="camera" :size="17" /> 拍照 / 上传作答照片
-      </button>
-      <span class="hint">把这道题的作答过程拍清楚，一张照片就够了。</span>
-    </div>
+    <input ref="fileRef" type="file" accept="image/*" hidden @change="onFileChange" />
 
     <img v-if="previewUrl" :src="previewUrl" alt="作答照片" class="pgf-preview" />
 
@@ -54,7 +50,7 @@
           {{ phase === 'submitting' ? '批改中…' : fixOpen ? '重新提交批改' : confirmed ? '已批改' : '确认批改' }}
         </button>
         <button v-if="fixOpen" class="btn secondary" @click="fixOpen = false">收起修改</button>
-        <button v-if="phase === 'done' && !fixOpen" class="btn secondary" @click="reset">再拍一张</button>
+        <button v-if="phase === 'done' && !fixOpen" class="btn secondary" @click="retake">再拍一张</button>
       </div>
     </div>
 
@@ -121,14 +117,14 @@
         <button v-if="!fixOpen" class="btn small secondary" @click="fixOpen = true">
           识别不准？展开修改并重新提交
         </button>
-        <button class="btn small ghost" style="margin-left: 8px" @click="reset">再拍一张</button>
+        <button class="btn small ghost" style="margin-left: 8px" @click="retake">再拍一张</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useStudentStore } from '../stores/student'
 import type { StepStatus, SubmissionResult } from '../api/types'
 import { STEP_STATUS_TEXT } from '../api/types'
@@ -146,7 +142,11 @@ const props = withDefaults(
   }>(),
   { direct: false }
 )
-const emit = defineEmits<{ (e: 'graded', result: SubmissionResult): void }>()
+const emit = defineEmits<{
+  (e: 'graded', result: SubmissionResult): void
+  /** v0.9.2：流程是否已离开 idle（父级据此切换按钮文案与收起控制） */
+  (e: 'active', active: boolean): void
+}>()
 
 const student = useStudentStore()
 
@@ -174,6 +174,32 @@ const cardVisible = computed(
     (!props.direct || fixOpen.value)
 )
 
+watch(phase, (p) => emit('active', p !== 'idle'))
+
+/** v0.9.2：直达图库——父级按钮点击的当下调用，立刻打开系统文件/图库选择。
+    取消选择不会触发 change，组件保持 idle 且不渲染任何可见内容。 */
+function openPicker() {
+  fileRef.value?.click()
+}
+
+/** 换图/重拍：清掉旧结果后同样直达选择器，不停在中间面板 */
+function retake() {
+  reset()
+  openPicker()
+}
+
+defineExpose({ openPicker })
+
+/** 只清「上一次批改产物」，供选新图时复用（reset 在此基础上再清转写与预览） */
+function clearResult() {
+  confirmed.value = false
+  result.value = null
+  captureId.value = null
+  answerText.value = ''
+  savedCapture.value = false
+  fixOpen.value = false
+}
+
 function stepIcon(s: StepStatus): IconName {
   return { stem: 'file', ok: 'check', error: 'x', unparseable: 'help', skipped: 'minus' }[s] as IconName
 }
@@ -197,6 +223,7 @@ async function onFileChange(e: Event) {
     errorText.value = '图片太大了（超过 10MB），请压缩后再试。'
     return
   }
+  clearResult()
   previewUrl.value = URL.createObjectURL(file)
   phase.value = 'transcribing'
   busy.value = true
@@ -288,19 +315,14 @@ function reset() {
   previewUrl.value = ''
   questionText.value = ''
   steps.value = []
-  confirmed.value = false
-  result.value = null
-  captureId.value = null
-  answerText.value = ''
-  savedCapture.value = false
+  clearResult()
+  savingCapture.value = false
   errorText.value = ''
-  fixOpen.value = false
 }
 </script>
 
 <style scoped>
 .pgf { margin-top: 12px; }
-.pgf-idle { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pgf-preview { max-width: 300px; max-height: 340px; border-radius: 10px; border: 1px solid var(--border); display: block; margin-bottom: 10px; }
 .pgf-answer-question { color: var(--text-2); font-weight: 600; white-space: pre-wrap; }
 .pgf-answer-copy { color: var(--text); line-height: 1.7; white-space: pre-wrap; }

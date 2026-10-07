@@ -16,6 +16,9 @@
      （悬停 tooltip 显示标签）、头像与展开按钮（品牌行按钮图标随状态翻转），
      SidebarSessions / 品牌文字 / 账号文字在收起态隐藏；教师导航新增「待审核」
      （角标数读 teacher store，进教师端页面时刷新）。
+     v0.9.1：学生订正页右栏切换为「订正日历」（mode=corrections，FAB 同样用 cal-fab）：
+     按错题所属提交日期打点，点选日期 → store.correctionsDateFilter 生效 → 订正页
+     只看那天的错题；订正页页内不再放日历（v0.9.0 曾在页内，统一迁入右栏）。
      未登录只渲染登录页。 -->
 <template>
   <!-- 未登录：仅登录页 -->
@@ -94,14 +97,15 @@
       :aria-hidden="!railOpen"
     >
       <RightRail
-        :mode="railMode === 'calendar' ? 'calendar' : 'notes'"
+        :mode="railMode === 'calendar' ? 'calendar' : railMode === 'corrections' ? 'corrections' : 'notes'"
         @close="setRail(false)"
       />
     </aside>
 
     <!-- 右栏收起态入口（v0.8.2）：两场景各有专属按钮与类名，不再共用一个按钮换图标。
          提醒场景=信封形 notes-fab（未读角标读 student store，有未读时轻晃）；
-         日历场景=日历形 cal-fab（中性色、无角标）。层级见 style.css 的 z-index 梳理注释。 -->
+         日历场景=日历形 cal-fab（中性色、无角标；v0.9.1 起订正日历场景共用此按钮）。
+         层级见 style.css 的 z-index 梳理注释。 -->
     <button
       v-if="railMode === 'notes' && !railOpen"
       class="notes-fab"
@@ -113,7 +117,7 @@
       <span v-if="student.unreadCount > 0" :key="student.unreadCount" class="notes-badge">{{ student.unreadCount }}</span>
     </button>
     <button
-      v-else-if="railMode === 'calendar' && !railOpen"
+      v-else-if="(railMode === 'calendar' || railMode === 'corrections') && !railOpen"
       class="cal-fab"
       title="打开日历"
       @click="setRail(true)"
@@ -210,14 +214,16 @@ const navItems = computed<NavItem[]>(() => {
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------
-// 学生：作业列表页只放日历；其余页面（含主页对话页）只放便利贴提醒。
-// 教师：仅作业管理页放日历；其余页面不挂右栏（教师无通知）。
-type RailMode = 'notes' | 'calendar' | 'none'
+// 学生：作业列表页放作业日历；订正页放订正日历（v0.9.1）；其余页面（含主页对话页）
+// 只放便利贴提醒。教师：仅作业管理页放日历；其余页面不挂右栏（教师无通知）。
+type RailMode = 'notes' | 'calendar' | 'corrections' | 'none'
 const railMode = computed<RailMode>(() => {
   if (auth.role === 'teacher') {
     return route.path === '/teacher/assignments' ? 'calendar' : 'none'
   }
-  return route.path === '/student/assignments' ? 'calendar' : 'notes'
+  if (route.path === '/student/assignments') return 'calendar'
+  if (route.path === '/student/corrections') return 'corrections'
+  return 'notes'
 })
 
 // ---------- 右侧栏展开状态（v0.8.2）：按场景分键存 localStorage，互不串扰 ----------
@@ -225,12 +231,13 @@ const railMode = computed<RailMode>(() => {
 // 首次默认展开（窄屏默认收起）。旧的单键 remedi-rail-open 自 v0.8.2 起不再读写。
 const RAIL_KEYS = {
   notes: 'remedi-rail-open-notes',
-  calendar: 'remedi-rail-open-calendar'
+  calendar: 'remedi-rail-open-calendar',
+  corrections: 'remedi-rail-open-corrections'
 } as const
 function railDefaultOpen(): boolean {
   return window.innerWidth >= 1200
 }
-function initRailFor(mode: 'notes' | 'calendar'): boolean {
+function initRailFor(mode: 'notes' | 'calendar' | 'corrections'): boolean {
   try {
     const saved = localStorage.getItem(RAIL_KEYS[mode])
     if (saved === '1') return true
@@ -271,6 +278,7 @@ watch(
 function logout() {
   // 退出时清掉双端的日历日期筛选与会话区状态，避免换人登录后残留旧状态
   useStudentStore().setAssignmentDateFilter('')
+  useStudentStore().setCorrectionsDateFilter('')
   useTeacherStore().setAssignmentDateFilter('')
   useStudentStore().clearSessionState()
   useTeacherStore().clearSessionState()
@@ -279,6 +287,7 @@ function logout() {
   try {
     localStorage.removeItem(RAIL_KEYS.notes)
     localStorage.removeItem(RAIL_KEYS.calendar)
+    localStorage.removeItem(RAIL_KEYS.corrections)
   } catch {
     /* 忽略清理失败 */
   }

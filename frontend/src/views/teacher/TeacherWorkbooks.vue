@@ -19,23 +19,23 @@
       <div v-for="(shelf, si) in shelves" :key="si" class="shelf">
         <div class="shelf-books">
           <div v-for="w in shelf" :key="w.id" class="book-slot">
+            <div class="book-name" :title="w.title">{{ w.title }}</div>
             <button class="book" :title="w.title" @click="openMenu(w)">
               <img v-if="w.cover_url" :src="w.cover_url" :alt="w.title" class="book-cover" />
               <span v-else class="book-spine" :style="{ background: spineColor(w.id) }">
                 <span class="book-spine-title">{{ w.title }}</span>
               </span>
             </button>
-            <div class="book-name">{{ w.title }}</div>
             <div class="book-date">{{ w.created_at.replace('T', ' ').slice(0, 10) }} 上架</div>
           </div>
 
           <!-- 每层末尾的空位：虚线「+」添加书籍（只在最后一层出现） -->
           <div v-if="si === shelves.length - 1" class="book-slot">
+            <div class="book-name" style="color: var(--text-3)">添加书籍</div>
             <button class="book-add" @click="openUpload">
               <span class="book-add-plus">+</span>
-              <span class="book-add-text">添加书籍</span>
             </button>
-            <div class="book-name" style="color: var(--text-3)">上传 PDF</div>
+            <div class="book-date">上传 PDF</div>
           </div>
         </div>
         <div class="shelf-board"></div>
@@ -258,7 +258,7 @@ onMounted(async () => {
 .shelf-books {
   display: flex; gap: 26px; align-items: flex-end; flex-wrap: wrap;
   padding: 0 10px;
-  min-height: 158px;
+  min-height: 190px;
 }
 .shelf-board {
   height: 13px; border-radius: 3px; margin-top: 2px;
@@ -292,11 +292,13 @@ onMounted(async () => {
   color: #fff; font-size: 14px; font-weight: 700;
   max-height: 124px; overflow: hidden;
 }
+/* 书名牌：单行居于封面上方，过长省略号截断（悬停有全名 title） */
 .book-name {
-  margin-top: 8px; font-size: 13px; font-weight: 600; line-height: 1.35;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 13px; font-weight: 600; line-height: 1.35;
+  margin-bottom: 8px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.book-date { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.book-date { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
 .book-add {
   width: 104px; height: 140px; margin: 0 auto;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
@@ -307,7 +309,6 @@ onMounted(async () => {
 }
 .book-add:hover { background: var(--primary-50); border-color: var(--primary); transform: translateY(-4px); }
 .book-add-plus { font-size: 34px; font-weight: 300; line-height: 1; }
-.book-add-text { font-size: 13px; font-weight: 600; }
 
 /* ---------- 弹窗 ---------- */
 .modal-mask {

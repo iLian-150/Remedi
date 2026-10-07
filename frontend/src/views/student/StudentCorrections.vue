@@ -3,9 +3,10 @@
      针对某条 error 提交订正，后端自动判定正误（is_correct：true/false/null）。
      v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时引导去学习报告
      做二次验证，通过验证该知识点才算「已修复」。本地 fixedIds 仅表示已订正。
-     v0.9.0：顶部加订正日历（复用 AssignmentCalendar），按错题所属提交的日期打点，
-     点某天只看那天的错题，「查看全部」清除；教师审核流下待审核的错题在后端
-     错题本接口已滤除，本页自然看不到。 -->
+     v0.9.0 曾在页内加订正日历；v0.9.1 日历迁入右侧栏（右栏在订正页切换为
+     「订正日历」模式），选中日期经 store.correctionsDateFilter 与本页共享：
+     本页顶部出现筛选状态条，「查看全部」清除；教师审核流下待审核的错题在
+     后端错题本接口已滤除，本页与右栏日历自然都看不到。 -->
 <template>
   <div class="page">
     <div class="page-head">
@@ -17,17 +18,15 @@
     <div v-if="loading" class="loading">加载错题中…</div>
 
     <template v-else>
-      <!-- 订正日历（v0.9.0）：有错题的日期打点+计数，点选后列表只显示那天的错题 -->
-      <div class="card" v-if="mistakes.length">
-        <h3>订正日历</h3>
-        <p class="card-sub">圆点是哪天交的作业里出了错题，点一天就只看那天的。</p>
-        <AssignmentCalendar :marks="calendarMarks" :selected="selectedDate" @select="onSelectDate" />
-        <div v-if="selectedDate" class="date-filter-bar">
-          <span class="date-filter-text">
-            {{ selectedDateLabel }} 的错题 <b class="tnum">{{ errorList.length }}</b> 条
-          </span>
-          <button class="btn small secondary" @click="clearDateFilter">查看全部</button>
+      <p class="rail-note"><AppIcon name="calendar" :size="15" /> 订正日历在右侧栏，点选任意一天即可只看那天的错题。</p>
+
+      <!-- 日期筛选状态栏（v0.9.1）：右侧栏订正日历选中某天时出现，与作业列表页同构 -->
+      <div v-if="selectedDate" class="card filter-bar">
+        <div class="filter-info">
+          <span class="filter-title">正在看 {{ selectedDateLabel }} 的订正</span>
+          <span class="filter-progress-text tnum">共 {{ errorList.length }} 条 · 待订正 {{ pendingCount }} 条</span>
         </div>
+        <button class="btn secondary small" @click="clearDateFilter">查看全部</button>
       </div>
 
       <div class="card" v-if="selectedDate && !errorList.length && mistakes.length">
@@ -103,7 +102,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import { useAuthStore } from '../../stores/auth'
@@ -111,7 +110,6 @@ import type { CorrectionResult, GradingError, StudentMistake } from '../../api/t
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
-import AssignmentCalendar from '../../components/AssignmentCalendar.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
@@ -121,8 +119,9 @@ const route = useRoute()
 /** 全部可订正错题（原始错题本条目，仅诊断产生的；自主收录题无诊断记录不能订正） */
 const mistakes = ref<StudentMistake[]>([])
 const selectedErrorId = ref<number | ''>('')
-/** 订正日历选中的日期（yyyy-mm-dd，空 = 全部） */
-const selectedDate = ref('')
+/** 订正日历选中的日期（yyyy-mm-dd，空 = 全部）：v0.9.1 起由右侧栏订正日历写入
+ * store.correctionsDateFilter，本页只读消费（筛选状态条与列表都据此响应） */
+const selectedDate = computed(() => student.correctionsDateFilter)
 const content = ref('')
 const result = ref<CorrectionResult | null>(null)
 const loading = ref(false)
@@ -134,16 +133,6 @@ const fixedIds = ref<Set<number>>(new Set())
 function mistakeDateKey(item: StudentMistake): string {
   return (item.submitted_at ?? item.created_at).slice(0, 10)
 }
-
-/** 日历标记：yyyy-mm-dd → 当天错题条数 */
-const calendarMarks = computed(() => {
-  const marks: Record<string, number> = {}
-  mistakes.value.forEach((item) => {
-    const key = mistakeDateKey(item)
-    marks[key] = (marks[key] ?? 0) + 1
-  })
-  return marks
-})
 
 const selectedDateLabel = computed(() => {
   if (!selectedDate.value) return ''
@@ -158,16 +147,15 @@ const errorList = computed<GradingError[]>(() =>
     .map(toGradingError)
 )
 
-function onSelectDate(date: string) {
-  // 点同一天 = 取消筛选；点没有错题的日子也可以（下方有友好空态）
-  selectedDate.value = date === selectedDate.value ? '' : date
-  syncSelection()
-}
+/** 筛选状态条的待订正计数（当前可见里还没订正对的） */
+const pendingCount = computed(() => errorList.value.filter((e) => !fixedIds.value.has(e.id)).length)
 
 function clearDateFilter() {
-  selectedDate.value = ''
-  syncSelection()
+  student.setCorrectionsDateFilter('')
 }
+
+// 右栏日历点选（含再点同一天取消）→ store 筛选变化 → 选中错题对齐到当前可见列表
+watch(selectedDate, () => syncSelection())
 
 /** 筛选变化后把选中错题对齐到当前可见列表（不在列表里就选第一条） */
 function syncSelection() {
@@ -227,14 +215,8 @@ onMounted(async () => {
   loading.value = true
   try {
     if (auth.user) fixedIds.value = getFixedErrorIds(auth.user.id)
-    const [currentMistakes, archivedMistakes] = await Promise.all([
-      student.fetchMyMistakes(false),
-      student.fetchMyMistakes(true)
-    ])
-    const merged = [...new Map([...currentMistakes, ...archivedMistakes].map((item) => [item.id, item])).values()]
-    // 只保留诊断产生的错题：自主收录题（id<0 / source_kind=student_saved）没有
-    // errors 记录，进不了订正判定，从本页列表与日历里剔除（错题本里照常可见）
-    mistakes.value = merged.filter((item) => item.id > 0 && item.source_kind !== 'student_saved')
+    // 可订正错题的拉取/合并/过滤口径在 store 里与右栏订正日历共用一份
+    mistakes.value = await student.fetchCorrectableMistakes()
     if (auth.user) {
       const serverFixed = mistakes.value.filter((item) => item.latest_correction?.is_correct === true).map((item) => item.id)
       fixedIds.value = new Set([...fixedIds.value, ...serverFixed])
@@ -272,12 +254,20 @@ function toGradingError(item: StudentMistake): GradingError {
 </script>
 
 <style scoped>
-.date-filter-bar {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid #F1F3F6;
+/* 右栏提示与筛选状态条：与作业列表页同构（v0.9.1） */
+.rail-note {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13.5px; color: var(--text-2);
+  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 16px;
 }
-.date-filter-text { font-size: 14px; color: var(--text-2); }
-.date-filter-text b { color: var(--primary); }
+.filter-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 14px 18px;
+}
+.filter-info { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 240px; flex-wrap: wrap; }
+.filter-title { font-size: 15px; font-weight: 700; }
+.filter-progress-text { font-size: 13.5px; color: var(--text-2); }
 .step-text { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .detail { font-size: 14px; color: var(--text-2); }
 .note { margin-top: 8px; font-size: 14px; color: var(--text); }

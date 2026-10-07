@@ -30,6 +30,9 @@ export const useStudentStore = defineStore('student', {
   state: () => ({
     /** 作业列表页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
     assignmentDateFilter: '',
+    /** 订正页的错题日期筛选（v0.9.1）：空 = 全部；由右侧栏「订正日历」写入、订正页消费
+     * （v0.9.0 曾在订正页页内放日历，v0.9.1 迁入右栏，与作业日历同构） */
+    correctionsDateFilter: '',
     /** 提醒未读数（v0.8.2）：单一事实来源——App.vue 路由变化时刷新、RightRail 读写后回写，
      *  右栏收起态的提醒 FAB 角标直接读这里，不再靠 RightRail 的 emit 传递 */
     unreadCount: 0,
@@ -49,6 +52,9 @@ export const useStudentStore = defineStore('student', {
   actions: {
     setAssignmentDateFilter(date: string) {
       this.assignmentDateFilter = date
+    },
+    setCorrectionsDateFilter(date: string) {
+      this.correctionsDateFilter = date
     },
     // 3.1 作业列表
     async fetchAssignments(): Promise<Assignment[]> {
@@ -76,6 +82,18 @@ export const useStudentStore = defineStore('student', {
     async fetchMyMistakes(archived = false): Promise<StudentMistake[]> {
       const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', { params: { archived } })
       return data
+    },
+    /** 可订正错题（v0.9.1 抽到 store 供订正页与右栏订正日历共用）：
+     * 合并未归档+已归档并按 id 去重，只留诊断产生的错题——自主收录题
+     * （id<0 / source_kind=student_saved）没有 errors 记录，进不了订正判定。
+     * 教师审核可见性在后端错题本接口已收口（待审核不可见），这里自然不含。 */
+    async fetchCorrectableMistakes(): Promise<StudentMistake[]> {
+      const [current, archived] = await Promise.all([
+        this.fetchMyMistakes(false),
+        this.fetchMyMistakes(true)
+      ])
+      const merged = [...new Map([...current, ...archived].map((item) => [item.id, item])).values()]
+      return merged.filter((item) => item.id > 0 && item.source_kind !== 'student_saved')
     },
     async setMistakeCategoryStudied(payload: {
       assignment_id: number
