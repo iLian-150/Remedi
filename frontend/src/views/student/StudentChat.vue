@@ -1,6 +1,7 @@
 <!-- 学生端：智能批改（对话页，学生登录默认落地页）
      v0.2.0：打开先播报首页简报（GET /api/student/briefing）；拍照转写 → 确认 → 诊断。
      v0.2.1：简报改为卡片区（大数字 + 色块标签）；作答以拍照为主，线上文本输入步骤已下线。
+     v0.6.2：会话导航移入左侧栏（ChatGPT 式），本页只管消息流；底部输入区改悬浮毛玻璃卡。
      文案伦理沿用学生端口径：不出现「顽固」「置信度」等术语（与既有页面一致）。 -->
 <template>
   <div class="chat-layout">
@@ -11,30 +12,6 @@
           <AppIcon name="sparkles" :size="20" />
           <span>智能批改</span>
           <span class="hint">拍一张作业照片，老师会逐步帮你检查；也可以直接打字问我问题</span>
-          <span class="head-actions">
-            <span class="session-anchor">
-              <button class="btn small secondary inline-icon" @click="togglePanel">
-                <AppIcon name="history" :size="14" /> 历史对话
-              </button>
-              <SessionPanel
-                v-if="panelOpen"
-                :sessions="sessions"
-                :current-id="currentSessionId"
-                :loading="sessionsLoading"
-                @close="panelOpen = false"
-                @create="newSession"
-                @select="switchSession"
-                @remove="removeSession"
-              />
-            </span>
-            <button
-              class="btn small secondary inline-icon new-session-btn"
-              :disabled="resettingSession"
-              @click="newSession"
-            >
-              <AppIcon name="plus" :size="14" /> 新对话
-            </button>
-          </span>
         </div>
         <div class="chat-selectors">
           <select v-model="assignmentId" @change="onAssignmentChange" aria-label="选择作业">
@@ -243,43 +220,56 @@
       </div>
     </div>
 
-    <!-- 输入区（v0.3.0：文本聊天接学习助手 Agent + 拍照批改并存） -->
+    <!-- 输入区（v0.3.0：文本聊天接学习助手 Agent + 拍照批改并存；
+         v0.6.2：改悬浮卡片——毛玻璃卡离底悬浮，消息从卡下滚过；输入框无边框融入卡内，
+         拍照与发送收成卡内右侧的圆形按钮，聚焦时卡片带主色光晕） -->
     <div class="chat-composer">
       <div class="chat-inner">
-        <p class="composer-tip">可以问我数学问题，也可以问问你的学习情况</p>
-        <div class="composer-row">
-          <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
-          <input
-            v-model="chatInput"
-            class="chat-text-input"
-            type="text"
-            placeholder="输入你的问题，回车发送"
-            :disabled="chatSending"
-            @keyup.enter="sendChat()"
-          />
-          <button class="btn inline-icon send-btn" :disabled="chatSending || !chatInput.trim()" @click="sendChat()">
-            <AppIcon name="send" :size="16" /> 发送
-          </button>
-          <button class="btn photo-main-btn" :disabled="busy" @click="fileRef?.click()">
-            <AppIcon name="camera" :size="20" /> 拍照批改
-          </button>
+        <div class="composer-card">
+          <p class="composer-tip">可以问我数学问题，也可以问问你的学习情况</p>
+          <div class="composer-row">
+            <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
+            <input
+              v-model="chatInput"
+              class="chat-text-input"
+              type="text"
+              placeholder="输入你的问题，回车发送"
+              :disabled="chatSending"
+              @keyup.enter="sendChat()"
+            />
+            <button
+              class="composer-circle photo-circle"
+              title="拍照批改"
+              :disabled="busy"
+              @click="fileRef?.click()"
+            >
+              <AppIcon name="camera" :size="19" />
+            </button>
+            <button
+              class="composer-circle send-circle"
+              title="发送"
+              :disabled="chatSending || !chatInput.trim()"
+              @click="sendChat()"
+            >
+              <AppIcon name="send" :size="17" />
+            </button>
+          </div>
+          <p class="composer-hint">
+            点相机拍一张作业照片，老师会逐步帮你批改<template v-if="selectedQuestion">（当前题目：{{ selectedQuestion.stem }}）</template>
+          </p>
         </div>
-        <p class="composer-hint">
-          拍一张作业照片，老师会逐步帮你批改<template v-if="selectedQuestion">（当前题目：{{ selectedQuestion.stem }}）</template>
-        </p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type {
   Assignment,
-  ChatSession,
   PendingAssignment,
   Question,
   StepStatus,
@@ -292,7 +282,6 @@ import { sanitizeStudentCopy } from '../../utils/errorType'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
-import SessionPanel from '../../components/SessionPanel.vue'
 
 const auth = useAuthStore()
 const student = useStudentStore()
@@ -431,16 +420,11 @@ async function gotoAssignment(p: PendingAssignment) {
 const chatInput = ref('')
 const chatSending = ref(false)
 
-// ---------- 会话（v0.6.0）：新对话 = 新建会话，旧会话在「历史对话」里找回 ----------
-const sessions = ref<ChatSession[]>([])
-const currentSessionId = ref<number | null>(null)
-const panelOpen = ref(false)
-const sessionsLoading = ref(false)
-
+// ---------- 会话（v0.6.0 会话制；v0.6.2 导航移入左侧栏，会话状态归 store 与侧栏共用） ----------
+// 本页不再持有会话列表：侧栏点新对话/切换/删除当前会话时改 store.sessionView，
+// 本页 watch 到 seq 变化后同步重渲染消息区；发送消息后回写 activeSessionId 并刷新侧栏列表。
 // ---------- 建议气泡（v0.6.0）：只存最新一轮回复的建议 ----------
 const suggestions = ref<string[]>([])
-
-const resettingSession = ref(false)
 
 /** 把简报卡作为第一条消息放回对话区（新对话/切换会话后复用） */
 async function prependBriefing() {
@@ -466,57 +450,10 @@ async function prependBriefing() {
   }
 }
 
-async function loadSessions() {
-  sessionsLoading.value = true
+/** 把某条会话的历史消息渲染进消息区：简报卡保留置顶，其余消息替换为该会话的记录 */
+async function renderSessionMessages(id: number) {
   try {
-    sessions.value = await student.fetchSessions()
-  } catch (e) {
-    console.error(e)
-  } finally {
-    sessionsLoading.value = false
-  }
-}
-
-function togglePanel() {
-  panelOpen.value = !panelOpen.value
-  if (panelOpen.value) loadSessions()
-}
-
-async function newSession() {
-  if (resettingSession.value || chatSending.value) return
-  resettingSession.value = true
-  try {
-    const s = await student.newAgentSession()
-    currentSessionId.value = s.id
-    suggestions.value = []
-    panelOpen.value = false
-    messages.value = []
-    await prependBriefing()
-    pushMsg({
-      side: 'ai',
-      kind: 'text',
-      text: '已开始新对话。之前的对话没有删，点上方「历史对话」随时能找回接着聊。'
-    })
-  } catch (e) {
-    pushMsg({ side: 'ai', kind: 'error', text: '开启新对话失败：' + (errDetail(e) || '请稍后重试。') })
-    console.error(e)
-  } finally {
-    resettingSession.value = false
-    scrollToBottom()
-  }
-}
-
-/** 切换到某条历史会话：简报卡保留置顶，其余消息换成该会话的记录 */
-async function switchSession(s: ChatSession) {
-  if (s.id === currentSessionId.value) {
-    panelOpen.value = false
-    return
-  }
-  try {
-    const rows = await student.fetchSessionMessages(s.id)
-    currentSessionId.value = s.id
-    suggestions.value = []
-    panelOpen.value = false
+    const rows = await student.fetchSessionMessages(id)
     messages.value = messages.value.filter((m) => m.kind === 'briefing')
     rows.forEach((h) =>
       pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content })
@@ -528,25 +465,33 @@ async function switchSession(s: ChatSession) {
   }
 }
 
-async function removeSession(s: ChatSession) {
-  try {
-    await student.deleteSession(s.id)
-    sessions.value = sessions.value.filter((x) => x.id !== s.id)
-    if (s.id === currentSessionId.value) {
-      const next = sessions.value[0]
-      if (next) {
-        await switchSession(next)
-      } else {
-        currentSessionId.value = null
-        messages.value = messages.value.filter((m) => m.kind === 'briefing')
-      }
-      suggestions.value = []
+// 侧栏会话操作（新对话 / 切换 / 删除当前会话）统一改 store.sessionView，
+// seq 递增时本页在此同步重渲染，保证侧栏与对话页永远一致。
+let appliedViewSeq = 0
+watch(
+  () => student.sessionView.seq,
+  async (seq) => {
+    if (seq === appliedViewSeq) return
+    appliedViewSeq = seq
+    const view = student.sessionView
+    suggestions.value = []
+    if (view.fresh) {
+      messages.value = []
+      await prependBriefing()
+      pushMsg({
+        side: 'ai',
+        kind: 'text',
+        text: '已开始新对话。之前的对话都收在左侧栏里，点任意一条标题就能接着聊。'
+      })
+    } else if (view.id != null) {
+      await renderSessionMessages(view.id)
+    } else {
+      // 会话全删光了：只留简报卡，回到空白态
+      messages.value = messages.value.filter((m) => m.kind === 'briefing')
     }
-  } catch (e) {
-    pushMsg({ side: 'ai', kind: 'error', text: '删除这条对话失败：' + (errDetail(e) || '请稍后重试。') })
-    console.error(e)
+    scrollToBottom()
   }
-}
+)
 
 async function sendChat(raw?: string) {
   const text = (typeof raw === 'string' ? raw : chatInput.value).trim()
@@ -561,10 +506,12 @@ async function sendChat(raw?: string) {
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
   chatSending.value = true
   try {
-    const res = await student.agentChat(text, currentSessionId.value)
+    const res = await student.agentChat(text, student.activeSessionId)
     wait.text = res.reply
-    if (res.session_id) currentSessionId.value = res.session_id
+    if (res.session_id) student.setActiveSession(res.session_id)
     suggestions.value = res.suggestions ?? []
+    // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排
+    student.loadSessions(true)
   } catch (e) {
     wait.kind = 'error'
     wait.text = '发送失败：' + (errDetail(e) || '请稍后重试。')
@@ -699,23 +646,21 @@ onMounted(async () => {
   } catch (e) {
     console.error(e)
   }
-  // 当前会话定位（v0.6.0）：会话列表按最近更新倒序，第一条即当前会话
-  await loadSessions()
-  currentSessionId.value = sessions.value[0]?.id ?? null
+  // 当前会话定位（v0.6.2）：会话状态归 store 与侧栏共用，列表第一条即当前会话；
+  // appliedViewSeq 对齐当前值，避免把挂载前产生的查看请求误当新切换重渲染
+  await student.loadSessions()
+  appliedViewSeq = student.sessionView.seq
   loadingInit.value = false
   scrollToBottom()
 })
 </script>
 
 <style scoped>
-.chat-layout { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
+.chat-layout { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); position: relative; }
 .chat-inner { max-width: 860px; width: 100%; margin: 0 auto; padding: 0 20px; }
 .chat-header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 0; }
 .chat-title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; color: var(--primary); }
 .chat-title .hint { font-weight: 400; }
-.head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-.session-anchor { position: relative; display: inline-flex; }
-.new-session-btn { flex-shrink: 0; }
 
 /* 建议气泡（v0.6.0）：只挂最新一轮回复，淡入上浮 stagger */
 .suggest-row { display: flex; gap: 8px; flex-wrap: wrap; margin: -4px 0 16px 40px; }
@@ -737,7 +682,8 @@ onMounted(async () => {
 .chat-selectors { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .chat-selectors select { flex: 1 1 240px; width: auto; }
 
-.chat-body { flex: 1; overflow-y: auto; padding: 20px 0 24px; }
+/* 底部留白加大：给悬浮输入卡让位，最后的消息不被卡片遮住 */
+.chat-body { flex: 1; overflow-y: auto; padding: 20px 0 184px; }
 .msg-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: flex-start; }
 .msg-row.user { flex-direction: row-reverse; }
 .msg-avatar {
@@ -825,29 +771,62 @@ onMounted(async () => {
 }
 .followup-box p { padding-top: 3px; }
 
-.chat-composer { background: var(--card); border-top: 1px solid var(--border); padding: 12px 0 16px; }
-.composer-tip { font-size: 13px; color: var(--text-2); margin-bottom: 9px; }
-.composer-row { display: flex; gap: 10px; align-items: center; }
-.chat-text-input { flex: 1; min-width: 0; padding: 12px 14px; font-size: 14.5px; }
-.send-btn { padding: 12px 20px; flex-shrink: 0; }
-.photo-main-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 12px 22px; font-size: 15px; border-radius: 10px; flex-shrink: 0;
+/* 悬浮输入卡（v0.6.2）：离底悬浮的毛玻璃卡，滚动内容从卡下透过去；
+   输入框无边框融入卡内，拍照/发送是卡内右侧圆形钮，聚焦时卡带主色光晕 */
+.chat-composer {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
+  padding: 10px 20px 16px; pointer-events: none;
 }
-.composer-hint { font-size: 13px; color: var(--text-2); margin-top: 9px; }
+.composer-card {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.86);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid #E2E9F5; border-radius: 20px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06);
+  padding: 12px 14px 10px;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.composer-card:focus-within {
+  border-color: #B9CFF7;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 0 0 3px rgba(29, 78, 216, 0.14);
+}
+.composer-tip { font-size: 12.5px; color: var(--text-2); margin: 0 4px 8px; }
+.composer-row { display: flex; gap: 8px; align-items: center; }
+.chat-text-input {
+  flex: 1; min-width: 0; padding: 10px 6px; font-size: 15px;
+  border: none; background: transparent; box-shadow: none;
+}
+.chat-text-input:focus { border: none; box-shadow: none; outline: none; }
+.composer-circle {
+  width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; font-family: var(--font);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, opacity 0.2s ease;
+}
+.composer-circle:disabled { opacity: 0.45; cursor: not-allowed; }
+.photo-circle { background: rgba(255, 255, 255, 0.7); border: 1px solid #D7E0F0; color: var(--primary); }
+.photo-circle:hover:not(:disabled) { background: #fff; transform: scale(1.06); }
+.send-circle {
+  background: var(--primary); border: 1px solid var(--primary); color: #fff;
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.35);
+}
+.send-circle:hover:not(:disabled) { transform: scale(1.07); box-shadow: 0 6px 16px rgba(29, 78, 216, 0.42); }
+.composer-hint { font-size: 12.5px; color: var(--text-3); margin: 8px 4px 0; }
 .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .suggest-chip { animation: none; transition: none; }
+  .composer-card, .composer-circle { transition: none; }
+  .photo-circle:hover:not(:disabled), .send-circle:hover:not(:disabled) { transform: none; }
 }
 
 @media (max-width: 960px) {
   .chat-layout { height: calc(100dvh - 52px); }
   .user-image img { max-width: 240px; }
   .bubble { max-width: 88%; }
-  .composer-row { flex-wrap: wrap; }
-  .chat-text-input { flex: 1 1 100%; }
-  .photo-main-btn { justify-content: center; }
-  .composer-hint { text-align: center; }
+  .chat-composer { padding: 8px 12px 12px; }
+  .composer-card { border-radius: 18px; }
+  .chat-body { padding-bottom: 190px; }
 }
 </style>
