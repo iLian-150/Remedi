@@ -1,9 +1,13 @@
 # Mock 兜底回复：LLM_PROVIDER=mock、无凭证、或图调用异常时使用。
 # 关键词路由到真实数据函数（briefing / report / 错题时间线）拼模板回复——
 # 回复里的数据是真的，只是话术是模板；纯数学闲聊给一条罐头讲解。
+import re
+
 from sqlalchemy.orm import Session
+from sympy import Poly, simplify, solve
 
 from ..models import User
+from ..services.mathparse import extract_equation
 from ..services.stats import (
     knowledge_point_errors,
     student_briefing,
@@ -42,6 +46,30 @@ def _known_knowledge_points(db: Session, student: User) -> list:
 def mock_reply(db: Session, student: User, message: str) -> str:
     """规则回复入口：按关键词路由到真实数据模板，兜底给罐头讲解。"""
     msg = (message or "").strip()
+
+    # 图片题答疑在 Mock 模式下也根据识别出的方程给出对应结果，避免把固定示例
+    # （2x+3=7）误套到学生上传的其他题目上。
+    photo_question = re.search(r"识别出的题目：([^\n]+)", msg)
+    if photo_question:
+        stem = photo_question.group(1).strip()
+        parsed = extract_equation(stem)
+        if parsed and parsed.kind == "eq" and parsed.expr.free_symbols:
+            try:
+                symbol = sorted(parsed.expr.free_symbols, key=lambda item: str(item))[0]
+                polynomial = Poly(simplify(parsed.expr.lhs - parsed.expr.rhs), symbol)
+                if polynomial.degree() == 1:
+                    coefficient = polynomial.coeff_monomial(symbol)
+                    constant = polynomial.coeff_monomial(1)
+                    answer = solve(parsed.expr, symbol)[0]
+                    return (
+                        f"题目是：{stem}\n"
+                        f"把常数项移到等号另一边，得到 {coefficient}×{symbol}={-constant}；"
+                        f"再两边同时除以 {coefficient}，所以 {symbol}={answer}。\n"
+                        "关键是等号两边同时做相同的运算，等式才会保持平衡。"
+                    )
+            except Exception:
+                pass
+        return f"我先读到的题目是：{stem}\n先找出题目给出的条件和要求，再一步一步列式计算。你可以把题干文字发给我，我会继续讲具体步骤。"
 
     # 1) 待办类
     if any(k in msg for k in _TODO_KEYWORDS):

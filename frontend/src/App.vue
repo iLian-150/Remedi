@@ -26,7 +26,7 @@
     </header>
     <div v-if="sidebarOpen" class="sidebar-mask" @click="sidebarOpen = false"></div>
 
-    <aside class="app-sidebar" :class="{ open: sidebarOpen, collapsed: sidebarCollapsed }">
+    <aside class="app-sidebar" :class="{ open: sidebarOpen, collapsed: auth.role === 'teacher' && sidebarCollapsed, 'student-chat-route-hidden': isStudentChatRoute }">
       <div class="sidebar-brand-row">
         <span class="brand-badge"><BrandLogo :size="25" /></span>
         <div>
@@ -34,6 +34,7 @@
           <div class="brand-sub">{{ auth.role === 'teacher' ? '教师端 · 班级诊断' : '智能作业诊断' }}</div>
         </div>
         <button
+          v-if="auth.role === 'teacher'"
           class="icon-btn sidebar-collapse-btn"
           title="收起侧栏"
           @click="setSidebarCollapsed(true)"
@@ -47,22 +48,27 @@
           v-for="item in navItems"
           :key="item.to"
           :to="item.to"
+          :data-label="item.label"
+          :title="item.label"
+          :aria-label="item.label"
+          :class="{ active: item.to === '/student/feedback' && route.path === '/student/diagnosis' }"
           :active-class="item.exact ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
         >
-          <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span> {{ item.label }}
+          <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span><span class="nav-label">{{ item.label }}</span>
         </router-link>
       </nav>
 
       <!-- 会话区（v0.6.2）：仅双端对话页出现，随侧栏一起收起/展开 -->
-      <SidebarSessions v-if="isChatRoute" @navigate="sidebarOpen = false" />
+      <!-- 学生对话页自带会话导航，教师对话页复用全局侧栏会话组件。 -->
+      <SidebarSessions v-if="isChatRoute && auth.role === 'teacher'" @navigate="sidebarOpen = false" />
 
       <div class="sidebar-user">
         <span class="user-avatar">{{ avatarLetter }}</span>
         <div class="user-meta">
           <div class="user-name">{{ auth.name }}</div>
           <div class="user-role">
-            {{ auth.role === 'teacher' ? '教师' : '学生' }}<template v-if="auth.user?.student_no"> · {{ auth.user.student_no }}</template>
+            {{ auth.role === 'teacher' ? '教师' : '学生' }}<template v-if="auth.role === 'student' && auth.user?.student_no"> · {{ auth.user.student_no }}</template>
           </div>
         </div>
         <button class="icon-btn" title="退出登录" @click="logout">
@@ -77,7 +83,7 @@
 
     <!-- 侧栏收起态入口（v0.6.2，桌面端）：内容区左上角悬浮展开按钮 -->
     <button
-      v-if="sidebarCollapsed"
+      v-if="auth.role === 'teacher' && sidebarCollapsed"
       class="sidebar-expand-fab"
       title="展开侧栏"
       @click="setSidebarCollapsed(false)"
@@ -166,7 +172,7 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/assignments', icon: 'clipboard', label: '作业列表' },
   { to: '/student/submit', icon: 'edit', label: '交作业' },
-  { to: '/student/feedback', icon: 'file', label: '诊断报告' },
+  { to: '/student/feedback', icon: 'book', label: '错题本' },
   { to: '/student/report', icon: 'chart', label: '学习报告' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
   { to: '/student/profile', icon: 'user', label: '我的档案' }
@@ -185,6 +191,7 @@ const TEACHER_NAV: NavItem[] = [
 ]
 
 const navItems = computed<NavItem[]>(() => (auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV))
+const isStudentChatRoute = computed(() => auth.role === 'student' && route.path === '/student/chat')
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------

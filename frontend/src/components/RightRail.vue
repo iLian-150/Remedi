@@ -162,7 +162,7 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('assignments-changed', onAssignmentsChanged))
 
 function gotoSubmission(id: number) {
-  router.push(`/student/feedback?submission_id=${id}`)
+  router.push(`/student/diagnosis?submission_id=${id}`)
 }
 
 async function openNote(n: NotificationItem) {

@@ -14,9 +14,11 @@ import type {
   KnowledgePointErrorItem,
   NotificationList,
   PageResult,
+  PhotoReviewResult,
   PhotoTranscribeResult,
   StudentBriefing,
   StudentProfile,
+  StudentMistake,
   SubjectReport,
   SubmissionResult,
   SubmissionSummary,
@@ -67,6 +69,28 @@ export const useStudentStore = defineStore('student', {
       })
       return data.items
     },
+    // 错题本：全部诊断错误，附作业、分类、订正与历史同类错误
+    async fetchMyMistakes(archived = false): Promise<StudentMistake[]> {
+      const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', { params: { archived } })
+      return data
+    },
+    async setMistakeCategoryStudied(payload: {
+      assignment_id: number
+      category_key: string
+      studied: boolean
+    }): Promise<void> {
+      await api.patch('/api/student/mistakes/categories', payload)
+    },
+    async setMistakeArchived(errorId: number, archived: boolean): Promise<void> {
+      await api.patch(`/api/student/mistakes/${errorId}/archive`, { archived })
+    },
+    async setMistakeAssignmentArchived(assignmentId: number, archived: boolean, occurrenceIds: number[] = []): Promise<number[]> {
+      const { data } = await api.patch<{ archived_ids: number[] }>(
+        `/api/student/mistakes/assignments/${assignmentId}/archive`,
+        { archived, occurrence_ids: occurrenceIds }
+      )
+      return data.archived_ids
+    },
     // 3.5 提交详情（分步诊断）
     async fetchSubmissionDetail(id: number): Promise<SubmissionResult> {
       const { data } = await api.get<SubmissionResult>(`/api/student/submissions/${id}`)
@@ -110,6 +134,19 @@ export const useStudentStore = defineStore('student', {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       return data
+    },
+    async reviewPhoto(file: File, questionId?: number | null, questionContext = ''): Promise<PhotoReviewResult> {
+      const form = new FormData()
+      form.append('file', file)
+      if (questionId) form.append('question_id', String(questionId))
+      if (questionContext) form.append('question_context', questionContext)
+      const { data } = await api.post<PhotoReviewResult>('/api/student/photo-review', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      return data
+    },
+    async savePhotoCapture(captureId: number, explanation: string): Promise<void> {
+      await api.post(`/api/student/photo-captures/${captureId}/save`, { explanation })
     },
     // 3.13 学习报告（v0.2.1）：按科目聚合 + 知识点状态
     async fetchReport(): Promise<SubjectReport[]> {

@@ -1,7 +1,7 @@
 <!-- 学生端：学习报告 · 科目详情（v0.6.0 从学习报告页拆出的独立页）
      入口：学习报告落地页点科目吊牌（播掉落动画后 router.push 到这里）；
      页头带「← 返回学习报告」按钮。本页内容即原报告页的页内展开详情：
-       科目总览 → 知识点列表（四态）+ 验证面板 → 错题时间线 → 步骤诊断（跳诊断报告页）
+       科目总览 → 知识点列表（四态）+ 验证面板 → 错题时间线 → 步骤诊断（跳诊断详情页）
      入场动画：内容从上方落下带一次小回弹（与吊牌掉落衔接）；prefers-reduced-motion 时无动画。
      深链：订正页「去验证」带 ?verify=<知识点名> 跳入，自动选中该知识点并打开验证面板。
      文案伦理：学生端用「待修复 / 反复出错 / 已订正待验证 / 已修复」，不出现「顽固」「置信度」。 -->
@@ -235,7 +235,7 @@ async function onVerifyPassed() {
 }
 
 function gotoDiagnosis(submissionId: number) {
-  router.push({ path: '/student/feedback', query: { submission_id: submissionId } })
+  router.push({ path: '/student/diagnosis', query: { submission_id: submissionId } })
 }
 
 /** 深链 ?verify=<知识点名>：在本科目找到就打开验证面板；属于别的科目则跳过去 */

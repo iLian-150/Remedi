@@ -10,6 +10,9 @@ import * as echarts from 'echarts'
 const props = defineProps<{
   option: Record<string, unknown>
 }>()
+const emit = defineEmits<{
+  'chart-click': [data: unknown]
+}>()
 
 const chartRef = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
@@ -18,6 +21,7 @@ onMounted(() => {
   if (chartRef.value) {
     chart = echarts.init(chartRef.value)
     chart.setOption(props.option)
+    chart.on('click', (params: { data?: unknown }) => emit('chart-click', params.data))
     window.addEventListener('resize', handleResize)
   }
 })

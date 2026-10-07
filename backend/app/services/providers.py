@@ -33,9 +33,9 @@ class LLMProvider(ABC):
         """按学习画像生成一句话学习建议。summary 含 knowledge_points / stubborn_errors 等。"""
 
     @abstractmethod
-    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
-        """拍照转写：把作业照片转写为结构化文本。
-        返回 {question_text: str, steps: [str, ...]}（steps 只含作答步骤，不含题干）。"""
+    def transcribe_image(self, image_bytes: bytes, content_type: str,
+                         question_context: str = "", question_only: bool = False) -> Dict:
+        """读取作业原图，返回题干、步骤和视觉识别质量信息。"""
 
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
         """兜底出题（v0.4.0）：变式题服务在知识点无参数模板时调用。
@@ -76,11 +76,24 @@ class MockProvider(LLMProvider):
         result["detail"] = (result.get("detail") or "") + "（规则分类，Mock 未改写）"
         return result
 
-    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
+    def transcribe_image(self, image_bytes: bytes, content_type: str,
+                         question_context: str = "", question_only: bool = False) -> Dict:
         """Mock 转写：不看图，直接返回罐头转写（深拷贝，避免调用方改动常量）。"""
+        if question_only:
+            return {
+                "question_text": MOCK_TRANSCRIPTION["question_text"],
+                "steps": [],
+                "student_work_detected": False,
+                "needs_image_review": False,
+                "confidence": 1.0,
+            }
         return {
-            "question_text": MOCK_TRANSCRIPTION["question_text"],
+            "question_text": question_context or MOCK_TRANSCRIPTION["question_text"],
             "steps": list(MOCK_TRANSCRIPTION["steps"]),
+            # Mock 模式模拟一份清晰且包含作答的演示图片。
+            "student_work_detected": True,
+            "needs_image_review": False,
+            "confidence": 1.0,
         }
 
     # -- 作文轻量评分（确定性启发式） --
@@ -302,10 +315,11 @@ class DeepSeekProvider(LLMProvider):
             logger.warning("LLM generate_feedback 失败，降级为 Mock: %s", e)
             return self._mock.generate_feedback(student_name=student_name, summary=summary)
 
-    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
+    def transcribe_image(self, image_bytes: bytes, content_type: str,
+                         question_context: str = "", question_only: bool = False) -> Dict:
         # DeepSeek 文本接口无视觉能力，直接用 Mock 转写兜底，保证流程不中断
         logger.info("DeepSeek 无视觉能力，拍照转写降级为 Mock 转写结果")
-        return self._mock.transcribe_image(image_bytes, content_type)
+        return self._mock.transcribe_image(image_bytes, content_type, question_context, question_only)
 
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
         """调模型为无模板的知识点生成同类题；异常/结构不合法时降级为预置题。"""
@@ -352,8 +366,9 @@ class CloudflareProvider(DeepSeekProvider):
         super().__init__(api_key=api_token, base_url=base_url, model=model)
         self.vision_model = vision_model
 
-    def transcribe_image(self, image_bytes: bytes, content_type: str) -> Dict:
-        """拍照转写：调视觉模型逐行转写手写解题步骤，只输出 JSON。
+    def transcribe_image(self, image_bytes: bytes, content_type: str,
+                         question_context: str = "", question_only: bool = False) -> Dict:
+        """视觉模型直接读取作答原图，并报告识别把握和作答证据。
         解析失败/请求异常时降级为 Mock 转写（沿用全站降级风格，流程不中断）。"""
         try:
             import requests
@@ -370,7 +385,7 @@ class CloudflareProvider(DeepSeekProvider):
                     "messages": [
                         {
                             "role": "system",
-                            "content": "你是作业照片转写助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
+                            "content": "你是作业照片理解助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
                         },
                         {
                             "role": "user",
@@ -378,10 +393,16 @@ class CloudflareProvider(DeepSeekProvider):
                                 {
                                     "type": "text",
                                     "text": (
-                                        "请逐行转写这张照片里学生手写的解题过程。"
-                                        "题干（题目原文）放进 question_text；学生的作答步骤按书写顺序逐行放进 steps，"
-                                        "steps 里不要包含题干本身。数学公式用纯文本书写，如 2x+3=7、x=5，不要用 LaTeX。"
-                                        '只输出 JSON：{"question_text": "...", "steps": ["...", "..."]}'
+                                        "请直接阅读这张作业原图，识别题目和学生作答。"
+                                        f"已知题目参考：{question_context or '请从图片识别题目'}。"
+                                        f"当前是{'自由上传题答疑' if question_only else '作业作答识别'}，请只按图片里的实际笔迹判断是否存在学生作答。"
+                                        "题目放进 question_text；学生的作答步骤按顺序逐行放进 steps，steps 不要包含题干。"
+                                        "数学公式用纯文本，如 2x+3=7、x=5，不要用 LaTeX。"
+                                        "若图片模糊、裁切或无法可靠辨认，needs_image_review=true；"
+                                        "若只有题目、没有学生作答，student_work_detected=false 且 steps 为空。"
+                                        "confidence 为识别把握，取 0 到 1。"
+                                        '只输出 JSON：{"question_text":"...","steps":["..."],'
+                                        '"student_work_detected":true,"needs_image_review":false,"confidence":0.9}'
                                     ),
                                 },
                                 {"type": "image_url", "image_url": {"url": data_url}},
@@ -396,12 +417,20 @@ class CloudflareProvider(DeepSeekProvider):
             data = self._extract_json(content)
             steps = [str(s).strip() for s in data.get("steps", []) if str(s).strip()]
             question_text = str(data.get("question_text", "")).strip()
-            if not steps:
-                raise ValueError("视觉模型未转写出任何步骤")
-            return {"question_text": question_text, "steps": steps}
+            try:
+                confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            return {
+                "question_text": question_text,
+                "steps": steps,
+                "student_work_detected": bool(data.get("student_work_detected", bool(steps))),
+                "needs_image_review": bool(data.get("needs_image_review", not steps)),
+                "confidence": confidence,
+            }
         except Exception as e:
             logger.warning("LLM transcribe_image 失败，降级为 Mock 转写: %s", e)
-            return self._mock.transcribe_image(image_bytes, content_type)
+            return self._mock.transcribe_image(image_bytes, content_type, question_context, question_only)
 
 
 # ---------------------------------------------------------------- 工厂

@@ -1,0 +1,518 @@
+.mistake-point-assistant {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #e8ebe4;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 24px #2630200a;
+}
+
+.mistake-point-assistant-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 17px 12px;
+  border-bottom: 1px solid #eff1ec;
+}
+
+.mistake-point-assistant-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.mistake-point-assistant-controls button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #e7e9e2;
+  border-radius: 8px;
+  color: #71786d;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mistake-point-assistant-controls button:hover {
+  border-color: #d8ddd3;
+  color: #3f5140;
+  background: #f8faf6;
+}
+
+.mistake-point-assistant-controls button:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.mistake-point-assistant-head > div > span {
+  color: #81927d;
+  font-size: 10px;
+}
+
+.mistake-point-assistant-head h2 {
+  margin: 4px 0;
+  color: #394739;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.mistake-point-assistant-head p {
+  margin: 0;
+  color: #989d92;
+  font-size: 10px;
+}
+
+.mistake-point-assistant-close {
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #e7e9e2;
+  border-radius: 8px;
+  color: #858a7f;
+  background: #fff;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.mistake-point-assistant-controls .mistake-point-assistant-close:hover {
+  color: #9d5f52;
+  background: #fff8f5;
+}
+
+.mistake-point-summary {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 48%;
+  margin: 12px 14px 0;
+  padding: 12px;
+  border: 1px solid #eee5d2;
+  border-radius: 10px;
+  background: #fffaf1;
+  overflow: hidden;
+}
+
+.mistake-point-summary.is-collapsed {
+  flex: 0 0 auto;
+  max-height: none;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.mistake-point-summary-body { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
+.mistake-point-summary-body[hidden] { display: none; }
+
+.mistake-point-summary-title,
+.mistake-point-summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mistake-point-summary-title { flex: 0 0 auto; flex-wrap: wrap; }
+.mistake-point-summary-heading,
+.mistake-point-summary-tools { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.mistake-point-summary-heading span { max-width: 170px; overflow: hidden; color: #827654; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.mistake-point-summary-tools { margin-left: auto; }
+.mistake-point-summary-tools small { white-space: nowrap; }
+
+.mistake-point-summary-toggle {
+  display: grid;
+  flex: 0 0 27px;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #e6dcc9;
+  border-radius: 7px;
+  color: #806f4c;
+  background: #fffdfa;
+  cursor: pointer;
+}
+.mistake-point-summary-toggle:hover { border-color: #ccbfa6; background: #fff; }
+.mistake-point-summary-toggle:focus-visible { outline: 2px solid #64856a; outline-offset: 2px; }
+.mistake-point-summary-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; transition: transform 160ms ease; }
+.is-collapsed .mistake-point-summary-toggle svg { transform: rotate(180deg); }
+
+.mistake-point-summary-title strong {
+  color: #776342;
+  font-size: 12px;
+}
+
+.mistake-point-summary-title small,
+.mistake-point-summary-body > small {
+  color: #a19780;
+  font-size: 10px;
+}
+
+.mistake-point-assignment-complete {
+  flex: 0 0 auto;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border: 1px solid #dce8d4;
+  border-radius: 9px;
+  color: #5e7c57;
+  background: #f3f8ef;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.mistake-point-summary-markdown {
+  margin: 8px 0 0;
+  color: #706a5b;
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.mistake-point-summary-markdown p { margin: 0; }
+
+.mistake-point-related-assignments {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #e5e9df;
+  border-radius: 8px;
+  background: #fffefa;
+}
+.mistake-point-related-assignments > strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #687d63;
+  font-size: 11px;
+}
+.mistake-point-related-assignments > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  color: #737d6e;
+  font-size: 11px;
+}
+.mistake-point-related-assignments > div + div { border-top: 1px solid #eef0e9; }
+.mistake-point-related-assignments button {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid #dbe5d5;
+  border-radius: 6px;
+  color: #527456;
+  background: #f8fbf5;
+  cursor: pointer;
+  font: inherit;
+}
+.mistake-point-related-assignments button:hover { background: #eef5e9; }
+
+.mistake-point-summary-detail {
+  min-width: 0;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #d6e4d5;
+  border-radius: 8px;
+  background: #f8fbf7;
+}
+
+.mistake-point-summary-detail-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  margin-bottom: 9px;
+  color: #768474;
+  font-size: 12px;
+}
+
+.mistake-point-summary-detail-head strong { color: #486348; font-size: 13px; }
+.mistake-point-summary-detail .mistake-point-summary-markdown { margin-top: 9px; font-size: 13px; line-height: 1.7; }
+.mistake-point-summary-detail .original-correction-pair { gap: 6px; }
+.mistake-point-summary-detail .original-correction-pair > div { grid-template-columns: 30px minmax(0, 1fr); gap: 6px; }
+.mistake-point-summary-detail .original-correction-pair p,
+.mistake-point-summary-detail .original-correction-math { font-size: 13px; line-height: 1.7; }
+
+.mistake-point-summary-single-correction {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 6px;
+  color: #667369;
+  font-size: 13px;
+}
+.mistake-point-summary-single-correction > span { color: #99a299; font-size: 10px; }
+.mistake-point-summary-single-correction .markdown-content { min-width: 0; overflow-wrap: anywhere; }
+.mistake-point-summary-single-correction .markdown-content p { margin: 0; }
+
+.mistake-point-summary-body > small {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+.mistake-point-summary-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.mistake-point-summary-actions button {
+  padding: 6px 9px;
+  border: 1px solid #e7e2d4;
+  border-radius: 7px;
+  color: #82734f;
+  background: #fff;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.mistake-point-summary-actions button.study {
+  border-color: #dbe5d3;
+  color: #5f7c55;
+  background: #f1f6eb;
+}
+
+.mistake-point-summary-actions button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.mistake-point-chat-title {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 15px 18px 9px;
+}
+
+.mistake-point-chat-title strong {
+  color: #435345;
+  font-size: 15px;
+}
+
+.mistake-point-chat-title span {
+  color: #939688;
+  font-size: 11px;
+}
+
+.mistake-point-transcript {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 7px 14px 14px;
+  overscroll-behavior: contain;
+  scrollbar-color: #d5d8cf transparent;
+  scrollbar-width: thin;
+}
+
+.mistake-point-empty {
+  display: grid;
+  width: min(100%, 560px);
+  gap: 12px;
+  margin: 0 auto;
+  padding: 16px;
+  border: 1px solid #eeeade;
+  border-radius: 12px;
+  color: #77796e;
+  background: #fcfbf6;
+}
+
+.mistake-point-empty-intro {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.mistake-point-book-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  color: #68866a;
+  background: #edf2e8;
+}
+
+.mistake-point-book-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.mistake-point-empty-intro strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #53614f;
+  font-size: 13px;
+}
+
+.mistake-point-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.mistake-point-quick-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-left: 45px;
+}
+
+.mistake-point-quick-questions button {
+  padding: 5px 9px;
+  border: 1px solid #e9e7db;
+  border-radius: 999px;
+  color: #68735f;
+  background: #fffefa;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.mistake-point-quick-questions button:hover {
+  border-color: #cdd9c5;
+  background: #f3f6ee;
+}
+
+.mistake-point-message {
+  max-width: 96%;
+  margin: 0 0 12px;
+  padding: 13px 15px;
+  border: 1px solid #eeeade;
+  border-left: 3px solid #b8c9ad;
+  border-radius: 4px 11px 11px 4px;
+  color: #62665c;
+  background: #fffef9;
+  overflow-wrap: anywhere;
+}
+
+.mistake-point-message.user {
+  width: fit-content;
+  max-width: min(82%, 560px);
+  margin-left: auto;
+  border-color: #e6e9df;
+  background: #f1f4eb;
+}
+
+.mistake-point-message > strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #647a5e;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mistake-point-message > p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.mistake-point-message .markdown-content {
+  color: #62665c;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.mistake-point-message .markdown-content > :first-child { margin-top: 0; }
+.mistake-point-message .markdown-content > :last-child { margin-bottom: 0; }
+.mistake-point-message > small { color: #899184; font-size: 10px; }
+
+.mistake-point-chat-error {
+  margin: 7px 2px;
+  color: #a25f4a;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.mistake-point-composer {
+  flex: 0 0 auto;
+  padding: 12px 18px 15px;
+  border-top: 1px solid #eff1ec;
+  background: #fff;
+}
+
+.mistake-point-composer-inner {
+  display: flex;
+  width: min(100%, 760px);
+  align-items: flex-end;
+  gap: 9px;
+  margin: 0 auto;
+  padding: 7px;
+  border: 1px solid #e9e6da;
+  border-radius: 13px;
+  background: #fffef9;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.mistake-point-composer-inner:focus-within {
+  border-color: #bdcdb4;
+  box-shadow: 0 0 0 3px #e5ebdd;
+}
+
+.mistake-point-composer textarea {
+  min-width: 0;
+  min-height: 42px;
+  max-height: 110px;
+  flex: 1;
+  resize: vertical;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  outline: none;
+  color: #50594d;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mistake-point-composer textarea::placeholder { color: #99998d; }
+
+.mistake-point-composer button {
+  min-width: 58px;
+  height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: #617d63;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+
+.mistake-point-composer button:hover:not(:disabled) { background: #526e54; }
+.mistake-point-composer button:active:not(:disabled) { transform: translateY(1px); }
+.mistake-point-composer button:disabled { cursor: wait; opacity: .48; }
+
+@media (max-width: 760px) {
+  .mistake-point-assistant { min-height: 0; flex: 1; }
+  .mistake-point-assistant-head { padding: 11px 12px 9px; }
+  .mistake-point-assistant-controls { gap: 4px; }
+  .mistake-point-assistant-controls button { width: 28px; height: 28px; }
+  .mistake-point-summary { margin: 8px 9px 0; padding: 9px; }
+  .mistake-point-assignment-complete { margin: 8px 9px 0; }
+  .mistake-point-chat-title { padding: 9px 12px 6px; }
+  .mistake-point-transcript { padding: 6px 9px 10px; }
+  .mistake-point-empty { gap: 10px; padding: 12px; }
+  .mistake-point-quick-questions { padding-left: 0; }
+  .mistake-point-composer { padding: 8px 9px 10px; }
+  .mistake-point-composer-inner { gap: 5px; padding: 5px; }
+  .mistake-point-composer button { min-width: 52px; padding: 0 9px; }
+}

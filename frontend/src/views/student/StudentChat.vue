@@ -1,36 +1,167 @@
-<!-- 学生端：智能批改（对话页，学生登录默认落地页）
-     v0.2.0：打开先播报首页简报（GET /api/student/briefing）；拍照转写 → 确认 → 诊断。
-     v0.2.1：简报改为卡片区（大数字 + 色块标签）；作答以拍照为主，线上文本输入步骤已下线。
-     v0.6.2：会话导航移入左侧栏（ChatGPT 式），本页只管消息流；底部输入区改悬浮毛玻璃卡。
-     文案伦理沿用学生端口径：不出现「顽固」「置信度」等术语（与既有页面一致）。 -->
+<!-- 学生端学习助手首页：新对话显示欢迎页和学习进度；开始对话后切换到消息流。
+     保留 Remedi 蓝色视觉、作业拍照批改、文字问答和历史会话入口。 -->
 <template>
+  <div class="student-chat-workspace">
+    <aside v-if="sidebarCollapsed" class="chat-history-collapsed-rail" aria-label="主导航">
+      <button
+        class="sidebar-toggle-btn collapsed-sidebar-toggle"
+        type="button"
+        aria-label="展开导航和历史会话"
+        title="展开导航和历史会话"
+        @click="sidebarCollapsed = false"
+      >
+        <BrandLogo :size="25" />
+      </button>
+      <nav class="chat-collapsed-nav" aria-label="学生导航">
+        <router-link
+          v-for="item in chatNavigation"
+          :key="item.to"
+          :to="item.to"
+          :title="item.label"
+          :aria-label="item.label"
+          :class="{ active: route.path === item.to || (item.to === '/student/feedback' && route.path === '/student/diagnosis') }"
+        >
+          <AppIcon :name="item.icon" :size="19" />
+        </router-link>
+      </nav>
+      <router-link class="chat-collapsed-avatar" to="/student/profile" :title="auth.name || '我的档案'">
+        {{ auth.name?.slice(0, 1) || '同' }}
+      </router-link>
+    </aside>
+    <aside v-else class="chat-history-sidebar" aria-label="学习空间">
+      <div class="chat-sidebar-brand">
+        <div class="chat-sidebar-brand-mark"><BrandLogo :size="25" /></div>
+        <strong>Remedi</strong>
+        <button
+          class="sidebar-toggle-btn"
+          type="button"
+          aria-label="折叠导航和历史会话"
+          title="折叠侧栏"
+          @click="sidebarCollapsed = true"
+        >
+          <AppIcon name="chevron-left" :size="17" />
+        </button>
+      </div>
+      <SessionPanel
+        variant="sidebar"
+        :sessions="sessions"
+        :current-id="currentSessionId"
+        :loading="sessionsLoading"
+        @create="newSession"
+        @select="switchSession"
+        @remove="removeSession"
+      >
+        <template #navigation>
+          <nav class="chat-sidebar-nav" aria-label="学生导航">
+            <router-link
+              v-for="item in chatNavigation"
+              :key="item.to"
+              :to="item.to"
+              :class="{ active: route.path === item.to || (item.to === '/student/feedback' && route.path === '/student/diagnosis') }"
+            >
+              <AppIcon :name="item.icon" :size="17" />
+              <span>{{ item.label }}</span>
+            </router-link>
+          </nav>
+        </template>
+      </SessionPanel>
+      <div class="chat-sidebar-account">
+        <span class="chat-account-avatar">{{ auth.name?.slice(0, 1) || '同' }}</span>
+        <div class="chat-account-meta">
+          <strong>{{ auth.name || '学生' }}</strong>
+          <span>学生<template v-if="auth.user?.student_no"> · {{ auth.user.student_no }}</template></span>
+        </div>
+        <button class="chat-account-logout" type="button" title="退出登录" aria-label="退出登录" @click="logoutFromChatSidebar">
+          <AppIcon name="logout" :size="17" />
+        </button>
+      </div>
+    </aside>
+
   <div class="chat-layout">
-    <!-- 顶部：题目选择器（仅数学题，拍照批改的归属题目） -->
+    <!-- 顶部：智能批改标题与会话操作 -->
     <div class="chat-header">
       <div class="chat-inner">
         <div class="chat-title">
-          <AppIcon name="sparkles" :size="20" />
-          <span>智能批改</span>
-          <span class="hint">拍一张作业照片，老师会逐步帮你检查；也可以直接打字问我问题</span>
-        </div>
-        <div class="chat-selectors">
-          <select v-model="assignmentId" @change="onAssignmentChange" aria-label="选择作业">
-            <option value="">选择作业…</option>
-            <option v-for="a in assignments" :key="a.id" :value="a.id">{{ a.title }}</option>
-          </select>
-          <select v-model="questionId" :disabled="!currentQuestions.length" aria-label="选择题目">
-            <option value="">选择题目…</option>
-            <option v-for="q in currentQuestions" :key="q.id" :value="q.id">
-              [{{ q.knowledge_point }}] {{ q.stem }}
-            </option>
-          </select>
+          <span class="chat-title-mark"><AppIcon name="sparkles" :size="17" /></span>
+          <span class="chat-title-copy">
+            <strong>Remedi 学习助手</strong>
+            <small>作业批改 · 错题复习 · 学习问答</small>
+          </span>
+          <span class="chat-status"><i></i> 随时可以提问</span>
+          <span class="head-actions mobile-chat-actions">
+            <span class="session-anchor">
+              <button class="btn small secondary inline-icon" @click="togglePanel">
+                <AppIcon name="history" :size="14" /> 历史对话
+              </button>
+              <SessionPanel
+                v-if="panelOpen"
+                :sessions="sessions"
+                :current-id="currentSessionId"
+                :loading="sessionsLoading"
+                @close="panelOpen = false"
+                @create="newSession"
+                @select="switchSession"
+                @remove="removeSession"
+              />
+            </span>
+            <button
+              class="btn small secondary inline-icon new-session-btn"
+              :disabled="resettingSession"
+              @click="newSession"
+            >
+              <AppIcon name="plus" :size="14" /> 新对话
+            </button>
+          </span>
         </div>
       </div>
     </div>
 
-    <!-- 消息流 -->
-    <div class="chat-body" ref="bodyRef">
+    <div class="chat-content-shell" :class="{ 'welcome-mode': isWelcomeScreen }">
+    <!-- 消息流 / AI 首页 -->
+    <div class="chat-body" :class="{ 'chat-body-welcome': isWelcomeScreen }" ref="bodyRef">
       <div class="chat-inner">
+        <section v-if="isWelcomeScreen" class="welcome-home">
+          <div class="welcome-kicker">今日学习</div>
+          <h1>{{ auth.name || '同学' }}，今天想聊点什么？</h1>
+          <p class="welcome-description">学习中遇到的问题、作业批改或错题复习，都可以在这里聊。</p>
+
+          <div v-if="welcomeBriefing" class="welcome-briefing">
+            <div class="welcome-briefing-heading">
+              <span class="welcome-briefing-icon"><AppIcon name="clipboard" :size="16" /></span>
+              <div><strong>学习简报</strong><small>根据你的作业和订正情况整理</small></div>
+            </div>
+
+            <div v-if="briefingAllDone(welcomeBriefing)" class="welcome-briefing-done">
+              <span class="welcome-done-mark"><AppIcon name="check" :size="17" /></span>
+              <div>
+                <strong>太棒了，{{ auth.name }}！全部完成</strong>
+                <p>作业和订正都完成了，暂时没有需要加固的知识点。可以把最近的题目独立重做一遍，巩固一下。</p>
+              </div>
+            </div>
+
+            <template v-else>
+              <div class="welcome-briefing-stats">
+                <div><b>{{ welcomeBriefing.pending_assignments.length }}</b><span>份作业待完成</span></div>
+                <div><b>{{ welcomeBriefing.pending_corrections_count }}</b><span>处错题待订正</span></div>
+                <router-link to="/student/feedback">打开错题本 <AppIcon name="chevron-right" :size="13" /></router-link>
+              </div>
+              <div v-if="welcomeBriefing.pending_assignments.length" class="welcome-briefing-assignments">
+                <div v-for="p in welcomeBriefing.pending_assignments.slice(0, 2)" :key="p.id" class="welcome-briefing-assignment">
+                  <span><strong>{{ p.title }}</strong><small>还剩 {{ p.remaining_count }} 题<template v-if="p.deadline"> · 截止 {{ fmtDateTime(p.deadline) }}</template></small></span>
+                  <button type="button" @click="gotoAssignment(p)">继续 <AppIcon name="chevron-right" :size="13" /></button>
+                </div>
+              </div>
+              <p v-if="welcomeBriefing.pending_corrections_count && welcomeBriefing.pending_corrections_knowledge_points.length" class="welcome-briefing-feedback">待订正知识点：{{ welcomeBriefing.pending_corrections_knowledge_points.join('、') }}</p>
+              <div v-if="briefWeakDetails(welcomeBriefing).length" class="welcome-briefing-weak">
+                <span>近期关注</span>
+                <span v-for="d in briefWeakDetails(welcomeBriefing).slice(0, 3)" :key="d.knowledge_point">{{ d.knowledge_point }} · {{ d.error_count }} 次</span>
+              </div>
+              <p v-if="welcomeBriefing.recent_feedback" class="welcome-briefing-feedback">{{ sanitizeStudentCopy(welcomeBriefing.recent_feedback) }}</p>
+            </template>
+          </div>
+        </section>
+
+        <template v-else>
         <div v-for="msg in messages" :key="msg.id" class="msg-row" :class="msg.side">
           <div v-if="msg.side === 'ai'" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
 
@@ -112,6 +243,12 @@
           <div v-else-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
             <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
             {{ msg.text }}
+            <div v-if="msg.captureId" class="photo-capture-action">
+              <span v-if="msg.saved">已加入错题本</span>
+              <button v-else class="btn small secondary" :disabled="msg.savingCapture" @click="savePhotoQuestion(msg)">
+                {{ msg.savingCapture ? '正在收录…' : '加入错题本' }}
+              </button>
+            </div>
           </div>
 
           <!-- AI 错误提示 -->
@@ -217,59 +354,51 @@
         </div>
 
         <div v-if="loadingInit" class="loading">正在为你准备学习简报…</div>
+        </template>
       </div>
     </div>
 
-    <!-- 输入区（v0.3.0：文本聊天接学习助手 Agent + 拍照批改并存；
-         v0.6.2：改悬浮卡片——毛玻璃卡离底悬浮，消息从卡下滚过；输入框无边框融入卡内，
-         拍照与发送收成卡内右侧的圆形按钮，聚焦时卡片带主色光晕） -->
-    <div class="chat-composer">
+    <!-- 输入区（v0.3.0：文本聊天接学习助手 Agent + 拍照批改并存） -->
+    <div class="chat-composer" :class="{ 'chat-composer-welcome': isWelcomeScreen }">
       <div class="chat-inner">
-        <div class="composer-card">
-          <p class="composer-tip">可以问我数学问题，也可以问问你的学习情况</p>
-          <div class="composer-row">
+        <div class="composer-panel">
+          <textarea
+            v-model="chatInput"
+            class="chat-text-input"
+            :class="{ 'chat-text-input-welcome': isWelcomeScreen }"
+            rows="1"
+            :placeholder="isWelcomeScreen ? '有什么想问的，或说说你正在学习的内容…' : '输入你的问题，回车发送'"
+            :disabled="chatSending"
+            @keydown.enter.exact.prevent="sendChat()"
+          ></textarea>
+          <div class="composer-bottom-row">
             <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
-            <input
-              v-model="chatInput"
-              class="chat-text-input"
-              type="text"
-              placeholder="输入你的问题，回车发送"
-              :disabled="chatSending"
-              @keyup.enter="sendChat()"
-            />
-            <button
-              class="composer-circle photo-circle"
-              title="拍照批改"
-              :disabled="busy"
-              @click="fileRef?.click()"
-            >
-              <AppIcon name="camera" :size="19" />
-            </button>
-            <button
-              class="composer-circle send-circle"
-              title="发送"
-              :disabled="chatSending || !chatInput.trim()"
-              @click="sendChat()"
-            >
+            <div class="composer-tools">
+              <button class="composer-photo-btn" type="button" aria-label="拍照批改" title="拍照批改" :disabled="busy" @click="fileRef?.click()">
+                <AppIcon name="camera" :size="18" />
+              </button>
+              <span v-if="selectedQuestion" class="composer-context"><AppIcon name="clipboard" :size="13" /> {{ selectedQuestion.stem }}</span>
+            </div>
+            <button class="btn send-btn" type="button" aria-label="发送" title="发送" :disabled="chatSending || !chatInput.trim()" @click="sendChat()">
               <AppIcon name="send" :size="17" />
             </button>
           </div>
-          <p class="composer-hint">
-            点相机拍一张作业照片，老师会逐步帮你批改<template v-if="selectedQuestion">（当前题目：{{ selectedQuestion.stem }}）</template>
-          </p>
         </div>
       </div>
     </div>
+    </div>
+  </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type {
   Assignment,
+  ChatSession,
   PendingAssignment,
   Question,
   StepStatus,
@@ -281,11 +410,25 @@ import { STEP_STATUS_TEXT } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
+import BrandLogo from '../../components/BrandLogo.vue'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import SessionPanel from '../../components/SessionPanel.vue'
 
 const auth = useAuthStore()
 const student = useStudentStore()
 const route = useRoute()
+const router = useRouter()
+const sidebarCollapsed = ref(false)
+
+const chatNavigation: Array<{ to: string; icon: IconName; label: string }> = [
+  { to: '/student/chat', icon: 'chat', label: '智能批改' },
+  { to: '/student/assignments', icon: 'clipboard', label: '作业列表' },
+  { to: '/student/submit', icon: 'edit', label: '交作业' },
+  { to: '/student/feedback', icon: 'book', label: '错题本' },
+  { to: '/student/report', icon: 'chart', label: '学习报告' },
+  { to: '/student/corrections', icon: 'check', label: '订正错题' },
+  { to: '/student/profile', icon: 'user', label: '我的档案' }
+]
 
 // ---------- 对话消息 ----------
 interface ChatMsg {
@@ -302,6 +445,9 @@ interface ChatMsg {
   submitting: boolean
   pending: boolean
   result: SubmissionResult | null
+  captureId: number | null
+  saved: boolean
+  savingCapture: boolean
 }
 
 const messages = ref<ChatMsg[]>([])
@@ -321,6 +467,9 @@ function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
     submitting: false,
     pending: false,
     result: null,
+    captureId: null,
+    saved: false,
+    savingCapture: false,
     ...partial
   }
   messages.value.push(msg)
@@ -360,6 +509,10 @@ function questionStem(qid: number): string {
 const fileRef = ref<HTMLInputElement | null>(null)
 const bodyRef = ref<HTMLElement | null>(null)
 const loadingInit = ref(true)
+const welcomeBriefing = computed(() => messages.value.find((msg) => msg.kind === 'briefing')?.briefing ?? null)
+const isWelcomeScreen = computed(
+  () => !loadingInit.value && !messages.value.some((msg) => msg.side === 'user' || (msg.kind !== 'briefing' && msg.text.trim()))
+)
 const busy = computed(() => messages.value.some((m) => m.pending || m.submitting))
 
 function scrollToBottom() {
@@ -420,11 +573,16 @@ async function gotoAssignment(p: PendingAssignment) {
 const chatInput = ref('')
 const chatSending = ref(false)
 
-// ---------- 会话（v0.6.0 会话制；v0.6.2 导航移入左侧栏，会话状态归 store 与侧栏共用） ----------
-// 本页不再持有会话列表：侧栏点新对话/切换/删除当前会话时改 store.sessionView，
-// 本页 watch 到 seq 变化后同步重渲染消息区；发送消息后回写 activeSessionId 并刷新侧栏列表。
+// ---------- 会话（v0.6.0）：新对话 = 新建会话，旧会话在「历史对话」里找回 ----------
+const sessions = ref<ChatSession[]>([])
+const currentSessionId = ref<number | null>(null)
+const panelOpen = ref(false)
+const sessionsLoading = ref(false)
+
 // ---------- 建议气泡（v0.6.0）：只存最新一轮回复的建议 ----------
 const suggestions = ref<string[]>([])
+
+const resettingSession = ref(false)
 
 /** 把简报卡作为第一条消息放回对话区（新对话/切换会话后复用） */
 async function prependBriefing() {
@@ -443,17 +601,63 @@ async function prependBriefing() {
       confirmed: false,
       submitting: false,
       pending: false,
-      result: null
+      result: null,
+      captureId: null,
+      saved: false,
+      savingCapture: false
     })
   } catch (e) {
     console.error(e)
   }
 }
 
-/** 把某条会话的历史消息渲染进消息区：简报卡保留置顶，其余消息替换为该会话的记录 */
-async function renderSessionMessages(id: number) {
+async function loadSessions() {
+  sessionsLoading.value = true
   try {
-    const rows = await student.fetchSessionMessages(id)
+    sessions.value = await student.fetchSessions()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    sessionsLoading.value = false
+  }
+}
+
+function togglePanel() {
+  panelOpen.value = !panelOpen.value
+  if (panelOpen.value) loadSessions()
+}
+
+async function newSession() {
+  if (resettingSession.value || chatSending.value) return
+  resettingSession.value = true
+  try {
+    const s = await student.newAgentSession()
+    currentSessionId.value = s.id
+    suggestions.value = []
+    panelOpen.value = false
+    messages.value = []
+    await prependBriefing()
+    await loadSessions()
+  } catch (e) {
+    pushMsg({ side: 'ai', kind: 'error', text: '开启新对话失败：' + (errDetail(e) || '请稍后重试。') })
+    console.error(e)
+  } finally {
+    resettingSession.value = false
+    scrollToBottom()
+  }
+}
+
+/** 切换到某条历史会话：简报卡保留置顶，其余消息换成该会话的记录 */
+async function switchSession(s: ChatSession) {
+  if (s.id === currentSessionId.value) {
+    panelOpen.value = false
+    return
+  }
+  try {
+    const rows = await student.fetchSessionMessages(s.id)
+    currentSessionId.value = s.id
+    suggestions.value = []
+    panelOpen.value = false
     messages.value = messages.value.filter((m) => m.kind === 'briefing')
     rows.forEach((h) =>
       pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content })
@@ -465,33 +669,32 @@ async function renderSessionMessages(id: number) {
   }
 }
 
-// 侧栏会话操作（新对话 / 切换 / 删除当前会话）统一改 store.sessionView，
-// seq 递增时本页在此同步重渲染，保证侧栏与对话页永远一致。
-let appliedViewSeq = 0
-watch(
-  () => student.sessionView.seq,
-  async (seq) => {
-    if (seq === appliedViewSeq) return
-    appliedViewSeq = seq
-    const view = student.sessionView
-    suggestions.value = []
-    if (view.fresh) {
-      messages.value = []
-      await prependBriefing()
-      pushMsg({
-        side: 'ai',
-        kind: 'text',
-        text: '已开始新对话。之前的对话都收在左侧栏里，点任意一条标题就能接着聊。'
-      })
-    } else if (view.id != null) {
-      await renderSessionMessages(view.id)
-    } else {
-      // 会话全删光了：只留简报卡，回到空白态
-      messages.value = messages.value.filter((m) => m.kind === 'briefing')
+async function removeSession(s: ChatSession) {
+  try {
+    await student.deleteSession(s.id)
+    sessions.value = sessions.value.filter((x) => x.id !== s.id)
+    if (s.id === currentSessionId.value) {
+      const next = sessions.value[0]
+      if (next) {
+        await switchSession(next)
+      } else {
+        currentSessionId.value = null
+        messages.value = messages.value.filter((m) => m.kind === 'briefing')
+      }
+      suggestions.value = []
     }
-    scrollToBottom()
+  } catch (e) {
+    pushMsg({ side: 'ai', kind: 'error', text: '删除这条对话失败：' + (errDetail(e) || '请稍后重试。') })
+    console.error(e)
   }
-)
+}
+
+function logoutFromChatSidebar() {
+  student.setAssignmentDateFilter('')
+  student.clearSessionState()
+  auth.logout()
+  void router.push('/')
+}
 
 async function sendChat(raw?: string) {
   const text = (typeof raw === 'string' ? raw : chatInput.value).trim()
@@ -506,12 +709,19 @@ async function sendChat(raw?: string) {
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
   chatSending.value = true
   try {
-    const res = await student.agentChat(text, student.activeSessionId)
+    const pendingCapture = [...messages.value].reverse().find((item) => item.captureId && !item.saved)
+    if (pendingCapture && /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(text) && /错题本|错题/.test(text)) {
+      await student.savePhotoCapture(pendingCapture.captureId!, pendingCapture.text)
+      pendingCapture.saved = true
+      wait.text = '已经把刚才的题目加入错题本了。'
+      await loadSessions()
+      return
+    }
+    const res = await student.agentChat(text, currentSessionId.value)
     wait.text = res.reply
-    if (res.session_id) student.setActiveSession(res.session_id)
+    if (res.session_id) currentSessionId.value = res.session_id
     suggestions.value = res.suggestions ?? []
-    // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排
-    student.loadSessions(true)
+    void loadSessions()
   } catch (e) {
     wait.kind = 'error'
     wait.text = '发送失败：' + (errDetail(e) || '请稍后重试。')
@@ -537,26 +747,70 @@ async function onFileChange(e: Event) {
     pushMsg({ side: 'ai', kind: 'error', text: '图片太大了（超过 10MB），请压缩后再试。' })
     return
   }
+  const prompt = chatInput.value.trim()
+  chatInput.value = ''
+  suggestions.value = []
   pushMsg({ side: 'user', kind: 'image', url: URL.createObjectURL(file) })
-  const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别照片里的解题步骤…', pending: true })
+  if (prompt) pushMsg({ side: 'user', kind: 'text', text: prompt })
+  const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别题目和作答情况…', pending: true })
+  chatSending.value = true
   try {
-    const res = await student.transcribePhoto(file)
-    wait.kind = 'transcribe'
+    // 只有从具体作业题目跳转过来时才自动关联题目，避免把自由上传的照片误绑到默认第一题。
+    const explicitQuestionId = selectedQuestion.value?.id ?? null
+    const res = await student.reviewPhoto(file, explicitQuestionId)
     wait.pending = false
-    wait.text = ''
     wait.questionText = res.question_text
     wait.steps = [...res.steps]
-    wait.questionId =
-      selectedQuestion.value?.subject === 'math'
-        ? selectedQuestion.value.id
-        : (allMathQuestions.value[0]?.id ?? null)
+    if (res.mode === 'answer') {
+      wait.captureId = res.capture_id
+      const agentPrompt = [
+        '学生上传的是只有题目、没有学生作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。',
+        `识别出的题目：${res.question_text.slice(0, 1300)}`,
+        prompt ? `学生补充的问题：${prompt.slice(0, 300)}` : ''
+      ].filter(Boolean).join('\n')
+      const answer = await student.agentChat(agentPrompt, currentSessionId.value)
+      wait.text = answer.reply
+      if (answer.session_id) currentSessionId.value = answer.session_id
+      suggestions.value = answer.suggestions ?? []
+      void loadSessions()
+    } else if (res.mode === 'diagnosis' && res.diagnosis) {
+      wait.text = res.diagnosis.errors.length
+        ? '识别到作答过程并完成批改，发现的错题已自动加入错题本。'
+        : '识别到作答过程并完成批改，这道题目前没有发现错误。'
+      pushMsg({ side: 'ai', kind: 'diagnosis', result: res.diagnosis })
+    } else {
+      wait.kind = 'transcribe'
+      wait.text = ''
+      wait.questionId = explicitQuestionId
+    }
   } catch (err) {
-    wait.kind = 'error'
+    if (wait.captureId) {
+      wait.kind = 'text'
+      wait.text = `题目已经识别为「${wait.questionText}」，但暂时无法生成讲解。你可以稍后追问，或先把题目加入错题本。`
+    } else {
+      wait.kind = 'error'
+      wait.text = '识别失败：' + (errDetail(err) || '请稍后重试。')
+    }
     wait.pending = false
-    wait.text = '识别失败：' + (errDetail(err) || '请稍后重试。')
     console.error(err)
+  } finally {
+    chatSending.value = false
   }
   scrollToBottom()
+}
+
+async function savePhotoQuestion(msg: ChatMsg) {
+  if (!msg.captureId || msg.saved || msg.savingCapture) return
+  msg.savingCapture = true
+  try {
+    await student.savePhotoCapture(msg.captureId, msg.text)
+    msg.saved = true
+  } catch (err) {
+    pushMsg({ side: 'ai', kind: 'error', text: '加入错题本失败：' + (errDetail(err) || '请稍后重试。') })
+  } finally {
+    msg.savingCapture = false
+    scrollToBottom()
+  }
 }
 
 async function confirmTranscribe(msg: ChatMsg) {
@@ -607,9 +861,6 @@ onMounted(async () => {
       questionId.value = qs.some((q) => q.id === presetQuestion)
         ? presetQuestion
         : (qs.find((q) => !doneQids.value.has(q.id))?.id ?? qs[0]?.id ?? '')
-    } else if (list.length) {
-      assignmentId.value = list[0].id
-      onAssignmentChange()
     }
   } catch (e) {
     pushMsg({ side: 'ai', kind: 'error', text: '作业数据加载失败，请确认后端已启动后刷新页面。' })
@@ -631,7 +882,10 @@ onMounted(async () => {
       confirmed: false,
       submitting: false,
       pending: false,
-      result: null
+      result: null,
+      captureId: null,
+      saved: false,
+      savingCapture: false
     })
   } catch (e) {
     pushMsg({ side: 'ai', kind: 'error', text: '学习简报加载失败，刷新页面可以重试。' })
@@ -646,21 +900,95 @@ onMounted(async () => {
   } catch (e) {
     console.error(e)
   }
-  // 当前会话定位（v0.6.2）：会话状态归 store 与侧栏共用，列表第一条即当前会话；
-  // appliedViewSeq 对齐当前值，避免把挂载前产生的查看请求误当新切换重渲染
-  await student.loadSessions()
-  appliedViewSeq = student.sessionView.seq
+  // 当前会话定位（v0.6.0）：会话列表按最近更新倒序，第一条即当前会话
+  await loadSessions()
+  currentSessionId.value = sessions.value[0]?.id ?? null
   loadingInit.value = false
   scrollToBottom()
 })
 </script>
 
 <style scoped>
-.chat-layout { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); position: relative; }
-.chat-inner { max-width: 860px; width: 100%; margin: 0 auto; padding: 0 20px; }
-.chat-header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 0; }
-.chat-title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; color: var(--primary); }
-.chat-title .hint { font-weight: 400; }
+.student-chat-workspace { display: flex; width: 100%; height: 100dvh; min-height: 0; overflow: hidden; background: #F3F5F8; }
+.chat-history-sidebar { display: flex; width: 300px; min-width: 280px; flex: 0 0 300px; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--card); }
+.chat-history-collapsed-rail { display: flex; width: 72px; min-width: 72px; flex: 0 0 72px; flex-direction: column; align-items: center; padding: 12px 8px; border-right: 1px solid var(--border); background: var(--card); }
+.chat-sidebar-brand { display: flex; min-height: 58px; align-items: center; gap: 9px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); }
+.chat-sidebar-brand-mark { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 10px; background: var(--primary); color: #fff; }
+.chat-sidebar-brand > strong { color: var(--primary); font-size: 18px; font-weight: 800; letter-spacing: 0.2px; }
+.chat-sidebar-brand .sidebar-toggle-btn { margin-left: auto; }
+.chat-sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 0 10px 10px; border-bottom: 1px solid var(--border); }
+.chat-sidebar-nav a { display: flex; min-height: 39px; align-items: center; gap: 11px; padding: 0 12px; border-radius: 9px; color: #667286; font-size: 13.5px; text-decoration: none; transition: background 0.15s ease, color 0.15s ease; }
+.chat-sidebar-nav a:hover { background: #F6F8FC; color: var(--text); }
+.chat-sidebar-nav a.active { background: var(--primary-50); color: var(--primary); font-weight: 650; }
+.chat-sidebar-account { display: flex; min-height: 68px; align-items: center; gap: 10px; margin-top: auto; padding: 10px 14px; border-top: 1px solid var(--border); }
+.chat-account-avatar { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; border-radius: 50%; background: var(--primary-50); color: var(--primary); font-size: 14px; font-weight: 700; }
+.chat-account-meta { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; gap: 2px; }
+.chat-account-meta strong { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.chat-account-meta span { overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-account-logout { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #7C8797; cursor: pointer; }
+.chat-account-logout:hover { background: #F5F6F8; color: #B42318; }
+.collapsed-sidebar-toggle { width: 40px; height: 40px; flex: 0 0 40px; margin-bottom: 13px; border-color: #E4E8F0; background: #fff; }
+.collapsed-sidebar-toggle .brand-logo { width: 25px; height: 25px; }
+.chat-collapsed-nav { display: flex; width: 100%; flex-direction: column; align-items: center; gap: 4px; }
+.chat-collapsed-nav a { display: grid; width: 48px; height: 44px; place-items: center; border-radius: 10px; color: #7C8797; }
+.chat-collapsed-nav a:hover { background: #F4F6F9; color: var(--text); }
+.chat-collapsed-nav a.active { background: var(--primary-50); color: var(--primary); }
+.chat-collapsed-avatar { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; margin-top: auto; border-radius: 50%; background: var(--primary-50); color: var(--primary); font-size: 14px; font-weight: 700; text-decoration: none; }
+.chat-layout { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; height: calc(100% - 20px); margin: 10px 10px 10px 0; overflow: hidden; border: 1px solid #E2E7EF; border-radius: 16px; background: #fff; box-shadow: 0 2px 8px rgba(31, 49, 77, 0.035); }
+.chat-inner { max-width: 1280px; width: 100%; margin: 0 auto; padding: 0 20px; }
+.chat-header { flex: 0 0 auto; background: #fff; border-bottom: 0; padding: 9px 0; }
+.chat-title { display: flex; align-items: center; gap: 10px; color: var(--text); }
+.chat-title-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 11px; background: var(--primary-50); color: var(--primary); }
+.chat-title-copy { display: flex; flex-direction: column; gap: 1px; }
+.chat-title-copy strong { font-size: 14px; font-weight: 700; line-height: 1.25; }
+.chat-title-copy small { color: var(--text-3); font-size: 11px; font-weight: 400; }
+.chat-status { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; color: var(--text-3); font-size: 12px; font-weight: 500; }
+.chat-status i { width: 7px; height: 7px; border-radius: 50%; background: #22C55E; box-shadow: 0 0 0 3px #DCFCE7; }
+.photo-capture-action { margin-top: 10px; }
+.photo-capture-action > span { color: #55765c; font-size: 12px; font-weight: 600; }
+.head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.mobile-chat-actions { display: none; }
+.session-anchor { position: relative; display: inline-flex; }
+.new-session-btn { flex-shrink: 0; }
+.sidebar-toggle-btn { display: inline-grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #8792A3; cursor: pointer; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
+.sidebar-toggle-btn:hover { border-color: #E4E8F0; background: #F5F7FA; color: var(--primary); }
+
+.chat-content-shell { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
+.chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 28px 24px 24px; }
+.chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 0 24px; background: #fff; }
+.chat-body-welcome { flex: 0 0 auto; overflow: visible; padding: 0; }
+.welcome-mode .chat-inner { max-width: 780px; padding: 0; }
+.welcome-home { padding: 0 2px; }
+.welcome-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: #758198; font-size: 12px; font-weight: 600; }
+.welcome-kicker::before { width: 18px; height: 2px; border-radius: 2px; background: #8DA9E8; content: ''; }
+.welcome-home h1 { color: #273248; font-size: clamp(29px, 2.8vw, 37px); font-weight: 650; line-height: 1.3; letter-spacing: -0.025em; }
+.welcome-description { margin-top: 8px; color: #7C8799; font-size: 14px; }
+.welcome-briefing { margin-top: 22px; padding: 16px 18px; border: 1px solid #E4E9F0; border-radius: 14px; background: rgba(255, 255, 255, 0.88); }
+.welcome-briefing-heading { display: flex; align-items: center; gap: 9px; color: #39465B; }
+.welcome-briefing-heading > div { display: flex; flex-direction: column; gap: 1px; }
+.welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
+.welcome-briefing-heading small { color: #9099A8; font-size: 11px; }
+.welcome-briefing-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; background: #F1F5FB; color: #7183A3; }
+.welcome-briefing-stats { display: flex; align-items: baseline; gap: 24px; margin: 13px 0 0 37px; }
+.welcome-briefing-stats > div { display: flex; align-items: baseline; gap: 7px; }
+.welcome-briefing-stats b { color: #29364B; font-size: 18px; font-weight: 650; }
+.welcome-briefing-stats span { color: #778396; font-size: 12px; }
+.welcome-briefing-stats a { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; color: #5A6F96; font-size: 12px; font-weight: 550; }
+.welcome-briefing-stats a :deep(svg) { flex: 0 0 auto; }
+.welcome-briefing-assignments { margin: 10px 0 0 37px; border-top: 1px solid #EDF0F4; }
+.welcome-briefing-assignment { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0 0; }
+.welcome-briefing-assignment > span { display: flex; min-width: 0; flex-direction: column; }
+.welcome-briefing-assignment strong { overflow: hidden; color: #465269; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-briefing-assignment small { color: #939CAC; font-size: 11px; }
+.welcome-briefing-assignment button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; border: 0; background: transparent; color: #5A6F96; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.welcome-briefing-weak { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 11px 0 0 37px; }
+.welcome-briefing-weak > span:first-child { margin-right: 2px; color: #858FA0; font-size: 11px; }
+.welcome-briefing-weak > span:not(:first-child) { border-radius: 999px; background: #F6F7F9; padding: 4px 8px; color: #687386; font-size: 10.5px; }
+.welcome-briefing-feedback { margin: 11px 0 0 37px; border-top: 1px solid #EDF0F4; padding-top: 9px; color: #737F91; font-size: 11.5px; }
+.welcome-briefing-done { display: flex; align-items: flex-start; gap: 10px; margin-top: 13px; border-radius: 10px; background: #F0F7F1; padding: 12px 13px; }
+.welcome-done-mark { display: grid; width: 27px; height: 27px; flex: 0 0 27px; place-items: center; border-radius: 50%; background: #6D9978; color: #fff; }
+.welcome-briefing-done strong { color: #395B41; font-size: 13px; font-weight: 650; }
+.welcome-briefing-done p { margin-top: 3px; color: #667C6A; font-size: 11.5px; }
 
 /* 建议气泡（v0.6.0）：只挂最新一轮回复，淡入上浮 stagger */
 .suggest-row { display: flex; gap: 8px; flex-wrap: wrap; margin: -4px 0 16px 40px; }
@@ -679,11 +1007,6 @@ onMounted(async () => {
   to { opacity: 1; transform: translateY(0); }
 }
 .brief-item-sub { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
-.chat-selectors { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-.chat-selectors select { flex: 1 1 240px; width: auto; }
-
-/* 底部留白加大：给悬浮输入卡让位，最后的消息不被卡片遮住 */
-.chat-body { flex: 1; overflow-y: auto; padding: 20px 0 184px; }
 .msg-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: flex-start; }
 .msg-row.user { flex-direction: row-reverse; }
 .msg-avatar {
@@ -699,12 +1022,12 @@ onMounted(async () => {
 
 .ai-card {
   background: var(--card); border: 1px solid #EDF0F4; border-radius: 14px;
-  box-shadow: var(--shadow); padding: 16px 18px; width: min(660px, 100%);
+  box-shadow: var(--shadow); padding: 16px 18px; width: min(900px, 100%);
 }
 .ai-card-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 
 /* 简报卡片区（v0.2.1 卡片化；v0.4.0 放宽卡宽，统计卡真正横向并排） */
-.briefing-card { width: min(820px, 100%); }
+.briefing-card { width: min(1040px, 100%); }
 .brief-hello { font-size: 14.5px; margin-bottom: 12px; }
 .brief-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .brief-stat-card { border-radius: 12px; padding: 14px 16px; border: 1px solid #EDF0F4; }
@@ -771,62 +1094,61 @@ onMounted(async () => {
 }
 .followup-box p { padding-top: 3px; }
 
-/* 悬浮输入卡（v0.6.2）：离底悬浮的毛玻璃卡，滚动内容从卡下透过去；
-   输入框无边框融入卡内，拍照/发送是卡内右侧圆形钮，聚焦时卡带主色光晕 */
-.chat-composer {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
-  padding: 10px 20px 16px; pointer-events: none;
-}
-.composer-card {
-  pointer-events: auto;
-  background: rgba(255, 255, 255, 0.86);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  backdrop-filter: blur(14px) saturate(1.4);
-  border: 1px solid #E2E9F5; border-radius: 20px;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06);
-  padding: 12px 14px 10px;
-  transition: box-shadow 0.25s ease, border-color 0.25s ease;
-}
-.composer-card:focus-within {
-  border-color: #B9CFF7;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 0 0 3px rgba(29, 78, 216, 0.14);
-}
-.composer-tip { font-size: 12.5px; color: var(--text-2); margin: 0 4px 8px; }
-.composer-row { display: flex; gap: 8px; align-items: center; }
-.chat-text-input {
-  flex: 1; min-width: 0; padding: 10px 6px; font-size: 15px;
-  border: none; background: transparent; box-shadow: none;
-}
-.chat-text-input:focus { border: none; box-shadow: none; outline: none; }
-.composer-circle {
-  width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  cursor: pointer; font-family: var(--font);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, opacity 0.2s ease;
-}
-.composer-circle:disabled { opacity: 0.45; cursor: not-allowed; }
-.photo-circle { background: rgba(255, 255, 255, 0.7); border: 1px solid #D7E0F0; color: var(--primary); }
-.photo-circle:hover:not(:disabled) { background: #fff; transform: scale(1.06); }
-.send-circle {
-  background: var(--primary); border: 1px solid var(--primary); color: #fff;
-  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.35);
-}
-.send-circle:hover:not(:disabled) { transform: scale(1.07); box-shadow: 0 6px 16px rgba(29, 78, 216, 0.42); }
-.composer-hint { font-size: 12.5px; color: var(--text-3); margin: 8px 4px 0; }
+.chat-composer { flex: 0 0 auto; background: #fff; border-top: 0; padding: 12px 0 16px; }
+.chat-composer-welcome { width: 100%; border: 0; padding: 0; background: transparent; }
+.composer-panel { border: 1px solid #DCE3EF; border-radius: 18px; background: #fff; padding: 13px 15px 11px; box-shadow: 0 8px 28px rgba(37, 60, 105, 0.075); transition: border-color 0.18s ease, box-shadow 0.18s ease; }
+.composer-panel:focus-within { border-color: #AFC4F7; box-shadow: 0 10px 34px rgba(29, 78, 216, 0.12); }
+.chat-text-input { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none; font: inherit; font-size: 15px; line-height: 1.65; }
+.chat-text-input:focus { border: 0; outline: 0; box-shadow: none; }
+.chat-text-input-welcome { min-height: 54px; font-size: 16px; }
+.composer-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; }
+.composer-tools { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.composer-photo-btn { display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center; border: 1px solid #E5EAF2; border-radius: 11px; background: #FAFBFD; color: #68758A; padding: 0; cursor: pointer; transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease; }
+.composer-photo-btn:hover { border-color: #CAD8F9; background: #F2F6FF; color: var(--primary); }
+.composer-photo-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.composer-context { display: inline-flex; min-width: 0; align-items: center; gap: 5px; overflow: hidden; color: #8190AA; font-size: 11.5px; white-space: nowrap; text-overflow: ellipsis; }
+.send-btn { display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center; padding: 0; border-radius: 12px; flex-shrink: 0; }
+.send-btn:disabled { background: #EEF1F6; color: #9AA3B1; cursor: default; }
+.send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
+.chat-composer-welcome .chat-inner { max-width: 780px; padding: 0; }
 .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .suggest-chip { animation: none; transition: none; }
-  .composer-card, .composer-circle { transition: none; }
-  .photo-circle:hover:not(:disabled), .send-circle:hover:not(:disabled) { transform: none; }
 }
 
 @media (max-width: 960px) {
-  .chat-layout { height: calc(100dvh - 52px); }
+  .student-chat-workspace { height: calc(100dvh - 52px); }
+  .chat-history-sidebar { display: none; }
+  .chat-history-collapsed-rail { display: none; }
+  .chat-layout { height: 100%; }
+  .mobile-chat-actions { display: flex; }
+  .chat-status { display: none; }
+  .sidebar-toggle-btn { display: none; }
   .user-image img { max-width: 240px; }
   .bubble { max-width: 88%; }
-  .chat-composer { padding: 8px 12px 12px; }
-  .composer-card { border-radius: 18px; }
-  .chat-body { padding-bottom: 190px; }
+  .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 22px; }
+  .chat-composer-welcome .chat-inner { padding: 0; }
+  .composer-panel { padding: 10px 11px; }
+}
+
+@media (max-width: 620px) {
+  .chat-header { padding: 7px 0; }
+  .chat-inner { padding-right: 14px; padding-left: 14px; }
+  .chat-title-mark { width: 31px; height: 31px; }
+  .chat-title-copy small { font-size: 10px; }
+  .mobile-chat-actions { gap: 5px; }
+  .mobile-chat-actions .btn { padding: 6px 8px; font-size: 11px; }
+  .welcome-kicker { margin-bottom: 10px; }
+  .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
+  .welcome-description { max-width: 330px; font-size: 13px; }
+  .welcome-briefing { margin-top: 17px; padding: 12px; }
+  .welcome-briefing-stats { flex-wrap: wrap; gap: 12px; margin-left: 0; }
+  .welcome-briefing-stats > div { flex-direction: column; gap: 0; }
+  .welcome-briefing-stats a { margin-left: auto; font-size: 11px; }
+  .welcome-briefing-assignments, .welcome-briefing-weak, .welcome-briefing-feedback { margin-left: 0; }
+  .composer-bottom-row { gap: 6px; }
+  .composer-tools { gap: 5px; }
+  .composer-context { max-width: 38vw; }
 }
 </style>

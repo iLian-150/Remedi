@@ -8,6 +8,7 @@ import StudentChat from '../views/student/StudentChat.vue'
 import StudentAssignments from '../views/student/StudentAssignments.vue'
 import StudentSubmit from '../views/student/StudentSubmit.vue'
 import StudentFeedback from '../views/student/StudentFeedback.vue'
+import StudentMistakeNotebook from '../views/student/StudentMistakeNotebook.vue'
 import StudentReport from '../views/student/StudentReport.vue'
 import StudentReportSubject from '../views/student/StudentReportSubject.vue'
 import StudentProfile from '../views/student/StudentProfile.vue'
@@ -32,7 +33,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/student/assignments', component: StudentAssignments, meta: { role: 'student', title: '作业列表' } },
   // 交作业：从作业列表进入（?assignment_id=），直接访问 URL 时回退为下拉选择
   { path: '/student/submit', component: StudentSubmit, meta: { role: 'student', title: '交作业' } },
-  { path: '/student/feedback', component: StudentFeedback, meta: { role: 'student', title: '诊断报告' } },
+  { path: '/student/feedback', component: StudentMistakeNotebook, meta: { role: 'student', title: '错题本' } },
+  { path: '/student/diagnosis', component: StudentFeedback, meta: { role: 'student', title: '诊断详情' } },
   { path: '/student/report', component: StudentReport, meta: { role: 'student', title: '学习报告' } },
   // 学习报告科目详情（v0.6.0 从报告页拆出独立页，带返回键；?verify= 深链打开验证面板）
   { path: '/student/report/:subject', component: StudentReportSubject, meta: { role: 'student', title: '学习报告' } },
