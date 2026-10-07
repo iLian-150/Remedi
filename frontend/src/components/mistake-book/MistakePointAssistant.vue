@@ -7,9 +7,9 @@
         <p>{{ mistake.knowledge_point }} · {{ subjectName(mistake.question_subject) }}</p>
       </div>
       <nav class="mistake-point-assistant-controls" aria-label="内容区布局控制">
-        <button type="button" aria-label="左右交换区域" title="左右交换区域" @click="$emit('swap')">⇄</button>
-        <button type="button" :aria-label="fullscreen ? '退出全屏' : '全屏显示'" :title="fullscreen ? '退出全屏' : '全屏显示'" @click="$emit('fullscreen')">⛶</button>
-        <button type="button" class="mistake-point-assistant-close" aria-label="关闭错误点问答" title="关闭" @click="$emit('close')">×</button>
+        <button type="button" aria-label="左右交换区域" title="左右交换区域" @click="$emit('swap')"><AppIcon name="swap" :size="16"/></button>
+        <button type="button" :aria-label="fullscreen ? '退出全屏' : '全屏显示'" :title="fullscreen ? '退出全屏' : '全屏显示'" @click="$emit('fullscreen')"><AppIcon :name="fullscreen ? 'minimize' : 'expand'" :size="16"/></button>
+        <button type="button" class="mistake-point-assistant-close" aria-label="关闭错误点问答" title="关闭" @click="$emit('close')"><AppIcon name="x" :size="16"/></button>
       </nav>
     </header>
 
@@ -34,7 +34,7 @@
             <strong>{{ mistake.category_label || mistake.error_type }}</strong>
           </div>
           <div class="mistake-reference-line"><span>题目</span><p>{{ mistake.question_stem || '题目内容暂未记录' }}</p></div>
-          <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 →</a>
+          <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 <AppIcon name="arrow-right" :size="12"/></a>
           <div v-if="mistake.step_text" class="mistake-reference-line"><span>作答</span><p>{{ mistake.step_text }}</p></div>
           <div class="mistake-point-summary-markdown">{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</div>
           <div v-if="mistake.latest_correction?.content" class="mistake-reference-line correction"><span>订正</span><p>{{ mistake.latest_correction.content }}</p></div>
@@ -57,7 +57,7 @@
       </div>
     </section>
 
-    <div v-if="mistake.source_kind !== 'student_saved' && progress.complete" class="mistake-point-assignment-complete" role="status">✓ 这份作业的所有错误点和知识点都已学完。</div>
+    <div v-if="mistake.source_kind !== 'student_saved' && progress.complete" class="mistake-point-assignment-complete" role="status"><AppIcon name="check" :size="15"/> 这份作业的所有错误点和知识点都已学完。</div>
     <div class="mistake-point-chat-title"><strong>一起弄懂这道题</strong><span>从你卡住的地方开始</span></div>
     <div class="mistake-point-transcript" aria-live="polite">
       <div v-if="messages.length === 0" class="mistake-point-empty">
@@ -89,6 +89,7 @@ import { ref, watch } from 'vue'
 import { useStudentStore } from '../../stores/student'
 import type { StudentMistake } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   mistake: StudentMistake
@@ -121,7 +122,7 @@ watch(() => props.mistake.id, () => {
 })
 
 function subjectName(value: string) {
-  const labels: Record<string, string> = { math: '数学', english: '英语作文', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物' }
+  const labels: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物' }
   return labels[value] || value || '其他学科'
 }
 function safe(value: string) { return sanitizeStudentCopy(value) }
@@ -160,14 +161,14 @@ async function sendQuestion() {
 </script>
 
 <style scoped>
-.mistake-reference-line { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; align-items: start; margin: 9px 0; color: #7c8478; font-size: 12px; }
-.mistake-reference-line p { margin: 0; color: #596257; white-space: pre-wrap; overflow-wrap: anywhere; }
-.mistake-reference-line.correction p { color: #4f7658; }
-.mistake-point-summary-detail-head span { color: #879084; }
-.mistake-point-summary-detail-head strong { color: #547258; }
-.mistake-point-summary-markdown { margin-top: 10px; color: #768073; font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+.mistake-reference-line { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; align-items: start; margin: 9px 0; color: var(--text-3); font-size: 12px; }
+.mistake-reference-line p { margin: 0; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mistake-reference-line.correction p { color: var(--green); }
+.mistake-point-summary-detail-head span { color: var(--text-3); }
+.mistake-point-summary-detail-head strong { color: var(--green); }
+.mistake-point-summary-markdown { margin-top: 10px; color: var(--text-2); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
 .mistake-point-summary-markdown p { margin: 0; }
-.mistake-capture-image-link { display: inline-block; margin: 6px 0 10px; color: #55765c; font-size: 12px; font-weight: 600; text-decoration: none; }
+.mistake-capture-image-link { display: inline-flex; align-items: center; gap: 3px; margin: 6px 0 10px; color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
 .mistake-point-transcript { overflow-y: auto; }
 .mistake-point-message p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mistake-point-composer textarea { resize: vertical; }

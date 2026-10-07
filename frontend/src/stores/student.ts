@@ -30,6 +30,9 @@ export const useStudentStore = defineStore('student', {
   state: () => ({
     /** 作业列表页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
     assignmentDateFilter: '',
+    /** 提醒未读数（v0.8.2）：单一事实来源——App.vue 路由变化时刷新、RightRail 读写后回写，
+     *  右栏收起态的提醒 FAB 角标直接读这里，不再靠 RightRail 的 emit 传递 */
+    unreadCount: 0,
     /** 会话区状态（v0.6.2）：左侧栏会话导航与对话页共用同一份 */
     sessions: [] as ChatSession[],
     activeSessionId: null as number | null,
@@ -257,17 +260,32 @@ export const useStudentStore = defineStore('student', {
       this.sessionsLoaded = false
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
-    // 3.17 我的提醒列表（v0.3.0）：最近 30 条倒序 + 未读数
+    /** 退出登录时重置提醒未读数（v0.8.2），避免换人登录后角标残留 */
+    resetUnread() {
+      this.unreadCount = 0
+    },
+    /** 刷新未读数（v0.8.2）：只取计数不取列表，进任意学生页面时由 App.vue 调用 */
+    async refreshUnread() {
+      try {
+        const res = await this.fetchNotifications()
+        this.unreadCount = res.unread_count
+      } catch (e) {
+        console.error(e)
+      }
+    },
+    // 3.17 我的提醒列表（v0.3.0）：最近 30 条倒序 + 未读数（v0.8.2 起同步回写 unreadCount）
     async fetchNotifications(): Promise<NotificationList> {
       const { data } = await api.get<NotificationList>('/api/student/notifications')
+      this.unreadCount = data.unread_count
       return data
     },
-    // 3.18 提醒标已读（v0.3.0）：ids 不传 = 全部标已读
+    // 3.18 提醒标已读（v0.3.0）：ids 不传 = 全部标已读（v0.8.2 起同步回写 unreadCount）
     async markNotificationsRead(ids?: number[]): Promise<{ updated: number; unread_count: number }> {
       const { data } = await api.post<{ updated: number; unread_count: number }>(
         '/api/student/notifications/read',
         ids && ids.length ? { ids } : {}
       )
+      this.unreadCount = data.unread_count
       return data
     },
     // 3.19 创建二次验证（v0.4.0）：为某知识点生成一道变式题，已有未完成的直接复用

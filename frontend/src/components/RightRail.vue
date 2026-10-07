@@ -72,9 +72,10 @@ const props = defineProps<{
   mode: 'notes' | 'calendar'
 }>()
 
-const emit = defineEmits<{
+// v0.8.2：未读数改由 student store 持有（fetchNotifications / markNotificationsRead 内部回写），
+// 本组件不再 emit unread-change；FAB 角标与本栏的未读徽标读同一份 store 状态。
+defineEmits<{
   (e: 'close'): void
-  (e: 'unread-change', count: number): void
 }>()
 
 const auth = useAuthStore()
@@ -110,7 +111,6 @@ async function loadNotes() {
     const res = await student.fetchNotifications()
     notes.value = res.items
     unread.value = res.unread_count
-    emit('unread-change', unread.value)
   } catch (e) {
     console.error(e)
   }
@@ -171,7 +171,6 @@ async function openNote(n: NotificationItem) {
       const res = await student.markNotificationsRead([n.id])
       n.is_read = true
       unread.value = res.unread_count
-      emit('unread-change', unread.value)
     } catch (e) {
       console.error(e)
     }
@@ -184,7 +183,6 @@ async function markAllRead() {
     const res = await student.markNotificationsRead()
     notes.value.forEach((n) => (n.is_read = true))
     unread.value = res.unread_count
-    emit('unread-change', unread.value)
   } catch (e) {
     console.error(e)
   }

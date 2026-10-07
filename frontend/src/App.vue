@@ -3,12 +3,16 @@
        - 学生主页等普通页 → 只放便利贴提醒（mode=notes）
        - 学生/教师作业列表页 → 只放日历（mode=calendar，与列表筛选联动）
        - 教师其他页面 → 不挂右栏
-     右栏可收起：收起后内容区右上角出现悬浮按钮，图标随场景变
-     （notes=邮件+未读角标；calendar=日历图标无角标），点它重新展开；
-     展开状态存 localStorage（remedi-rail-open），首次默认展开，移动端默认收起（抽屉式）。
+     右栏可收起：收起后内容区右上角出现场景专属悬浮按钮（notes=信封形 notes-fab + 未读角标，
+     未读数读 student store；calendar=日历形 cal-fab，无角标），点它重新展开；
+     展开状态按场景分键存 localStorage（remedi-rail-open-notes / remedi-rail-open-calendar），
+     首次默认展开，移动端默认收起（抽屉式）。
      v0.6.2：双端对话页时左侧栏主导航下方多一段会话区（SidebarSessions，ChatGPT 式：
      新对话按钮 + 按今天/昨天/更早分组的会话列表）；左侧栏本身可收起（品牌行收起按钮，
      状态存 remedi-sidebar-open，收起后内容区左上角悬浮展开按钮；移动端沿用抽屉不受影响）。
+     v0.8.2：全局侧栏成为双端唯一侧栏（学生对话页不再自带页内侧栏，统一走这里：
+     会话区双端都挂 SidebarSessions、收起机制全角色一致）；未读数改由 student store 持有，
+     进入学生任何页面（路由变化）时刷新一次。
      未登录只渲染登录页。 -->
 <template>
   <!-- 未登录：仅登录页 -->
@@ -26,7 +30,7 @@
     </header>
     <div v-if="sidebarOpen" class="sidebar-mask" @click="sidebarOpen = false"></div>
 
-    <aside class="app-sidebar" :class="{ open: sidebarOpen, collapsed: auth.role === 'teacher' && sidebarCollapsed, 'student-chat-route-hidden': isStudentChatRoute }">
+    <aside class="app-sidebar" :class="{ open: sidebarOpen, collapsed: sidebarCollapsed }">
       <div class="sidebar-brand-row">
         <span class="brand-badge"><BrandLogo :size="25" /></span>
         <div>
@@ -34,7 +38,6 @@
           <div class="brand-sub">{{ auth.role === 'teacher' ? '教师端 · 班级诊断' : '智能作业诊断' }}</div>
         </div>
         <button
-          v-if="auth.role === 'teacher'"
           class="icon-btn sidebar-collapse-btn"
           title="收起侧栏"
           @click="setSidebarCollapsed(true)"
@@ -51,7 +54,6 @@
           :data-label="item.label"
           :title="item.label"
           :aria-label="item.label"
-          :class="{ active: item.to === '/student/feedback' && route.path === '/student/diagnosis' }"
           :active-class="item.exact ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
         >
@@ -59,9 +61,9 @@
         </router-link>
       </nav>
 
-      <!-- 会话区（v0.6.2）：仅双端对话页出现，随侧栏一起收起/展开 -->
-      <!-- 学生对话页自带会话导航，教师对话页复用全局侧栏会话组件。 -->
-      <SidebarSessions v-if="isChatRoute && auth.role === 'teacher'" @navigate="sidebarOpen = false" />
+      <!-- 会话区（v0.6.2；v0.8.2 起双端统一）：仅双端对话页出现，随侧栏一起收起/展开；
+           移动端抽屉打开时同样带会话区（组件随侧栏挂载自然获得） -->
+      <SidebarSessions v-if="isChatRoute" @navigate="sidebarOpen = false" />
 
       <div class="sidebar-user">
         <span class="user-avatar">{{ avatarLetter }}</span>
@@ -81,9 +83,9 @@
       <router-view />
     </main>
 
-    <!-- 侧栏收起态入口（v0.6.2，桌面端）：内容区左上角悬浮展开按钮 -->
+    <!-- 侧栏收起态入口（v0.6.2，桌面端；v0.8.2 起全角色）：内容区左上角悬浮展开按钮 -->
     <button
-      v-if="auth.role === 'teacher' && sidebarCollapsed"
+      v-if="sidebarCollapsed"
       class="sidebar-expand-fab"
       title="展开侧栏"
       @click="setSidebarCollapsed(false)"
@@ -101,26 +103,35 @@
       <RightRail
         :mode="railMode === 'calendar' ? 'calendar' : 'notes'"
         @close="setRail(false)"
-        @unread-change="unreadCount = $event"
       />
     </aside>
 
-    <!-- 收起态入口：图标随场景变（提醒场景=邮件+未读角标；日历场景=日历图标） -->
+    <!-- 右栏收起态入口（v0.8.2）：两场景各有专属按钮与类名，不再共用一个按钮换图标。
+         提醒场景=信封形 notes-fab（未读角标读 student store，有未读时轻晃）；
+         日历场景=日历形 cal-fab（中性色、无角标）。层级见 style.css 的 z-index 梳理注释。 -->
     <button
-      v-if="railMode !== 'none' && !railOpen"
-      class="mail-fab"
-      :class="{ 'has-unread': railMode === 'notes' && unreadCount > 0 }"
-      :title="railMode === 'notes' ? '打开提醒' : '打开日历'"
+      v-if="railMode === 'notes' && !railOpen"
+      class="notes-fab"
+      :class="{ 'has-unread': student.unreadCount > 0 }"
+      title="打开提醒"
       @click="setRail(true)"
     >
-      <AppIcon :name="railMode === 'notes' ? 'mail' : 'calendar'" :size="20" />
-      <span v-if="railMode === 'notes' && unreadCount > 0" :key="unreadCount" class="mail-badge">{{ unreadCount }}</span>
+      <AppIcon name="mail" :size="20" />
+      <span v-if="student.unreadCount > 0" :key="student.unreadCount" class="notes-badge">{{ student.unreadCount }}</span>
+    </button>
+    <button
+      v-else-if="railMode === 'calendar' && !railOpen"
+      class="cal-fab"
+      title="打开日历"
+      @click="setRail(true)"
+    >
+      <AppIcon name="calendar" :size="20" />
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useStudentStore } from './stores/student'
@@ -132,6 +143,7 @@ import RightRail from './components/RightRail.vue'
 import SidebarSessions from './components/SidebarSessions.vue'
 
 const auth = useAuthStore()
+const student = useStudentStore()
 const router = useRouter()
 const route = useRoute()
 const sidebarOpen = ref(false)
@@ -172,7 +184,7 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/assignments', icon: 'clipboard', label: '作业列表' },
   { to: '/student/submit', icon: 'edit', label: '交作业' },
-  { to: '/student/feedback', icon: 'book', label: '错题本' },
+  { to: '/student/mistakes', icon: 'book', label: '错题本' },
   { to: '/student/report', icon: 'chart', label: '学习报告' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
   { to: '/student/profile', icon: 'user', label: '我的档案' }
@@ -191,7 +203,6 @@ const TEACHER_NAV: NavItem[] = [
 ]
 
 const navItems = computed<NavItem[]>(() => (auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV))
-const isStudentChatRoute = computed(() => auth.role === 'student' && route.path === '/student/chat')
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------
@@ -205,29 +216,51 @@ const railMode = computed<RailMode>(() => {
   return route.path === '/student/assignments' ? 'calendar' : 'notes'
 })
 
-// ---------- 右侧栏展开状态：localStorage 记忆，首次默认展开（窄屏默认收起） ----------
-const RAIL_KEY = 'remedi-rail-open'
-function initRail(): boolean {
+// ---------- 右侧栏展开状态（v0.8.2）：按场景分键存 localStorage，互不串扰 ----------
+// notes 与 calendar 各记各的展开状态；切换场景（路由变化）时读入该场景的记忆值。
+// 首次默认展开（窄屏默认收起）。旧的单键 remedi-rail-open 自 v0.8.2 起不再读写。
+const RAIL_KEYS = {
+  notes: 'remedi-rail-open-notes',
+  calendar: 'remedi-rail-open-calendar'
+} as const
+function railDefaultOpen(): boolean {
+  return window.innerWidth >= 1200
+}
+function initRailFor(mode: 'notes' | 'calendar'): boolean {
   try {
-    const saved = localStorage.getItem(RAIL_KEY)
+    const saved = localStorage.getItem(RAIL_KEYS[mode])
     if (saved === '1') return true
     if (saved === '0') return false
   } catch {
     /* localStorage 不可用时走默认 */
   }
-  return window.innerWidth >= 1200
+  return railDefaultOpen()
 }
-const railOpen = ref(initRail())
-const unreadCount = ref(0)
+const railOpen = ref(railDefaultOpen())
+watch(railMode, (mode) => {
+  if (mode !== 'none') railOpen.value = initRailFor(mode)
+}, { immediate: true })
 
 function setRail(open: boolean) {
   railOpen.value = open
+  const mode = railMode.value
+  if (mode === 'none') return
   try {
-    localStorage.setItem(RAIL_KEY, open ? '1' : '0')
+    localStorage.setItem(RAIL_KEYS[mode], open ? '1' : '0')
   } catch {
     /* 忽略写入失败 */
   }
 }
+
+// ---------- 未读数刷新（v0.8.2）：学生进入任何页面（路由变化）时刷新一次 ----------
+// 未读数由 student store 持有，RightRail 读/写后同步回写，FAB 角标直接读 store。
+watch(
+  () => route.path,
+  () => {
+    if (auth.role === 'student') void student.refreshUnread()
+  },
+  { immediate: true }
+)
 
 function logout() {
   // 退出时清掉双端的日历日期筛选与会话区状态，避免换人登录后残留旧状态
@@ -235,6 +268,15 @@ function logout() {
   useTeacherStore().setAssignmentDateFilter('')
   useStudentStore().clearSessionState()
   useTeacherStore().clearSessionState()
+  // v0.8.2：重置右栏展开态（回默认并清掉分键记忆）与未读数，避免换人登录后残留
+  railOpen.value = railDefaultOpen()
+  try {
+    localStorage.removeItem(RAIL_KEYS.notes)
+    localStorage.removeItem(RAIL_KEYS.calendar)
+  } catch {
+    /* 忽略清理失败 */
+  }
+  student.resetUnread()
   auth.logout()
   router.push('/')
 }
