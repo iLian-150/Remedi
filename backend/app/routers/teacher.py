@@ -15,6 +15,7 @@ from ..schemas import (
     AgentChatIn,
     AgentChatOut,
     AgentHistoryItem,
+    ChatSessionOut,
     ClassRepairRateOut,
     ErrorCorrectIn,
     KnowledgePointRankItem,
@@ -323,11 +324,22 @@ _WORKBOOK_MAX_BYTES = 30 * 1024 * 1024
 _WORKBOOK_SUBDIR = "workbooks"
 
 
-def _workbook_out(w: Workbook) -> WorkbookOut:
+def _workbook_out(w: Workbook, with_cover: bool = False) -> WorkbookOut:
+    """练习册出参；with_cover 时走 services.covers 的懒生成（封面缺失补渲染一次）。"""
+    cover = None
+    if with_cover:
+        from ..services.covers import ensure_cover
+
+        cover = ensure_cover(w.id, w.file_path)
+    else:
+        from ..services.covers import cover_url
+
+        cover = cover_url(w.id)
     return WorkbookOut(
         id=w.id,
         title=w.title,
         file_url=f"/api/uploads/{w.file_path}",
+        cover_url=cover,
         created_at=w.created_at,
     )
 
@@ -363,6 +375,10 @@ async def upload_workbook(file: UploadFile = File(...),
     db.add(w)
     db.commit()
     db.refresh(w)
+    # v0.6.0：上传成功后尝试把 PDF 第一页渲染成封面图（失败静默跳过，前端用书脊兜底）
+    from ..services.covers import generate_cover
+
+    generate_cover(w.id, os.path.join(settings.UPLOAD_DIR, w.file_path))
     return _workbook_out(w)
 
 
@@ -374,7 +390,7 @@ def list_workbooks(db: Session = Depends(get_db), current: User = Depends(requir
         .order_by(Workbook.created_at.desc(), Workbook.id.desc())
         .all()
     )
-    return {"total": len(rows), "items": [_workbook_out(w) for w in rows]}
+    return {"total": len(rows), "items": [_workbook_out(w, with_cover=True) for w in rows]}
 
 
 @router.delete("/workbooks/{workbook_id}", summary="删除练习册")
@@ -395,26 +411,86 @@ def delete_workbook(workbook_id: int, db: Session = Depends(get_db),
         os.remove(os.path.join(settings.UPLOAD_DIR, w.file_path))
     except OSError:
         pass  # 文件已不在磁盘上时不阻塞删除元信息
+    try:
+        from ..services.covers import cover_file_path
+
+        os.remove(cover_file_path(w.id))
+    except OSError:
+        pass  # 无封面图时忽略（v0.6.0 起顺带清封面文件）
     db.delete(w)
     db.commit()
     return {"deleted": True}
 
 
-# ---------- 教师 AI 助手（v0.5.0 新增，LangGraph；与学生端同图结构、工具换班级数据） ----------
+# ---------- 教师 AI 助手（v0.5.0 新增，LangGraph；v0.6.0 改会话制，口径与学生端一致） ----------
 
 _AGENT_MSG_MAX = 2000
 _AGENT_HISTORY_WINDOW = 20
 _AGENT_HISTORY_RETURN = 50
 
 
+@router.get("/agent/sessions", response_model=List[ChatSessionOut], summary="教师对话会话列表（v0.6.0 新增）")
+def teacher_agent_sessions(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    """历史对话列表：按最近更新倒序，含消息数。首次访问触发旧 chat_messages 迁移。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    return cs.list_sessions(db, current)
+
+
+@router.post("/agent/sessions", response_model=ChatSessionOut, summary="新建教师对话会话（v0.6.0 新增）")
+def teacher_agent_create_session(db: Session = Depends(get_db),
+                                 current: User = Depends(require_teacher)):
+    """新建一条空会话并成为当前会话（标题先给「新对话」，首条消息到达时自动改标题）。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    s = cs.create_session(db, current)
+    return {"id": s.id, "title": s.title, "created_at": s.created_at,
+            "updated_at": s.updated_at, "message_count": 0}
+
+
+@router.get("/agent/sessions/{session_id}/messages", response_model=List[AgentHistoryItem],
+            summary="某会话的全部消息（v0.6.0 新增）")
+def teacher_agent_session_messages(session_id: int, db: Session = Depends(get_db),
+                                   current: User = Depends(require_teacher)):
+    """会话内全部消息时间正序；会话不存在或不是本人的统一 404。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    session = cs.get_own_session(db, current, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    return [
+        {"role": m.role, "content": m.content, "created_at": m.created_at}
+        for m in cs.session_messages(db, session)
+    ]
+
+
+@router.delete("/agent/sessions/{session_id}", summary="删除一条教师对话会话（v0.6.0 新增）")
+def teacher_agent_delete_session(session_id: int, db: Session = Depends(get_db),
+                                 current: User = Depends(require_teacher)):
+    """删除本人的一条会话及其全部消息；不存在或不是本人的统一 404。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    if not cs.delete_session(db, current, session_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    return {"deleted": True}
+
+
 @router.post("/agent/chat", response_model=AgentChatOut, summary="与班级数据助理对话")
 def teacher_agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
                        current: User = Depends(require_teacher)):
-    """教师端自由对话：取最近 20 条历史组上下文 → 跑教师 Agent 图（或规则兜底）
-    → 两条消息落 chat_messages（user_id 区分身份）→ 返回回复。LLM 异常已在 Agent 层降级。"""
+    """教师端自由对话（v0.6.0 会话制）：解析目标会话（body.session_id 指定 /
+    缺省取当前会话，没有则自动新建）→ 只取该会话最近 20 条组上下文 → 跑教师
+    Agent 图（或规则兜底）→ 两条消息写入该会话 → 返回回复 + 建议追问。
+    会话间上下文隔离；LLM 异常已在 Agent 层降级，不会 500。"""
     from langchain_core.messages import AIMessage, HumanMessage
 
-    from ..agent.teacher_graph import teacher_agent_reply
+    from ..agent.suggestions import teacher_suggestions
+    from ..agent.teacher_graph import teacher_agent_reply_full
+    from ..services import chat_sessions as cs
 
     text = body.message.strip()
     if not text:
@@ -422,50 +498,57 @@ def teacher_agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
     if len(text) > _AGENT_MSG_MAX:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
 
-    rows = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == current.id)
-        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
-        .limit(_AGENT_HISTORY_WINDOW)
-        .all()
-    )
+    cs.ensure_migrated(db, current)
+    if body.session_id is not None:
+        session = cs.get_own_session(db, current, body.session_id)
+        if session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    else:
+        session = cs.get_or_create_current(db, current)
+
+    rows = cs.session_messages(db, session, limit=_AGENT_HISTORY_WINDOW)
     history = [
         HumanMessage(content=r.content) if r.role == "user" else AIMessage(content=r.content)
-        for r in reversed(rows)
+        for r in rows
     ]
-    reply = teacher_agent_reply(db, current, history, text)
+    result = teacher_agent_reply_full(db, current, history, text)
+    reply = result["reply"]
 
-    db.add(ChatMessage(user_id=current.id, role="user", content=text))
-    db.add(ChatMessage(user_id=current.id, role="assistant", content=reply))
-    db.commit()
-    return {"reply": reply}
+    cs.append_message(db, session, "user", text)
+    cs.append_message(db, session, "assistant", reply)
+    return {
+        "reply": reply,
+        "suggestions": teacher_suggestions(text, result.get("tools_used")),
+        "session_id": session.id,
+    }
 
 
 @router.get("/agent/history", response_model=List[AgentHistoryItem], summary="教师对话历史")
 def teacher_agent_history(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    rows = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == current.id)
-        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
-        .limit(_AGENT_HISTORY_RETURN)
-        .all()
-    )
+    """兼容旧用法：返回「当前会话」最近 50 条消息（v0.6.0 起按会话隔离）。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    session = cs.current_session(db, current)
+    if session is None:
+        return []
     return [
-        AgentHistoryItem(role=r.role, content=r.content, created_at=r.created_at)
-        for r in reversed(rows)
+        AgentHistoryItem(role=m.role, content=m.content, created_at=m.created_at)
+        for m in cs.session_messages(db, session, limit=_AGENT_HISTORY_RETURN)
     ]
 
 
-@router.post("/agent/new-session", summary="开始新对话（清空教师对话记录，v0.5.0 新增）")
+@router.post("/agent/new-session", response_model=ChatSessionOut, summary="开始新对话（v0.6.0 改为新建会话）")
 def teacher_agent_new_session(db: Session = Depends(get_db),
                               current: User = Depends(require_teacher)):
-    cleared = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == current.id)
-        .delete(synchronize_session=False)
-    )
-    db.commit()
-    return {"cleared_count": cleared}
+    """「新对话」（v0.6.0 语义变更）：新建一条会话并设为当前，旧会话保留在历史
+    列表里可找回（取代 v0.5.0 的物理删除口径，不再删任何东西）。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    s = cs.create_session(db, current)
+    return {"id": s.id, "title": s.title, "created_at": s.created_at,
+            "updated_at": s.updated_at, "message_count": 0}
 
 
 # ---------- 拍照识别题目（v0.2.1 新增） ----------

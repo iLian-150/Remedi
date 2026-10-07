@@ -384,6 +384,7 @@ class WorkbookOut(BaseModel):
     id: int
     title: str
     file_url: str                 # /api/uploads/workbooks/<文件名>，可直接打开 PDF
+    cover_url: Optional[str] = None  # v0.6.0 新增：PDF 首页封面图（/api/uploads/covers/<id>.jpg），无封面为 null
     created_at: datetime
 
 
@@ -396,16 +397,28 @@ class RemindOut(BaseModel):
 class AgentChatIn(BaseModel):
     # 长度上限在接口层手动校验并返回 400（契约约定），故此处只做非空约束
     message: str = Field(min_length=1)
+    session_id: Optional[int] = None  # v0.6.0 新增：指定写入的会话；不传 = 当前会话（没有则自动新建）
 
 
 class AgentChatOut(BaseModel):
     reply: str
+    suggestions: List[str] = []   # v0.6.0 新增：本轮回复后的建议追问（最多 3 条，规则映射生成）
+    session_id: Optional[int] = None  # v0.6.0 新增：本条消息实际写入的会话 id
 
 
 class AgentHistoryItem(BaseModel):
     role: str                     # user | assistant
     content: str
     created_at: datetime
+
+
+class ChatSessionOut(BaseModel):
+    """对话会话（v0.6.0 新增）：历史对话列表用。"""
+    id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
 
 
 # ---------- 站内提醒（v0.3.0 新增） ----------

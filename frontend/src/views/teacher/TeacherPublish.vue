@@ -64,6 +64,22 @@
         </div>
         <input ref="wbFileRef" type="file" accept="application/pdf" hidden @change="onWorkbookFile" />
         <p class="hint" style="margin-top: 6px">把整本练习册的 PDF 传进知识库，以后发布线下作业直接选，不用重复上传（单个文件 ≤30MB）。</p>
+        <!-- 练习册封面缩略图条（v0.6.0）：点封面直接选中，与上方下拉同步 -->
+        <div v-if="workbooks.length" class="wb-strip">
+          <button
+            v-for="w in workbooks"
+            :key="w.id"
+            type="button"
+            class="wb-thumb"
+            :class="{ active: Number(workbookId) === w.id }"
+            :title="w.title"
+            @click="workbookId = w.id"
+          >
+            <img v-if="w.cover_url" :src="w.cover_url" :alt="w.title" />
+            <span v-else class="wb-thumb-spine"><AppIcon name="book" :size="18" /></span>
+            <span class="wb-thumb-name">{{ w.title }}</span>
+          </button>
+        </div>
       </div>
       <div class="form-row">
         <label>页码 / 题号范围</label>
@@ -140,13 +156,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignmentInput, Workbook } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
 const router = useRouter()
+const route = useRoute()
 
 interface QuestionForm {
   prompt: string
@@ -364,7 +381,17 @@ async function submit() {
   }
 }
 
-onMounted(loadWorkbooks)
+onMounted(async () => {
+  await loadWorkbooks()
+  // 从「我的练习」书架跳入时预选（v0.6.0）：?mode=offline&workbook_id=<id>
+  if (route.query.mode === 'offline') {
+    mode.value = 'offline'
+    const wid = Number(route.query.workbook_id)
+    if (wid && workbooks.value.some((w) => w.id === wid)) {
+      workbookId.value = wid
+    }
+  }
+})
 </script>
 
 <style scoped>
@@ -390,6 +417,26 @@ onMounted(loadWorkbooks)
 .wb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .wb-row select { flex: 1 1 220px; width: auto; }
 .wb-row a.btn { text-decoration: none; }
+/* 练习册封面缩略图条（v0.6.0） */
+.wb-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.wb-thumb {
+  width: 76px; padding: 6px 6px 5px; cursor: pointer; font-family: var(--font); color: var(--text);
+  background: #fff; border: 2px solid #E4E9F2; border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.wb-thumb:hover { transform: translateY(-1px); }
+.wb-thumb.active { border-color: var(--primary); background: var(--primary-50); }
+.wb-thumb img { width: 44px; height: 59px; object-fit: cover; border-radius: 2px 4px 4px 2px; box-shadow: 0 3px 7px rgba(15, 23, 42, 0.2); }
+.wb-thumb-spine {
+  width: 44px; height: 59px; border-radius: 2px 4px 4px 2px;
+  background: var(--primary-50); color: var(--primary);
+  display: flex; align-items: center; justify-content: center;
+}
+.wb-thumb-name {
+  font-size: 11px; line-height: 1.3; max-width: 64px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .btn.danger-outline { background: #fff; color: var(--red); border: 1px solid #FECACA; }
 .btn.danger-outline:hover { background: var(--red-bg); }
 .offline-photo-card { border: 1px dashed #B7C9F5; background: #FBFCFF; }

@@ -16,6 +16,7 @@ from ..schemas import (
     AgentChatIn,
     AgentChatOut,
     AgentHistoryItem,
+    ChatSessionOut,
     AssignmentDetail,
     BriefingOut,
     CorrectionCreate,
@@ -385,21 +386,84 @@ async def photo_transcribe(file: UploadFile = File(...),
     }
 
 
-# ---------- 主页 Agent 对话（v0.3.0 新增，LangGraph） ----------
+# ---------- 主页 Agent 对话（v0.3.0 新增，LangGraph；v0.6.0 改会话制） ----------
+# v0.6.0 口径：对话按「会话」组织——新对话 = 新建一条会话（不再物理删除），
+# 旧会话在历史列表里可找回、可单独删除。旧 chat_messages 数据首次访问时
+# 自动迁移成一条「之前的对话」会话（见 services/chat_sessions.ensure_migrated）。
 
 _AGENT_MSG_MAX = 2000
-_AGENT_HISTORY_WINDOW = 20   # 组上下文时取最近 N 条
-_AGENT_HISTORY_RETURN = 50   # history 接口返回最近 N 条
+_AGENT_HISTORY_WINDOW = 20   # 组上下文时取当前会话最近 N 条
+_AGENT_HISTORY_RETURN = 50   # history 接口返回当前会话最近 N 条
+
+
+def _session_out(s) -> dict:
+    return {
+        "id": s["id"], "title": s["title"], "created_at": s["created_at"],
+        "updated_at": s["updated_at"], "message_count": s["message_count"],
+    }
+
+
+@router.get("/agent/sessions", response_model=List[ChatSessionOut], summary="我的对话会话列表（v0.6.0 新增）")
+def agent_sessions(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    """历史对话列表：按最近更新倒序，含每条会话的消息数。首次访问触发旧记录迁移。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    return [_session_out(s) for s in cs.list_sessions(db, current)]
+
+
+@router.post("/agent/sessions", response_model=ChatSessionOut, summary="新建对话会话（v0.6.0 新增）")
+def agent_create_session(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    """新建一条空会话并成为当前会话（标题先给「新对话」，首条消息到达时自动改标题）。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    s = cs.create_session(db, current)
+    return {"id": s.id, "title": s.title, "created_at": s.created_at,
+            "updated_at": s.updated_at, "message_count": 0}
+
+
+@router.get("/agent/sessions/{session_id}/messages", response_model=List[AgentHistoryItem],
+            summary="某会话的全部消息（v0.6.0 新增）")
+def agent_session_messages(session_id: int, db: Session = Depends(get_db),
+                           current: User = Depends(require_student)):
+    """会话内全部消息时间正序；会话不存在或不是本人的统一 404。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    session = cs.get_own_session(db, current, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    return [
+        {"role": m.role, "content": m.content, "created_at": m.created_at}
+        for m in cs.session_messages(db, session)
+    ]
+
+
+@router.delete("/agent/sessions/{session_id}", summary="删除一条对话会话（v0.6.0 新增）")
+def agent_delete_session(session_id: int, db: Session = Depends(get_db),
+                         current: User = Depends(require_student)):
+    """删除本人的一条会话及其全部消息；不存在或不是本人的统一 404。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    if not cs.delete_session(db, current, session_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    return {"deleted": True}
 
 
 @router.post("/agent/chat", response_model=AgentChatOut, summary="与学习助手对话")
 def agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
                current: User = Depends(require_student)):
-    """学生主页自由对话：取最近 20 条历史组上下文 → 跑 Agent 图（或规则兜底）
-    → 用户与助手两条消息都落库 → 返回助手回复。LLM 异常在 Agent 层已降级，不会 500。"""
+    """学生主页自由对话（v0.6.0 会话制）：解析目标会话（body.session_id 指定 /
+    缺省取当前会话，没有则自动新建）→ 只取该会话最近 20 条组上下文 → 跑 Agent 图
+    （或规则兜底）→ 两条消息写入该会话 → 返回回复 + 建议追问。会话间上下文隔离。
+    LLM 异常在 Agent 层已降级，不会 500。"""
     from langchain_core.messages import AIMessage, HumanMessage
 
-    from ..agent.graph import agent_reply
+    from ..agent.graph import agent_reply_full
+    from ..agent.suggestions import student_suggestions
+    from ..services import chat_sessions as cs
 
     text = body.message.strip()
     if not text:
@@ -407,50 +471,56 @@ def agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
     if len(text) > _AGENT_MSG_MAX:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
 
-    rows = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == current.id)
-        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
-        .limit(_AGENT_HISTORY_WINDOW)
-        .all()
-    )
+    cs.ensure_migrated(db, current)
+    if body.session_id is not None:
+        session = cs.get_own_session(db, current, body.session_id)
+        if session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    else:
+        session = cs.get_or_create_current(db, current)
+
+    rows = cs.session_messages(db, session, limit=_AGENT_HISTORY_WINDOW)
     history = [
         HumanMessage(content=r.content) if r.role == "user" else AIMessage(content=r.content)
-        for r in reversed(rows)
+        for r in rows
     ]
-    reply = agent_reply(db, current, history, text)
+    result = agent_reply_full(db, current, history, text)
+    reply = result["reply"]
 
-    db.add(ChatMessage(user_id=current.id, role="user", content=text))
-    db.add(ChatMessage(user_id=current.id, role="assistant", content=reply))
-    db.commit()
-    return {"reply": reply}
+    cs.append_message(db, session, "user", text)
+    cs.append_message(db, session, "assistant", reply)
+    return {
+        "reply": reply,
+        "suggestions": student_suggestions(text, result.get("tools_used")),
+        "session_id": session.id,
+    }
 
 
 @router.get("/agent/history", response_model=List[AgentHistoryItem], summary="我的对话历史")
 def agent_history(db: Session = Depends(get_db), current: User = Depends(require_student)):
-    rows = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == current.id)
-        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
-        .limit(_AGENT_HISTORY_RETURN)
-        .all()
-    )
+    """兼容旧用法：返回「当前会话」最近 50 条消息（v0.6.0 起按会话隔离）。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    session = cs.current_session(db, current)
+    if session is None:
+        return []
     return [
-        {"role": r.role, "content": r.content, "created_at": r.created_at}
-        for r in reversed(rows)
+        {"role": m.role, "content": m.content, "created_at": m.created_at}
+        for m in cs.session_messages(db, session, limit=_AGENT_HISTORY_RETURN)
     ]
 
 
-@router.post("/agent/new-session", summary="开始新对话（清空我的对话记录，v0.5.0 新增）")
+@router.post("/agent/new-session", response_model=ChatSessionOut, summary="开始新对话（v0.6.0 改为新建会话）")
 def agent_new_session(db: Session = Depends(get_db), current: User = Depends(require_student)):
-    """「新对话」：删除本人在 chat_messages 的全部记录，前端对话区随之重置。"""
-    cleared = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == current.id)
-        .delete(synchronize_session=False)
-    )
-    db.commit()
-    return {"cleared_count": cleared}
+    """「新对话」（v0.6.0 语义变更）：新建一条会话并设为当前，旧会话保留在历史
+    列表里可找回（取代 v0.5.0 的物理删除口径，不再删任何东西）。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    s = cs.create_session(db, current)
+    return {"id": s.id, "title": s.title, "created_at": s.created_at,
+            "updated_at": s.updated_at, "message_count": 0}
 
 
 # ---------- 站内提醒（v0.3.0 新增） ----------
