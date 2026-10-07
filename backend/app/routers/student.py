@@ -67,6 +67,7 @@ from ..schemas import (
     VerificationSubmitOut,
 )
 from ..services import variant_gen
+from ..services import reviews as review_svc
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
@@ -79,6 +80,28 @@ from ..services.stats import (
 )
 
 router = APIRouter(prefix="/api/student", tags=["student"])
+
+
+# ---------- 教师审核可见性（v0.9.0）：学生侧统一出口 ----------
+# AI 批改完先过教师审核：pending 的提交对学生只返回占位（status=pending_review），
+# 不含 steps/errors 等任何诊断结论；无审核行的历史/种子提交视为 approved 全量可见。
+
+def present_for_student(submission: Submission, db: Session) -> dict:
+    """学生侧诊断出参（提交/详情/拍照批改共用）：待审核 → 占位；已通过 → 完整诊断。"""
+    if review_svc.review_status(db, submission.id) == review_svc.PENDING:
+        return {
+            "submission_id": submission.id,
+            "question_id": submission.question_id,
+            "status": "pending_review",
+            "first_error_seq": None,
+            "steps": [],
+            "errors": [],
+            "follow_up_question": None,
+            "review_status": "pending",
+        }
+    out = present_diagnosis(submission, db)
+    out["review_status"] = "approved"
+    return out
 
 
 # ---------- 作业 ----------
@@ -131,7 +154,9 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
     if q.subject != "math":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题是作文题，请使用 /api/student/essays 提交")
     submission, steps, errors = diagnose_submission(db, current, q, data.steps)
-    return present_diagnosis(submission, db)
+    # v0.9.0：新提交先进教师审核队列，学生先看到「待老师审核」占位
+    review_svc.create_pending_review(db, submission)
+    return present_for_student(submission, db)
 
 
 @router.get("/submissions", summary="我的提交记录")
@@ -143,14 +168,18 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
         query = query.filter(Submission.question_id == question_id)
     total = query.count()
     subs = query.order_by(Submission.submitted_at.desc()).offset(offset).limit(limit).all()
+    status_by_id = review_svc.review_status_map(db, [s.id for s in subs])
     items = []
     for s in subs:
-        err_n = db.query(Error).filter(Error.submission_id == s.id).count()
+        rstatus = status_by_id.get(s.id, review_svc.APPROVED)
+        # v0.9.0：待审核的提交不向学生泄露错误数（诊断结论不可见）
+        err_n = 0 if rstatus == review_svc.PENDING else db.query(Error).filter(Error.submission_id == s.id).count()
         items.append(SubmissionBrief(
             id=s.id, question_id=s.question_id,
             question_stem=s.question.stem if s.question else "",
             knowledge_point=s.question.knowledge_point if s.question else "",
             status=s.status, error_count=err_n, submitted_at=s.submitted_at,
+            review_status=rstatus,
         ))
     return {"total": total, "items": items}
 
@@ -163,7 +192,7 @@ def submission_detail(submission_id: int, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
     if s.student_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能查看自己的提交记录")
-    return present_diagnosis(s, db)
+    return present_for_student(s, db)
 
 
 def _mistake_category(subject: str, error_type: str, knowledge_point: str) -> tuple[str, str]:
@@ -225,6 +254,11 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         .order_by(Error.created_at.desc(), Error.id.desc())
         .all()
     )
+    # v0.9.0：待教师审核提交产生的错题先不进错题本（通过后自动出现）；
+    # 学生自助收录的 captures 不走批改管线，不受影响（下方单独拼装）。
+    pending_sub_ids = review_svc.pending_submission_ids(db, current.id)
+    if pending_sub_ids:
+        all_rows = [row for row in all_rows if row[1].id not in pending_sub_ids]
     error_ids = [error.id for error, _, _, _, _ in all_rows]
     archived_at_by_error = {
         item.error_id: item.archived_at
@@ -302,6 +336,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             step_seq=step.seq if step else None,
             step_text=step.text if step else None,
             created_at=error.created_at,
+            submitted_at=submission.submitted_at,
             category_key=category_key,
             category_label=category_label,
             category_studied=(assignment.id, category_key) in reviewed,
@@ -343,6 +378,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             step_seq=None,
             step_text=None,
             created_at=capture.saved_at or capture.created_at,
+            submitted_at=capture.saved_at or capture.created_at,
             category_key=f"student_saved:{capture.id}",
             category_label="自主收录",
             category_studied=True,
@@ -577,6 +613,9 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
     sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
     if not sub or sub.student_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能订正自己的错误")
+    # v0.9.0：所属提交还在等老师审核时，错题对学生不可见，自然也不能订正
+    if review_svc.review_status(db, sub.id) == review_svc.PENDING:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "老师审核通过后就可以订正这道题啦")
     is_correct, note = verify_correction(db, err, body.content.strip())
     c = Correction(error_id=err.id, student_id=current.id,
                    content=body.content.strip(), is_correct=is_correct, note=note)
@@ -633,14 +672,19 @@ def create_verification(body: VerificationCreate, db: Session = Depends(get_db),
         sub = db.query(Submission).filter(Submission.id == err.submission_id).first() if err else None
         if not err or not sub or sub.student_id != current.id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_error_id 不是你的错题记录")
+        # v0.9.0：待审核提交的错题对学生不可见，不能拿来发起验证
+        if review_svc.review_status(db, sub.id) == review_svc.PENDING:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "老师审核通过后就可以来验证啦")
     else:
-        latest = (
+        pending_sub_ids = review_svc.pending_submission_ids(db, current.id)
+        latest_query = (
             db.query(Error)
             .join(Submission, Error.submission_id == Submission.id)
             .filter(Submission.student_id == current.id, Error.knowledge_point == kp)
-            .order_by(Error.created_at.desc(), Error.id.desc())
-            .first()
         )
+        if pending_sub_ids:
+            latest_query = latest_query.filter(~Error.submission_id.in_(pending_sub_ids))
+        latest = latest_query.order_by(Error.created_at.desc(), Error.id.desc()).first()
         source_error_id = latest.id if latest else None
 
     variant = variant_gen.generate_variant(kp)
@@ -714,21 +758,22 @@ def submit_verification(verification_id: int, body: VerificationSubmitIn,
 
 @router.get("/profile", response_model=ProfileOut, summary="我的学习画像")
 def my_profile(db: Session = Depends(get_db), current: User = Depends(require_student)):
-    return student_profile(db, current)
+    # v0.9.0：学生自查口径——待审核提交不计入画像（教师查学生画像仍全量）
+    return student_profile(db, current, visible_only=True)
 
 
 # ---------- 首页简报 / 拍照转写（v0.2.0 新增） ----------
 
 @router.get("/briefing", response_model=BriefingOut, summary="首页待办简报")
 def briefing(db: Session = Depends(get_db), current: User = Depends(require_student)):
-    return student_briefing(db, current)
+    return student_briefing(db, current, visible_only=True)
 
 
 # ---------- 学习报告（v0.2.1 新增）：科目 → 知识点 → 错题时间线 → 步骤诊断 ----------
 
 @router.get("/report", response_model=List[SubjectReportOut], summary="我的学习报告（按科目）")
 def my_report(db: Session = Depends(get_db), current: User = Depends(require_student)):
-    return student_report(db, current)
+    return student_report(db, current, visible_only=True)
 
 
 @router.get(
@@ -738,7 +783,7 @@ def my_report(db: Session = Depends(get_db), current: User = Depends(require_stu
 )
 def my_knowledge_point_errors(kp_name: str, db: Session = Depends(get_db),
                               current: User = Depends(require_student)):
-    return knowledge_point_errors(db, current, kp_name)
+    return knowledge_point_errors(db, current, kp_name, visible_only=True)
 
 
 _PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",
@@ -842,7 +887,9 @@ async def photo_review(
         db.flush()
 
     submission, _, _ = diagnose_submission(db, current, question, steps)
-    diagnosis = present_diagnosis(submission, db)
+    # v0.9.0：拍照批改同样先进教师审核队列，学生先看到待审核占位
+    review_svc.create_pending_review(db, submission)
+    diagnosis = present_for_student(submission, db)
     return {"mode": "diagnosis", "question_text": question_text,
             "steps": steps, "capture_id": None, "diagnosis": diagnosis}
 
@@ -947,7 +994,9 @@ async def photo_diagnose(
         )
 
     submission, _, _ = diagnose_submission(db, current, question, steps)
-    result = present_diagnosis(submission, db)
+    # v0.9.0：原图批改同样先进教师审核队列
+    review_svc.create_pending_review(db, submission)
+    result = present_for_student(submission, db)
     result.update({
         "recognized_question_text": recognition.get("question_text", ""),
         "recognized_steps": steps,
