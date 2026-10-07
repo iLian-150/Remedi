@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..auth import require_teacher
@@ -55,6 +56,7 @@ from ..schemas import (
     WorkbookOut,
 )
 from ..services import reviews as review_svc
+from ..services.answer_check import check_reference_answer
 from ..services.diagnosis import present_diagnosis, present_error
 from ..services.providers import get_provider
 from ..services.stats import (
@@ -270,6 +272,29 @@ def student_profile_view(student_id: int, db: Session = Depends(get_db),
 
 
 # ---------- 发布作业（v0.2.0 新增） ----------
+
+# ---------- 参考答案 AI 验算（v0.9.3 新增） ----------
+
+class AnswerCheckIn(BaseModel):
+    stem: str = Field(min_length=1, max_length=2000)             # 题干
+    reference_answer: str = Field(min_length=1, max_length=2000)  # 教师填写的参考答案
+    knowledge_point: Optional[str] = Field(default=None, max_length=64)
+
+
+class AnswerCheckOut(BaseModel):
+    status: str  # ok（验算无误）| suspect（疑似有误，仅警告）| unknown（无法自动验算）
+    detail: str  # 一句中文说明
+    method: str  # sympy | llm | none
+
+
+@router.post("/questions/check-answer", response_model=AnswerCheckOut,
+             summary="参考答案 AI 验算（v0.9.3 新增）")
+def check_answer(body: AnswerCheckIn, current: User = Depends(require_teacher)):
+    """发布前帮教师验算自己填的参考答案：先走 sympy 代入/求解验算，判不了
+    再问一次 LLM。只警告、永不拦截发布；任何异常都收敛为 unknown 返回。"""
+    result = check_reference_answer(body.stem, body.reference_answer, body.knowledge_point)
+    return AnswerCheckOut(**result)
+
 
 def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
     questions = (
