@@ -19,7 +19,7 @@
         <label>选择一次提交</label>
         <select v-model="selectedSubmissionId" @change="loadMathDetail">
           <option v-for="s in submissions" :key="s.id" :value="s.id">
-            {{ s.question_stem }} · {{ s.error_count ? `发现 ${s.error_count} 个问题` : '全部正确' }} · {{ fmtTime(s.submitted_at) }}
+            {{ s.question_stem }} · {{ s.review_status === 'pending' ? '待老师审核' : s.error_count ? `发现 ${s.error_count} 个问题` : '全部正确' }} · {{ fmtTime(s.submitted_at) }}
           </option>
         </select>
       </div>
@@ -27,7 +27,18 @@
 
     <div v-if="mathLoading" class="loading">加载批改结果中…</div>
 
-    <template v-if="mathDetail">
+    <!-- v0.9.0：待老师审核——诊断还没放行，只显示状态卡 -->
+    <div v-if="mathDetail && mathDetail.status === 'pending_review'" class="card">
+      <div class="review-pending-box">
+        <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
+        <div>
+          <p class="review-pending-title">这份作业已提交，正在等老师审核</p>
+          <p class="review-pending-sub">老师审核通过后你会收到提醒，到时再来这里看分步诊断；有错题也会自动进错题本。</p>
+        </div>
+      </div>
+    </div>
+
+    <template v-if="mathDetail && mathDetail.status !== 'pending_review'">
       <div class="card">
         <h3>分步解析 <span class="badge badge-blue">{{ SUBMISSION_STATUS_TEXT[mathDetail.status] ?? mathDetail.status }}</span></h3>
         <div
@@ -133,6 +144,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px; padding: 13px 15px; }
+.review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
+.review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
+.review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
 .error-item { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #F1F3F6; }
 .error-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .encourage { margin-top: 8px; font-size: 14px; color: var(--text); }

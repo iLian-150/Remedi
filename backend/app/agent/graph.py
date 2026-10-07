@@ -56,7 +56,7 @@ def _build_llm():
 def _context_summary(db: Session, student: User) -> str:
     """学生近况摘要（注入系统提示词）：待办份数 + 需加固知识点，来自真实简报数据。"""
     try:
-        b = student_briefing(db, student)
+        b = student_briefing(db, student, visible_only=True)
     except Exception:
         return ""
     parts = []

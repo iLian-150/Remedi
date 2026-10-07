@@ -8,11 +8,14 @@
      展开状态按场景分键存 localStorage（remedi-rail-open-notes / remedi-rail-open-calendar），
      首次默认展开，移动端默认收起（抽屉式）。
      v0.6.2：双端对话页时左侧栏主导航下方多一段会话区（SidebarSessions，ChatGPT 式：
-     新对话按钮 + 按今天/昨天/更早分组的会话列表）；左侧栏本身可收起（品牌行收起按钮，
-     状态存 remedi-sidebar-open，收起后内容区左上角悬浮展开按钮；移动端沿用抽屉不受影响）。
+     新对话按钮 + 按今天/昨天/更早分组的会话列表）；移动端沿用抽屉不受影响。
      v0.8.2：全局侧栏成为双端唯一侧栏（学生对话页不再自带页内侧栏，统一走这里：
      会话区双端都挂 SidebarSessions、收起机制全角色一致）；未读数改由 student store 持有，
      进入学生任何页面（路由变化）时刷新一次。
+     v0.9.0：侧栏收起改「图标轨」——不再整条消失，收起态宽 68px 只留 Logo 与导航图标
+     （悬停 tooltip 显示标签）、头像与展开按钮（品牌行按钮图标随状态翻转），
+     SidebarSessions / 品牌文字 / 账号文字在收起态隐藏；教师导航新增「待审核」
+     （角标数读 teacher store，进教师端页面时刷新）。
      未登录只渲染登录页。 -->
 <template>
   <!-- 未登录：仅登录页 -->
@@ -33,16 +36,16 @@
     <aside class="app-sidebar" :class="{ open: sidebarOpen, collapsed: sidebarCollapsed }">
       <div class="sidebar-brand-row">
         <span class="brand-badge"><BrandLogo :size="25" /></span>
-        <div>
+        <div class="brand-text">
           <div class="brand-name">Remedi</div>
           <div class="brand-sub">{{ auth.role === 'teacher' ? '教师端 · 班级诊断' : '智能作业诊断' }}</div>
         </div>
         <button
           class="icon-btn sidebar-collapse-btn"
-          title="收起侧栏"
-          @click="setSidebarCollapsed(true)"
+          :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+          @click="setSidebarCollapsed(!sidebarCollapsed)"
         >
-          <AppIcon name="panel-left" :size="19" />
+          <AppIcon :name="sidebarCollapsed ? 'chevron-right' : 'panel-left'" :size="19" />
         </button>
       </div>
 
@@ -52,17 +55,17 @@
           :key="item.to"
           :to="item.to"
           :data-label="item.label"
-          :title="item.label"
+          :title="sidebarCollapsed ? undefined : item.label"
           :aria-label="item.label"
           :active-class="item.exact ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
         >
-          <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span><span class="nav-label">{{ item.label }}</span>
+          <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span><span class="nav-label">{{ item.label }}</span><span v-if="item.badge" class="nav-badge tnum">{{ item.badge }}</span>
         </router-link>
       </nav>
 
-      <!-- 会话区（v0.6.2；v0.8.2 起双端统一）：仅双端对话页出现，随侧栏一起收起/展开；
-           移动端抽屉打开时同样带会话区（组件随侧栏挂载自然获得） -->
+      <!-- 会话区（v0.6.2；v0.8.2 起双端统一）：仅双端对话页出现；
+           v0.9.0：桌面端侧栏收起成图标轨时由 style.css 隐藏（移动端抽屉不受影响） -->
       <SidebarSessions v-if="isChatRoute" @navigate="sidebarOpen = false" />
 
       <div class="sidebar-user">
@@ -82,16 +85,6 @@
     <main class="shell-main">
       <router-view />
     </main>
-
-    <!-- 侧栏收起态入口（v0.6.2，桌面端；v0.8.2 起全角色）：内容区左上角悬浮展开按钮 -->
-    <button
-      v-if="sidebarCollapsed"
-      class="sidebar-expand-fab"
-      title="展开侧栏"
-      @click="setSidebarCollapsed(false)"
-    >
-      <AppIcon name="panel-left" :size="19" />
-    </button>
 
     <!-- 右侧栏：有场景时才挂载；用 class 控制展开/收起动画 -->
     <aside
@@ -144,6 +137,7 @@ import SidebarSessions from './components/SidebarSessions.vue'
 
 const auth = useAuthStore()
 const student = useStudentStore()
+const teacher = useTeacherStore()
 const router = useRouter()
 const route = useRoute()
 const sidebarOpen = ref(false)
@@ -178,6 +172,7 @@ interface NavItem {
   icon: IconName
   label: string
   exact?: boolean
+  badge?: number // v0.9.0：角标数（如教师「待审核」待审数），0/缺省不显示
 }
 
 const STUDENT_NAV: NavItem[] = [
@@ -195,6 +190,8 @@ const TEACHER_NAV: NavItem[] = [
   { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
   { to: '/teacher/dashboard', icon: 'chart', label: '总览' },
   { to: '/teacher/submissions', icon: 'file', label: '批改' },
+  // v0.9.0：AI 批改先过教师审核才发给学生；角标数在 navItems 里从 teacher store 注入
+  { to: '/teacher/reviews', icon: 'check', label: '待审核' },
   { to: '/teacher/students', icon: 'users', label: '学生' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', exact: true },
   { to: '/teacher/assignments/new', icon: 'plus-circle', label: '发布作业' },
@@ -202,7 +199,14 @@ const TEACHER_NAV: NavItem[] = [
   { to: '/teacher/suggestions', icon: 'lightbulb', label: '教学建议' }
 ]
 
-const navItems = computed<NavItem[]>(() => (auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV))
+const navItems = computed<NavItem[]>(() => {
+  if (auth.role !== 'teacher') return STUDENT_NAV
+  return TEACHER_NAV.map((it) =>
+    it.to === '/teacher/reviews' && teacher.pendingReviewCount > 0
+      ? { ...it, badge: teacher.pendingReviewCount }
+      : it
+  )
+})
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------
@@ -252,12 +256,14 @@ function setRail(open: boolean) {
   }
 }
 
-// ---------- 未读数刷新（v0.8.2）：学生进入任何页面（路由变化）时刷新一次 ----------
-// 未读数由 student store 持有，RightRail 读/写后同步回写，FAB 角标直接读 store。
+// ---------- 未读数 / 待审计数刷新（v0.8.2 / v0.9.0）：进入对应角色任何页面（路由变化）时刷新一次 ----------
+// 未读数由 student store 持有，RightRail 读/写后同步回写，FAB 角标直接读 store；
+// 待审核数由 teacher store 持有，教师导航「待审核」角标直接读 store。
 watch(
   () => route.path,
   () => {
     if (auth.role === 'student') void student.refreshUnread()
+    if (auth.role === 'teacher') void teacher.refreshPendingReviewCount()
   },
   { immediate: true }
 )
@@ -277,6 +283,9 @@ function logout() {
     /* 忽略清理失败 */
   }
   student.resetUnread()
+  // v0.9.0：待审核角标一并清掉，避免换人登录后残留上一位老师的数字
+  teacher.pendingReviews = []
+  teacher.pendingReviewCount = 0
   auth.logout()
   router.push('/')
 }

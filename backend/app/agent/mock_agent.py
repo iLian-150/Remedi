@@ -33,11 +33,11 @@ _CANNED_EXPLANATION = (
 def _known_knowledge_points(db: Session, student: User) -> list:
     """该生出现过的知识点名称（报告里的 + 简报需加固的），用于错题问答的关键词匹配。"""
     names = []
-    for subj in student_report(db, student):
+    for subj in student_report(db, student, visible_only=True):
         for kp in subj["knowledge_points"]:
             if kp["name"] not in names:
                 names.append(kp["name"])
-    for kp in student_briefing(db, student).get("weak_points", []):
+    for kp in student_briefing(db, student, visible_only=True).get("weak_points", []):
         if kp not in names:
             names.append(kp)
     return names
@@ -73,7 +73,7 @@ def mock_reply(db: Session, student: User, message: str) -> str:
 
     # 1) 待办类
     if any(k in msg for k in _TODO_KEYWORDS):
-        briefing = student_briefing(db, student)
+        briefing = student_briefing(db, student, visible_only=True)
         body = briefing_to_text(briefing)
         return f"帮你看了一下你现在的进度：\n{body}\n有需要的话，点页面下方的「拍照批改」就可以开始作答啦。"
 
@@ -81,12 +81,12 @@ def mock_reply(db: Session, student: User, message: str) -> str:
     if "错" in msg:
         for kp in _known_knowledge_points(db, student):
             if kp and kp in msg:
-                items = knowledge_point_errors(db, student, kp)
+                items = knowledge_point_errors(db, student, kp, visible_only=True)
                 return kp_errors_to_text(kp, items) + "\n把这些题的出错步再看一遍，然后去订正区试着改对它们吧。"
 
     # 3) 学习情况 / 最弱知识点
     if any(k in msg for k in _WEAK_KEYWORDS):
-        report = student_report(db, student)
+        report = student_report(db, student, visible_only=True)
         if not report or all(not s["knowledge_points"] for s in report):
             return "你目前还没有错题记录，各知识点都保持得不错。继续按节奏作答，报告会随着你的提交慢慢丰富起来。"
         # 找错误率最高的知识点作为"最需要加固"
@@ -105,7 +105,7 @@ def mock_reply(db: Session, student: User, message: str) -> str:
 
     # 4) 打招呼
     if any(k in msg.lower() for k in _GREETING_KEYWORDS):
-        briefing = student_briefing(db, student)
+        briefing = student_briefing(db, student, visible_only=True)
         pending_n = len(briefing.get("pending_assignments", []))
         tail = (
             f"你还有 {pending_n} 份作业没完成，我们先把它们搞定？"

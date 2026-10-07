@@ -24,6 +24,7 @@ import TeacherAssignments from '../views/teacher/TeacherAssignments.vue'
 import TeacherPublish from '../views/teacher/TeacherPublish.vue'
 import TeacherChat from '../views/teacher/TeacherChat.vue'
 import TeacherWorkbooks from '../views/teacher/TeacherWorkbooks.vue'
+import TeacherReviews from '../views/teacher/TeacherReviews.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', component: RoleSelect, meta: { public: true, title: '登录' } },
@@ -48,6 +49,8 @@ const routes: RouteRecordRaw[] = [
   // 教师端（诊断详情 :id 为 error_id，契约 4.1 未提供单条查询，用列表定位）
   { path: '/teacher/dashboard', component: TeacherDashboard, meta: { role: 'teacher', title: '班级总览' } },
   { path: '/teacher/submissions', component: TeacherSubmissions, meta: { role: 'teacher', title: '批改纠错' } },
+  // 待审核（v0.9.0）：AI 批改先过教师审核才发给学生；?submission_id= 可直达某份
+  { path: '/teacher/reviews', component: TeacherReviews, meta: { role: 'teacher', title: '待审核' } },
   { path: '/teacher/submissions/:id', component: TeacherSubmissionDetail, meta: { role: 'teacher', title: '诊断详情' } },
   { path: '/teacher/students', component: TeacherStudents, meta: { role: 'teacher', title: '学生列表' } },
   { path: '/teacher/students/:id', component: TeacherStudentPortrait, meta: { role: 'teacher', title: '学生画像' } },

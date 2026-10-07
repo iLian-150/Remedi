@@ -11,6 +11,8 @@ import type {
   KnowledgePointStat,
   PageResult,
   PhotoTranscribeResult,
+  ReviewDetail,
+  ReviewPendingItem,
   StudentProfile,
   StudentSummary,
   TeacherAssignment,
@@ -33,6 +35,10 @@ export const useTeacherStore = defineStore('teacher', {
   state: () => ({
     /** 作业管理页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
     assignmentDateFilter: '',
+    /** 待审核队列（v0.9.0）：AI 批改完等老师审核的提交；count 供导航角标，
+     *  App.vue 在教师端路由变化时刷新一次 */
+    pendingReviews: [] as ReviewPendingItem[],
+    pendingReviewCount: 0,
     /** 会话区状态（v0.6.2）：左侧栏会话导航与对话页共用同一份 */
     sessions: [] as ChatSession[],
     activeSessionId: null as number | null,
@@ -171,8 +177,15 @@ export const useTeacherStore = defineStore('teacher', {
     setActiveSession(id: number | null) {
       this.activeSessionId = id
     },
-    /** 侧栏点「新对话」：新建会话、置顶高亮，并通知对话页切到空白新会话态 */
+    /** 侧栏点「新对话」：新建会话、置顶高亮，并通知对话页切到空白新会话态。
+     * v0.9.0 防重复：当前激活会话还是空会话（message_count=0）时不再新建，
+     * 直接切回它，避免连点攒出一串空会话（会话列表接口已返回 message_count）。 */
     async startSidebarSession(): Promise<ChatSession> {
+      const active = this.sessions.find((x) => x.id === this.activeSessionId)
+      if (active && active.message_count === 0) {
+        this.sessionView = { id: active.id, fresh: true, seq: this.sessionView.seq + 1 }
+        return active
+      }
       const s = await this.newAgentSession()
       this.sessions = [s, ...this.sessions.filter((x) => x.id !== s.id)]
       this.activeSessionId = s.id
@@ -231,6 +244,41 @@ export const useTeacherStore = defineStore('teacher', {
         `/api/teacher/assignments/${id}/remind`
       )
       return data.reminded_count
+    },
+    // 4.23 待审核队列（v0.9.0）：拉全量待审列表并回写角标计数
+    async fetchPendingReviews(): Promise<ReviewPendingItem[]> {
+      const { data } = await api.get<{ count: number; items: ReviewPendingItem[] }>(
+        '/api/teacher/reviews/pending'
+      )
+      this.pendingReviews = data.items
+      this.pendingReviewCount = data.count
+      return data.items
+    },
+    /** 只刷新待审计数（导航角标用，App.vue 路由变化时调用） */
+    async refreshPendingReviewCount() {
+      try {
+        await this.fetchPendingReviews()
+      } catch (e) {
+        console.error(e)
+      }
+    },
+    // 4.24 审核详情（v0.9.0）：完整分步诊断 + 审核状态
+    async fetchReviewDetail(submissionId: number): Promise<ReviewDetail> {
+      const { data } = await api.get<ReviewDetail>(`/api/teacher/reviews/${submissionId}`)
+      return data
+    },
+    // 4.25 审核通过（v0.9.0）：通过后学生收到提醒并能看到诊断；本地队列同步移除
+    async approveReview(submissionId: number): Promise<void> {
+      await api.post(`/api/teacher/reviews/${submissionId}/approve`)
+      this.pendingReviews = this.pendingReviews.filter((i) => i.submission_id !== submissionId)
+      this.pendingReviewCount = this.pendingReviews.length
+    },
+    // 4.26 全部通过（v0.9.0）：批量放行当前队列，返回通过条数
+    async approveAllReviews(): Promise<number> {
+      const { data } = await api.post<{ approved_count: number }>('/api/teacher/reviews/approve-all')
+      this.pendingReviews = []
+      this.pendingReviewCount = 0
+      return data.approved_count
     }
   }
 })

@@ -7,7 +7,7 @@
   <div class="page">
     <div class="page-head">
       <h2>作业列表</h2>
-      <p class="page-sub">选择一份作业开始作答，提交后会立即生成你的诊断报告。</p>
+      <p class="page-sub">选择一份作业开始作答，老师审核通过后就能看到你的诊断报告。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -43,6 +43,7 @@
             <span v-if="a.mode === 'offline'" class="badge badge-amber">线下练习</span>
             <span class="badge badge-blue tnum">{{ a.question_count }} 道题</span>
             <span :class="`badge ${statusBadge(a)}`">{{ statusText(a) }}</span>
+            <span v-if="hasPending(a)" class="badge badge-amber">有提交待老师审核</span>
             <span class="assign-time">{{ fmtTime(a.created_at) }} 发布</span>
           </div>
           <router-link :to="`/student/submit?assignment_id=${a.id}`">
@@ -105,6 +106,14 @@ function clearFilter() {
 /** 每份作业的题目 id 集合（由作业详情拼装，供完成状态展示） */
 const questionIdsByAssignment = ref<Record<number, number[]>>({})
 const doneQids = ref<Set<number>>(new Set())
+/** v0.9.0：最新一次提交还在等老师审核的题目（卡片据此打「待老师审核」标） */
+const pendingQids = ref<Set<number>>(new Set())
+
+/** 这份作业里有没有题目在等老师审核 */
+function hasPending(a: Assignment): boolean {
+  const qids = questionIdsByAssignment.value[a.id] ?? []
+  return qids.some((id) => pendingQids.value.has(id))
+}
 
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
@@ -139,6 +148,13 @@ onMounted(async () => {
     ])
     assignments.value = list
     subs.forEach((s) => doneQids.value.add(s.question_id))
+    // 待审核按每题最新一次提交判定（列表时间倒序，首见即最新）
+    const seenLatest = new Set<number>()
+    subs.forEach((s) => {
+      if (seenLatest.has(s.question_id)) return
+      seenLatest.add(s.question_id)
+      if (s.review_status === 'pending') pendingQids.value.add(s.question_id)
+    })
     const details = await Promise.all(list.map((a) => student.fetchAssignmentDetail(a.id)))
     details.forEach((d) => {
       questionIdsByAssignment.value[d.id] = d.questions.map((q) => q.id)

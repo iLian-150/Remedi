@@ -42,6 +42,7 @@
             <td>
               <ErrorTypeBadge :type="e.error_type" />
               <span v-if="e.teacher_corrected" class="badge badge-gray">已纠错</span>
+              <span v-if="e.review_status === 'pending'" class="badge badge-amber">待审核</span>
             </td>
             <td class="num tnum">{{ Math.round(e.confidence * 100) }}%</td>
             <td>
@@ -51,6 +52,9 @@
             </td>
             <td>
               <router-link :to="`/teacher/submissions/${e.id}`"><button class="btn small">诊断详情</button></router-link>
+              <router-link v-if="e.review_status === 'pending'" :to="`/teacher/reviews?submission_id=${e.submission_id}`">
+                <button class="btn small secondary" style="margin-left: 6px">去审核</button>
+              </router-link>
             </td>
           </tr>
         </tbody>
