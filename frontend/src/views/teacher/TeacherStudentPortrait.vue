@@ -12,51 +12,57 @@
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="profile">
+      <!-- 指标横排（v0.4.0：补「涉及知识点」，四项并排） -->
       <div class="card">
         <h3>{{ profile.student.name }} <span class="badge badge-blue">学号 {{ profile.student.student_no }}</span></h3>
         <div class="stat-row">
           <div class="stat"><div class="stat-num tnum">{{ totalAttempts }}</div><div class="stat-label">累计作答</div></div>
           <div class="stat"><div class="stat-num tnum">{{ totalErrors }}</div><div class="stat-label">累计错误</div></div>
           <div class="stat red"><div class="stat-num tnum">{{ profile.stubborn_errors.length }}</div><div class="stat-label">顽固误区</div></div>
+          <div class="stat purple"><div class="stat-num tnum">{{ profile.knowledge_points.length }}</div><div class="stat-label">涉及知识点</div></div>
         </div>
       </div>
 
-      <div class="card" v-if="profile.suggestion">
-        <h3>学习建议 <span class="hint" style="font-weight: 400">（模型生成，供教师参考）</span></h3>
-        <p class="suggestion">{{ profile.suggestion }}</p>
-      </div>
-
-      <!-- 个人知识轨迹时间线 -->
-      <div class="card">
-        <h3>个人知识轨迹</h3>
-        <p class="card-sub">按时间倒序：三色圆点 = 错因类型；红色「顽固」标签为需重点跟进的误区。</p>
-        <div class="timeline" v-if="allRecords.length">
-          <div v-for="r in allRecords" :key="r.id" class="timeline-item">
-            <span :class="errorTypeDotClass(r.error_type)"></span>
-            <div class="timeline-time tnum">{{ fmtTime(r.created_at) }}</div>
-            <div class="timeline-body">
-              <p>
-                <ErrorTypeBadge :type="r.error_type" />
-                <span class="badge badge-blue">{{ r.knowledge_point }}</span>
-                <span v-if="r.is_stubborn" class="badge badge-red">顽固误区</span>
-                <span v-else class="badge badge-green">偶发失误</span>
-                <span class="conf-text tnum">置信度 {{ Math.round(r.confidence * 100) }}%</span>
-              </p>
-              <p class="step-text">{{ r.step_text }}</p>
-              <p class="detail">{{ r.detail }}</p>
-              <p style="margin-top: 6px">
-                <router-link :to="`/teacher/submissions/${r.id}`"><button class="btn small ghost inline-icon">查看诊断 <AppIcon name="chevron-right" :size="14" /></button></router-link>
-              </p>
+      <!-- 双列（v0.4.0）：左 个人知识轨迹 | 右 学习建议 + 知识点错误率图 -->
+      <div class="portrait-grid">
+        <div class="card">
+          <h3>个人知识轨迹</h3>
+          <p class="card-sub">按时间倒序：三色圆点 = 错因类型；红色「顽固」标签为需重点跟进的误区。</p>
+          <div class="timeline" v-if="allRecords.length">
+            <div v-for="r in allRecords" :key="r.id" class="timeline-item">
+              <span :class="errorTypeDotClass(r.error_type)"></span>
+              <div class="timeline-time tnum">{{ fmtTime(r.created_at) }}</div>
+              <div class="timeline-body">
+                <p>
+                  <ErrorTypeBadge :type="r.error_type" />
+                  <span class="badge badge-blue">{{ r.knowledge_point }}</span>
+                  <span v-if="r.is_stubborn" class="badge badge-red">顽固误区</span>
+                  <span v-else class="badge badge-green">偶发失误</span>
+                  <span class="conf-text tnum">置信度 {{ Math.round(r.confidence * 100) }}%</span>
+                </p>
+                <p class="step-text">{{ r.step_text }}</p>
+                <p class="detail">{{ r.detail }}</p>
+                <p style="margin-top: 6px">
+                  <router-link :to="`/teacher/submissions/${r.id}`"><button class="btn small ghost inline-icon">查看诊断 <AppIcon name="chevron-right" :size="14" /></button></router-link>
+                </p>
+              </div>
             </div>
           </div>
+          <div v-else class="empty">该学生暂无错误记录。</div>
         </div>
-        <div v-else class="empty">该学生暂无错误记录。</div>
-      </div>
 
-      <div class="card">
-        <h3>知识点错误率</h3>
-        <EChart v-if="profile.knowledge_points.length" :option="kpOption" />
-        <div v-else class="empty">暂无数据。</div>
+        <div class="portrait-side">
+          <div class="card" v-if="profile.suggestion">
+            <h3>学习建议 <span class="hint" style="font-weight: 400">（模型生成，供教师参考）</span></h3>
+            <p class="suggestion">{{ profile.suggestion }}</p>
+          </div>
+
+          <div class="card">
+            <h3>知识点错误率</h3>
+            <EChart v-if="profile.knowledge_points.length" :option="kpOption" />
+            <div v-else class="empty">暂无数据。</div>
+          </div>
+        </div>
       </div>
     </template>
   </div>
@@ -146,6 +152,17 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* v0.4.0 双列：左轨迹时间线 | 右建议+图表，窄屏堆叠 */
+.portrait-grid {
+  display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 16px; align-items: start;
+}
+.portrait-grid > .card { margin-bottom: 0; }
+.portrait-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.portrait-side > .card { margin-bottom: 0; }
+@media (max-width: 1080px) {
+  .portrait-grid { grid-template-columns: 1fr; }
+}
 .suggestion { background: var(--primary-50); border-radius: 8px; padding: 12px 16px; font-size: 14px; }
 .step-text { font-weight: 600; margin: 6px 0 4px; }
 .detail { color: var(--text-2); font-size: 13px; }

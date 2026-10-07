@@ -1,6 +1,11 @@
-<!-- 全局布局（v0.2.0 侧栏外壳；v0.3.0 升三栏）：左侧导航 / 中间内容 / 右侧栏。
-     右侧栏（提醒便利贴 + 日历）可收起：收起后内容区右上角出现「邮件」图标按钮（带未读角标），
-     点它重新展开；展开状态存 localStorage（remedi-rail-open），首次默认展开，移动端默认收起（抽屉式）。
+<!-- 全局布局（v0.2.0 侧栏外壳；v0.3.0 升三栏；v0.3.1 右栏按页面分工；v0.4.0 品牌 Logo + 导航图标动效）：
+     左侧导航 / 中间内容 / 右侧栏。右栏内容随当前页变：
+       - 学生主页等普通页 → 只放便利贴提醒（mode=notes）
+       - 学生/教师作业列表页 → 只放日历（mode=calendar，与列表筛选联动）
+       - 教师其他页面 → 不挂右栏
+     右栏可收起：收起后内容区右上角出现悬浮按钮，图标随场景变
+     （notes=邮件+未读角标；calendar=日历图标无角标），点它重新展开；
+     展开状态存 localStorage（remedi-rail-open），首次默认展开，移动端默认收起（抽屉式）。
      未登录只渲染登录页。 -->
 <template>
   <!-- 未登录：仅登录页 -->
@@ -13,14 +18,14 @@
       <button class="icon-btn" title="菜单" @click="sidebarOpen = !sidebarOpen">
         <AppIcon name="menu" :size="22" />
       </button>
-      <span class="mobile-brand"><AppIcon name="sparkles" :size="18" /> Remedi</span>
+      <span class="mobile-brand"><BrandLogo :size="21" /> Remedi</span>
       <span class="mobile-role">{{ auth.role === 'teacher' ? '教师端' : '学生端' }}</span>
     </header>
     <div v-if="sidebarOpen" class="sidebar-mask" @click="sidebarOpen = false"></div>
 
     <aside class="app-sidebar" :class="{ open: sidebarOpen }">
       <div class="sidebar-brand-row">
-        <span class="brand-badge"><AppIcon name="sparkles" :size="20" /></span>
+        <span class="brand-badge"><BrandLogo :size="25" /></span>
         <div>
           <div class="brand-name">Remedi</div>
           <div class="brand-sub">{{ auth.role === 'teacher' ? '教师端 · 班级诊断' : '智能作业诊断' }}</div>
@@ -35,7 +40,7 @@
           :active-class="item.exact ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
         >
-          <AppIcon :name="item.icon" :size="18" /> {{ item.label }}
+          <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span> {{ item.label }}
         </router-link>
       </nav>
 
@@ -57,35 +62,48 @@
       <router-view />
     </main>
 
-    <!-- 右侧栏：常挂载（保证提醒数据就绪），用 class 控制展开/收起动画 -->
-    <aside class="app-rail" :class="{ closed: !railOpen }" :aria-hidden="!railOpen">
-      <RightRail @close="setRail(false)" @unread-change="unreadCount = $event" />
+    <!-- 右侧栏：有场景时才挂载；用 class 控制展开/收起动画 -->
+    <aside
+      v-if="railMode !== 'none'"
+      class="app-rail"
+      :class="{ closed: !railOpen }"
+      :aria-hidden="!railOpen"
+    >
+      <RightRail
+        :mode="railMode === 'calendar' ? 'calendar' : 'notes'"
+        @close="setRail(false)"
+        @unread-change="unreadCount = $event"
+      />
     </aside>
 
-    <!-- 收起态入口：邮件图标 + 未读角标 -->
+    <!-- 收起态入口：图标随场景变（提醒场景=邮件+未读角标；日历场景=日历图标） -->
     <button
-      v-if="!railOpen"
+      v-if="railMode !== 'none' && !railOpen"
       class="mail-fab"
-      :class="{ 'has-unread': unreadCount > 0 }"
-      title="打开提醒与日程"
+      :class="{ 'has-unread': railMode === 'notes' && unreadCount > 0 }"
+      :title="railMode === 'notes' ? '打开提醒' : '打开日历'"
       @click="setRail(true)"
     >
-      <AppIcon name="mail" :size="20" />
-      <span v-if="unreadCount > 0" :key="unreadCount" class="mail-badge">{{ unreadCount }}</span>
+      <AppIcon :name="railMode === 'notes' ? 'mail' : 'calendar'" :size="20" />
+      <span v-if="railMode === 'notes' && unreadCount > 0" :key="unreadCount" class="mail-badge">{{ unreadCount }}</span>
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { useStudentStore } from './stores/student'
+import { useTeacherStore } from './stores/teacher'
 import AppIcon from './components/icons/AppIcon.vue'
 import type { IconName } from './components/icons/paths'
+import BrandLogo from './components/BrandLogo.vue'
 import RightRail from './components/RightRail.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const sidebarOpen = ref(false)
 
 interface NavItem {
@@ -117,6 +135,17 @@ const TEACHER_NAV: NavItem[] = [
 const navItems = computed<NavItem[]>(() => (auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV))
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
+// ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------
+// 学生：作业列表页只放日历；其余页面（含主页对话页）只放便利贴提醒。
+// 教师：仅作业管理页放日历；其余页面不挂右栏（教师无通知）。
+type RailMode = 'notes' | 'calendar' | 'none'
+const railMode = computed<RailMode>(() => {
+  if (auth.role === 'teacher') {
+    return route.path === '/teacher/assignments' ? 'calendar' : 'none'
+  }
+  return route.path === '/student/assignments' ? 'calendar' : 'notes'
+})
+
 // ---------- 右侧栏展开状态：localStorage 记忆，首次默认展开（窄屏默认收起） ----------
 const RAIL_KEY = 'remedi-rail-open'
 function initRail(): boolean {
@@ -142,6 +171,9 @@ function setRail(open: boolean) {
 }
 
 function logout() {
+  // 退出时清掉双端的日历日期筛选，避免换人登录后残留旧筛选
+  useStudentStore().setAssignmentDateFilter('')
+  useTeacherStore().setAssignmentDateFilter('')
   auth.logout()
   router.push('/')
 }

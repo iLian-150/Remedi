@@ -1,23 +1,26 @@
-<!-- 右侧栏（v0.3.0）：学生端 = 便利贴提醒区（教师纠错通知） + 日历 + 当天详情；
-     教师端 = 日历 + 当天详情（作业可删）。收起/展开由 App.vue 控制（邮件图标入口）。
+<!-- 右侧栏（v0.3.0 首版：便利贴 + 日历 + 当天详情；v0.3.1 改为按页面分工）：
+     - mode="notes"（学生端除作业列表页外的所有页面，含主页对话页）：只显示便利贴提醒区。
+     - mode="calendar"（学生/教师作业列表页）：只显示日历；点选日期 → 写入对应 store 的
+       assignmentDateFilter，作业列表页据此筛选 + 显示当天进度；再次点同一天 = 取消筛选。
+     收起/展开由 App.vue 控制（收起态 FAB 图标随场景变：notes=邮件、calendar=日历）。
      数据全部来自现有列表接口前端拼装，不新增后端接口。
      通知唯一来源：教师在教师端一键纠错 → 后端落库 → 这里 GET 拉取展示，学生端不本地伪造。 -->
 <template>
   <div class="rail-inner">
     <div class="rail-head">
       <span class="rail-title">
-        <AppIcon :name="isStudent ? 'megaphone' : 'calendar'" :size="17" />
-        {{ isStudent ? '提醒与日程' : '日程日历' }}
+        <AppIcon :name="mode === 'notes' ? 'megaphone' : 'calendar'" :size="17" />
+        {{ mode === 'notes' ? '提醒' : '日历' }}
       </span>
       <button class="icon-btn" title="收起右侧栏" @click="$emit('close')">
         <AppIcon name="chevron-right" :size="17" />
       </button>
     </div>
 
-    <!-- 学生：便利贴提醒 -->
-    <template v-if="isStudent">
+    <!-- 便利贴提醒（仅学生） -->
+    <template v-if="mode === 'notes'">
       <div class="rail-sec-head">
-        <h3>提醒</h3>
+        <h3>老师的消息</h3>
         <span v-if="unread > 0" class="badge badge-red">{{ unread }} 条未读</span>
         <button v-if="notes.length && unread > 0" class="text-btn" @click="markAllRead">全部标已读</button>
       </div>
@@ -44,76 +47,30 @@
       <p v-else class="hint" style="margin-bottom: 6px">暂无新提醒</p>
     </template>
 
-    <!-- 日历 -->
-    <div class="rail-sec-head" style="margin-top: 18px">
-      <h3>日历</h3>
-    </div>
-    <AssignmentCalendar :marks="marks" :selected="selectedDate" @select="onSelectDay" />
-
-    <!-- 当天详情 -->
-    <div class="rail-day">
-      <h4>{{ selectedLabel }}</h4>
-      <p class="day-group">当天发布的作业</p>
-      <div v-if="dayAssignments.length">
-        <div v-for="a in dayAssignments" :key="a.id" class="day-item">
-          <div class="day-item-main">
-            <span class="day-item-title">{{ a.title }}</span>
-            <span class="hint">{{ fmtTime(a.created_at) }} 发布 · {{ a.question_count }} 道题</span>
-            <span v-if="!isStudent" class="hint">累计提交 {{ a.sub_count }} 人次</span>
-          </div>
-          <button
-            v-if="!isStudent"
-            class="icon-btn danger"
-            title="删除这份作业"
-            @click="removeAssignment(a)"
-          >
-            <AppIcon name="trash" :size="15" />
-          </button>
-        </div>
-      </div>
-      <p v-else class="hint">当天没有发布的作业</p>
-
-      <template v-if="isStudent">
-        <p class="day-group">我当天的批改</p>
-        <div v-if="daySubmissions.length">
-          <button
-            v-for="s in daySubmissions"
-            :key="s.id"
-            class="day-item as-btn"
-            @click="gotoSubmission(s.id)"
-          >
-            <span class="day-item-title">{{ s.question_stem }}</span>
-            <span class="hint">
-              {{ s.knowledge_point }} ·
-              {{ s.error_count > 0 ? `发现 ${s.error_count} 个问题` : '全部正确' }}
-            </span>
-          </button>
-        </div>
-        <p v-else class="hint">当天还没有提交记录</p>
-      </template>
-    </div>
+    <!-- 日历（作业列表页专用）：选中日期与作业列表筛选共用 store 状态 -->
+    <template v-else>
+      <AssignmentCalendar :marks="marks" :selected="dateFilter" @select="onSelectDay" />
+      <p class="hint" style="margin-top: 10px">
+        {{ dateFilter ? '已按所选日期筛选作业列表，点「返回查看全部作业」或再点一次该日期可恢复全部。' : '点任意一天，只看当天发布的作业。' }}
+      </p>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
-import type { NotificationItem, SubmissionSummary } from '../api/types'
+import type { NotificationItem } from '../api/types'
 import AppIcon from './icons/AppIcon.vue'
 import AssignmentCalendar from './AssignmentCalendar.vue'
 
-/** 右栏内部归一化的作业条目（学生/教师列表接口字段不同，在此抹平；
- *  科目字段两个列表接口都没有，按降级方案不展示科目） */
-interface RailAssignment {
-  id: number
-  title: string
-  created_at: string
-  question_count: number
-  sub_count: number
-}
+const props = defineProps<{
+  /** notes：只显示便利贴提醒；calendar：只显示日历（与作业列表筛选联动） */
+  mode: 'notes' | 'calendar'
+}>()
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -127,49 +84,25 @@ const router = useRouter()
 
 const isStudent = computed(() => auth.user?.role === 'student')
 
+/** 日历选中日期 = 当前角色 store 的筛选值（单一事实来源，日历与列表双向同步） */
+const dateFilter = computed(() =>
+  isStudent.value ? student.assignmentDateFilter : teacher.assignmentDateFilter
+)
+
 const notes = ref<NotificationItem[]>([])
 const unread = ref(0)
-const assignments = ref<RailAssignment[]>([])
-const mySubs = ref<SubmissionSummary[]>([])
-
-function todayStr(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-const selectedDate = ref(todayStr())
-const selectedLabel = computed(() => {
-  const [y, m, d] = selectedDate.value.split('-')
-  return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`
-})
-
-const marks = computed<Record<string, number>>(() => {
-  const m: Record<string, number> = {}
-  const add = (date: string) => {
-    if (date) m[date] = (m[date] ?? 0) + 1
-  }
-  for (const a of assignments.value) add(a.created_at.slice(0, 10))
-  if (isStudent.value) for (const s of mySubs.value) add(s.submitted_at.slice(0, 10))
-  return m
-})
-
-const dayAssignments = computed(() =>
-  assignments.value.filter((a) => a.created_at.slice(0, 10) === selectedDate.value)
-)
-const daySubmissions = computed(() =>
-  mySubs.value.filter((s) => s.submitted_at.slice(0, 10) === selectedDate.value)
-)
+/** 日历标记：yyyy-mm-dd → 当天发布的作业份数（仅作业发布，不含提交） */
+const marks = ref<Record<string, number>>({})
 
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
 function onSelectDay(date: string) {
-  selectedDate.value = date
-}
-
-function gotoSubmission(id: number) {
-  router.push(`/student/feedback?submission_id=${id}`)
+  // 再点一次已选中的日期 = 取消筛选
+  const next = date === dateFilter.value ? '' : date
+  if (isStudent.value) student.setAssignmentDateFilter(next)
+  else teacher.setAssignmentDateFilter(next)
 }
 
 async function loadNotes() {
@@ -181,6 +114,55 @@ async function loadNotes() {
   } catch (e) {
     console.error(e)
   }
+}
+
+async function loadMarks() {
+  try {
+    const m: Record<string, number> = {}
+    if (isStudent.value) {
+      const list = await student.fetchAssignments()
+      for (const a of list) {
+        const d = a.created_at.slice(0, 10)
+        if (d) m[d] = (m[d] ?? 0) + 1
+      }
+    } else {
+      const list = await teacher.fetchTeacherAssignments()
+      for (const a of list) {
+        const d = a.created_at.slice(0, 10)
+        if (d) m[d] = (m[d] ?? 0) + 1
+      }
+    }
+    marks.value = m
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function loadForMode() {
+  if (!auth.user) return
+  if (props.mode === 'notes') {
+    if (isStudent.value) await loadNotes()
+  } else {
+    await loadMarks()
+  }
+}
+
+// 模式随路由切换（学生主页↔作业列表等），切回来时重新拉数据保证新鲜
+watch(() => props.mode, loadForMode)
+
+// 教师在作业列表页发布/删除作业后，日历标记同步刷新
+function onAssignmentsChanged() {
+  if (props.mode === 'calendar') void loadMarks()
+}
+
+onMounted(() => {
+  void loadForMode()
+  window.addEventListener('assignments-changed', onAssignmentsChanged)
+})
+onUnmounted(() => window.removeEventListener('assignments-changed', onAssignmentsChanged))
+
+function gotoSubmission(id: number) {
+  router.push(`/student/feedback?submission_id=${id}`)
 }
 
 async function openNote(n: NotificationItem) {
@@ -207,50 +189,6 @@ async function markAllRead() {
     console.error(e)
   }
 }
-
-async function removeAssignment(a: RailAssignment) {
-  if (!window.confirm(`确定删除《${a.title}》吗？删除后学生端将看不到这份作业，已提交的批改记录也会一并删除`)) return
-  try {
-    await teacher.deleteAssignment(a.id)
-    assignments.value = assignments.value.filter((x) => x.id !== a.id)
-    window.dispatchEvent(new CustomEvent('assignments-changed'))
-  } catch (e) {
-    console.error(e)
-    window.alert('删除失败，请稍后重试。')
-  }
-}
-
-onMounted(async () => {
-  if (!auth.user) return
-  try {
-    if (isStudent.value) {
-      const [list, subs] = await Promise.all([
-        student.fetchAssignments(),
-        student.fetchMySubmissions(undefined, 100)
-      ])
-      assignments.value = list.map((a) => ({
-        id: a.id,
-        title: a.title,
-        created_at: a.created_at,
-        question_count: a.question_count,
-        sub_count: 0
-      }))
-      mySubs.value = subs
-      await loadNotes()
-    } else {
-      const list = await teacher.fetchTeacherAssignments()
-      assignments.value = list.map((a) => ({
-        id: a.id,
-        title: a.title,
-        created_at: a.created_at,
-        question_count: a.questions.length,
-        sub_count: a.questions.reduce((sum, q) => sum + q.submission_count, 0)
-      }))
-    }
-  } catch (e) {
-    console.error(e)
-  }
-})
 </script>
 
 <style scoped>
@@ -308,22 +246,6 @@ onMounted(async () => {
   position: absolute; top: 8px; right: 8px; width: 8px; height: 8px;
   border-radius: 50%; background: var(--red);
 }
-
-/* ---------- 当天详情 ---------- */
-.rail-day { margin-top: 16px; }
-.rail-day h4 { font-size: 14px; margin-bottom: 8px; }
-.day-group { font-size: 12.5px; font-weight: 600; color: var(--text-3); margin: 12px 0 6px; }
-.day-item {
-  display: flex; align-items: flex-start; gap: 8px; width: 100%;
-  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 9px 11px; margin-bottom: 7px; text-align: left;
-}
-.day-item.as-btn { cursor: pointer; font-family: var(--font); flex-direction: column; gap: 2px; }
-.day-item.as-btn:hover { border-color: var(--primary); }
-.day-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.day-item-title { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.icon-btn.danger { color: var(--red); }
-.icon-btn.danger:hover { background: var(--red-bg); }
 
 @media (prefers-reduced-motion: reduce) {
   .note-wrap { animation: none; }

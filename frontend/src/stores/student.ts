@@ -17,11 +17,20 @@ import type {
   StudentProfile,
   SubjectReport,
   SubmissionResult,
-  SubmissionSummary
+  SubmissionSummary,
+  Verification,
+  VerificationSubmitResult
 } from '../api/types'
 
 export const useStudentStore = defineStore('student', {
+  state: () => ({
+    /** 作业列表页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
+    assignmentDateFilter: ''
+  }),
   actions: {
+    setAssignmentDateFilter(date: string) {
+      this.assignmentDateFilter = date
+    },
     // 3.1 作业列表
     async fetchAssignments(): Promise<Assignment[]> {
       const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments')
@@ -120,6 +129,27 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.post<{ updated: number; unread_count: number }>(
         '/api/student/notifications/read',
         ids && ids.length ? { ids } : {}
+      )
+      return data
+    },
+    // 3.19 创建二次验证（v0.4.0）：为某知识点生成一道变式题，已有未完成的直接复用
+    async createVerification(payload: {
+      knowledge_point: string
+      source_error_id?: number
+    }): Promise<Verification> {
+      const { data } = await api.post<Verification>('/api/student/verifications', payload)
+      return data
+    },
+    // 3.20 我的验证列表（v0.4.0）
+    async fetchVerifications(): Promise<Verification[]> {
+      const { data } = await api.get<Verification[]>('/api/student/verifications')
+      return data
+    },
+    // 3.21 提交验证作答（v0.4.0）：逐步等价判定，全对才算通过
+    async submitVerification(id: number, steps: string[]): Promise<VerificationSubmitResult> {
+      const { data } = await api.post<VerificationSubmitResult>(
+        `/api/student/verifications/${id}/submit`,
+        { steps }
       )
       return data
     }

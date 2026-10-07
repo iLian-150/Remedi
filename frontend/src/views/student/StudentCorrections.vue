@@ -1,7 +1,8 @@
 <!-- 学生端：订正错题
      从学习画像取错题（需要加固的知识点 + 最近错误），针对某条 error 提交订正，
      后端自动判定正误（is_correct：true/false/null）。
-     订正成功后在本地标记「已修复」，供「我的档案」时间线展示。 -->
+     v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时引导去学习报告
+     做二次验证，通过验证该知识点才算「已修复」。本地 fixedIds 仅表示已订正。 -->
 <template>
   <div class="page">
     <div class="page-head">
@@ -19,7 +20,7 @@
           <select v-model="selectedErrorId" @change="onSelect">
             <option v-for="e in errorList" :key="e.id" :value="e.id">
               [{{ e.knowledge_point }} · {{ e.error_type }}] {{ e.step_text }}
-              {{ fixedIds.has(e.id) ? '（已修复）' : e.is_stubborn ? '（需要加固）' : '' }}
+              {{ fixedIds.has(e.id) ? '（已订正）' : e.is_stubborn ? '（需要加固）' : '' }}
             </option>
           </select>
         </div>
@@ -33,7 +34,7 @@
           <p style="margin-top: 10px">
             <ErrorTypeBadge :type="selectedError.error_type" />
             <span class="badge badge-blue">{{ selectedError.knowledge_point }}</span>
-            <span v-if="fixedIds.has(selectedError.id)" class="badge badge-green">已修复</span>
+            <span v-if="fixedIds.has(selectedError.id)" class="badge badge-green">已订正</span>
             <span v-else-if="selectedError.is_stubborn" class="badge badge-amber">需要加固</span>
           </p>
         </div>
@@ -57,13 +58,20 @@
           <p class="note">
             {{
               result.is_correct === true
-                ? '做得好，这个知识点已经标记为「已修复」。'
+                ? '做得好，这条错题订正对了。'
                 : result.is_correct === false
                   ? '这次还不太对，再看看解析，换个思路试一次。'
                   : '暂时无法自动判定，老师会帮你看一下。'
             }}
           </p>
           <p class="note hint">{{ result.note }}</p>
+          <!-- v0.4.0：订正成功 → 引导二次验证（通过才算知识点已修复） -->
+          <div v-if="result.can_verify" class="verify-cta">
+            <p>再做对一道同类题验证一下，这个知识点就真正修复啦。</p>
+            <router-link :to="verifyLink">
+              <button class="btn small inline-icon"><AppIcon name="target" :size="15" /> 去验证</button>
+            </router-link>
+          </div>
         </div>
       </template>
 
@@ -82,6 +90,7 @@ import type { CorrectionResult, GradingError } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
 const auth = useAuthStore()
@@ -96,6 +105,12 @@ const error = ref('')
 const fixedIds = ref<Set<number>>(new Set())
 
 const selectedError = computed(() => errorList.value.find((e) => e.id === selectedErrorId.value) ?? null)
+
+/** 「去验证」深链：带知识点名跳学习报告，报告页会直接打开验证面板 */
+const verifyLink = computed(() => {
+  const kp = result.value?.knowledge_point ?? selectedError.value?.knowledge_point ?? ''
+  return kp ? `/student/report?verify=${encodeURIComponent(kp)}` : '/student/report'
+})
 
 function onSelect() {
   content.value = ''
@@ -156,4 +171,9 @@ onMounted(async () => {
 .detail { font-size: 14px; color: var(--text-2); }
 .note { margin-top: 8px; font-size: 14px; color: var(--text); }
 .note.hint { color: var(--text-3); font-size: 13px; }
+.verify-cta {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  padding: 11px 14px; margin-top: 12px; font-size: 14px;
+}
 </style>

@@ -75,6 +75,7 @@ export interface SubmissionResult {
   first_error_seq: number | null
   steps: StepDiagnosis[]
   errors: GradingError[]
+  follow_up_question?: string | null // v0.4.0：启发式追问，无错时为 null
 }
 
 export interface SubmissionSummary {
@@ -130,6 +131,8 @@ export interface CorrectionResult {
   is_correct: boolean | null // true 正确 / false 仍不正确 / null 无法判定
   note: string
   submitted_at: string
+  can_verify?: boolean // v0.4.0：订正成功时为 true，提示可去做二次验证
+  knowledge_point?: string | null // v0.4.0：该错题所属知识点
 }
 
 // ---------- 学习画像（学生自查 / 教师查学生同结构） ----------
@@ -271,7 +274,8 @@ export interface TeacherAssignmentInput {
 // ---------- v0.2.1 新增：学习报告（科目 → 知识点 → 错题时间线 → 步骤诊断） ----------
 // 契约见 docs/api-contract.md v0.2.1 第 3.13 / 3.14 节
 
-export type KnowledgePointStatus = 'pending' | 'stubborn' | 'fixed'
+// v0.4.0 四态：pending 待修复 | stubborn 反复出错 | awaiting_verify 已订正待验证 | fixed 已修复（通过二次验证）
+export type KnowledgePointStatus = 'pending' | 'stubborn' | 'awaiting_verify' | 'fixed'
 
 export interface ReportKnowledgePoint {
   name: string
@@ -299,6 +303,55 @@ export interface KnowledgePointErrorItem {
   error_type: ErrorType | string
   corrected: boolean
   submission_id: number
+}
+
+// ---------- v0.4.0 新增：二次验证 / 班级知识修复率 ----------
+// 契约见 docs/api-contract.md v0.4.0 第 3.19~3.21 / 4.11 节
+
+export type VerificationStatus = 'pending' | 'passed' | 'failed'
+
+export interface Verification {
+  id: number
+  knowledge_point: string
+  prompt: string // 只下发题干，答案与标准步骤不下发
+  status: VerificationStatus
+  attempts: number
+  source_error_id: number | null
+  created_at: string
+  completed_at: string | null
+}
+
+export interface VerificationStepResult {
+  seq: number
+  text: string
+  status: StepStatus // ok | error | unparseable | skipped
+}
+
+export interface VerificationSubmitResult {
+  id: number
+  knowledge_point: string
+  status: VerificationStatus
+  attempts: number
+  passed: boolean
+  first_error_seq: number | null
+  error_type: string | null
+  detail: string | null
+  steps: VerificationStepResult[]
+}
+
+export interface KnowledgePointRepair {
+  knowledge_point: string
+  students_errored: number
+  students_fixed: number
+  repair_rate: number
+}
+
+export interface ClassRepairRate {
+  class_repair_rate: number
+  students_with_errors: number
+  total_knowledge_point_pairs: number
+  fixed_knowledge_point_pairs: number
+  knowledge_points: KnowledgePointRepair[]
 }
 
 // ---------- 界面文案映射 ----------

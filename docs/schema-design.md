@@ -160,6 +160,23 @@
 - 索引：`ix_notifications_user_id`。
 - 说明：教师一键纠错成功后写入一条，提醒被纠错的学生；删除作业时关联这些提交的提醒一并级联删除。
 
+### 2.11 verifications —— 二次验证记录（v0.4.0 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| id | INTEGER PK 自增 | 否 | — | 主键 |
+| student_id | INTEGER FK → users.id | 否 | — | 做验证的学生 |
+| knowledge_point | VARCHAR(64) | 否 | — | 验证的知识点 |
+| source_error_id | INTEGER FK → errors.id | 是 | NULL | 触发本次验证的错题 |
+| variant_json | TEXT | 否 | — | JSON：`{prompt, knowledge_point, standard_steps, answer, mode}`（mode = `strict` 已 sympy 验算 \| `practice` 练习模式） |
+| status | VARCHAR(16) | 否 | `pending` | `pending`（待作答）\| `passed`（已通过）\| `failed`（未通过，可重试） |
+| attempts | INTEGER | 否 | 0 | 提交作答次数 |
+| created_at | TIMESTAMP | 否 | now | 创建时间 |
+| completed_at | TIMESTAMP | 是 | NULL | 通过时间 |
+
+- 索引：`ix_verifications_student_id`、`ix_verifications_knowledge_point`。
+- 说明：`variant_json` 中的 `standard_steps` / `answer` 只在后端判定用，**永不下发学生端**（接口只回 `prompt`）。知识点「已修复」的唯一依据 = 该生该知识点存在一条 `status=passed` 的记录（见 api-contract 3.13 四态口径）。
+
 ## 3. 关系图（ER，文本版）
 
 ```
@@ -167,6 +184,8 @@ users 1 ──< assignments (created_by)
 users 1 ──< submissions (student_id)
 users 1 ──< corrections (student_id)
 users 1 ──< essays (student_id)
+users 1 ──< verifications (student_id)
+errors 1 ──< verifications (source_error_id, 可空)
 
 assignments 1 ──< questions (assignment_id)
 questions 1 ──< submissions (question_id)
@@ -233,3 +252,4 @@ WHERE s.student_id = S
 | v0.2.0 | 2026-10-07 | 无表结构变更：拍照图片走文件存储（UPLOAD_DIR），不新建表、不给现有表加列 |
 | v0.2.1 | 2026-10-07 | 无表结构变更：学习报告/错题时间线均为现有表聚合查询 |
 | v0.3.0 | 2026-10-07 | 新增两张表：`chat_messages`（Agent 对话记录）、`notifications`（站内提醒）；不改任何现有表/列。删除作业走应用层级联（见 api-contract 4.10） |
+| v0.4.0 | 2026-10-07 | 新增一张表：`verifications`（二次验证记录）；不改任何现有表/列。知识点状态口径升级为四态（见 api-contract 3.13），「已修复」只认 verifications 的 passed 记录 |

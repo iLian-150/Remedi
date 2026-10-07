@@ -1,8 +1,8 @@
 <!-- 学生端：我的档案
-     核心视觉：错误轨迹时间线 —— 三色圆点展示历次错误，修复状态为「已修复 / 加固中」
-     文案伦理：学生端用「需要加固的知识点」「已修复」「继续保持」，不出现贴标签术语
-     修复状态口径（最小假设，契约无订正记录查询接口）：
-       已修复 = 本机提交订正且判定正确；其余 = 加固中 -->
+     核心视觉：错误轨迹时间线 —— 三色圆点展示历次错误，状态为「已订正 / 加固中」
+     文案伦理：学生端用「需要加固的知识点」「已订正」「继续保持」，不出现贴标签术语
+     状态口径：本页的「已订正」= 本机提交订正且判定正确（契约无订正记录查询接口，
+     仅本机可知）；知识点层面的「已修复」以学习报告为准（订正 + 通过二次验证，v0.4.0）。 -->
 <template>
   <div class="page">
     <div class="page-head">
@@ -20,7 +20,7 @@
           <div class="stat"><div class="stat-num tnum">{{ totalAttempts }}</div><div class="stat-label">累计作答</div></div>
           <div class="stat"><div class="stat-num tnum">{{ totalErrors }}</div><div class="stat-label">累计发现问题</div></div>
           <div class="stat amber"><div class="stat-num tnum">{{ reinforcingCount }}</div><div class="stat-label">加固中</div></div>
-          <div class="stat green"><div class="stat-num tnum">{{ fixedIds.size }}</div><div class="stat-label">已修复</div></div>
+          <div class="stat green"><div class="stat-num tnum">{{ fixedIds.size }}</div><div class="stat-label">已订正错题</div></div>
         </div>
       </div>
 
@@ -32,7 +32,7 @@
       <!-- 核心视觉：错误轨迹时间线 -->
       <div class="card">
         <h3>我的错误轨迹</h3>
-        <p class="card-sub">每一次错误都是一次学习机会，看看它们是如何被逐个修复的。</p>
+        <p class="card-sub">每一次错误都是一次学习机会：先订正，再去学习报告做一道同类题验证，知识点就真正修复了。</p>
         <div class="timeline" v-if="timeline.length">
           <div v-for="e in timeline" :key="e.id" class="timeline-item">
             <span :class="errorTypeDotClass(e.error_type)"></span>
@@ -41,7 +41,7 @@
               <p>
                 <ErrorTypeBadge :type="e.error_type" />
                 <span class="badge badge-blue">{{ e.knowledge_point }}</span>
-                <span v-if="fixedIds.has(e.id)" class="badge badge-green">已修复</span>
+                <span v-if="fixedIds.has(e.id)" class="badge badge-green">已订正</span>
                 <span v-else class="badge badge-amber">加固中</span>
               </p>
               <p class="step-text">{{ e.step_text }}</p>
@@ -55,17 +55,20 @@
         <div v-else class="empty">还没有错误记录，继续保持！</div>
       </div>
 
-      <div class="card">
-        <h3>知识点掌握度</h3>
-        <p class="card-sub">掌握度 = 1 − 错误率，越高越好。</p>
-        <EChart v-if="profile.knowledge_points.length" :option="masteryOption" />
-        <div v-else class="empty">暂无数据。</div>
-      </div>
+      <!-- 双列（v0.4.0）：掌握度 | 问题类型分布 -->
+      <div class="profile-grid">
+        <div class="card">
+          <h3>知识点掌握度</h3>
+          <p class="card-sub">掌握度 = 1 − 错误率，越高越好。</p>
+          <EChart v-if="profile.knowledge_points.length" :option="masteryOption" />
+          <div v-else class="empty">暂无数据。</div>
+        </div>
 
-      <div class="card">
-        <h3>问题类型分布</h3>
-        <EChart v-if="typeOptionData.length" :option="typeOption" />
-        <div v-else class="empty">暂无数据。</div>
+        <div class="card">
+          <h3>问题类型分布</h3>
+          <EChart v-if="typeOptionData.length" :option="typeOption" />
+          <div v-else class="empty">暂无数据。</div>
+        </div>
       </div>
     </template>
   </div>
@@ -160,6 +163,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.profile-grid > .card { margin-bottom: 0; }
+@media (max-width: 1080px) {
+  .profile-grid { grid-template-columns: 1fr; }
+}
 .suggestion { background: var(--primary-50); border-radius: 8px; padding: 12px 16px; font-size: 14px; }
 .step-text { font-weight: 600; margin: 6px 0 4px; }
 .detail { color: var(--text-2); font-size: 13px; }

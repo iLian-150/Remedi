@@ -155,3 +155,23 @@ class Notification(Base):
                                    comment="关联的提交（点提醒跳诊断报告用），可空")
     is_read = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class Verification(Base):
+    """二次验证记录（v0.4.0 新增表）：学生订正后做一道同知识点变式题，
+    通过验证才算该知识点「已修复」。variant_json 存变式题全量
+    （prompt / standard_steps / answer / mode），只把 prompt 下发给学生。"""
+    __tablename__ = "verifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    knowledge_point = Column(String(64), nullable=False, index=True)
+    source_error_id = Column(Integer, ForeignKey("errors.id"), nullable=True,
+                             comment="触发本次验证的错题，可空")
+    variant_json = Column(Text, nullable=False,
+                          comment='JSON: {prompt, knowledge_point, standard_steps, answer, mode}')
+    status = Column(String(16), nullable=False, default="pending",
+                    comment="pending | passed | failed")
+    attempts = Column(Integer, nullable=False, default=0, comment="提交作答次数")
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    completed_at = Column(DateTime, nullable=True, comment="通过时间")
