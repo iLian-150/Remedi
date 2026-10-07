@@ -26,7 +26,7 @@ class Settings:
     # 未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN 时自动降级为 Mock。
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     CLOUDFLARE_API_TOKEN: str = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
-    CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
+    CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3.8-27b").strip()
     # 视觉（拍照转写）模型。仅 CloudflareProvider 使用；其余 Provider 降级为 Mock 转写。
     CLOUDFLARE_VISION_MODEL: str = os.getenv(
         "CLOUDFLARE_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct").strip()
@@ -43,7 +43,7 @@ class Settings:
     # CORS。默认放行所有来源方便前端 dev server 联调；生产请收紧。
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    APP_VERSION: str = "0.6.0"
+    APP_VERSION: str = "0.6.1"
 
 
 settings = Settings()
