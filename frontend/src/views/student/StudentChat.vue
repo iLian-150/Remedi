@@ -107,15 +107,33 @@
         </section>
 
         <template v-else>
-        <div v-for="msg in messages" :key="msg.id" class="msg-row" :class="msg.side">
-          <div v-if="msg.side === 'ai'" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
-
+        <!-- 简报区（本轮小改）：简报从消息流抽出单独渲染——吸顶摘要条常驻对话区顶部，
+             卡片组在条下方推开/收起；进入对话后默认收起，给消息流让位 -->
+        <div v-if="welcomeBriefing" class="brief-bar">
+          <span class="brief-bar-icon"><AppIcon name="clipboard" :size="13" /></span>
+          <span class="brief-bar-label">学习简报</span>
+          <span v-if="briefingAllDone(welcomeBriefing)" class="brief-bar-done">
+            <AppIcon name="check" :size="13" /> 今日待办已清空
+          </span>
+          <span v-else class="brief-bar-items">
+            <template v-for="(it, i) in briefSummaryItems" :key="it.key">
+              <span v-if="i > 0" class="brief-bar-sep">·</span>
+              <span class="brief-bar-item" :class="it.tone">{{ it.label }} <b class="tnum">{{ it.count }}</b></span>
+            </template>
+          </span>
+          <button type="button" class="brief-bar-toggle" @click="toggleBriefCard">
+            {{ briefCardOpen ? '收起' : '展开' }}
+            <AppIcon name="chevron-down" :size="14" class="brief-bar-chevron" :class="{ open: briefCardOpen }" />
+          </button>
+        </div>
+        <div v-if="welcomeBriefing" class="brief-expand" :class="{ open: briefCardOpen }">
+          <div class="brief-expand-inner">
           <!-- AI 简报卡片区（v0.2.1 卡片化） -->
-          <div v-if="msg.kind === 'briefing' && msg.briefing" class="ai-card briefing-card">
+          <div class="ai-card briefing-card">
             <p class="ai-card-title"><AppIcon name="clipboard" :size="17" /> 学习简报</p>
 
             <!-- 全部完成：鼓励卡 -->
-            <div v-if="briefingAllDone(msg.briefing)" class="brief-done">
+            <div v-if="briefingAllDone(welcomeBriefing)" class="brief-done">
               <span class="brief-done-icon"><AppIcon name="check" :size="22" /></span>
               <div>
                 <p class="brief-done-title">太棒了，{{ auth.name }}！全部完成</p>
@@ -130,12 +148,12 @@
 
               <div class="brief-grid">
                 <!-- 未完成作业卡 -->
-                <div v-if="msg.briefing.pending_assignments.length" class="brief-stat-card brief-assign">
+                <div v-if="welcomeBriefing.pending_assignments.length" class="brief-stat-card brief-assign">
                   <div class="brief-stat-head">
-                    <span class="brief-big tnum">{{ msg.briefing.pending_assignments.length }}</span>
+                    <span class="brief-big tnum">{{ welcomeBriefing.pending_assignments.length }}</span>
                     <span class="brief-stat-label">份作业还没完成</span>
                   </div>
-                  <div v-for="p in msg.briefing.pending_assignments" :key="p.id" class="brief-item">
+                  <div v-for="p in welcomeBriefing.pending_assignments" :key="p.id" class="brief-item">
                     <span class="brief-item-main">
                       {{ p.title }}
                       <span v-if="p.mode === 'offline'" class="badge badge-amber">线下练习</span>
@@ -151,23 +169,23 @@
                 </div>
 
                 <!-- 待订正卡 -->
-                <div v-if="msg.briefing.pending_corrections_count" class="brief-stat-card brief-corr">
+                <div v-if="welcomeBriefing.pending_corrections_count" class="brief-stat-card brief-corr">
                   <div class="brief-stat-head">
-                    <span class="brief-big tnum">{{ msg.briefing.pending_corrections_count }}</span>
+                    <span class="brief-big tnum">{{ welcomeBriefing.pending_corrections_count }}</span>
                     <span class="brief-stat-label">处错题还没订正</span>
                   </div>
-                  <p class="brief-one-line" v-if="msg.briefing.pending_corrections_knowledge_points.length">
-                    涉及知识点：{{ msg.briefing.pending_corrections_knowledge_points.join('、') }}
+                  <p class="brief-one-line" v-if="welcomeBriefing.pending_corrections_knowledge_points.length">
+                    涉及知识点：{{ welcomeBriefing.pending_corrections_knowledge_points.join('、') }}
                   </p>
                   <router-link to="/student/corrections"><button class="btn small secondary">去订正</button></router-link>
                 </div>
               </div>
 
               <!-- 需加固知识点小卡 -->
-              <div v-if="briefWeakDetails(msg.briefing).length" class="brief-weak">
+              <div v-if="briefWeakDetails(welcomeBriefing).length" class="brief-weak">
                 <p class="brief-label">需要加固的知识点</p>
                 <div class="brief-weak-grid">
-                  <div v-for="d in briefWeakDetails(msg.briefing)" :key="d.knowledge_point" class="brief-weak-card">
+                  <div v-for="d in briefWeakDetails(welcomeBriefing)" :key="d.knowledge_point" class="brief-weak-card">
                     <span class="brief-weak-name">{{ d.knowledge_point }}</span>
                     <span class="brief-weak-meta">
                       出错 <span class="tnum">{{ d.error_count }}</span> 次
@@ -178,14 +196,19 @@
               </div>
 
               <!-- 最近动态：一行小字 -->
-              <p v-if="msg.briefing.recent_feedback" class="brief-recent">
-                最近动态：{{ sanitizeStudentCopy(msg.briefing.recent_feedback) }}
+              <p v-if="welcomeBriefing.recent_feedback" class="brief-recent">
+                最近动态：{{ sanitizeStudentCopy(welcomeBriefing.recent_feedback) }}
               </p>
             </template>
           </div>
+          </div>
+        </div>
+
+        <div v-for="msg in visibleMessages" :key="msg.id" class="msg-row" :class="msg.side">
+          <div v-if="msg.side === 'ai'" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
 
           <!-- AI 普通文本 -->
-          <div v-else-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
+          <div v-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
             <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
             {{ msg.text }}
             <div v-if="msg.captureId" class="photo-capture-action">
@@ -454,6 +477,51 @@ const welcomeBriefing = computed(() => messages.value.find((msg) => msg.kind ===
 const isWelcomeScreen = computed(
   () => !loadingInit.value && !messages.value.some((msg) => msg.side === 'user' || (msg.kind !== 'briefing' && msg.text.trim()))
 )
+
+// ---------- 简报收起（本轮小改） ----------
+// 判定条件：会话里出现过用户消息（hasConversation）→ 已进入对话态。
+// 来源包括两种：本页刚发送的消息（sendChat / 拍照批改都会 push 用户消息）、
+// 以及打开历史会话时从后端恢复出的 role=user 消息（挂载 fetchAgentHistory、
+// 会话同步 watch 的 fetchSessionMessages 两条路径）。
+// 进入对话态后简报卡片组默认收起、只留吸顶摘要条；briefManual 是用户手动
+// 展开/收起的选择（null = 跟随默认）。手动展开后不会被后续发送自动收起
+// （不打扰用户正在看的卡片），切换会话时在会话同步 watch 里复位为 null。
+const briefManual = ref<boolean | null>(null)
+const hasConversation = computed(() => messages.value.some((m) => m.side === 'user'))
+const briefCardOpen = computed(() => briefManual.value ?? !hasConversation.value)
+function toggleBriefCard() {
+  briefManual.value = !briefCardOpen.value
+}
+/** 摘要条三项（只列非零项，顺序：作业 → 订正 → 加固；全清走模板里的清空文案） */
+const briefSummaryItems = computed(() => {
+  const b = welcomeBriefing.value
+  if (!b) return [] as { key: string; label: string; count: number; tone: string }[]
+  const items: { key: string; label: string; count: number; tone: string }[] = []
+  if (b.pending_assignments.length)
+    items.push({ key: 'assign', label: '未完成作业', count: b.pending_assignments.length, tone: '' })
+  if (b.pending_corrections_count)
+    items.push({ key: 'corr', label: '待订正', count: b.pending_corrections_count, tone: 'corr' })
+  const weak = briefWeakDetails(b).length
+  if (weak) items.push({ key: 'weak', label: '需加固知识点', count: weak, tone: 'weak' })
+  return items
+})
+/** 对话消息流（简报消息已从循环抽出、单独在上方简报区渲染） */
+const visibleMessages = computed(() => messages.value.filter((m) => m.kind !== 'briefing'))
+
+/** 进入对话态的瞬间拉一次最新简报：本页发送/批改后原本不刷新简报，
+ *  摘要条若沿用挂载时的旧数字会不准；只在「收起态切换」这一刻补拉 */
+async function refreshBriefing() {
+  try {
+    const b = await student.fetchBriefing()
+    const m = messages.value.find((x) => x.kind === 'briefing')
+    if (m) m.briefing = b
+  } catch (e) {
+    console.error(e)
+  }
+}
+watch(hasConversation, (now, prev) => {
+  if (now && !prev) void refreshBriefing()
+})
 const busy = computed(() => messages.value.some((m) => m.pending || m.submitting))
 
 function scrollToBottom() {
@@ -560,6 +628,7 @@ watch(
     appliedViewSeq = seqVal
     const view = student.sessionView
     suggestions.value = []
+    briefManual.value = null
     messages.value = messages.value.filter((m) => m.kind === 'briefing')
     if (!messages.value.length) await prependBriefing()
     if (!view.fresh && view.id != null) {
@@ -915,6 +984,52 @@ onMounted(async () => {
 }
 .brief-done-title { font-size: 15.5px; font-weight: 700; color: #065F46; margin-bottom: 2px; }
 .brief-done-line { font-size: 13.5px; color: #065F46; }
+
+/* 简报摘要条 + 展开区（本轮小改）：条与展开区都是 .chat-inner 的直接子级
+   （不套在 .msg-row 里），摘要条才能在整个消息流滚动中吸顶；
+   展开区用 grid-template-rows 0fr→1fr + 透明度做平滑推开/收起 */
+.brief-bar {
+  position: sticky; top: 10px; z-index: 5;
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 14px; padding: 7px 8px 7px 12px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.07);
+  font-size: 12.5px; color: var(--text-2);
+}
+.brief-bar-icon { display: grid; width: 22px; height: 22px; flex-shrink: 0; place-items: center; border-radius: 50%; background: var(--primary-50); color: var(--primary); }
+.brief-bar-label { flex-shrink: 0; font-weight: 700; color: var(--text); white-space: nowrap; }
+.brief-bar-items { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
+.brief-bar-item { overflow: hidden; text-overflow: ellipsis; }
+.brief-bar-item b { color: var(--primary); font-weight: 800; }
+.brief-bar-item.corr b, .brief-bar-item.weak b { color: var(--amber); }
+.brief-bar-sep { flex-shrink: 0; color: var(--text-3); }
+.brief-bar-done { display: inline-flex; min-width: 0; align-items: center; gap: 5px; overflow: hidden; color: #065F46; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.brief-bar-toggle {
+  display: inline-flex; flex-shrink: 0; align-items: center; gap: 3px;
+  margin-left: auto; padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: #fff; color: var(--primary);
+  font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.brief-bar-toggle:hover { background: var(--primary-50); border-color: rgba(29, 78, 216, 0.35); }
+.brief-bar-chevron { transition: transform 0.3s ease; }
+.brief-bar-chevron.open { transform: rotate(180deg); }
+.brief-expand { display: grid; grid-template-rows: 0fr; visibility: hidden; opacity: 0; transition: grid-template-rows 0.38s ease, opacity 0.3s ease, visibility 0s linear 0.38s; }
+.brief-expand.open { grid-template-rows: 1fr; visibility: visible; opacity: 1; transition: grid-template-rows 0.38s ease, opacity 0.3s ease; }
+.brief-expand-inner { min-height: 0; overflow: hidden; padding-left: 40px; }
+.brief-expand-inner .briefing-card { width: 100%; margin-bottom: 16px; }
+@media (prefers-reduced-motion: reduce) {
+  .brief-expand, .brief-bar-chevron { transition: none; }
+}
+@media (max-width: 620px) {
+  .brief-bar { top: 8px; gap: 6px; padding-left: 9px; font-size: 12px; }
+  .brief-bar-label { display: none; }
+  .brief-expand-inner { padding-left: 0; }
+}
 
 .mini-label { display: block; font-size: 13px; color: var(--text-2); margin: 12px 0 6px; }
 .transcribe-step { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
