@@ -13,6 +13,7 @@ class UserOut(BaseModel):
     name: str
     student_no: Optional[str] = None
     role: str
+    created_at: Optional[datetime] = None   # v0.9.0 新增（只加字段）：学生档案黑板展示「加入时间」
 
 
 class Pagination(BaseModel):
@@ -121,6 +122,9 @@ class DiagnosisOut(BaseModel):
     steps: List[StepOut]
     errors: List[ErrorOut]
     follow_up_question: Optional[str] = None   # v0.4.0：按主错因+知识点生成的启发式追问，无错时为 None
+    # v0.9.0 新增（只加字段）：教师审核状态。pending 时 status="pending_review"、
+    # steps/errors 为空（诊断结论对学生不可见）；approved = 老师已审核（或历史数据默认通过）
+    review_status: str = "approved"
 
 
 class PhotoDiagnosisOut(DiagnosisOut):
@@ -138,6 +142,9 @@ class SubmissionBrief(BaseModel):
     status: str
     error_count: int
     submitted_at: datetime
+    # v0.9.0 新增（只加字段）：教师审核状态 pending | approved（无审核行=历史数据=approved）；
+    # pending 时 error_count 固定为 0，不向学生泄露诊断结论
+    review_status: str = "approved"
 
 
 class MistakeCorrectionBrief(BaseModel):
@@ -175,6 +182,9 @@ class StudentMistakeOut(BaseModel):
     step_seq: Optional[int] = None
     step_text: Optional[str] = None
     created_at: datetime
+    # v0.9.0 新增（只加字段）：错题所属提交的提交时间（订正页日历按此打点）；
+    # 自主收录条目无提交，取收录时间兜底
+    submitted_at: Optional[datetime] = None
     category_key: str
     category_label: str
     category_studied: bool
@@ -375,6 +385,9 @@ class KnowledgePointErrorItem(BaseModel):
 
 class TeacherErrorItem(BaseModel):
     id: int
+    # v0.9.0 新增（只加字段）：所属提交 id 与其审核状态（pending 时批改列表打「待审核」标）
+    submission_id: int = 0
+    review_status: str = "approved"
     student: UserOut
     question: QuestionOut
     step_seq: Optional[int] = None
@@ -599,6 +612,45 @@ class ClassRepairRateOut(BaseModel):
     total_knowledge_point_pairs: int         # 出过错的（学生, 知识点）组合数
     fixed_knowledge_point_pairs: int         # 其中已修复的组合数
     knowledge_points: List[KnowledgePointRepairItem]
+
+
+# ---------- 教师：提交审核流（v0.9.0 新增） ----------
+
+class ReviewPendingItem(BaseModel):
+    submission_id: int
+    student: UserOut
+    assignment_id: Optional[int] = None
+    assignment_title: str = ""
+    question_id: int
+    question_stem: str
+    subject: str
+    knowledge_point: str
+    error_count: int            # 该提交的 AI 诊断错误数（教师端可见）
+    submitted_at: datetime
+
+
+class ReviewPendingOut(BaseModel):
+    count: int                  # 待审核总数（导航角标用）
+    items: List[ReviewPendingItem]
+
+
+class ReviewDetailOut(BaseModel):
+    submission_id: int
+    student: UserOut
+    assignment_title: str = ""
+    question: QuestionOut
+    submitted_at: datetime
+    review_status: str          # pending | approved
+    diagnosis: DiagnosisOut     # 完整分步诊断（教师端全量，含 review_status）
+
+
+class ReviewApproveOut(BaseModel):
+    submission_id: int
+    review_status: str          # approved
+
+
+class ReviewApproveAllOut(BaseModel):
+    approved_count: int         # 本次通过的条数
 
 
 # ---------- 健康检查 ----------

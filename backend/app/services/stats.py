@@ -86,11 +86,23 @@ def knowledge_point_ranking(db) -> List[Dict]:
     return items
 
 
-def student_profile(db, student: User) -> Dict:
-    """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
+def _student_submissions(db, student: User, visible_only: bool):
+    """取学生的提交列表；visible_only=True 时滤掉待教师审核的提交
+    （v0.9.0 学生侧口径：pending 的批改结果学生还看不到，统计里也不算）。
+    教师端调用一律 visible_only=False，全量可见。"""
     submissions = (
         db.query(Submission).filter(Submission.student_id == student.id).all()
     )
+    if visible_only:
+        from .reviews import visible_submissions
+
+        submissions = visible_submissions(db, submissions)
+    return submissions
+
+
+def student_profile(db, student: User, visible_only: bool = False) -> Dict:
+    """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
+    submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
 
     # 按知识点聚合：attempts（提交数）、errors（错误数）
@@ -156,14 +168,20 @@ def student_profile(db, student: User) -> Dict:
     }
 
 
-def student_briefing(db, student: User) -> Dict:
+def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     """学生首页待办简报：未完成作业 / 待订正 / 需要加固的知识点 / 最近一次批改摘要。
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
-    submissions = (
-        db.query(Submission).filter(Submission.student_id == student.id).all()
-    )
+    submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
-    done_qids = {s.question_id for s in submissions}
+    # 「交过没交过」按全部提交算（含待审核的）：待审核只是诊断不可见，题已经交了，
+    # 不能在未完成作业里再出现一次；错误/待订正/最近动态则只算学生可见的提交。
+    if visible_only:
+        done_qids = {
+            s.question_id
+            for s in db.query(Submission).filter(Submission.student_id == student.id).all()
+        }
+    else:
+        done_qids = {s.question_id for s in submissions}
     done_qids |= {
         e.question_id
         for e in db.query(Essay).filter(
@@ -319,11 +337,9 @@ def _knowledge_point_status(errs, fixed_ids, passed_kps, kp_name: str) -> str:
     return "pending"
 
 
-def student_report(db, student: User) -> List[Dict]:
+def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     """学生学习报告：按科目聚合提交/正确率/修复进度，并下钻到知识点状态。"""
-    submissions = (
-        db.query(Submission).filter(Submission.student_id == student.id).all()
-    )
+    submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
     errors = []
     if sub_ids:
@@ -406,11 +422,10 @@ def student_report(db, student: User) -> List[Dict]:
     return result
 
 
-def knowledge_point_errors(db, student: User, knowledge_point: str) -> List[Dict]:
+def knowledge_point_errors(db, student: User, knowledge_point: str,
+                           visible_only: bool = False) -> List[Dict]:
     """某知识点下该生的错题时间线（纵向学习记忆），按时间倒序。"""
-    submissions = (
-        db.query(Submission).filter(Submission.student_id == student.id).all()
-    )
+    submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
     if not sub_ids:
         return []

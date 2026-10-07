@@ -341,14 +341,15 @@ table.table tr:hover td { background: #F8FAFF; }
   width: 0; padding-left: 0; padding-right: 0;
   opacity: 0; overflow: hidden; border-left: none; pointer-events: none;
 }
-/* ---------- 悬浮层 z-index 梳理（v0.8.2） ----------
+/* ---------- 悬浮层 z-index 梳理（v0.8.2；v0.9.0 更新） ----------
  *    6  对话页悬浮输入卡（.chat-composer，StudentChat scoped，属内容区内部层级，
  *       位于内容底部中央，与右上角的右栏 FAB 不在同一区域，不冲突）
  *  150  移动端顶栏（.mobile-topbar）
  *  160  右栏收起态 FAB（.notes-fab / .cal-fab，右上角；移动端 top 改 64px 下移到顶栏下方避让）
  *  190  移动端侧栏遮罩（.sidebar-mask）
  *  200  侧栏本体（.app-sidebar）与窄屏/移动端的右栏抽屉（.app-rail）
- *  210  侧栏收起态展开 FAB（.sidebar-expand-fab，左上角；与右栏 FAB 分居左右，互不重叠） */
+ *  300  图标轨模式下导航悬停 tooltip（.app-sidebar.collapsed .sidebar-nav a::after，
+ *       浮在侧栏右侧的内容区上方；v0.9.0 起侧栏收起改图标轨，不再有左上角展开 FAB） */
 /* 右栏收起态入口（v0.8.2 拆分）：两场景各有专属类名与视觉身份，不再共用按钮换图标。
  * notes-fab：白底 + 主色信封，未读时轻晃并带红色未读角标（数字读 student store）。
  * cal-fab：主色浅底 + 中性色日历，无角标、无动效，与提醒按钮一眼可辨。 */
@@ -471,44 +472,65 @@ table.table tr:hover td { background: #F8FAFF; }
   .card.hoverable:hover, .assign-card:hover { transform: none; }
 }
 
-/* ---------- 左侧栏收起（v0.6.2，仅桌面端；移动端抽屉不受此状态影响；v0.8.2 起双端全角色统一） ---------- */
+/* ---------- 左侧栏收起 = 图标轨（v0.9.0 替代 v0.6.2 的整条滑出+FAB；仅桌面端，
+ * 移动端抽屉不受此状态影响） ----------
+ * 收起态宽 68px：只留 BrandLogo 徽章、导航图标、头像与展开按钮；
+ * 品牌文字/导航文字/账号文字与会话区（SidebarSessions，模板层 v-if 关掉）隐藏；
+ * 导航悬停时用 ::after 气泡 + title 双通道提示标签。展开态 248px 不变。
+ * 状态仍存 localStorage remedi-sidebar-open（App.vue 读写），全角色统一。 */
 .sidebar-collapse-btn { margin-left: auto; flex-shrink: 0; }
-.sidebar-expand-fab { display: none; }
+/* 导航角标（v0.9.0）：展开态靠右的红色计数丸；收起态改浮在图标右上角（见下方轨规则） */
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+  background: var(--red); color: #fff; font-size: 11.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 @media (min-width: 961px) {
   .app-sidebar {
-    transition: margin-left 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+    transition: width 0.28s ease, padding 0.28s ease;
   }
-  /* 收起：整条侧栏向左滑出视口（负 margin 抵掉自身宽度），内容区随之铺满 */
-  .app-sidebar.collapsed {
-    margin-left: -249px;
-    opacity: 0;
-    pointer-events: none;
+  .app-sidebar.collapsed { width: 68px; padding: 18px 8px; }
+  /* 会话区在图标轨上隐藏（仅桌面；移动端抽屉仍完整显示，见断点外规则） */
+  .app-sidebar.collapsed .sb-sessions { display: none; }
+  /* 品牌行竖排：徽章在上、展开按钮在下（按钮即 chevron 展开入口） */
+  .app-sidebar.collapsed .sidebar-brand-row {
+    flex-direction: column; gap: 8px; padding: 2px 0 6px;
   }
-  .sidebar-expand-fab {
-    display: flex; align-items: center; justify-content: center;
-    position: fixed; left: 14px; top: 14px; z-index: 210;
-    width: 38px; height: 38px; border-radius: 50%;
-    background: var(--card); border: 1px solid var(--border);
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
-    color: var(--text-2); cursor: pointer;
-    animation: sidebar-fab-in 0.3s ease both;
-    transition: transform 0.25s ease, box-shadow 0.25s ease, color 0.25s ease;
+  .app-sidebar.collapsed .brand-text { display: none; }
+  .app-sidebar.collapsed .sidebar-collapse-btn { margin-left: 0; }
+  /* 导航只剩图标：居中排布，文字隐藏，悬停气泡显示标签 */
+  .app-sidebar.collapsed .sidebar-nav a {
+    justify-content: center; gap: 0; padding: 10px 0; position: relative;
   }
-  .sidebar-expand-fab:hover {
-    color: var(--primary); transform: scale(1.06);
-    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
+  .app-sidebar.collapsed .nav-label { display: none; }
+  .app-sidebar.collapsed .nav-badge {
+    position: absolute; top: 1px; right: 4px; margin-left: 0;
+    min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px;
   }
-  @keyframes sidebar-fab-in {
-    from { opacity: 0; transform: translateX(-8px); }
-    to { opacity: 1; transform: translateX(0); }
+  .app-sidebar.collapsed .sidebar-nav a::after {
+    content: attr(data-label);
+    position: absolute; left: calc(100% + 12px); top: 50%;
+    transform: translateY(-50%) translateX(-4px);
+    background: #1F2937; color: #fff; font-size: 12px; font-weight: 500; line-height: 1.4;
+    padding: 5px 9px; border-radius: 6px; white-space: nowrap;
+    box-shadow: var(--shadow-md); z-index: 300;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
   }
+  .app-sidebar.collapsed .sidebar-nav a:hover::after {
+    opacity: 1; transform: translateY(-50%) translateX(0);
+  }
+  /* 账号区只留头像 */
+  .app-sidebar.collapsed .sidebar-user { justify-content: center; padding: 12px 0 2px; }
+  .app-sidebar.collapsed .user-meta,
+  .app-sidebar.collapsed .sidebar-user .icon-btn { display: none; }
 }
 @media (max-width: 960px) {
-  /* 移动端：隐藏品牌行收起按钮，collapsed 状态对抽屉无任何影响 */
+  /* 移动端：隐藏品牌行收起按钮，collapsed 对抽屉无任何影响（抽屉恒为 248px 全态） */
   .sidebar-collapse-btn { display: none; }
-  .app-sidebar.collapsed { margin-left: 0; opacity: 1; pointer-events: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
   .app-sidebar { transition: none; }
-  .sidebar-expand-fab { animation: none; transition: none; }
+  .app-sidebar.collapsed .sidebar-nav a::after { transition: none; }
 }
