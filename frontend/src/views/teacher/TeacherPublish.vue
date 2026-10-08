@@ -97,12 +97,19 @@
         <label>作业标题</label>
         <input v-model="title" type="text" :placeholder="mode === 'offline' ? '例如：练习册 P12-14 勾股定理练习' : '例如：第二周数学作业'" maxlength="128" />
       </div>
-      <div class="form-row" style="margin-bottom: 0">
+      <div class="form-row">
         <label>学科</label>
         <select v-model="subject" disabled>
           <option value="math">数学</option>
         </select>
         <p class="hint" style="margin-top: 6px">目前专注数学作业，支持拍照批改与逐步诊断。</p>
+      </div>
+      <div class="form-row" style="margin-bottom: 0">
+        <label>作业总分（满分）</label>
+        <div class="score-input-row">
+          <input v-model.number="totalScore" type="number" min="1" max="10000" step="1" class="score-input" />
+          <span class="hint">分 · 学生每次作答会由 AI 按步骤对错打分，你在待审核里可以改分；每道题的满分按下方「分值占比」折算。</span>
+        </div>
       </div>
     </div>
 
@@ -135,6 +142,19 @@
         <input v-model="q.knowledge_point" type="text" placeholder="例如：一元一次方程" maxlength="64" />
       </div>
       <div class="form-row">
+        <label>分值占比（占总分的百分比）</label>
+        <div class="score-input-row">
+          <input
+            v-model.number="q.weight_pct"
+            type="number" min="0" max="100" step="0.5"
+            class="score-input" placeholder="均分"
+          />
+          <span class="hint">
+            % · 本题满分约 {{ fmtScore(questionMax(q)) }} 分<template v-if="q.weight_pct === null || q.weight_pct === undefined">（留空按题数均分）</template>
+          </span>
+        </div>
+      </div>
+      <div class="form-row">
         <label>标准解题步骤（选填，每行一步，含第一步原式，供批改参考）</label>
         <textarea v-model="q.standard_steps_text" rows="4" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
       </div>
@@ -163,6 +183,17 @@
     </div>
 
     <input ref="photoRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhotoChange" />
+    <!-- 分值占比合计（评分系统）：只统计会真正发布的题（题干或知识点已填） -->
+    <div class="card weight-bar">
+      <span class="weight-sum" :class="{ bad: !weightSumOk }">
+        分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b>
+        <template v-if="weightSumOk">，正好 100%</template>
+        <template v-else-if="weightSum < 100">，还差 {{ fmtScore(100 - weightSum) }}%</template>
+        <template v-else>，超出了 {{ fmtScore(weightSum - 100) }}%</template>
+      </span>
+      <span class="hint">没填占比的题按「100 ÷ 题数」计入合计；合计不是 100% 时不能发布，避免各题满分加起来超过总分。</span>
+      <button type="button" class="btn small secondary" @click="distributeEvenly">一键均分</button>
+    </div>
     <div class="toolbar">
       <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加一题</button>
       <button class="btn" :disabled="submitting || checkingAll" @click="submit">
@@ -189,6 +220,7 @@ interface QuestionForm {
   knowledge_point: string
   standard_steps_text: string
   reference_answer: string
+  weight_pct: number | null   // 评分系统：分值占比 %；null = 留空（按题数均分）
   recognized: boolean   // 是否刚通过照片识别填入（展示检查提示）
   recognizing: boolean  // 识别请求进行中
   // 参考答案 AI 验算（v0.9.3）：check_stamp 是验算时「题干+答案」的指纹，
@@ -201,8 +233,10 @@ interface QuestionForm {
 const mode = ref<'online' | 'offline'>('online')
 const title = ref('')
 const subject = ref<'math'>('math')
+const totalScore = ref(100)   // 评分系统：作业总分（满分），默认 100
 const blankQuestion = (): QuestionForm => ({
   prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '',
+  weight_pct: null,
   recognized: false, recognizing: false,
   check_status: 'idle', check_detail: '', check_stamp: ''
 })
@@ -219,6 +253,50 @@ function errMsg(e: unknown, fallback: string): string {
 
 function addQuestion() {
   questions.value.push(blankQuestion())
+}
+
+// ---------- 评分系统：分值占比合计与校验 ----------
+// 口径与后端一致：没填占比的题按「100 ÷ 会真正发布的题数」均分。
+// 合计必须 = 100%（容差 0.5），否则各题满分加起来会超过/不足作业总分，发布拦截。
+
+function fmtScore(v: number): string {
+  return String(Math.round(v * 10) / 10)
+}
+
+/** 会真正发布的题目（题干或知识点已填），与 submit 的 valid 口径一致 */
+const inPlayQuestions = computed(() =>
+  questions.value.filter((q) => q.prompt.trim() || q.knowledge_point.trim())
+)
+
+function effectivePct(q: QuestionForm, n: number): number {
+  const v = q.weight_pct
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return n ? 100 / n : 0
+  return Number(v)
+}
+
+/** 本题满分（按生效占比折算），供题行内实时展示 */
+function questionMax(q: QuestionForm): number {
+  const n = inPlayQuestions.value.length || questions.value.length || 1
+  return ((Number(totalScore.value) || 0) * effectivePct(q, n)) / 100
+}
+
+const weightSum = computed(() => {
+  const list = inPlayQuestions.value
+  if (!list.length) return 0
+  const n = list.length
+  return list.reduce((s, q) => s + effectivePct(q, n), 0)
+})
+const weightSumOk = computed(() => Math.abs(weightSum.value - 100) <= 0.5)
+
+/** 一键均分：把 100% 平均写进每道会发布的题（最后一题吃掉小数尾差，合计恰好 100） */
+function distributeEvenly() {
+  const list = inPlayQuestions.value.length ? inPlayQuestions.value : questions.value
+  const n = list.length
+  if (!n) return
+  const base = Math.floor((100 / n) * 10) / 10
+  list.forEach((q, i) => {
+    q.weight_pct = i === n - 1 ? Math.round((100 - base * (n - 1)) * 10) / 10 : base
+  })
 }
 
 // ---------- 参考答案 AI 验算（v0.9.3）：只提醒、永不拦截发布 ----------
@@ -415,6 +493,18 @@ async function submit() {
       return
     }
   }
+  // 评分系统：总分合法性 + 分值占比合计必须 = 100%（容差 0.5），否则拦截发布
+  const total = Number(totalScore.value)
+  if (!total || Number.isNaN(total) || total <= 0) {
+    error.value = '请填写有效的作业总分（满分）。'
+    return
+  }
+  if (!weightSumOk.value) {
+    error.value = weightSum.value < 100
+      ? `分值占比合计是 ${fmtScore(weightSum.value)}%，还差 ${fmtScore(100 - weightSum.value)}%，请调整各题占比或点「一键均分」后再发布。`
+      : `分值占比合计是 ${fmtScore(weightSum.value)}%，超出了 ${fmtScore(weightSum.value - 100)}%，请调整各题占比或点「一键均分」后再发布。`
+    return
+  }
   // 发布前批量验算参考答案（v0.9.3）：填了答案的题全部验一遍；
   // suspect 只在题下留黄色标记并弹一次确认，教师确认后照常发布，绝不拦截
   const withAnswer = valid.filter((q) => q.reference_answer.trim())
@@ -440,12 +530,17 @@ async function submit() {
   const payload: TeacherAssignmentInput = {
     title: title.value.trim(),
     subject: subject.value,
+    total_score: total,
     questions: valid.map((q) => ({
       type: 'math' as const,
       prompt: q.prompt.trim(),
       knowledge_point: q.knowledge_point.trim(),
       standard_steps: q.standard_steps_text.split('\n').map((s) => s.trim()).filter(Boolean),
-      reference_answer: q.reference_answer.trim() || undefined
+      reference_answer: q.reference_answer.trim() || undefined,
+      // 评分系统：填了占比才下发；留空的题后端按题数均分
+      weight_pct: q.weight_pct === null || q.weight_pct === undefined || Number.isNaN(Number(q.weight_pct))
+        ? undefined
+        : Number(q.weight_pct)
     }))
   }
   // 空数组的 standard_steps 不下发，保持请求干净
@@ -529,6 +624,15 @@ onMounted(async () => {
 }
 .btn.danger-outline { background: #fff; color: var(--red); border: 1px solid #FECACA; }
 .btn.danger-outline:hover { background: var(--red-bg); }
+/* 评分系统：总分/占比输入与合计条 */
+.score-input-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.score-input { width: 110px; flex: none; }
+.weight-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 13px 18px; }
+.weight-sum { font-size: 14px; }
+.weight-sum b { color: var(--green); font-size: 16px; }
+.weight-sum.bad b { color: var(--red); }
+.weight-bar .hint { flex: 1; min-width: 200px; }
+.weight-bar .btn { margin-left: auto; }
 .offline-photo-card { border: 1px dashed #B7C9F5; background: #FBFCFF; }
 /* 参考答案 AI 验算（v0.9.3） */
 .answer-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }

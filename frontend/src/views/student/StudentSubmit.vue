@@ -68,6 +68,7 @@
                 <span v-if="pendingQids.has(q.id)" class="badge badge-amber">待老师审核</span>
                 <span v-else-if="doneQids.has(q.id)" class="badge badge-green">已完成</span>
                 <span v-else class="badge badge-gray">未完成</span>
+                <span v-if="scoreByQid[q.id]" class="badge badge-green tnum">得分 {{ fmtScore(scoreByQid[q.id].score) }} / {{ fmtScore(scoreByQid[q.id].max) }} 分</span>
               </p>
             </div>
             <!-- 线下：点按直达图库（v0.9.2），不再先展开中间面板 -->
@@ -173,6 +174,7 @@ const currentDetail = ref<AssignmentDetail | null>(null) // 当前所选作业�
 const questions = ref<Question[]>([])
 const doneQids = ref<Set<number>>(new Set())
 const pendingQids = ref<Set<number>>(new Set()) // v0.9.0：最新一次提交在等老师审核的题目
+const scoreByQid = ref<Record<number, { score: number; max: number }>>({}) // 评分系统：已通过题目的得分 chip
 const loading = ref(false)
 const error = ref('')
 
@@ -272,6 +274,10 @@ function errDetail(e: unknown): string {
   return typeof d === 'string' ? d : ''
 }
 
+function fmtScore(v: number): string {
+  return String(Math.round(v * 10) / 10)
+}
+
 /** 在线提交：与拍照完全同链——后端先 AI 诊断，再进教师待审核（3.3） */
 async function submitAnswer(q: Question) {
   const steps = (drafts.value[q.id] ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
@@ -353,9 +359,19 @@ function onGraded(qid: number, result: SubmissionResult) {
   if (result.status === 'pending_review' || result.review_status === 'pending') {
     pendingQids.value = new Set(pendingQids.value).add(qid)
     doneQids.value = new Set([...doneQids.value].filter((x) => x !== qid))
+    // 重新提交后旧分数作废（新分要等老师审核通过才有）
+    const scores = { ...scoreByQid.value }
+    delete scores[qid]
+    scoreByQid.value = scores
   } else {
     doneQids.value = new Set(doneQids.value).add(qid)
     pendingQids.value = new Set([...pendingQids.value].filter((x) => x !== qid))
+    if (result.score) {
+      scoreByQid.value = {
+        ...scoreByQid.value,
+        [qid]: { score: result.score.score, max: result.score.max_score }
+      }
+    }
   }
 }
 
@@ -378,6 +394,17 @@ onMounted(async () => {
       if (rstatus === 'pending') pendingQids.value.add(qid)
       else doneQids.value.add(qid)
     })
+    // 评分系统：每题最新一次提交若已通过且有分，记下得分 chip 数据
+    const seenScore = new Set<number>()
+    const scores: Record<number, { score: number; max: number }> = {}
+    subs.forEach((s) => {
+      if (seenScore.has(s.question_id)) return
+      seenScore.add(s.question_id)
+      if (s.score !== null && s.score !== undefined && s.max_score !== null && s.max_score !== undefined) {
+        scores[s.question_id] = { score: s.score, max: s.max_score }
+      }
+    })
+    scoreByQid.value = scores
     const presetId = Number(route.query.assignment_id)
     if (presetId && list.some((a) => a.id === presetId)) {
       assignmentId.value = presetId

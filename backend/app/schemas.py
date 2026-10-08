@@ -114,6 +114,15 @@ class ErrorOut(BaseModel):
     created_at: datetime
 
 
+class DiagnosisScoreOut(BaseModel):
+    """学生可见分（评分系统新增，只加字段）：只在审核通过后下发。"""
+    score: float        # 本题得分（最终分）
+    max_score: float    # 本题满分 = 作业总分 × 分值占比
+    # 该作业目前累计得分（每题最新一次已通过提交的最终分之和）与作业总分；算不出为 None
+    assignment_score: Optional[float] = None
+    assignment_total: Optional[float] = None
+
+
 class DiagnosisOut(BaseModel):
     submission_id: int
     question_id: int
@@ -125,6 +134,8 @@ class DiagnosisOut(BaseModel):
     # v0.9.0 新增（只加字段）：教师审核状态。pending 时 status="pending_review"、
     # steps/errors 为空（诊断结论对学生不可见）；approved = 老师已审核（或历史数据默认通过）
     review_status: str = "approved"
+    # 评分系统新增（只加字段）：本题得分；待审核或无分时为 None（分数跟审核一起放行）
+    score: Optional[DiagnosisScoreOut] = None
 
 
 class PhotoDiagnosisOut(DiagnosisOut):
@@ -145,6 +156,9 @@ class SubmissionBrief(BaseModel):
     # v0.9.0 新增（只加字段）：教师审核状态 pending | approved（无审核行=历史数据=approved）；
     # pending 时 error_count 固定为 0，不向学生泄露诊断结论
     review_status: str = "approved"
+    # 评分系统新增（只加字段）：本题最终分与满分；仅审核通过后下发，待审核为 None
+    score: Optional[float] = None
+    max_score: Optional[float] = None
 
 
 class MistakeCorrectionBrief(BaseModel):
@@ -388,6 +402,9 @@ class TeacherErrorItem(BaseModel):
     # v0.9.0 新增（只加字段）：所属提交 id 与其审核状态（pending 时批改列表打「待审核」标）
     submission_id: int = 0
     review_status: str = "approved"
+    # 评分系统新增（只加字段）：所属提交的最终分与本题满分；仅审核通过后有值
+    score: Optional[float] = None
+    max_score: Optional[float] = None
     student: UserOut
     question: QuestionOut
     step_seq: Optional[int] = None
@@ -439,6 +456,8 @@ class TeacherQuestionIn(BaseModel):
     knowledge_point: str = Field(min_length=1, max_length=64)
     standard_steps: Optional[List[str]] = Field(default=None, max_length=30)  # 标准解题步骤（参考）
     reference_answer: Optional[str] = Field(default=None, max_length=2000)    # 参考答案
+    # 评分系统新增（只加可选字段）：该题分值占比 %（占作业总分的百分比）；不传 = 按题数均分
+    weight_pct: Optional[float] = Field(default=None, ge=0, le=100)
 
 
 class TeacherAssignmentCreate(BaseModel):
@@ -451,6 +470,8 @@ class TeacherAssignmentCreate(BaseModel):
     workbook_id: Optional[int] = None                       # 关联练习册知识库中的一本（须为本人上传）
     page_range: Optional[str] = Field(default=None, max_length=64)   # 如「第12-14页 第1-8题」
     deadline: Optional[datetime] = None                     # 截止时间（ISO 8601）
+    # 评分系统新增（只加可选字段）：作业总分（满分）；不传 = 100
+    total_score: Optional[float] = Field(default=None, gt=0, le=10000)
 
 
 class TeacherAssignmentQuestionOut(BaseModel):
@@ -460,6 +481,8 @@ class TeacherAssignmentQuestionOut(BaseModel):
     knowledge_point: str
     standard_answer: Optional[str] = None
     submission_count: int         # 该题累计提交人数（含作文提交）
+    # 评分系统新增（只加字段）：该题分值占比 %（生效值：配置值或均分）
+    weight_pct: Optional[float] = None
 
 
 class TeacherAssignmentOut(BaseModel):
@@ -473,6 +496,8 @@ class TeacherAssignmentOut(BaseModel):
     workbook_title: Optional[str] = None
     page_range: Optional[str] = None
     deadline: Optional[datetime] = None
+    # 评分系统新增（只加字段）：作业总分（生效值：配置值或默认 100）
+    total_score: float = 100.0
 
 
 # ---------- 教师：练习册知识库 + 提醒未交（v0.5.0 新增） ----------
@@ -634,6 +659,15 @@ class ReviewPendingOut(BaseModel):
     items: List[ReviewPendingItem]
 
 
+class ReviewScoreOut(BaseModel):
+    """审核详情的评分信息（评分系统新增）：老师据此核对 AI 分、决定是否改分。"""
+    question_max: float           # 本题满分 = 作业总分 × 分值占比
+    ai_score: Optional[float] = None      # AI 初评分（按步骤对错折算）
+    final_score: Optional[float] = None   # 已落定的最终分（未审核为 None）
+    ok_steps: int                 # 正确步骤数
+    total_steps: int              # 作答步骤总数
+
+
 class ReviewDetailOut(BaseModel):
     submission_id: int
     student: UserOut
@@ -642,6 +676,13 @@ class ReviewDetailOut(BaseModel):
     submitted_at: datetime
     review_status: str          # pending | approved
     diagnosis: DiagnosisOut     # 完整分步诊断（教师端全量，含 review_status）
+    # 评分系统新增（只加字段）：本题评分信息（满分/AI 分/步骤对了几步）
+    score: Optional[ReviewScoreOut] = None
+
+
+class ReviewApproveIn(BaseModel):
+    """审核通过入参（评分系统新增，整个 body 可选）：带 final_score = 老师改分后通过。"""
+    final_score: Optional[float] = Field(default=None, ge=0)
 
 
 class ReviewApproveOut(BaseModel):
@@ -651,6 +692,31 @@ class ReviewApproveOut(BaseModel):
 
 class ReviewApproveAllOut(BaseModel):
     approved_count: int         # 本次通过的条数
+
+
+# ---------- 学生：报告成绩分析（评分系统新增） ----------
+
+class AssignmentScoreItem(BaseModel):
+    """一份作业的成绩聚合：每题取最新一次已通过且有分的提交求和。"""
+    assignment_id: int
+    assignment_title: str
+    subject: str
+    date: datetime              # 计入提交里最晚的一次提交时间
+    score: float                # 得分（各题最终分之和）
+    max_score: float            # 满分（计入题目的满分之和）
+    rate: float                 # 得分率 0~1
+
+
+class SubjectScoreItem(BaseModel):
+    subject: str
+    avg_rate: float             # 该学科各份作业得分率的平均
+    assignment_count: int       # 计入的作业份数
+
+
+class ReportScoresOut(BaseModel):
+    items: List[AssignmentScoreItem]        # 按日期正序（画走势折线用）
+    subjects: List[SubjectScoreItem]
+    overall_avg_rate: Optional[float] = None  # 全部作业得分率平均；无数据为 None
 
 
 # ---------- 健康检查 ----------
