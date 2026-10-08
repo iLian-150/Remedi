@@ -7,7 +7,10 @@
      v0.9.3 试卷化：列表区整张做成「钉好的试卷」——纸面+订书钉+装订线+试卷头，
      每份作业是一道大题（中文题号），状态改用印章（已完成=红章、待审核=琥珀章、
      未开始/进行中=灰色铅笔描边章）；入场时试卷落下、印章逐个盖下（仅首次加载，
-     日期筛选切换只做轻翻页过渡不再重复盖章）。 -->
+     日期筛选切换只做轻翻页过渡不再重复盖章）。
+     v0.9.3 修复：「返回查看全部作业」原先只是筛选条里的一个低调小按钮、排在提示条
+     下面，用户找不到；已移到试卷头右侧、改主色醒目按钮（仅筛选生效时出现），
+     筛选条只保留当天的进度信息。 -->
 <template>
   <div class="page">
     <div class="page-head">
@@ -25,7 +28,13 @@
       <div class="paper-head">
         <span class="paper-head-left"></span>
         <h3 class="paper-title">我的作业</h3>
-        <span v-if="!loading" class="paper-count tnum">共 {{ assignments.length }} 份</span>
+        <div class="paper-head-right">
+          <span v-if="!loading" class="paper-count tnum">共 {{ assignments.length }} 份</span>
+          <!-- 筛选生效时：试卷头右侧的主色按钮，一眼可见、随时清筛选 -->
+          <button v-if="dateFilter" class="btn filter-clear-btn" @click="clearFilter">
+            <AppIcon name="chevron-left" :size="15" />返回查看全部作业
+          </button>
+        </div>
       </div>
       <div class="paper-rule" aria-hidden="true"></div>
 
@@ -34,7 +43,8 @@
       <template v-if="!loading">
         <p class="rail-note"><AppIcon name="calendar" :size="15" /> 作业日历在右侧栏，点选任意一天即可只看当天发布的作业。</p>
 
-        <!-- 日期筛选状态栏（右侧栏日历选中某天时出现） -->
+        <!-- 日期筛选状态栏（右侧栏日历选中某天时出现；只报当天进度，
+             清筛选的按钮在试卷头右侧，避免双份入口） -->
         <div v-if="dateFilter" class="filter-bar">
           <div class="filter-info">
             <span class="filter-title">{{ dateFilterLabel }} 发布的作业</span>
@@ -43,7 +53,6 @@
               <div class="progress-fill" :style="{ width: `${dayProgress.total ? (dayProgress.done / dayProgress.total) * 100 : 0}%` }"></div>
             </div>
           </div>
-          <button class="btn secondary small" @click="clearFilter">返回查看全部作业</button>
         </div>
 
         <!-- 试卷正文：key 随筛选变化 → 轻翻页过渡；盖章只在首次加载（intro）时播 -->
@@ -322,6 +331,21 @@ onMounted(async () => {
   font-size: 12.5px;
   color: var(--text-3);
 }
+.paper-head-right {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+}
+/* 清筛选按钮：主色实心 + 轻投影，在纸面上跳得出来 */
+.filter-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  box-shadow: 0 5px 14px -5px rgba(29, 78, 216, 0.55);
+}
 .paper-rule {
   height: 4px;
   border-top: 2px solid #4b5563;
@@ -495,6 +519,10 @@ onMounted(async () => {
   .binding-word { left: 5px; font-size: 10px; letter-spacing: 7px; }
   .staple { left: 12px; width: 40px; }
   .paper-title { font-size: 18px; letter-spacing: 4px; }
+  /* 移动端：试卷头改纵排居中，清筛选按钮落在标题下方一行，够得着、不挤印章 */
+  .paper-head { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .paper-head-left { display: none; }
+  .paper-head-right { justify-self: auto; flex-wrap: wrap; justify-content: center; }
   .item-title { padding-right: 108px; font-size: 16px; }
   .stamps { top: 14px; right: 6px; gap: 7px; }
   .stamp--done { width: 46px; height: 46px; font-size: 11.5px; letter-spacing: 1.5px; }

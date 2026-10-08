@@ -1,12 +1,18 @@
 <!-- 学生端：订正错题
      从错题本取可订正的错题（诊断产生的错题；自主收录题没有诊断记录不在此列），
      针对某条 error 提交订正，后端自动判定正误（is_correct：true/false/null）。
-     v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时引导去学习报告
-     做二次验证，通过验证该知识点才算「已修复」。本地 fixedIds 仅表示已订正。
+     v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时在结果区给出
+     入口，页内打开变式题面板（VerifyPanel）做二次验证，通过验证该知识点才
+     算「已修复」（原先跳学习报告页验证，本次改造随报告纯化迁回本页；墙上方
+     另有「待验证的知识点」汇总入口，KP 状态读 fetchReport 的四态口径）。
+     本地 fixedIds 仅表示已订正。
      v0.9.0 曾在页内加订正日历；v0.9.1 日历迁入右侧栏（右栏在订正页切换为
      「订正日历」模式），选中日期经 store.correctionsDateFilter 与本页共享：
      本页顶部出现筛选状态条，「查看全部」清除；教师审核流下待审核的错题在
-     后端错题本接口已滤除，本页与右栏日历自然都看不到。 -->
+     后端错题本接口已滤除，本页与右栏日历自然都看不到。
+     v0.9.3：选错题从下拉改成「便利贴墙」（CorrectionStickyWall）——一题一贴，
+     点待订正的贴撕下后进入原修正工作区（三张卡与提交逻辑不变），返回后刚订正
+     对的贴变已订正样式留在墙上；已订正的贴点开跳诊断详情。 -->
 <template>
   <div class="page">
     <div class="page-head">
@@ -29,23 +35,47 @@
         <button class="btn secondary small" @click="clearDateFilter">查看全部</button>
       </div>
 
-      <div class="card" v-if="selectedDate && !errorList.length && mistakes.length">
-        <div class="empty">这一天没有需要订正的错题，换一天看看，或者点上方「查看全部」。</div>
-      </div>
-
-      <div class="card" v-if="errorList.length">
-        <div class="form-row" style="margin-bottom: 0">
-          <label>选择要订正的题目</label>
-          <select v-model="selectedErrorId" @change="onSelect">
-            <option v-for="e in errorList" :key="e.id" :value="e.id">
-              [{{ e.knowledge_point }} · {{ e.error_type }}] {{ e.step_text }}
-              {{ fixedIds.has(e.id) ? '（已订正）' : e.is_stubborn ? '（需要加固）' : '' }}
-            </option>
-          </select>
+      <!-- 待验证的知识点（KP 维度入口）：错题都订正好了、还没做变式题验证的
+           知识点汇总在这里，点按钮页内展开变式题面板完成验证 -->
+      <div v-if="view === 'wall' && awaitingVerifyKps.length" class="card verify-kp-card">
+        <h3><AppIcon name="target" :size="18" /> 待验证的知识点</h3>
+        <p class="card-sub">这些知识点的错题已经全部订正好，再做对一道同类变式题，就能完成验证、真正修复。</p>
+        <div v-for="kp in awaitingVerifyKps" :key="kp" class="verify-kp-row">
+          <span class="badge badge-blue">{{ kp }}</span>
+          <button class="btn small" @click="verifyKp = kp">做一道变式题，完成这个知识点的验证</button>
         </div>
+        <VerifyPanel
+          v-if="verifyKp"
+          :key="`wall-${verifyKp}`"
+          :knowledge-point="verifyKp"
+          class="verify-panel-inline"
+          @passed="onVerifyPassed"
+          @close="verifyKp = ''"
+        />
       </div>
 
-      <template v-if="selectedError">
+      <!-- 便利贴墙（v0.9.3）：一题一贴，点待订正的贴撕下后进修正工作区；
+           已订正的贴点开跳诊断详情。空态时墙上只留一张提示贴。 -->
+      <CorrectionStickyWall
+        v-if="view === 'wall'"
+        :notes="wallNotes"
+        @pick="onPickNote"
+        @view="onViewNote"
+      >
+        <template #empty>
+          <template v-if="!mistakes.length">
+            太棒了，目前没有需要订正的题目，去 <router-link to="/student/assignments" class="empty-link">作业列表</router-link> 继续挑战吧。
+          </template>
+          <template v-else>这一天没有需要订正的错题，换一天看看，或者点上方「查看全部」。</template>
+        </template>
+      </CorrectionStickyWall>
+
+      <template v-if="view === 'work' && selectedError">
+        <div class="work-bar">
+          <button class="btn secondary small inline-icon" @click="backToWall">
+            <AppIcon name="chevron-left" :size="15" /> 返回便利贴墙
+          </button>
+        </div>
         <div class="card">
           <h3>题目回顾</h3>
           <p class="step-text">出错的步骤：{{ selectedError.step_text }}</p>
@@ -84,26 +114,38 @@
             }}
           </p>
           <p class="note hint">{{ result.note }}</p>
-          <!-- v0.4.0：订正成功 → 引导二次验证（通过才算知识点已修复） -->
-          <div v-if="result.can_verify" class="verify-cta">
+          <!-- 订正成功且该知识点待验证 → 页内打开变式题面板完成验证（通过才算已修复） -->
+          <div v-if="result.can_verify && !justVerified" class="verify-cta">
             <p>再做对一道同类题验证一下，这个知识点就真正修复啦。</p>
-            <router-link :to="verifyLink">
-              <button class="btn small inline-icon"><AppIcon name="target" :size="15" /> 去验证</button>
-            </router-link>
+            <button class="btn small inline-icon" @click="openResultVerify">
+              <AppIcon name="target" :size="15" /> 做一道变式题，完成这个知识点的验证
+            </button>
+          </div>
+          <p v-else-if="result.can_verify && justVerified" class="verify-done-note">
+            <AppIcon name="check" :size="15" /> 这个知识点的验证已经完成了，它真正修复啦。
+          </p>
+          <VerifyPanel
+            v-if="verifyKp"
+            :key="`work-${verifyKp}`"
+            :knowledge-point="verifyKp"
+            class="verify-panel-inline"
+            @passed="onVerifyPassed"
+            @close="verifyKp = ''"
+          />
+          <div class="result-actions">
+            <button class="btn secondary small inline-icon" @click="backToWall">
+              <AppIcon name="chevron-left" :size="15" /> 回到便利贴墙
+            </button>
           </div>
         </div>
       </template>
-
-      <div v-if="!mistakes.length" class="card">
-        <div class="empty">太棒了，目前没有需要订正的题目，去 <router-link to="/student/assignments" style="color: var(--primary)">作业列表</router-link> 继续挑战吧。</div>
-      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import { useAuthStore } from '../../stores/auth'
 import type { CorrectionResult, GradingError, StudentMistake } from '../../api/types'
@@ -111,14 +153,19 @@ import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import VerifyPanel from '../../components/VerifyPanel.vue'
+import CorrectionStickyWall, { type CorrectionNote } from '../../components/CorrectionStickyWall.vue'
 
 const student = useStudentStore()
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 
 /** 全部可订正错题（原始错题本条目，仅诊断产生的；自主收录题无诊断记录不能订正） */
 const mistakes = ref<StudentMistake[]>([])
 const selectedErrorId = ref<number | ''>('')
+/** 当前视图：wall 便利贴墙 / work 修正工作区（点贴撕下后进入，v0.9.3） */
+const view = ref<'wall' | 'work'>('wall')
 /** 订正日历选中的日期（yyyy-mm-dd，空 = 全部）：v0.9.1 起由右侧栏订正日历写入
  * store.correctionsDateFilter，本页只读消费（筛选状态条与列表都据此响应） */
 const selectedDate = computed(() => student.correctionsDateFilter)
@@ -140,12 +187,52 @@ const selectedDateLabel = computed(() => {
   return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`
 })
 
-/** 当前可见错题（选了日期就只剩那天的），下拉与详情都消费这份 */
-const errorList = computed<GradingError[]>(() =>
-  mistakes.value
-    .filter((item) => !selectedDate.value || mistakeDateKey(item) === selectedDate.value)
-    .map(toGradingError)
+/** 当前可见错题原条目（选了日期就只剩那天的），贴墙与工作区都消费这份 */
+const visibleMistakes = computed(() =>
+  mistakes.value.filter((item) => !selectedDate.value || mistakeDateKey(item) === selectedDate.value)
 )
+const errorList = computed<GradingError[]>(() => visibleMistakes.value.map(toGradingError))
+
+/** 贴面日期文案：如「10月7日」 */
+function dateLabelOf(item: StudentMistake): string {
+  const [, m, d] = mistakeDateKey(item).split('-')
+  return `${Number(m)}月${Number(d)}日`
+}
+
+/** 便利贴墙数据：一题一贴 */
+const wallNotes = computed<CorrectionNote[]>(() =>
+  visibleMistakes.value.map((item) => ({
+    errorId: item.id,
+    submissionId: item.submission_id,
+    stem: item.question_stem || item.step_text || '',
+    stepText: item.step_text && item.step_text !== item.question_stem ? item.step_text : '',
+    knowledgePoint: item.knowledge_point,
+    errorType: item.error_type,
+    assignmentTitle: item.assignment_title,
+    dateLabel: dateLabelOf(item),
+    isFixed: fixedIds.value.has(item.id),
+    isStubborn: item.is_stubborn
+  }))
+)
+
+/** 点待订正的贴（撕下动画播完）→ 进入该题修正工作区 */
+function onPickNote(errorId: number) {
+  selectedErrorId.value = errorId
+  onSelect()
+  view.value = 'work'
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+/** 点已订正的贴 → 沿用全站口径跳诊断详情 */
+function onViewNote(submissionId: number) {
+  router.push({ path: '/student/diagnosis', query: { submission_id: submissionId } })
+}
+
+/** 返回便利贴墙（fixedIds 已在提交成功时更新，刚订正对的贴随之变已订正样式） */
+function backToWall() {
+  view.value = 'wall'
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
 
 /** 筛选状态条的待订正计数（当前可见里还没订正对的） */
 const pendingCount = computed(() => errorList.value.filter((e) => !fixedIds.value.has(e.id)).length)
@@ -154,33 +241,59 @@ function clearDateFilter() {
   student.setCorrectionsDateFilter('')
 }
 
-// 右栏日历点选（含再点同一天取消）→ store 筛选变化 → 选中错题对齐到当前可见列表
+// 右栏日历点选（含再点同一天取消）→ store 筛选变化 → 贴墙只剩当天的贴；
+// 若正在修正的题被筛掉，退回贴墙（墙面始终与筛选一致）
 watch(selectedDate, () => syncSelection())
 
-/** 筛选变化后把选中错题对齐到当前可见列表（不在列表里就选第一条） */
 function syncSelection() {
-  if (!errorList.value.length) {
+  if (view.value === 'work' && !errorList.value.some((e) => e.id === selectedErrorId.value)) {
+    view.value = 'wall'
     selectedErrorId.value = ''
-    return
-  }
-  if (!errorList.value.some((e) => e.id === selectedErrorId.value)) {
-    selectedErrorId.value = errorList.value[0].id
     onSelect()
   }
 }
 
 const selectedError = computed(() => errorList.value.find((e) => e.id === selectedErrorId.value) ?? null)
 
-/** 「去验证」深链（v0.6.0）：带知识点名跳科目详情页，详情页会直接打开验证面板
- * （当前真实报告只有数学科目；详情页内部还会按知识点所属科目自动纠偏跳转） */
-const verifyLink = computed(() => {
+// ---------- 二次验证（迁入本页：报告纯化后验证入口只在订正流里） ----------
+/** 当前打开了变式题面板的知识点（空 = 未打开）；墙面待验证区与结果区共用这一个状态 */
+const verifyKp = ref('')
+/** 本次订正后刚在页内完成了该知识点的验证（结果区 CTA 随之换成完成提示） */
+const justVerified = ref(false)
+/** 待验证知识点名单：读学习报告四态口径（status === 'awaiting_verify'），跨科目汇总 */
+const awaitingVerifyKps = ref<string[]>([])
+
+async function loadAwaitingVerifyKps() {
+  try {
+    const reportData = await student.fetchReport()
+    const names = new Set<string>()
+    for (const s of reportData) {
+      for (const kp of s.knowledge_points) {
+        if (kp.status === 'awaiting_verify') names.add(kp.name)
+      }
+    }
+    awaitingVerifyKps.value = [...names]
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+/** 结果区入口：为刚订正对的这条错题所属知识点打开变式题面板 */
+function openResultVerify() {
   const kp = result.value?.knowledge_point ?? selectedError.value?.knowledge_point ?? ''
-  return kp ? `/student/report/math?verify=${encodeURIComponent(kp)}` : '/student/report'
-})
+  if (kp) verifyKp.value = kp
+}
+
+/** 验证通过：刷新待验证名单（该知识点转为已修复后自动从名单消失） */
+async function onVerifyPassed() {
+  justVerified.value = true
+  await loadAwaitingVerifyKps()
+}
 
 function onSelect() {
   content.value = ''
   result.value = null
+  justVerified.value = false
 }
 
 async function submit() {
@@ -188,6 +301,8 @@ async function submit() {
   submitting.value = true
   error.value = ''
   result.value = null
+  justVerified.value = false
+  verifyKp.value = ''
   try {
     result.value = await student.submitCorrection({
       error_id: Number(selectedErrorId.value),
@@ -217,15 +332,17 @@ onMounted(async () => {
     if (auth.user) fixedIds.value = getFixedErrorIds(auth.user.id)
     // 可订正错题的拉取/合并/过滤口径在 store 里与右栏订正日历共用一份
     mistakes.value = await student.fetchCorrectableMistakes()
+    // 待验证知识点名单（墙上方 KP 维度验证入口的数据来源，失败不挡页面）
+    void loadAwaitingVerifyKps()
     if (auth.user) {
       const serverFixed = mistakes.value.filter((item) => item.latest_correction?.is_correct === true).map((item) => item.id)
       fixedIds.value = new Set([...fixedIds.value, ...serverFixed])
     }
-    if (errorList.value.length) {
-      const requestedId = Number(route.query.error_id)
-      selectedErrorId.value = errorList.value.some((item) => item.id === requestedId)
-        ? requestedId
-        : errorList.value[0].id
+    // 深链带 error_id 时直接进该题修正工作区（沿用既有深链口径）；否则停在贴墙
+    const requestedId = Number(route.query.error_id)
+    if (errorList.value.some((item) => item.id === requestedId)) {
+      selectedErrorId.value = requestedId
+      view.value = 'work'
     }
   } catch (e) {
     error.value = '错题加载失败，请确认后端已启动。'
@@ -277,4 +394,20 @@ function toGradingError(item: StudentMistake): GradingError {
   background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
   padding: 11px 14px; margin-top: 12px; font-size: 14px;
 }
+/* 页内变式题面板与验证入口（报告纯化后迁入本页） */
+.verify-panel-inline { margin-top: 14px; }
+.verify-done-note {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--green);
+}
+.verify-kp-card .card-sub { font-size: 13.5px; color: var(--text-2); margin: -4px 0 10px; }
+.verify-kp-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 0; border-bottom: 1px solid #F1F3F6;
+}
+.verify-kp-row:last-of-type { border-bottom: none; }
+/* 修正工作区的返回入口与判定结果里的回墙按钮（v0.9.3） */
+.work-bar { margin-bottom: 16px; }
+.result-actions { margin-top: 14px; }
+.empty-link { color: var(--primary); font-weight: 600; }
 </style>

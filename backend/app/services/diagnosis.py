@@ -320,6 +320,14 @@ def diagnose_submission(db, student: User, question: Question,
     for e in errors:
         db.refresh(e)
     db.refresh(submission)
+    # 评分系统：批改落库的共用出口——拍照与在线提交都汇到这里，
+    # 在此按步骤对错折算 AI 初评分并落库（公式见 services/scoring.py）。
+    # 评分失败不能拖垮批改主流程，异常只记录不 raise。
+    try:
+        from .scoring import persist_ai_score
+        persist_ai_score(db, submission, steps)
+    except Exception:
+        db.rollback()
     return submission, steps, errors
 
 

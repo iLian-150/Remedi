@@ -6,14 +6,20 @@
        点选日期 → 写入 student store 的 correctionsDateFilter，订正页据此只看那天的错题；
        再次点同一天 = 取消筛选。数据走 store.fetchCorrectableMistakes 前端聚合，
        与订正页同口径（仅诊断产生的错题；待审核错题在后端已滤除，自然不含）。
+     - mode="timeline"（学生学习报告页：总览与科目详情，本次改造）：错题时间线——
+       报告页右栏不再是信箱；面板默认收起，只露标题行（图标+「错题时间线」+条数+
+       展开箭头），点开才展开纵向时间线（全局 .timeline 样式复用）；科目详情路由下
+       按 question_subject 只显示本科目；点条目跳 /student/diagnosis?submission_id=。
+       数据同走 store.fetchCorrectableMistakes（源头是 /student/mistakes 响应，
+       只读复用，不新造接口）。
      收起/展开由 App.vue 控制（收起态 FAB 图标随场景变：notes=邮件、calendar/corrections=日历）。
      通知唯一来源：教师在教师端一键纠错 → 后端落库 → 这里 GET 拉取展示，学生端不本地伪造。 -->
 <template>
   <div class="rail-inner">
     <div class="rail-head">
       <span class="rail-title">
-        <AppIcon :name="mode === 'notes' ? 'megaphone' : 'calendar'" :size="17" />
-        {{ mode === 'notes' ? '提醒' : mode === 'corrections' ? '订正日历' : '日历' }}
+        <AppIcon :name="mode === 'notes' ? 'megaphone' : mode === 'timeline' ? 'history' : 'calendar'" :size="17" />
+        {{ mode === 'notes' ? '提醒' : mode === 'corrections' ? '订正日历' : mode === 'timeline' ? '错题时间线' : '日历' }}
       </span>
       <button class="icon-btn" title="收起右侧栏" @click="$emit('close')">
         <AppIcon name="chevron-right" :size="17" />
@@ -50,6 +56,41 @@
       <p v-else class="hint" style="margin-bottom: 6px">暂无新提醒</p>
     </template>
 
+    <!-- 错题时间线（仅学习报告页）：默认收起只露标题行，点开才展开纵向时间线 -->
+    <template v-else-if="mode === 'timeline'">
+      <button type="button" class="tl-toggle" @click="tlExpanded = !tlExpanded">
+        <span class="tl-toggle-main">
+          <AppIcon name="history" :size="16" />
+          <span>{{ tlScopeLabel }} · 共 <span class="tnum">{{ timelineItems.length }}</span> 条</span>
+        </span>
+        <span class="tl-chevron" :class="{ open: tlExpanded }"><AppIcon name="chevron-down" :size="16" /></span>
+      </button>
+      <div v-if="tlExpanded" class="tl-body">
+        <div v-if="tlLoading" class="loading" style="padding: 18px 0">加载错题时间线…</div>
+        <p v-else-if="!timelineItems.length" class="hint" style="padding: 6px 0">还没有错题记录，继续保持。</p>
+        <div v-else class="timeline tl-list">
+          <div
+            v-for="item in timelineItems"
+            :key="item.id"
+            class="timeline-item tl-item"
+            @click="gotoSubmission(item.submission_id)"
+          >
+            <span :class="item.corrected ? 'timeline-dot green' : errorTypeDotClass(item.error_type)"></span>
+            <div class="timeline-time">{{ fmtTime(item.created_at) }}</div>
+            <div class="timeline-body">
+              <p class="tl-stem">{{ item.question_stem }}</p>
+              <p class="tl-meta">
+                <span class="badge badge-blue">{{ item.knowledge_point }}</span>
+                <ErrorTypeBadge :type="item.error_type as ErrorType" />
+                <span v-if="item.corrected" class="badge badge-green">已订正</span>
+                <span v-else class="badge badge-gray">未订正</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
     <!-- 日历（作业列表页=作业日历；订正页=订正日历）：选中日期与对应页面筛选共用 store 状态 -->
     <template v-else>
       <AssignmentCalendar :marks="mode === 'corrections' ? correctionMarks : marks" :selected="dateFilter" @select="onSelectDay" />
@@ -62,18 +103,21 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
-import type { NotificationItem } from '../api/types'
+import type { ErrorType, NotificationItem, StudentMistake } from '../api/types'
+import { errorTypeDotClass } from '../utils/errorType'
 import AppIcon from './icons/AppIcon.vue'
 import AssignmentCalendar from './AssignmentCalendar.vue'
+import ErrorTypeBadge from './ErrorTypeBadge.vue'
 
 const props = defineProps<{
   /** notes：只显示便利贴提醒；calendar：作业日历（与作业列表筛选联动）；
-   * corrections：订正日历（v0.9.1，与订正页筛选联动） */
-  mode: 'notes' | 'calendar' | 'corrections'
+   * corrections：订正日历（v0.9.1，与订正页筛选联动）；
+   * timeline：错题时间线（学习报告页，默认收起，点开才展开） */
+  mode: 'notes' | 'calendar' | 'corrections' | 'timeline'
 }>()
 
 // v0.8.2：未读数改由 student store 持有（fetchNotifications / markNotificationsRead 内部回写），
@@ -86,6 +130,7 @@ const auth = useAuthStore()
 const student = useStudentStore()
 const teacher = useTeacherStore()
 const router = useRouter()
+const route = useRoute()
 
 const isStudent = computed(() => auth.user?.role === 'student')
 
@@ -117,6 +162,28 @@ const unread = ref(0)
 const marks = ref<Record<string, number>>({})
 /** 订正日历标记（v0.9.1）：yyyy-mm-dd → 当天提交里产生的可订正错题条数 */
 const correctionMarks = ref<Record<string, number>>({})
+
+/** 错题时间线（报告页）：原始错题（诊断产生，源头 /student/mistakes）与展开态（默认收起） */
+const tlRaw = ref<StudentMistake[]>([])
+const tlLoading = ref(false)
+const tlExpanded = ref(false)
+
+const TL_SUBJECT_TEXT: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学' }
+/** 科目详情路由带 subject 参数时只看该科目；总览页为空 = 全部 */
+const tlSubject = computed(() =>
+  typeof route.params.subject === 'string' ? route.params.subject : ''
+)
+const tlScopeLabel = computed(() =>
+  tlSubject.value ? `${TL_SUBJECT_TEXT[tlSubject.value] ?? tlSubject.value}错题` : '全部错题'
+)
+/** 时间线条目：按科目过滤 → 按错题产生时间倒序 → 附已订正标记（最新一次订正判对） */
+const timelineItems = computed(() =>
+  tlRaw.value
+    .filter((item) => !tlSubject.value || item.question_subject === tlSubject.value)
+    .slice()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .map((item) => ({ ...item, corrected: item.latest_correction?.is_correct === true }))
+)
 
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
@@ -178,12 +245,27 @@ async function loadCorrectionMarks() {
   }
 }
 
+/** 错题时间线数据：与订正日历共用 store.fetchCorrectableMistakes（只读复用，
+ * 源头是 /student/mistakes 响应合并口径：仅诊断产生的错题，待审核已滤除） */
+async function loadTimeline() {
+  tlLoading.value = true
+  try {
+    tlRaw.value = await student.fetchCorrectableMistakes()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    tlLoading.value = false
+  }
+}
+
 async function loadForMode() {
   if (!auth.user) return
   if (props.mode === 'notes') {
     if (isStudent.value) await loadNotes()
   } else if (props.mode === 'corrections') {
     await loadCorrectionMarks()
+  } else if (props.mode === 'timeline') {
+    await loadTimeline()
   } else {
     await loadMarks()
   }
@@ -238,6 +320,31 @@ async function markAllRead() {
 .rail-title { display: inline-flex; align-items: center; gap: 7px; font-size: 15.5px; font-weight: 700; }
 .rail-sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .rail-sec-head h3 { font-size: 14.5px; }
+
+/* ---------- 错题时间线（报告页模式） ---------- */
+.tl-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; font-family: var(--font);
+  font-size: 13.5px; font-weight: 600; color: var(--text);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.tl-toggle:hover { border-color: var(--primary); }
+.tl-toggle-main { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.tl-chevron { display: inline-flex; flex-shrink: 0; color: var(--text-3); transition: transform 0.25s ease; }
+.tl-chevron.open { transform: rotate(180deg); }
+.tl-body { margin-top: 14px; }
+.tl-list { margin-top: 2px; }
+.tl-item { cursor: pointer; }
+.tl-item:hover .tl-stem { color: var(--primary); }
+.tl-stem {
+  font-weight: 600; font-size: 13.5px; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tl-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+@media (prefers-reduced-motion: reduce) {
+  .tl-chevron { transition: none; }
+}
 .text-btn {
   margin-left: auto; background: none; border: none; cursor: pointer;
   color: var(--primary); font-size: 12.5px; font-family: var(--font);

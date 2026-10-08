@@ -289,3 +289,40 @@ class AssignmentExt(Base):
                          comment="线下作业关联的练习册，可空")
     page_range = Column(String(64), nullable=True, comment="页码/题号范围，如 第12-14页 第1-8题")
     deadline = Column(DateTime, nullable=True, comment="线下作业截止时间，可空")
+
+
+# ---------------------------------------------------------------- 评分系统
+# 全部走新表，不给任何现有表加列。无配置行时的口径：作业总分 = 100，
+# 每题权重 = 100 / 题数（均分，动态计算，不回填）。
+
+class AssignmentScoring(Base):
+    """作业分值设置（评分系统新增表）：一份作业一行，老师发布时设定总分。
+    无此行 = 总分按 100 计。"""
+    __tablename__ = "assignment_scoring"
+
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
+    total_score = Column(Float, nullable=False, default=100.0, comment="作业满分（总分）")
+
+
+class QuestionWeight(Base):
+    """题目分值占比（评分系统新增表）：一道题一行，weight_pct 是该题占整份
+    作业总分的百分比；题目满分 = 总分 × weight_pct / 100。无此行 = 按题数均分。"""
+    __tablename__ = "question_weights"
+
+    question_id = Column(Integer, ForeignKey("questions.id"), primary_key=True)
+    weight_pct = Column(Float, nullable=False, comment="分值占比 %（同作业各题合计应为 100）")
+
+
+class SubmissionScore(Base):
+    """提交得分（评分系统新增表）：一份提交一行。ai_score 是批改时按步骤
+    对错折算的 AI 初评分；final_score 是教师审核通过时的最终分（老师可改分，
+    不改则 = ai_score），审核通过前对学生的可见分一律以审核口径为准。"""
+    __tablename__ = "submission_scores"
+
+    submission_id = Column(Integer, ForeignKey("submissions.id"), primary_key=True)
+    ai_score = Column(Float, nullable=False, comment="AI 初评分（按步骤得分率折算）")
+    final_score = Column(Float, nullable=True, comment="最终分（审核通过时落定，老师可改）")
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True,
+                        comment="最后定分/改分的教师")
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
