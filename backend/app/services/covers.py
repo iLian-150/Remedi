@@ -18,9 +18,16 @@ def cover_file_path(workbook_id: int) -> str:
 
 
 def cover_url(workbook_id: int) -> str | None:
-    """封面图存在才给 URL，否则 None（前端走兜底书脊）。"""
-    if os.path.isfile(cover_file_path(workbook_id)):
-        return f"/api/uploads/{_COVERS_SUBDIR}/{workbook_id}.jpg"
+    """封面图存在才给 URL，否则 None（前端走兜底书脊）。
+
+    v0.11.2：URL 带 ?v=<文件修改时间戳>。封面文件名按 workbook id 固定，
+    删书重传后 id 可能复用、地址不变，浏览器会拿缓存里的旧封面串图；
+    带上 mtime 版本号后，封面一重渲染地址就变，浏览器必须重新取图。
+    版本值用纳秒级 mtime 拼文件大小：秒级时间戳在「同秒删书重传」时会撞车。"""
+    path = cover_file_path(workbook_id)
+    if os.path.isfile(path):
+        st = os.stat(path)
+        return f"/api/uploads/{_COVERS_SUBDIR}/{workbook_id}.jpg?v={st.st_mtime_ns}-{st.st_size}"
     return None
 
 
