@@ -102,6 +102,19 @@
           <input v-model="deadline" type="datetime-local" />
         </div>
       </div>
+      <!-- 按页提题（v0.13.0）：把所选页渲染成图，视觉 AI 逐页拆成草稿题 -->
+      <div class="extract-row">
+        <button
+          type="button"
+          class="btn secondary inline-icon"
+          :disabled="!workbookId || !pageRange.trim() || extracting"
+          @click="extractFromPdf"
+        >
+          <AppIcon name="sparkles" :size="15" /> {{ extracting ? '正在逐页识别…' : '从 PDF 自动识别这些页的题目' }}
+        </button>
+        <span class="hint">填好上面的页码后点这里：系统把这几页渲染成图，用视觉 AI 拆成草稿题填到下方题目卡；一次最多 8 页，识别结果是草稿，发布前请逐题检查。没识别到的页可以再用拍照补录。</span>
+      </div>
+      <p v-if="extractNote" class="ok-msg" style="margin-top: 10px; margin-bottom: 0">{{ extractNote }}</p>
     </div>
 
     <div class="card">
@@ -155,7 +168,18 @@
       <div class="grid-q-meta">
         <div class="form-row">
           <label>知识点</label>
-          <input v-model="q.knowledge_point" type="text" placeholder="例如：一元一次方程" maxlength="64" />
+          <div class="kp-row">
+            <input v-model="q.knowledge_point" type="text" placeholder="例如：一元一次方程" maxlength="64" />
+            <button
+              type="button"
+              class="btn small secondary inline-icon"
+              :disabled="q.kp_guessing || !q.prompt.trim()"
+              :title="q.prompt.trim() ? '按题干用 AI 猜知识点' : '先填题干，再用 AI 识别'"
+              @click="guessKp(idx)"
+            >
+              <AppIcon name="sparkles" :size="13" /> {{ q.kp_guessing ? '识别中…' : 'AI 识别' }}
+            </button>
+          </div>
         </div>
         <div class="form-row">
           <label>分值占比（占总分的百分比）</label>
@@ -246,6 +270,7 @@ interface QuestionForm {
   weight_pct: number | null   // 评分系统：分值占比 %；null = 留空（按题数均分）
   recognized: boolean   // 是否刚通过照片识别填入（展示检查提示）
   recognizing: boolean  // 识别请求进行中
+  kp_guessing: boolean  // 知识点 AI 识别进行中（v0.13.0）
   // 参考答案 AI 验算（v0.9.3）：check_stamp 是验算时「题干+答案」的指纹，
   // 老师改了题干或答案后指纹对不上，旧验算标记自动不显示
   check_status: 'idle' | 'checking' | 'ok' | 'suspect' | 'unknown'
@@ -275,7 +300,7 @@ const totalScore = ref(100)   // 评分系统：作业总分（满分），默�
 const blankQuestion = (): QuestionForm => ({
   prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '',
   weight_pct: null,
-  recognized: false, recognizing: false,
+  recognized: false, recognizing: false, kp_guessing: false,
   check_status: 'idle', check_detail: '', check_stamp: ''
 })
 const questions = ref<QuestionForm[]>([blankQuestion()])
@@ -379,6 +404,29 @@ async function checkOne(idx: number) {
   if (q) await runCheck(q)
 }
 
+// ---------- 知识点 AI 识别（v0.13.0）：文本模型按题干猜知识点，结果可改 ----------
+async function guessKp(idx: number) {
+  const q = questions.value[idx]
+  if (!q || q.kp_guessing || !q.prompt.trim()) return
+  q.kp_guessing = true
+  try {
+    const { data } = await api.post<{ knowledge_point: string }>(
+      '/api/teacher/questions/guess-knowledge-point',
+      { prompt: q.prompt.trim() }
+    )
+    if (data.knowledge_point) {
+      q.knowledge_point = data.knowledge_point
+    } else {
+      error.value = `第 ${idx + 1} 题：AI 没能判断出知识点，请手动填写。`
+    }
+  } catch (err) {
+    error.value = `第 ${idx + 1} 题知识点识别失败：` + errMsg(err, '请稍后重试或手动填写。')
+    console.error(err)
+  } finally {
+    q.kp_guessing = false
+  }
+}
+
 // ---------- 练习册知识库（v0.5.0） ----------
 const workbooks = ref<Workbook[]>([])
 const workbookId = ref<number | ''>('')
@@ -442,6 +490,56 @@ async function removeWorkbook() {
   } catch (err) {
     error.value = '练习册删除失败：' + errMsg(err, '请稍后重试。')
     console.error(err)
+  }
+}
+
+// ---------- 按页提题（v0.13.0）：从练习册 PDF 指定页自动识别题目 ----------
+// 页码解析+页面渲染在后端是纯程序处理，拆题走视觉模型；返回的草稿题逐道填入
+// 题目卡（复用拍照追加的落点逻辑：首行还是空题时先填首行），教师检查后才发布。
+const extracting = ref(false)
+const extractNote = ref('')
+
+interface ExtractedDraft {
+  prompt: string
+  knowledge_point: string
+  source_page: number
+}
+
+async function extractFromPdf() {
+  if (!workbookId.value || !pageRange.value.trim() || extracting.value) return
+  extracting.value = true
+  extractNote.value = ''
+  error.value = ''
+  try {
+    const { data } = await api.post<{
+      pages: number[]
+      questions: ExtractedDraft[]
+      warnings: string[]
+    }>(`/api/teacher/workbooks/${workbookId.value}/extract-questions`, {
+      page_range: pageRange.value.trim()
+    })
+    if (!data.questions.length) {
+      error.value = data.warnings[0] ?? '这几页没有识别到题目，请检查页码或用拍照补录。'
+      return
+    }
+    for (const draft of data.questions) {
+      const first = questions.value[0]
+      const firstBlank =
+        questions.value.length === 1 && first && !first.prompt.trim() && !first.knowledge_point.trim()
+      const q = firstBlank ? first : blankQuestion()
+      if (!firstBlank) questions.value.push(q)
+      q.prompt = draft.prompt
+      if (draft.knowledge_point) q.knowledge_point = draft.knowledge_point
+      q.recognized = true
+    }
+    extractNote.value =
+      `已从第 ${data.pages.join('、')} 页识别出 ${data.questions.length} 道题，填到下方题目卡里了，请逐题检查修改后再发布。` +
+      (data.warnings.length ? `（${data.warnings.join(' ')}）` : '')
+  } catch (err) {
+    error.value = '自动识别失败：' + errMsg(err, '请稍后重试，或用拍照补录。')
+    console.error(err)
+  } finally {
+    extracting.value = false
   }
 }
 
@@ -708,6 +806,11 @@ onMounted(async () => {
   font-size: 11px; line-height: 1.3; max-width: 64px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.kp-row { display: flex; gap: 8px; align-items: center; }
+.kp-row input { flex: 1; }
+.kp-row .btn { flex: none; }
+.extract-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.extract-row .hint { flex: 1; min-width: 240px; line-height: 1.55; }
 .btn.danger-outline { background: #fff; color: var(--red); border: 1px solid #FECACA; }
 .btn.danger-outline:hover { background: var(--red-bg); }
 /* 评分系统：总分/占比输入与合计条 */

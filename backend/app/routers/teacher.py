@@ -58,6 +58,8 @@ from ..schemas import (
     TeacherErrorItem,
     TopQuestionItem,
     UserOut,
+    WorkbookExtractIn,
+    WorkbookExtractOut,
     WorkbookOut,
 )
 from ..services import reviews as review_svc
@@ -331,6 +333,26 @@ def check_answer(body: AnswerCheckIn, current: User = Depends(require_teacher)):
     再问一次 LLM。只警告、永不拦截发布；任何异常都收敛为 unknown 返回。"""
     result = check_reference_answer(body.stem, body.reference_answer, body.knowledge_point)
     return AnswerCheckOut(**result)
+
+
+class KnowledgePointGuessIn(BaseModel):
+    prompt: str  # 题干
+
+
+class KnowledgePointGuessOut(BaseModel):
+    knowledge_point: str  # 猜到的知识点名；判不出为空串
+
+
+@router.post("/questions/guess-knowledge-point", response_model=KnowledgePointGuessOut,
+             summary="按题干 AI 识别知识点（v0.13.0 新增）")
+def guess_knowledge_point(body: KnowledgePointGuessIn,
+                          current: User = Depends(require_teacher)):
+    """发布页知识点栏的 AI 识别：文本模型按题干判断知识点名（无模型时走关键词
+    启发式兜底）。结果只是建议、教师可改；判不出返回空串。本接口不落库。"""
+    stem = (body.prompt or "").strip()
+    if not stem:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "先填写题干，再用 AI 识别知识点。")
+    return KnowledgePointGuessOut(knowledge_point=get_provider().guess_knowledge_point(stem))
 
 
 def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
@@ -618,6 +640,30 @@ def delete_workbook(workbook_id: int, db: Session = Depends(get_db),
     db.delete(w)
     db.commit()
     return {"deleted": True}
+
+
+@router.post("/workbooks/{workbook_id}/extract-questions",
+             response_model=WorkbookExtractOut, summary="从练习册 PDF 指定页自动识别题目")
+def extract_workbook_questions(workbook_id: int, body: WorkbookExtractIn,
+                               db: Session = Depends(get_db),
+                               current: User = Depends(require_teacher)):
+    """按页提题（v0.13.0）：解析 body.page_range 的页码 → 把这些页渲染成图 →
+    视觉模型逐页拆题 → 返回草稿题列表（带来源页）。只读操作：不落库、不发布，
+    前端把草稿填入题目卡，教师检查修改后才随作业一起发布。
+    渲染与页码解析是纯程序处理；拆题走视觉模型（见 services/pdf_extract.py）。"""
+    w = (
+        db.query(Workbook)
+        .filter(Workbook.id == workbook_id, Workbook.teacher_id == current.id)
+        .first()
+    )
+    if not w:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "练习册不存在")
+    from ..services.pdf_extract import extract_questions_from_workbook
+
+    try:
+        return extract_questions_from_workbook(w.file_path, body.page_range)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
 
 # ---------- 教师 AI 助手（v0.5.0 新增，LangGraph；v0.6.0 改会话制，口径与学生端一致） ----------
