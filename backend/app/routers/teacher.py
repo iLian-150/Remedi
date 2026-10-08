@@ -14,18 +14,21 @@ from ..database import get_db
 from ..models import (
     Assignment,
     AssignmentExt,
+    AssignmentScoring,
     ChatMessage,
     Correction,
     Error,
     Essay,
     Notification,
     Question,
+    QuestionWeight,
     Step,
     StudentMistakeArchive,
     StudentMistakeCategoryReview,
     StudentMistakeEvent,
     Submission,
     SubmissionReview,
+    SubmissionScore,
     User,
     Workbook,
 )
@@ -42,10 +45,12 @@ from ..schemas import (
     QuestionOut,
     RemindOut,
     ReviewApproveAllOut,
+    ReviewApproveIn,
     ReviewApproveOut,
     ReviewDetailOut,
     ReviewPendingItem,
     ReviewPendingOut,
+    ReviewScoreOut,
     StudentBrief,
     TeacherAssignmentCreate,
     TeacherAssignmentOut,
@@ -56,6 +61,7 @@ from ..schemas import (
     WorkbookOut,
 )
 from ..services import reviews as review_svc
+from ..services import scoring as scoring_svc
 from ..services.answer_check import check_reference_answer
 from ..services.diagnosis import present_diagnosis, present_error
 from ..services.providers import get_provider
@@ -79,11 +85,20 @@ def _teacher_error_item(err: Error, db: Session) -> TeacherErrorItem:
     student = db.query(User).filter(User.id == sub.student_id).first() if sub else None
     question = db.query(Question).filter(Question.id == sub.question_id).first() if sub else None
     base = present_error(err, db)
+    rstatus = review_svc.review_status(db, err.submission_id)
+    # 评分系统：已通过的条目带上最终分小标数据；待审核不给分（分数跟审核一起放行）
+    score = max_score = None
+    if rstatus != review_svc.PENDING and sub is not None:
+        vis = scoring_svc.visible_score(db, sub)
+        if vis:
+            score, max_score = vis["score"], vis["max_score"]
     return TeacherErrorItem(
         id=base["id"],
         submission_id=err.submission_id,
         # v0.9.0：所属提交的审核状态，批改列表据此打「待审核」标并直达审核详情
-        review_status=review_svc.review_status(db, err.submission_id),
+        review_status=rstatus,
+        score=score,
+        max_score=max_score,
         student=UserOut.model_validate(student),
         question=QuestionOut.model_validate(question),
         step_seq=base["step_seq"],
@@ -193,10 +208,12 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
 
 @router.post("/reviews/approve-all", response_model=ReviewApproveAllOut, summary="全部通过审核（v0.9.0 新增）")
 def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    """把当前队列里全部 pending 提交置为 approved，逐个给学生发审核通过提醒。"""
+    """把当前队列里全部 pending 提交置为 approved，逐个给学生发审核通过提醒。
+    评分系统：通过时一并落定最终分（未改分 = AI 初评分）。"""
     subs = review_svc.pending_reviews(db)
     for sub in subs:
         review_svc.approve_submission(db, sub, current)
+        scoring_svc.finalize_on_approve(db, sub, current)
     return {"approved_count": len(subs)}
 
 
@@ -213,6 +230,8 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
     diagnosis = present_diagnosis(sub, db)
     rstatus = review_svc.review_status(db, sub.id)
     diagnosis["review_status"] = rstatus
+    # 评分系统：本题满分/AI 分/步骤明细，老师据此核对分数、决定是否改分
+    score_info = scoring_svc.score_detail_for_teacher(db, sub)
     return ReviewDetailOut(
         submission_id=sub.id,
         student=UserOut.model_validate(student),
@@ -221,18 +240,32 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
         submitted_at=sub.submitted_at,
         review_status=rstatus,
         diagnosis=diagnosis,
+        score=ReviewScoreOut(**score_info),
     )
 
 
 @router.post("/reviews/{submission_id}/approve", response_model=ReviewApproveOut, summary="审核通过（v0.9.0 新增）")
-def review_approve(submission_id: int, db: Session = Depends(get_db),
+def review_approve(submission_id: int, body: Optional[ReviewApproveIn] = None,
+                   db: Session = Depends(get_db),
                    current: User = Depends(require_teacher)):
     """通过一份提交的 AI 批改结果：置 approved 并给学生发提醒。
-    幂等：已通过的重复调用不重复发提醒。改错因走既有的一键纠错接口，保存后再调本接口即「改后通过」。"""
+    幂等：已通过的重复调用不重复发提醒。改错因走既有的一键纠错接口，保存后再调本接口即「改后通过」。
+    评分系统：body 可带 final_score（老师改分，须在 0~本题满分之间）；不带 = 用 AI 初评分落定最终分。"""
     sub = db.query(Submission).filter(Submission.id == submission_id).first()
     if not sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    if body is not None and body.final_score is not None:
+        max_score = scoring_svc.question_max_score(db, sub.question) if sub.question else 0.0
+        if body.final_score > max_score:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"分数不能超过本题满分 {max_score:g}",
+            )
     review_svc.approve_submission(db, sub, current)
+    scoring_svc.finalize_on_approve(
+        db, sub, current,
+        final_score=body.final_score if body is not None else None,
+    )
     return {"submission_id": sub.id, "review_status": "approved"}
 
 
@@ -312,12 +345,16 @@ def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
             knowledge_point=q.knowledge_point,
             standard_answer=q.standard_answer,
             submission_count=count,
+            # 评分系统：生效分值占比（配置值或均分）
+            weight_pct=round(scoring_svc.effective_weight_pct(db, q), 2),
         ))
     return TeacherAssignmentOut(
         id=a.id, title=a.title, description=a.description,
         created_at=a.created_at, questions=items,
         # v0.5.0：发布模式与线下作业信息
         **assignment_ext_fields(db, a.id),
+        # 评分系统：作业总分（配置值或默认 100）
+        total_score=scoring_svc.assignment_total(db, a.id),
     )
 
 
@@ -342,18 +379,27 @@ def create_assignment(body: TeacherAssignmentCreate,
     )
     db.add(assignment)
     db.flush()  # 拿到 assignment.id
+    created_questions = []
     for i, q in enumerate(body.questions, start=1):
         standard_answer = q.reference_answer
         if not standard_answer and q.standard_steps:
             standard_answer = "\n".join(s.strip() for s in q.standard_steps if s.strip())
-        db.add(Question(
+        question = Question(
             assignment_id=assignment.id,
             subject="math" if q.type == "math" else "english",
             knowledge_point=q.knowledge_point,
             stem=q.prompt,
             standard_answer=standard_answer,
             order_num=i,
-        ))
+        )
+        db.add(question)
+        created_questions.append((question, q.weight_pct))
+    db.flush()  # 拿到各 question.id
+    # 评分系统：总分与每题分值占比落库（新表）；没传的项不写行，走默认口径
+    scoring_svc.set_assignment_scoring(
+        db, assignment.id, body.total_score,
+        [(q.id, pct) for q, pct in created_questions],
+    )
     if body.mode == "offline":
         db.add(AssignmentExt(
             assignment_id=assignment.id,
@@ -410,6 +456,10 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
             db.query(SubmissionReview).filter(
                 SubmissionReview.submission_id.in_(sub_ids)
             ).delete(synchronize_session=False)
+            # 评分系统：得分行随提交一并清理
+            db.query(SubmissionScore).filter(
+                SubmissionScore.submission_id.in_(sub_ids)
+            ).delete(synchronize_session=False)
             db.query(Error).filter(Error.submission_id.in_(sub_ids)) \
                 .delete(synchronize_session=False)
             db.query(Step).filter(Step.submission_id.in_(sub_ids)) \
@@ -417,9 +467,15 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
             db.query(Submission).filter(Submission.id.in_(sub_ids)) \
                 .delete(synchronize_session=False)
         db.query(Essay).filter(Essay.question_id.in_(qids)).delete(synchronize_session=False)
+        # 评分系统：题目分值占比行随题目一并清理
+        db.query(QuestionWeight).filter(QuestionWeight.question_id.in_(qids)) \
+            .delete(synchronize_session=False)
         db.query(Question).filter(Question.id.in_(qids)).delete(synchronize_session=False)
     # v0.5.0：作业扩展行（发布模式/练习册关联）一并删除
     db.query(AssignmentExt).filter(AssignmentExt.assignment_id == assignment.id) \
+        .delete(synchronize_session=False)
+    # 评分系统：作业分值设置行一并删除
+    db.query(AssignmentScoring).filter(AssignmentScoring.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
     # 错题本学习/归档状态随作业一并清理，避免留下孤儿记录
     db.query(StudentMistakeCategoryReview).filter(StudentMistakeCategoryReview.assignment_id == assignment.id) \
