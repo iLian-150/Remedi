@@ -313,8 +313,9 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
 .remedi-mistake-book .notebook-overview { margin: 24px 0 30px; }
 .remedi-mistake-book .notebook-stat, .remedi-mistake-book .notebook-progress { border-color: var(--border); background: var(--card); box-shadow: var(--shadow); }
-.remedi-mistake-book .notebook-stat-icon, .remedi-mistake-book .notebook-progress-track span { color: var(--primary); background: var(--primary-50); }
-.remedi-mistake-book .notebook-progress-track span { display: block; height: 100%; border-radius: inherit; }
+.remedi-mistake-book .notebook-stat-icon { color: var(--primary); background: var(--primary-50); }
+/* 进度填充用主色实色（v0.13.0 修复：此前误用 primary-50 浅色，进度条几乎看不见） */
+.remedi-mistake-book .notebook-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
 .remedi-mistake-book .notebook-review-button { border-color: var(--primary); background: var(--primary); }
 .remedi-mistake-book .notebook-subjects button.selected, .remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
 .remedi-mistake-book .notebook-search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
@@ -331,6 +332,13 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-question-excerpt { color: var(--text-2); font-size: 12px; }
 .remedi-mistake-book .notebook-question-detail { line-height: 1.55; }
 .remedi-mistake-book .notebook-category-questions article > button:last-child { display: inline-flex; align-items: center; gap: 4px; padding: 6px; border: 0; color: var(--primary); background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer; }
+/* ---------- 错题行布局修复（v0.13.0）：全局旧样式按「article > div + 右列按钮」的
+   旧 DOM 写，把题目按钮和「查看原题」都钉在 grid 第 2 列同一格里互相重叠，
+   题目还点不动。这里按现在的 DOM 改回横向 flex：题目按钮占满左侧、查看原题在右。 */
+.remedi-mistake-book .notebook-category-questions article { display: flex; align-items: flex-start; gap: 10px; }
+.remedi-mistake-book .notebook-category-questions article > .notebook-question-open { flex: 1 1 auto; min-width: 0; grid-column: auto; grid-row: auto; }
+.remedi-mistake-book .notebook-category-questions article > button:last-child { flex: 0 0 auto; grid-column: auto; grid-row: auto; margin-top: 4px; }
+.remedi-mistake-book .notebook-question-excerpt, .remedi-mistake-book .notebook-question-detail { display: -webkit-box; width: 100%; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .remedi-mistake-book .notebook-assignment-footer button { border-color: var(--primary); background: var(--primary); }
 .remedi-mistake-book .notebook-footer-note { padding-top: 12px; color: var(--text-2); }
 .remedi-mistake-book .notebook-action-error { margin: 10px 0; color: #991B1B; font-size: 12px; }

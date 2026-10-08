@@ -179,7 +179,13 @@ function subjectColor(index: number) { return colors[index % colors.length] }
 function zoomBy(amount: number) { zoom.value = Math.min(1.4, Math.max(props.mode === 'mindmap' ? 0.65 : 0.6, Math.round((zoom.value + amount) * 100) / 100)) }
 function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1; void nextTick(centerNetwork) }
 function centerNetwork() {
-  if (props.mode !== 'network' || !viewport.value) return
+  if (!viewport.value) return
+  // 思维导图居中（v0.13.0 修复）：此前居中逻辑只处理 network，导图打开时停在
+  // 画布左上角、中心节点被推出右边缘；导图按 root 点居中，「回到中心」同样生效。
+  if (props.mode === 'mindmap') {
+    viewport.value.scrollTo({ left: Math.max(0, root.value.x * zoom.value - viewport.value.clientWidth / 2), top: Math.max(0, root.value.y * zoom.value - viewport.value.clientHeight / 2), behavior: 'smooth' })
+    return
+  }
   const selectedIndex = activeTopic.value?.errorPoints.findIndex((item) => item.key === selectedPointKey.value) ?? -1
   const target = selectedIndex >= 0 ? pointPoints.value[selectedIndex] : hub.value
   viewport.value.scrollTo({ left: Math.max(0, target.x * zoom.value - viewport.value.clientWidth / 2), top: Math.max(0, target.y * zoom.value - viewport.value.clientHeight / 2), behavior: 'smooth' })
