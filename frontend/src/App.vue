@@ -19,6 +19,9 @@
      v0.9.1：学生订正页右栏切换为「订正日历」（mode=corrections，FAB 同样用 cal-fab）：
      按错题所属提交日期打点，点选日期 → store.correctionsDateFilter 生效 → 订正页
      只看那天的错题；订正页页内不再放日历（v0.9.0 曾在页内，统一迁入右栏）。
+     本次改造：学生学习报告页（总览 /student/report 与科目详情 /student/report/:subject）
+     右栏切换为「错题时间线」（mode=timeline，FAB 复用 cal-fab 中性样式 + history 图标）：
+     不再是信箱/提醒；面板默认只露标题行，点开才展开纵向时间线，条目跳诊断详情。
      未登录只渲染登录页。 -->
 <template>
   <!-- 未登录：仅登录页 -->
@@ -97,14 +100,15 @@
       :aria-hidden="!railOpen"
     >
       <RightRail
-        :mode="railMode === 'calendar' ? 'calendar' : railMode === 'corrections' ? 'corrections' : 'notes'"
+        :mode="railMode === 'calendar' ? 'calendar' : railMode === 'corrections' ? 'corrections' : railMode === 'timeline' ? 'timeline' : 'notes'"
         @close="setRail(false)"
       />
     </aside>
 
     <!-- 右栏收起态入口（v0.8.2）：两场景各有专属按钮与类名，不再共用一个按钮换图标。
          提醒场景=信封形 notes-fab（未读角标读 student store，有未读时轻晃）；
-         日历场景=日历形 cal-fab（中性色、无角标；v0.9.1 起订正日历场景共用此按钮）。
+         日历场景=日历形 cal-fab（中性色、无角标；v0.9.1 起订正日历场景共用此按钮）；
+         错题时间线场景（报告页）同走 cal-fab 中性样式，图标换 history 与信箱区分。
          层级见 style.css 的 z-index 梳理注释。 -->
     <button
       v-if="railMode === 'notes' && !railOpen"
@@ -123,6 +127,14 @@
       @click="setRail(true)"
     >
       <AppIcon name="calendar" :size="20" />
+    </button>
+    <button
+      v-else-if="railMode === 'timeline' && !railOpen"
+      class="cal-fab"
+      title="打开错题时间线"
+      @click="setRail(true)"
+    >
+      <AppIcon name="history" :size="20" />
     </button>
   </div>
 </template>
@@ -214,15 +226,18 @@ const navItems = computed<NavItem[]>(() => {
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------
-// 学生：作业列表页放作业日历；订正页放订正日历（v0.9.1）；其余页面（含主页对话页）
+// 学生：作业列表页放作业日历；订正页放订正日历（v0.9.1）；学习报告页（总览与
+// 科目详情）放错题时间线（本次改造，不再是信箱）；其余页面（含主页对话页）
 // 只放便利贴提醒。教师：仅作业管理页放日历；其余页面不挂右栏（教师无通知）。
-type RailMode = 'notes' | 'calendar' | 'corrections' | 'none'
+type RailScene = 'notes' | 'calendar' | 'corrections' | 'timeline'
+type RailMode = RailScene | 'none'
 const railMode = computed<RailMode>(() => {
   if (auth.role === 'teacher') {
     return route.path === '/teacher/assignments' ? 'calendar' : 'none'
   }
   if (route.path === '/student/assignments') return 'calendar'
   if (route.path === '/student/corrections') return 'corrections'
+  if (route.path === '/student/report' || route.path.startsWith('/student/report/')) return 'timeline'
   return 'notes'
 })
 
@@ -232,12 +247,13 @@ const railMode = computed<RailMode>(() => {
 const RAIL_KEYS = {
   notes: 'remedi-rail-open-notes',
   calendar: 'remedi-rail-open-calendar',
-  corrections: 'remedi-rail-open-corrections'
+  corrections: 'remedi-rail-open-corrections',
+  timeline: 'remedi-rail-open-timeline'
 } as const
 function railDefaultOpen(): boolean {
   return window.innerWidth >= 1200
 }
-function initRailFor(mode: 'notes' | 'calendar' | 'corrections'): boolean {
+function initRailFor(mode: RailScene): boolean {
   try {
     const saved = localStorage.getItem(RAIL_KEYS[mode])
     if (saved === '1') return true
@@ -288,6 +304,7 @@ function logout() {
     localStorage.removeItem(RAIL_KEYS.notes)
     localStorage.removeItem(RAIL_KEYS.calendar)
     localStorage.removeItem(RAIL_KEYS.corrections)
+    localStorage.removeItem(RAIL_KEYS.timeline)
   } catch {
     /* 忽略清理失败 */
   }

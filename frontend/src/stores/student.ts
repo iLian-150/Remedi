@@ -20,6 +20,7 @@ import type {
   StudentProfile,
   StudentMistake,
   SubjectReport,
+  ReportScores,
   SubmissionResult,
   SubmissionSummary,
   Verification,
@@ -172,6 +173,11 @@ export const useStudentStore = defineStore('student', {
     // 3.13 学习报告（v0.2.1）：按科目聚合 + 知识点状态
     async fetchReport(): Promise<SubjectReport[]> {
       const { data } = await api.get<SubjectReport[]>('/api/student/report')
+      return data
+    },
+    // 评分系统：报告成绩分析（历次作业得分序列 + 学科/总体平均得分率）
+    async fetchReportScores(): Promise<ReportScores> {
+      const { data } = await api.get<ReportScores>('/api/student/report/scores')
       return data
     },
     // 3.14 知识点错题时间线（v0.2.1）

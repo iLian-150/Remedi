@@ -116,8 +116,30 @@
               </div>
             </div>
 
+            <div class="card" v-if="detail.score">
+              <h3>AI 评分</h3>
+              <p class="score-line">
+                本题满分 <b class="tnum">{{ fmtScore(detail.score.question_max) }}</b> 分 ·
+                AI 评分 <b class="tnum">{{ detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : '—' }}</b> 分
+                <span class="hint">（按步骤对错折算：步骤对了 {{ detail.score.ok_steps }}/{{ detail.score.total_steps }} 步）</span>
+              </p>
+              <p v-if="detail.score.final_score !== null" class="score-line" style="margin-top: 6px">
+                最终分 <b class="tnum">{{ fmtScore(detail.score.final_score) }}</b> 分（已落定）
+              </p>
+              <p v-else class="hint" style="margin-top: 6px">觉得 AI 分不准，可以在下方通过时改分；不改就按 AI 评分给学生。</p>
+            </div>
+
             <div class="card approve-bar">
               <p class="hint" style="margin: 0">通过后，学生会立刻收到一条提醒，并能看到这份诊断与错题。</p>
+              <div v-if="detail.review_status === 'pending' && detail.score" class="final-score-box">
+                <label>最终分</label>
+                <input
+                  v-model="finalScoreInput"
+                  type="number" min="0" :max="detail.score.question_max" step="0.5"
+                  :placeholder="detail.score.ai_score !== null ? String(detail.score.ai_score) : 'AI 分'"
+                />
+                <span class="hint">/ {{ fmtScore(detail.score.question_max) }} 分 · 留空 = 用 AI 评分</span>
+              </div>
               <button class="btn" :disabled="approving" @click="approveSelected">
                 {{ approving ? '通过中…' : '通过审核' }}
               </button>
@@ -161,6 +183,13 @@ function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
+function fmtScore(v: number): string {
+  return String(Math.round(v * 10) / 10)
+}
+
+/** 评分系统：老师改分输入（字符串，留空 = 用 AI 评分通过） */
+const finalScoreInput = ref('')
+
 function errDetail(e: unknown): string {
   const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
   return typeof d === 'string' ? d : '请稍后重试。'
@@ -190,6 +219,7 @@ async function selectItem(submissionId: number) {
   selectedId.value = submissionId
   detailLoading.value = true
   detail.value = null
+  finalScoreInput.value = ''
   try {
     const d = await teacher.fetchReviewDetail(submissionId)
     detail.value = d
@@ -228,11 +258,23 @@ async function saveCorrection(errorId: number) {
 
 async function approveSelected() {
   if (!selectedId.value) return
+  // 评分系统：改分先做前端校验（0 ~ 本题满分），后端还会再验一遍
+  let finalScore: number | undefined
+  const raw = finalScoreInput.value.trim()
+  if (raw !== '') {
+    const v = Number(raw)
+    const max = detail.value?.score?.question_max ?? 0
+    if (Number.isNaN(v) || v < 0 || v > max) {
+      error.value = `最终分要在 0 到 ${fmtScore(max)} 分之间。`
+      return
+    }
+    finalScore = v
+  }
   approving.value = true
   error.value = ''
   try {
     const name = detail.value?.student.name ?? ''
-    await teacher.approveReview(selectedId.value)
+    await teacher.approveReview(selectedId.value, finalScore)
     items.value = items.value.filter((i) => i.submission_id !== selectedId.value)
     okMsg.value = `已通过，${name} 会收到提醒并能看到诊断了。`
     detail.value = null
@@ -303,5 +345,10 @@ onMounted(() => {
 .correct-row select { width: 150px; flex-shrink: 0; }
 .correct-row input { flex: 1; min-width: 140px; width: auto; }
 .approve-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.score-line { font-size: 14.5px; }
+.score-line b { color: var(--primary); }
+.final-score-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.final-score-box label { font-size: 13.5px; font-weight: 600; }
+.final-score-box input { width: 96px; }
 .ok-line { font-size: 14.5px; color: #065F46; margin-top: 4px; }
 </style>

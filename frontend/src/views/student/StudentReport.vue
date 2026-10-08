@@ -68,6 +68,32 @@
         </div>
         <p class="hint" style="margin-top: 10px">点上方任意一块科目牌，就能进详情看知识点明细、错题时间线，还能做验证题修复知识点。</p>
       </div>
+
+      <!-- 成绩分析（评分系统）：只统计老师审核通过并出分的作业 -->
+      <div class="card summary-card">
+        <h3><AppIcon name="chart" :size="18" /> 成绩分析</h3>
+        <template v-if="scoreData && scoreData.items.length">
+          <p class="score-overall">
+            总体平均得分率 <b class="tnum">{{ scoreData.overall_avg_rate !== null ? Math.round(scoreData.overall_avg_rate * 100) + '%' : '—' }}</b>
+            <span class="hint">（共 {{ scoreData.items.length }} 份已出分作业）</span>
+          </p>
+          <EChart :option="scoreChartOption" style="height: 280px" />
+          <div class="summary-grid" style="margin-top: 12px">
+            <div v-for="s in scoreData.subjects" :key="s.subject" class="summary-item">
+              <span class="summary-subject">{{ SUBJECT_TEXT[s.subject] ?? s.subject }}</span>
+              <span class="hang-bar score-subject-bar"><span :style="{ width: `${Math.round(s.avg_rate * 100)}%` }"></span></span>
+              <span class="summary-nums">平均得分率 <b class="tnum">{{ Math.round(s.avg_rate * 100) }}%</b> · {{ s.assignment_count }} 份作业</span>
+            </div>
+          </div>
+          <div class="score-list">
+            <p v-for="it in scoreData.items" :key="it.assignment_id" class="score-list-row">
+              <span>{{ it.assignment_title }}</span>
+              <span class="tnum">{{ fmtScore(it.score) }} / {{ fmtScore(it.max_score) }} 分 · 得分率 {{ Math.round(it.rate * 100) }}%</span>
+            </p>
+          </div>
+        </template>
+        <div v-else class="empty">还没有已出分的作业。交一份作业、等老师审核通过后，这里就会出现你的成绩走势。</div>
+      </div>
     </template>
   </div>
 </template>
@@ -76,8 +102,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { SubjectReport } from '../../api/types'
+import type { ReportScores, SubjectReport } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import EChart from '../../components/EChart.vue'
 
 const student = useStudentStore()
 const router = useRouter()
@@ -85,8 +112,48 @@ const router = useRouter()
 const SUBJECT_TEXT: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学' }
 
 const report = ref<SubjectReport[]>([])
+const scoreData = ref<ReportScores | null>(null)
 const loading = ref(false)
 const error = ref('')
+
+function fmtScore(v: number): string {
+  return String(Math.round(v * 10) / 10)
+}
+
+/** 成绩走势折线：历次作业得分率（%），tooltip 带得分/满分 */
+const scoreChartOption = computed(() => {
+  const items = scoreData.value?.items ?? []
+  return {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: { dataIndex: number }[]) => {
+        const it = items[params[0]?.dataIndex ?? 0]
+        if (!it) return ''
+        return `${it.assignment_title}<br/>得分 ${fmtScore(it.score)} / ${fmtScore(it.max_score)} 分 · 得分率 ${Math.round(it.rate * 100)}%`
+      }
+    },
+    grid: { left: 8, right: 16, top: 28, bottom: 4, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: items.map((it) => it.assignment_title),
+      axisLabel: { interval: 0, rotate: items.length > 4 ? 28 : 0, fontSize: 11 }
+    },
+    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { formatter: '{value}%' } },
+    series: [
+      {
+        name: '得分率',
+        type: 'line',
+        smooth: true,
+        symbolSize: 8,
+        data: items.map((it) => Math.round(it.rate * 100)),
+        lineStyle: { color: '#1D4ED8', width: 2.5 },
+        itemStyle: { color: '#1D4ED8' },
+        areaStyle: { color: 'rgba(29, 78, 216, 0.08)' },
+        label: { show: true, formatter: '{c}%', fontSize: 11, color: '#475569' }
+      }
+    ]
+  }
+})
 
 // ---------- 悬挂卡落地层 ----------
 interface SubjectCard {
@@ -132,6 +199,12 @@ onMounted(async () => {
     console.error(e)
   } finally {
     loading.value = false
+  }
+  // 成绩分析独立加载：失败不影响报告主体
+  try {
+    scoreData.value = await student.fetchReportScores()
+  } catch (e) {
+    console.error(e)
   }
 })
 </script>
@@ -221,4 +294,17 @@ onMounted(async () => {
 .summary-subject { font-size: 15px; font-weight: 700; min-width: 44px; }
 .summary-nums { font-size: 13.5px; color: var(--text-2); }
 .summary-nums b { color: var(--text); }
+
+/* ---------- 成绩分析 ---------- */
+.score-overall { font-size: 14.5px; margin-bottom: 6px; }
+.score-overall b { color: var(--primary); font-size: 18px; }
+.score-subject-bar { width: 150px; flex: none; align-self: center; }
+.score-subject-bar > span { background: var(--primary); }
+.score-list { margin-top: 14px; border-top: 1px solid #F1F3F6; }
+.score-list-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 7px 0; border-bottom: 1px solid #F7F8FA; font-size: 13.5px;
+}
+.score-list-row:last-child { border-bottom: none; }
+.score-list-row .tnum { color: var(--text-2); white-space: nowrap; }
 </style>

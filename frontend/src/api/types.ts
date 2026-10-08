@@ -127,6 +127,14 @@ export interface SubmissionResult {
   errors: GradingError[]
   follow_up_question?: string | null // v0.4.0：启发式追问，无错时为 null
   review_status?: 'pending' | 'approved' // v0.9.0：教师审核状态
+  // 评分系统：本题得分（最终分）与满分；待审核时为 null，分数跟诊断一起放行
+  // assignment_* 是这份作业目前的累计得分与总分（成绩单展示用，可能缺失）
+  score?: {
+    score: number
+    max_score: number
+    assignment_score?: number | null
+    assignment_total?: number | null
+  } | null
 }
 
 export interface SubmissionSummary {
@@ -138,6 +146,8 @@ export interface SubmissionSummary {
   error_count: number
   submitted_at: string
   review_status?: 'pending' | 'approved' // v0.9.0：教师审核状态（pending 时 error_count=0）
+  score?: number | null // 评分系统：本题最终分（仅已通过时有值）
+  max_score?: number | null // 评分系统：本题满分
 }
 
 // ---------- 英语作文 ----------
@@ -209,6 +219,8 @@ export interface TeacherErrorItem extends GradingError {
   student: { id: number; name: string; student_no: string }
   question: { id: number; stem: string; subject: string }
   review_status?: 'pending' | 'approved' // v0.9.0：所属提交的审核状态
+  score?: number | null // 评分系统：所属提交最终分（仅已通过时有值）
+  max_score?: number | null // 评分系统：本题满分
 }
 
 // ---------- v0.9.0 新增：教师审核流 ----------
@@ -227,6 +239,15 @@ export interface ReviewPendingItem {
   submitted_at: string
 }
 
+// 评分系统：审核详情里的评分信息（满分/AI 分/最终分/步骤对了几步）
+export interface ReviewScore {
+  question_max: number
+  ai_score: number | null
+  final_score: number | null
+  ok_steps: number
+  total_steps: number
+}
+
 export interface ReviewDetail {
   submission_id: number
   student: { id: number; name: string; student_no: string | null }
@@ -235,6 +256,7 @@ export interface ReviewDetail {
   submitted_at: string
   review_status: 'pending' | 'approved'
   diagnosis: SubmissionResult
+  score?: ReviewScore | null // 评分系统：本题评分信息
 }
 
 export interface TopQuestion {
@@ -362,6 +384,7 @@ export interface TeacherQuestionInput {
   knowledge_point: string
   standard_steps?: string[]
   reference_answer?: string
+  weight_pct?: number // 评分系统：该题分值占比 %（不传 = 按题数均分）
 }
 
 export interface TeacherAssignmentInput {
@@ -374,6 +397,7 @@ export interface TeacherAssignmentInput {
   workbook_id?: number
   page_range?: string
   deadline?: string
+  total_score?: number // 评分系统：作业总分（不传 = 100）
 }
 
 // ---------- v0.5.0 新增：教师 AI 助手 / 练习册知识库 ----------
@@ -437,6 +461,24 @@ export interface KnowledgePointErrorItem {
   error_type: ErrorType | string
   corrected: boolean
   submission_id: number
+}
+
+// ---------- 评分系统新增：报告成绩分析（GET /api/student/report/scores） ----------
+
+export interface AssignmentScoreItem {
+  assignment_id: number
+  assignment_title: string
+  subject: string
+  date: string
+  score: number // 得分（各题最新一次已通过提交的最终分之和）
+  max_score: number // 满分（计入题目的满分之和）
+  rate: number // 得分率 0~1
+}
+
+export interface ReportScores {
+  items: AssignmentScoreItem[] // 按日期正序
+  subjects: { subject: string; avg_rate: number; assignment_count: number }[]
+  overall_avg_rate: number | null
 }
 
 // ---------- v0.4.0 新增：二次验证 / 班级知识修复率 ----------

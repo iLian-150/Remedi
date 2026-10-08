@@ -268,8 +268,12 @@ export const useTeacherStore = defineStore('teacher', {
       return data
     },
     // 4.25 审核通过（v0.9.0）：通过后学生收到提醒并能看到诊断；本地队列同步移除
-    async approveReview(submissionId: number): Promise<void> {
-      await api.post(`/api/teacher/reviews/${submissionId}/approve`)
+    // 评分系统：可带 finalScore（老师改分），不带则后端用 AI 初评分落定最终分
+    async approveReview(submissionId: number, finalScore?: number): Promise<void> {
+      await api.post(
+        `/api/teacher/reviews/${submissionId}/approve`,
+        finalScore === undefined ? undefined : { final_score: finalScore }
+      )
       this.pendingReviews = this.pendingReviews.filter((i) => i.submission_id !== submissionId)
       this.pendingReviewCount = this.pendingReviews.length
     },
