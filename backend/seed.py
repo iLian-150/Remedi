@@ -22,8 +22,10 @@ sys.path.insert(0, ".")
 
 from app.database import SessionLocal, init_db, engine  # noqa: E402
 from app.models import (  # noqa: E402
-    Assignment, Base, Correction, Error, Essay, Question, Step, Submission, User,
+    Assignment, AssignmentScoring, Base, Correction, Error, Essay, Question,
+    QuestionWeight, Step, Submission, User,
 )
+from app.services import scoring as scoring_svc  # noqa: E402
 from app.services.diagnosis import diagnose_submission  # noqa: E402
 
 
@@ -88,6 +90,16 @@ def main():
         questions = {q.order_num: q for q in
                      db.query(Question).filter(Question.assignment_id == assignment.id).all()}
 
+        # ---- 评分配置（评分系统）：总分 100，三道题占比 30/30/40（不等分示例）。
+        # 必须在下面 diagnose_submission 之前落库，演示提交的 AI 分才会按此权重算。
+        if not db.query(AssignmentScoring).filter(
+                AssignmentScoring.assignment_id == assignment.id).first():
+            db.add(AssignmentScoring(assignment_id=assignment.id, total_score=100.0))
+            for order, pct in ((1, 30.0), (2, 30.0), (3, 40.0)):
+                db.add(QuestionWeight(question_id=questions[order].id, weight_pct=pct))
+            db.commit()
+            print("评分配置：总分 100，题目占比 30/30/40")
+
         # ---- 历史错误 1：林小夏 20 天前，第 1 题移项未变号 ----
         exists = (
             db.query(Error)
@@ -130,6 +142,18 @@ def main():
             print(f"历史错误2：陈默 5 天前「去括号」{e0.error_type}（教师已回标）")
         else:
             print("历史错误2：已存在，跳过")
+
+        # ---- 评分回填（评分系统）：老库重跑 seed 时，给已有演示提交按同一公式补分，
+        # 保证报告成绩分析一打开就有数据（新提交在 diagnose 时已自动落分，这里只兜底）。
+        all_subs = db.query(Submission).all()
+        filled = 0
+        for sub in all_subs:
+            before = scoring_svc.get_score_row(db, sub.id)
+            scoring_svc.ensure_score(db, sub)
+            if before is None:
+                filled += 1
+        if filled:
+            print(f"评分回填：为 {filled} 份已有提交补算了 AI 分")
 
         print("\nSeed 完成。登录演示：POST /api/auth/login {\"username\": \"林小夏\", \"role\": \"student\"}")
     finally:

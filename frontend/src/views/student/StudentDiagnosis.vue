@@ -39,6 +39,22 @@
     </div>
 
     <template v-if="mathDetail && mathDetail.status !== 'pending_review'">
+      <!-- 成绩单（评分系统）：老师审核通过后才有分 -->
+      <div class="card score-card" v-if="mathDetail.score">
+        <h3>成绩单</h3>
+        <div class="score-rows">
+          <p class="score-row">
+            <span>本题得分</span>
+            <b class="tnum">{{ fmtScore(mathDetail.score.score) }} / {{ fmtScore(mathDetail.score.max_score) }} 分</b>
+          </p>
+          <p class="score-row" v-if="mathDetail.score.assignment_score !== null && mathDetail.score.assignment_score !== undefined">
+            <span>这份作业目前累计</span>
+            <b class="tnum">{{ fmtScore(mathDetail.score.assignment_score) }} / {{ fmtScore(mathDetail.score.assignment_total ?? 0) }} 分</b>
+          </p>
+        </div>
+        <p class="hint" style="margin-top: 8px">分数是老师审核通过后的最终分；订正和二次验证能帮你把知识点真正修好，分数也会在重新提交后更新。</p>
+      </div>
+
       <div class="card">
         <h3>分步解析 <span class="badge badge-blue">{{ SUBMISSION_STATUS_TEXT[mathDetail.status] ?? mathDetail.status }}</span></h3>
         <div
@@ -112,6 +128,10 @@ function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
+function fmtScore(v: number): string {
+  return String(Math.round(v * 10) / 10)
+}
+
 async function loadMathDetail() {
   if (!selectedSubmissionId.value) return
   mathLoading.value = true
@@ -144,6 +164,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.score-card { border-left: 4px solid var(--primary); }
+.score-rows { display: flex; flex-direction: column; gap: 8px; }
+.score-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 14.5px; }
+.score-row b { color: var(--primary); font-size: 17px; }
 .review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px; padding: 13px 15px; }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
 .review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }

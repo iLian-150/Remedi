@@ -43,6 +43,7 @@
               <ErrorTypeBadge :type="e.error_type" />
               <span v-if="e.teacher_corrected" class="badge badge-gray">已纠错</span>
               <span v-if="e.review_status === 'pending'" class="badge badge-amber">待审核</span>
+              <span v-else-if="e.score !== null && e.score !== undefined" class="badge badge-green tnum">得分 {{ e.score }}{{ e.max_score !== null && e.max_score !== undefined ? ` / ${e.max_score}` : '' }}</span>
             </td>
             <td class="num tnum">{{ Math.round(e.confidence * 100) }}%</td>
             <td>
