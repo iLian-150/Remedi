@@ -422,6 +422,37 @@ def present_diagnosis(submission: Submission, db) -> dict:
         generate_follow_up(main_error.error_type, main_error.knowledge_point)
         if main_error else None
     )
+    # 过程可疑识别（与教师端 process_check 同源判定）：答案对但过程存疑时，
+    # 把追问换成针对断裂步的过程追问——口径是老师在问，只问过程、不带任何
+    # 怀疑字眼；判定本身（suspicious/signals）绝不进学生出参。
+    try:
+        from .process_check import analyze_process
+        pc = analyze_process(db, submission)
+    except Exception:
+        pc = {"suspicious": False, "signals": []}
+    if pc.get("suspicious"):
+        codes = {s.get("code") for s in pc.get("signals", [])}
+        if "broken_chain" in codes and first_error_seq is not None:
+            follow_up_question = (
+                f"这道题你最后得到了正确答案，不过老师想听听："
+                f"第 {first_error_seq} 步你是怎么想的？"
+            )
+        elif "leap" in codes:
+            follow_up_question = (
+                "这道题你很快就写出了正确答案，老师想听听："
+                "你心里是怎么一步一步想的？把中间的想法说给老师听听。"
+            )
+        elif "unparseable_heavy" in codes:
+            if first_error_seq is not None:
+                follow_up_question = (
+                    f"这道题你最后得到了正确答案，不过有一步老师没太看清："
+                    f"第 {first_error_seq} 步你是怎么想的？"
+                )
+            else:
+                follow_up_question = (
+                    "这道题你最后得到了正确答案，不过有几步老师没太看清："
+                    "挑一步，把你当时的想法说给老师听听。"
+                )
     return {
         "submission_id": submission.id,
         "question_id": submission.question_id,

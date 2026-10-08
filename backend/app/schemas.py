@@ -668,6 +668,21 @@ class ReviewScoreOut(BaseModel):
     total_steps: int              # 作答步骤总数
 
 
+class ProcessCheckSignalOut(BaseModel):
+    """过程可疑识别的一条信号（仅教师端可见）。"""
+    code: str                   # broken_chain | leap | unparseable_heavy
+    text: str                   # 给老师看的中文原因
+
+
+class ProcessCheckOut(BaseModel):
+    """过程可疑识别结果（仅教师端）：答案对但过程存疑时 suspicious=True。
+    学生端任何出参都不含本结构与 suspicious 等字段。"""
+    suspicious: bool = False
+    signals: List[ProcessCheckSignalOut] = []
+    final_answer: Optional[str] = None      # 学生最终答案（格式化文本）
+    reference_answer: Optional[str] = None  # sympy 解题干得到的参考解
+
+
 class ReviewDetailOut(BaseModel):
     submission_id: int
     student: UserOut
@@ -678,6 +693,8 @@ class ReviewDetailOut(BaseModel):
     diagnosis: DiagnosisOut     # 完整分步诊断（教师端全量，含 review_status）
     # 评分系统新增（只加字段）：本题评分信息（满分/AI 分/步骤对了几步）
     score: Optional[ReviewScoreOut] = None
+    # 过程可疑识别（只加字段）：答案对、过程存疑的确定性信号，供教师审核参考
+    process_check: Optional[ProcessCheckOut] = None
 
 
 class ReviewApproveIn(BaseModel):

@@ -72,6 +72,21 @@
               </p>
             </div>
 
+            <div class="card process-card" v-if="detail.process_check?.suspicious">
+              <h3 class="process-title">
+                <AppIcon name="alert" :size="17" class="process-icon" />
+                过程提示
+              </h3>
+              <p class="card-sub">供审核参考：该生最终答案正确，但作答过程存在下列情况。</p>
+              <ul class="process-signals">
+                <li v-for="s in detail.process_check.signals" :key="s.code">{{ s.text }}</li>
+              </ul>
+              <p class="hint" v-if="detail.process_check.final_answer || detail.process_check.reference_answer">
+                学生最终答案：{{ detail.process_check.final_answer ?? '—' }}
+                · 参考答案：{{ detail.process_check.reference_answer ?? '—' }}
+              </p>
+            </div>
+
             <div class="card">
               <h3>分步诊断</h3>
               <div
@@ -351,4 +366,9 @@ onMounted(() => {
 .final-score-box label { font-size: 13.5px; font-weight: 600; }
 .final-score-box input { width: 96px; }
 .ok-line { font-size: 14.5px; color: #065F46; margin-top: 4px; }
+.process-card { border-left: 4px solid var(--amber, #D97706); background: #FFFBEB; }
+.process-title { display: flex; align-items: center; gap: 7px; }
+.process-icon { color: var(--amber, #D97706); flex-shrink: 0; }
+.process-signals { margin: 6px 0 8px; padding-left: 20px; font-size: 14px; color: var(--text-2); }
+.process-signals li { margin: 3px 0; }
 </style>
