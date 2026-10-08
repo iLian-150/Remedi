@@ -16,6 +16,7 @@ import type {
   StudentProfile,
   StudentSummary,
   TeacherAssignment,
+  TeachingSuggestion,
   TeacherAssignmentInput,
   TeacherErrorItem,
   TopQuestion,
@@ -81,6 +82,11 @@ export const useTeacherStore = defineStore('teacher', {
     // 4.11 班级知识修复率（v0.4.0）：全班口径 + 各知识点修复率
     async fetchRepairRate(): Promise<ClassRepairRate> {
       const { data } = await api.get<ClassRepairRate>('/api/teacher/stats/repair-rate')
+      return data
+    },
+    // 教学建议：规则模板生成的建议卡（重讲/预警/分组辅导/巩固练习）
+    async fetchSuggestions(): Promise<TeachingSuggestion[]> {
+      const { data } = await api.get<TeachingSuggestion[]>('/api/teacher/suggestions')
       return data
     },
     // 4.5 学生列表

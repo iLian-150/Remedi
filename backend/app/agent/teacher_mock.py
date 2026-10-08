@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..models import User
 from ..services.stats import class_repair_rate, knowledge_point_ranking, student_profile
+from ..services.suggestions import build_teaching_suggestions
 from ..services.teacher_stats import (
     assignment_status,
     class_overview,
@@ -16,9 +17,11 @@ from .teacher_tools import (
     ranking_to_text,
     repair_rate_to_text,
     resolve_assignment,
+    suggestions_to_text,
     uncorrected_to_text,
 )
 
+_SUGGESTION_KEYWORDS = ("教学建议", "建议", "下节课", "讲什么", "备课", "重点讲")
 _REPAIR_KEYWORDS = ("修复率", "修复")
 _RANKING_KEYWORDS = ("知识点", "错误率", "最严重", "最薄弱", "薄弱", "排行")
 _CORRECTION_KEYWORDS = ("订正",)
@@ -54,6 +57,13 @@ def _mentioned_student(db: Session, msg: str):
 def teacher_mock_reply(db: Session, teacher: User, message: str) -> str:
     """规则回复入口：按关键词路由到真实数据模板，兜底给能力说明 + 总览数字。"""
     msg = (message or "").strip()
+
+    # 0) 教学建议（要在"知识点/建议先讲"类问法之前判，意图最明确）
+    if any(k in msg for k in _SUGGESTION_KEYWORDS):
+        try:
+            return suggestions_to_text(build_teaching_suggestions(db))
+        except Exception:
+            return "教学建议暂时生成失败，请稍后再试；你也可以先问我知识点错误率排行或班级知识修复率。"
 
     # 1) 班级知识修复率
     if any(k in msg for k in _REPAIR_KEYWORDS):

@@ -248,6 +248,19 @@ export interface ReviewScore {
   total_steps: number
 }
 
+// 过程可疑识别（仅教师端）：答案对但过程存疑的确定性信号
+export interface ProcessCheckSignal {
+  code: string // broken_chain | leap | unparseable_heavy
+  text: string
+}
+
+export interface ProcessCheck {
+  suspicious: boolean
+  signals: ProcessCheckSignal[]
+  final_answer: string | null
+  reference_answer: string | null
+}
+
 export interface ReviewDetail {
   submission_id: number
   student: { id: number; name: string; student_no: string | null }
@@ -257,6 +270,7 @@ export interface ReviewDetail {
   review_status: 'pending' | 'approved'
   diagnosis: SubmissionResult
   score?: ReviewScore | null // 评分系统：本题评分信息
+  process_check?: ProcessCheck | null // 过程可疑识别：供教师审核参考
 }
 
 export interface TopQuestion {
@@ -528,6 +542,16 @@ export interface ClassRepairRate {
   total_knowledge_point_pairs: number
   fixed_knowledge_point_pairs: number
   knowledge_points: KnowledgePointRepair[]
+}
+
+// 教学建议（GET /api/teacher/suggestions）：规则模板生成，按严重度排序
+export interface TeachingSuggestion {
+  kind: 'reteach' | 'stubborn_group' | 'high_error' | 'low_score'
+  title: string
+  knowledge_point: string | null
+  evidence: string
+  action: string
+  sample_questions: string[]
 }
 
 // ---------- 界面文案映射 ----------

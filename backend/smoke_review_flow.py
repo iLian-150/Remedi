@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""v0.10.0 教师审核流全链冒烟（对独立临时库运行，不碰开发库）。
+"""v0.11.0 教师审核流全链冒烟（对独立临时库运行，不碰开发库）。
 
 链路：种子数据 → 学生新提交（POST /student/submissions，走真实诊断管线）
 → 学生详情 pending_review 且无诊断 → 学生错题本/报告/简报里看不到这条
@@ -64,7 +64,7 @@ def main() -> int:
                 pass
             time.sleep(0.5)
         health = client.get(f"{BASE}/api/health").json()
-        check("health 版本 0.10.0", health.get("version") == "0.10.0", str(health.get("version")))
+        check("health 版本 0.11.0", health.get("version") == "0.11.0", str(health.get("version")))
 
         stu = login(client, "林小夏", "student")
         tea = login(client, "陈老师", "teacher")

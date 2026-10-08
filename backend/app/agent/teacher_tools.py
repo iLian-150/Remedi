@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..models import User
 from ..services.stats import class_repair_rate, knowledge_point_ranking, student_profile
+from ..services.suggestions import build_teaching_suggestions
 from ..services.teacher_stats import (
     assignment_status,
     class_overview,
@@ -104,6 +105,15 @@ def profile_to_text(profile: dict) -> str:
     return "\n".join(lines)
 
 
+def suggestions_to_text(items: List[dict]) -> str:
+    if not items:
+        return "目前还没有生成教学建议：班级数据还不够，或各知识点修复情况良好，可以先问我知识点错误率排行。"
+    lines = ["根据班级的修复率、错误率、顽固错题与成绩数据，给你这几条教学建议："]
+    for i, s in enumerate(items, 1):
+        lines.append(f"{i}. {s['title']}——{s['evidence']}。建议：{s['action']}")
+    return "\n".join(lines)
+
+
 def resolve_assignment(db: Session, hint: str):
     """工具/Mock 共用：按标题片段找作业；找不到且给了片段返回 (None, False)，
     没给片段时回退最近一份并标记 fallback=True。"""
@@ -150,6 +160,14 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         return uncorrected_to_text(uncorrected_overview(db))
 
     @tool
+    def get_teaching_suggestions() -> str:
+        """查询教学建议：下节课建议重讲什么知识点、哪些知识点错误率需要预警、哪些学生需要分组辅导、哪份作业需要巩固练习。老师问"下节课讲什么""有什么教学建议""备课重点"时调用。"""
+        try:
+            return suggestions_to_text(build_teaching_suggestions(db))
+        except Exception:
+            return "教学建议暂时生成失败，请稍后再试；你也可以先问我知识点错误率排行或班级知识修复率。"
+
+    @tool
     def get_student_profile(student_name: str) -> str:
         """查询某个学生的学习画像摘要：各知识点错误率、反复出错的知识点与教学建议。参数 student_name 是学生姓名，例如「林小夏」。"""
         name = (student_name or "").strip()
@@ -167,5 +185,6 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         get_knowledge_point_ranking,
         get_class_repair_rate,
         get_uncorrected_students,
+        get_teaching_suggestions,
         get_student_profile,
     ]
