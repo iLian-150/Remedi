@@ -6,30 +6,41 @@
      契约：POST /api/teacher/assignments（4.7，v0.5.0 加 mode/workbook_id/page_range/deadline）、
            练习册知识库 4.15~4.17、拍照识别 4.9。本轮题目仍只支持数学。 -->
 <template>
-  <div class="page">
+  <div class="page publish-page">
     <div class="page-head">
       <h2>发布作业</h2>
-      <p class="page-sub">先选发布方式，再填内容。发布后学生端立即可见。</p>
+      <p class="page-sub">{{ step === 'choose' ? '先选一种发布方式，点进去再填内容。发布后学生端立即可见。' : '填写作业内容后点底部「发布」。返回上一级不会清空已填内容。' }}</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="ok" class="ok-msg">发布成功，正在跳转到作业列表…</div>
 
-    <!-- 第一步：选模式 -->
-    <div class="card">
-      <h3>第一步 · 选择发布方式</h3>
-      <div class="mode-grid">
-        <button type="button" class="mode-card" :class="{ active: mode === 'online' }" @click="mode = 'online'">
+    <!-- 第一级：选择发布方式（v0.12.0 两级化：点卡进入第二级表单，不再同页堆叠） -->
+    <template v-if="step === 'choose'">
+      <div class="mode-grid choose-grid">
+        <button type="button" class="mode-card" @click="chooseMode('online')">
           <span class="mode-icon"><AppIcon name="edit" :size="22" /></span>
           <span class="mode-name">线上作业</span>
-          <span class="mode-desc">在这里逐题录入（或拍照识别）题目，学生在系统里逐题拍照作答、逐步批改。</span>
+          <span class="mode-desc">在这里逐题录入（或拍照识别）题目，学生在系统里在线作答、逐步批改。</span>
+          <span class="mode-enter">进入发布 <AppIcon name="arrow-right" :size="15" /></span>
         </button>
-        <button type="button" class="mode-card" :class="{ active: mode === 'offline' }" @click="mode = 'offline'">
+        <button type="button" class="mode-card" @click="chooseMode('offline')">
           <span class="mode-icon"><AppIcon name="book" :size="22" /></span>
           <span class="mode-name">线下作业 · 练习册</span>
           <span class="mode-desc">作业来自纸质练习册：选一本练习册、写清页码，拍下题目页识别成题，学生照着练习册做、拍照提交。</span>
+          <span class="mode-enter">进入发布 <AppIcon name="arrow-right" :size="15" /></span>
         </button>
       </div>
+      <p class="choose-hint">两种方式发布的都是数学作业，批改与审核流程完全一致。</p>
+    </template>
+
+    <!-- 第二级：发布表单 -->
+    <template v-if="step === 'form'">
+    <div class="form-topbar">
+      <button type="button" class="btn ghost inline-icon back-btn" @click="backToChoose">
+        <AppIcon name="chevron-left" :size="16" /> 重新选择发布方式
+      </button>
+      <span class="mode-chip"><AppIcon :name="mode === 'online' ? 'edit' : 'book'" :size="14" /> {{ mode === 'online' ? '线上作业' : '线下作业 · 练习册' }}</span>
     </div>
 
     <!-- 线下模式：练习册与页码 -->
@@ -81,13 +92,15 @@
           </button>
         </div>
       </div>
-      <div class="form-row">
-        <label>页码 / 题号范围</label>
-        <input v-model="pageRange" type="text" placeholder="例如：第 12-14 页 第 1-8 题" maxlength="64" />
-      </div>
-      <div class="form-row" style="margin-bottom: 0">
-        <label>截止时间（选填）</label>
-        <input v-model="deadline" type="datetime-local" />
+      <div class="grid-2">
+        <div class="form-row">
+          <label>页码 / 题号范围</label>
+          <input v-model="pageRange" type="text" placeholder="例如：第 12-14 页 第 1-8 题" maxlength="64" />
+        </div>
+        <div class="form-row">
+          <label>截止时间（选填）</label>
+          <input v-model="deadline" type="datetime-local" />
+        </div>
       </div>
     </div>
 
@@ -97,18 +110,20 @@
         <label>作业标题</label>
         <input v-model="title" type="text" :placeholder="mode === 'offline' ? '例如：练习册 P12-14 勾股定理练习' : '例如：第二周数学作业'" maxlength="128" />
       </div>
-      <div class="form-row">
-        <label>学科</label>
-        <select v-model="subject" disabled>
-          <option value="math">数学</option>
-        </select>
-        <p class="hint" style="margin-top: 6px">目前专注数学作业，支持拍照批改与逐步诊断。</p>
-      </div>
-      <div class="form-row" style="margin-bottom: 0">
-        <label>作业总分（满分）</label>
-        <div class="score-input-row">
-          <input v-model.number="totalScore" type="number" min="1" max="10000" step="1" class="score-input" />
-          <span class="hint">分 · 学生每次作答会由 AI 按步骤对错打分，你在待审核里可以改分；每道题的满分按下方「分值占比」折算。</span>
+      <div class="grid-2">
+        <div class="form-row">
+          <label>学科</label>
+          <select v-model="subject" disabled>
+            <option value="math">数学</option>
+          </select>
+          <p class="hint" style="margin-top: 6px">目前专注数学作业，支持拍照批改与逐步诊断。</p>
+        </div>
+        <div class="form-row">
+          <label>作业总分（满分）</label>
+          <div class="score-input-row">
+            <input v-model.number="totalScore" type="number" min="1" max="10000" step="1" class="score-input" />
+            <span class="hint">分 · AI 按步骤对错打分，待审核里可改分；每题满分按下方的「分值占比」折算。</span>
+          </div>
         </div>
       </div>
     </div>
@@ -137,48 +152,53 @@
         <label>题干</label>
         <textarea v-model="q.prompt" rows="2" placeholder="例如：解方程：3x-5=10"></textarea>
       </div>
-      <div class="form-row">
-        <label>知识点</label>
-        <input v-model="q.knowledge_point" type="text" placeholder="例如：一元一次方程" maxlength="64" />
-      </div>
-      <div class="form-row">
-        <label>分值占比（占总分的百分比）</label>
-        <div class="score-input-row">
-          <input
-            v-model.number="q.weight_pct"
-            type="number" min="0" max="100" step="0.5"
-            class="score-input" placeholder="均分"
-          />
-          <span class="hint">
-            % · 本题满分约 {{ fmtScore(questionMax(q)) }} 分<template v-if="q.weight_pct === null || q.weight_pct === undefined">（留空按题数均分）</template>
-          </span>
+      <div class="grid-q-meta">
+        <div class="form-row">
+          <label>知识点</label>
+          <input v-model="q.knowledge_point" type="text" placeholder="例如：一元一次方程" maxlength="64" />
+        </div>
+        <div class="form-row">
+          <label>分值占比（占总分的百分比）</label>
+          <div class="score-input-row">
+            <input
+              v-model.number="q.weight_pct"
+              type="number" min="0" max="100" step="0.5"
+              class="score-input" placeholder="均分"
+            />
+            <span class="hint">
+              % · 本题满分约 {{ fmtScore(questionMax(q)) }} 分<template v-if="q.weight_pct === null || q.weight_pct === undefined">（留空按题数均分）</template>
+            </span>
+          </div>
         </div>
       </div>
-      <div class="form-row">
-        <label>标准解题步骤（选填，每行一步，含第一步原式，供批改参考）</label>
-        <textarea v-model="q.standard_steps_text" rows="4" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
-      </div>
-      <div class="form-row" style="margin-bottom: 0">
-        <div class="answer-label-row">
-          <label>参考答案（选填）</label>
-          <button
-            type="button"
-            class="btn small secondary inline-icon"
-            :disabled="q.check_status === 'checking' || !q.prompt.trim() || !q.reference_answer.trim()"
-            @click="checkOne(idx)"
-          >
-            <AppIcon name="sparkles" :size="13" /> {{ q.check_status === 'checking' ? '验算中…' : 'AI 验算' }}
-          </button>
+      <div class="grid-q-body">
+        <div class="form-row">
+          <label>标准解题步骤（选填，每行一步，含第一步原式，供批改参考）</label>
+          <textarea v-model="q.standard_steps_text" rows="5" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
         </div>
-        <input v-model="q.reference_answer" type="text" placeholder="例如：x=5" />
-        <p v-if="q.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
-        <p v-else-if="showResult(q) && q.check_status === 'ok'" class="check-note ok" :title="q.check_detail">
-          <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
-        </p>
-        <p v-else-if="showResult(q) && q.check_status === 'suspect'" class="check-note warn">
-          <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
-          <span>参考答案可能有误：{{ q.check_detail }}（只是提醒，仍可照常发布）</span>
-        </p>
+        <div class="form-row">
+          <div class="answer-label-row">
+            <label>参考答案（选填）</label>
+            <button
+              type="button"
+              class="btn small secondary inline-icon"
+              :disabled="q.check_status === 'checking' || !q.prompt.trim() || !q.reference_answer.trim()"
+              @click="checkOne(idx)"
+            >
+              <AppIcon name="sparkles" :size="13" /> {{ q.check_status === 'checking' ? '验算中…' : 'AI 验算' }}
+            </button>
+          </div>
+          <input v-model="q.reference_answer" type="text" placeholder="例如：x=5" />
+          <p v-if="q.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
+          <p v-else-if="showResult(q) && q.check_status === 'ok'" class="check-note ok" :title="q.check_detail">
+            <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
+          </p>
+          <p v-else-if="showResult(q) && q.check_status === 'suspect'" class="check-note warn">
+            <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
+            <span>参考答案可能有误：{{ q.check_detail }}（只是提醒，仍可照常发布）</span>
+          </p>
+          <p class="hint" style="margin-top: 8px">标准步骤是批改的参照系，写得越完整，步骤诊断越准。</p>
+        </div>
       </div>
     </div>
 
@@ -194,12 +214,15 @@
       <span class="hint">没填占比的题按「100 ÷ 题数」计入合计；合计不是 100% 时不能发布，避免各题满分加起来超过总分。</span>
       <button type="button" class="btn small secondary" @click="distributeEvenly">一键均分</button>
     </div>
-    <div class="toolbar">
+    <div class="toolbar publish-actions">
       <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加一题</button>
+      <span class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
+      <span class="spacer"></span>
       <button class="btn" :disabled="submitting || checkingAll" @click="submit">
         {{ checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
       </button>
     </div>
+    </template>
   </div>
 </template>
 
@@ -231,6 +254,21 @@ interface QuestionForm {
 }
 
 const mode = ref<'online' | 'offline'>('online')
+// 两级导航（v0.12.0）：choose = 选发布方式；form = 填发布表单。两级同组件，
+// 返回上一级不清空已填内容；选方式时把 mode 写进 query，刷新/书架深链直达表单级。
+const step = ref<'choose' | 'form'>('choose')
+
+function chooseMode(m: 'online' | 'offline') {
+  mode.value = m
+  step.value = 'form'
+  router.replace({ query: { ...route.query, mode: m } })
+  window.scrollTo({ top: 0 })
+}
+
+function backToChoose() {
+  step.value = 'choose'
+  window.scrollTo({ top: 0 })
+}
 const title = ref('')
 const subject = ref<'math'>('math')
 const totalScore = ref(100)   // 评分系统：作业总分（满分），默认 100
@@ -568,9 +606,11 @@ async function submit() {
 
 onMounted(async () => {
   await loadWorkbooks()
-  // 从「我的练习」书架跳入时预选（v0.6.0）：?mode=offline&workbook_id=<id>
-  if (route.query.mode === 'offline') {
-    mode.value = 'offline'
+  // 带 mode 的链接直达第二级表单（v0.12.0）：书架跳入 ?mode=offline&workbook_id=<id>、
+  // 第一级选方式时写入的 ?mode= 刷新后都停在表单级
+  if (route.query.mode === 'offline' || route.query.mode === 'online') {
+    mode.value = route.query.mode
+    step.value = 'form'
     const wid = Number(route.query.workbook_id)
     if (wid && workbooks.value.some((w) => w.id === wid)) {
       workbookId.value = wid
@@ -580,6 +620,52 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* ---------- 两级导航（v0.12.0） ---------- */
+.choose-grid { max-width: 880px; margin: 0 auto; }
+.choose-grid .mode-card { padding: 26px 24px; gap: 8px; }
+.mode-enter { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13.5px; font-weight: 700; color: var(--primary); }
+.choose-hint { text-align: center; color: var(--text-3); font-size: 13px; margin-top: 16px; }
+.form-topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.back-btn { padding-left: 4px; font-weight: 600; }
+.mode-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--primary);
+  background: var(--primary-50); border: 1px solid #D9E1F2;
+  padding: 6px 13px; border-radius: 999px;
+}
+/* ---------- 表单布局：按实际位置并排，不再逐行堆叠 ---------- */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.grid-q-meta { display: grid; grid-template-columns: 1fr 330px; gap: 14px; margin-bottom: 14px; }
+.grid-q-body { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
+.grid-2 .form-row, .grid-q-meta .form-row, .grid-q-body .form-row { margin-bottom: 0; }
+@media (max-width: 760px) {
+  .grid-2, .grid-q-meta, .grid-q-body { grid-template-columns: 1fr; }
+}
+/* ---------- 输入控件统一样式（全局裸样式太素，含 number/datetime 的补齐） ---------- */
+.publish-page input[type='text'], .publish-page input[type='number'],
+.publish-page input[type='datetime-local'], .publish-page textarea, .publish-page select {
+  border: 1.5px solid #D9E1F2; border-radius: 10px; background: #FBFCFF;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.publish-page input[type='number'], .publish-page input[type='datetime-local'] {
+  width: 100%; padding: 10px 12px; font-size: 14px; font-family: inherit; color: var(--text);
+}
+.publish-page input:focus, .publish-page textarea:focus, .publish-page select:focus {
+  background: #fff; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); outline: none;
+}
+.publish-page select:disabled { background: #F1F4F9; color: var(--text-3); cursor: not-allowed; }
+.publish-page .score-input { width: 110px; }
+/* ---------- 底部吸底操作条 ---------- */
+.publish-actions {
+  position: sticky; bottom: 14px; z-index: 5;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--card); border: 1px solid #E4E9F2; border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14); padding: 12px 14px; margin-bottom: 16px;
+}
+.publish-actions .spacer { flex: 1; }
+.weight-mini { font-size: 13px; color: var(--text-2); }
+.weight-mini b { color: var(--green); }
+.weight-mini.bad b { color: var(--red); }
 .q-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
 .q-actions { display: flex; gap: 8px; align-items: center; }
 .mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
