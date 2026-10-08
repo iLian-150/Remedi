@@ -232,6 +232,9 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
     diagnosis["review_status"] = rstatus
     # 评分系统：本题满分/AI 分/步骤明细，老师据此核对分数、决定是否改分
     score_info = scoring_svc.score_detail_for_teacher(db, sub)
+    # 过程可疑识别：答案对但过程存疑的确定性信号，仅教师可见，供审核参考
+    from ..services.process_check import analyze_process
+    process_check = analyze_process(db, sub)
     return ReviewDetailOut(
         submission_id=sub.id,
         student=UserOut.model_validate(student),
@@ -241,6 +244,7 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
         review_status=rstatus,
         diagnosis=diagnosis,
         score=ReviewScoreOut(**score_info),
+        process_check=process_check,
     )
 
 
@@ -781,3 +785,17 @@ async def photo_recognize(file: UploadFile = File(...),
         "question_text": result.get("question_text", ""),
         "steps": result.get("steps", []),
     }
+
+
+# ---------- 教学建议（规则模板生成，只读统计不调 LLM） ----------
+
+@router.get("/suggestions", summary="教学建议：下节课讲什么/哪些知识点要预警")
+def teaching_suggestions(db: Session = Depends(get_db),
+                         current: User = Depends(require_teacher)):
+    """根据班级修复率、知识点错误率、顽固错题与成绩聚合，用规则模板生成教学建议卡。
+
+    每条 {kind, title, knowledge_point, evidence, action, sample_questions}，按严重度排序、最多 6 条；
+    数据不足返回空列表。生成逻辑在 services/suggestions.py，异常已在服务层收敛，不会 500。"""
+    from ..services.suggestions import build_teaching_suggestions
+
+    return build_teaching_suggestions(db)
