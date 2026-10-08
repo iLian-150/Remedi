@@ -49,6 +49,41 @@ class LLMProvider(ABC):
             "answer": "x=5",
         }
 
+    def guess_knowledge_point(self, question_stem: str) -> str:
+        """按题干猜知识点名（v0.13.0）：发布页知识点栏「AI 识别」的兜底实现。
+
+        关键词启发式（离线可用）；命中不了返回空串，前端会提示教师手动填。
+        真实 Provider（DeepSeekProvider 及继承它的 Cloudflare）覆写为文本模型判断。
+        结果只是建议：教师可改，且知识点归类不经过它判对错。"""
+        s = question_stem or ""
+        rules = [
+            (("勾股", "斜边", "直角边", "Rt△"), "勾股定理"),
+            (("√", "根式", "根号"), "二次根式"),
+            (("概率", "随机", "摸球", "掷骰"), "概率初步"),
+            (("不等式",), "一元一次不等式"),
+            (("因式分解", "分解因式"), "因式分解"),
+            (("全等", "相似", "三角形"), "三角形"),
+            (("函数", "图象", "图像"), "一次函数"),
+            (("方程", "="), "一元一次方程"),
+        ]
+        for keys, name in rules:
+            if any(k in s for k in keys):
+                return name
+        return ""
+
+    def extract_questions_from_page(self, image_bytes: bytes, content_type: str,
+                                    hint: str = "") -> List[Dict]:
+        """从练习册页面图里提取题目草稿（v0.13.0）：返回 [{prompt, knowledge_point}]。
+
+        默认实现（Mock 与无视觉能力的 Provider 共用）返回带「示例草稿」前缀的
+        预置题，保证无模型时全流程可跑、且一眼可辨不是真识别；
+        CloudflareProvider 覆写为视觉模型逐页拆题。
+        契约：返回值永远只是草稿——发布前必须由教师在题目卡里检查修改。"""
+        return [
+            {"prompt": "（示例草稿）解方程：2x+3=7", "knowledge_point": "一元一次方程"},
+            {"prompt": "（示例草稿）计算：√12+√27", "knowledge_point": "二次根式的加减"},
+        ]
+
 
 # ---------------------------------------------------------------- Mock（确定性）
 
@@ -321,6 +356,22 @@ class DeepSeekProvider(LLMProvider):
         logger.info("DeepSeek 无视觉能力，拍照转写降级为 Mock 转写结果")
         return self._mock.transcribe_image(image_bytes, content_type, question_context, question_only)
 
+    def guess_knowledge_point(self, question_stem: str) -> str:
+        """文本模型判断知识点名；答非所问/异常时退回基类关键词启发式（v0.13.0）。"""
+        try:
+            out = self._chat(
+                "你是初中数学教研助手。只返回知识点名称本身，不要解释、不要标点、不要书名号。",
+                "请判断这道题属于哪个初中数学知识点，只返回知识点名称"
+                f"（如：一元一次方程、二次根式的加减、勾股定理）：\n{question_stem}",
+                temperature=0.1,
+            )
+            name = (out or "").strip().splitlines()[0].strip(" :：。.\"'《》") if out else ""
+            if 0 < len(name) <= 24:
+                return name
+        except Exception as e:
+            logger.warning("知识点识别失败，退回关键词启发式: %s", e)
+        return super().guess_knowledge_point(question_stem)
+
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
         """调模型为无模板的知识点生成同类题；异常/结构不合法时降级为预置题。"""
         try:
@@ -431,6 +482,70 @@ class CloudflareProvider(DeepSeekProvider):
         except Exception as e:
             logger.warning("LLM transcribe_image 失败，降级为 Mock 转写: %s", e)
             return self._mock.transcribe_image(image_bytes, content_type, question_context, question_only)
+
+
+    def extract_questions_from_page(self, image_bytes: bytes, content_type: str,
+                                    hint: str = "") -> List[Dict]:
+        """视觉模型逐页拆题（v0.13.0）：一页练习册图 → 多道题目草稿。
+
+        与 transcribe_image 的区别：那是单题+学生作答的转写；这里只要题干，
+        一页多题全部提取、按页面顺序返回。异常时降级为基类示例草稿并记日志
+        （与全站降级风格一致，草稿带前缀不会被误认为真识别）。"""
+        try:
+            import requests
+            data_url = "data:{};base64,{}".format(
+                content_type or "image/jpeg",
+                base64.b64encode(image_bytes).decode("ascii"),
+            )
+            prompt = (
+                "这是一页数学练习册或教材的页面图。请把这一页上所有独立的题目逐道提取出来，按在页面上出现的顺序排列。"
+                "只要题干，不要例题的讲解文字和解答过程；一道题有多个小问时合并成一道，题干里保留小问编号。"
+                "为每道题猜一个 knowledge_point（初中数学知识点名，如「一元一次方程」「二次根式的加减」），猜不到就给空字符串。"
+                "数学公式用纯文本（如 2x+3=7、√12、x²），不要用 LaTeX。"
+            )
+            if hint:
+                prompt += f"老师给的范围提示：{hint}，优先提取这些题。"
+            prompt += '只输出 JSON：{"questions":[{"prompt":"...","knowledge_point":"..."}]}。这一页没有题目就输出 {"questions":[]}。'
+            resp = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": self.vision_model,
+                    "temperature": 0.1,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "你是练习册题目提取助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                            ],
+                        },
+                    ],
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+            data = self._extract_json(content)
+            out: List[Dict] = []
+            for item in data.get("questions", []) or []:
+                if isinstance(item, dict):
+                    p = str(item.get("prompt", "")).strip()
+                    if p:
+                        out.append({
+                            "prompt": p,
+                            "knowledge_point": str(item.get("knowledge_point", "")).strip(),
+                        })
+                elif isinstance(item, str) and item.strip():
+                    out.append({"prompt": item.strip(), "knowledge_point": ""})
+            return out
+        except Exception as e:
+            logger.warning("LLM 页面提题失败，降级为示例草稿: %s", e)
+            return super().extract_questions_from_page(image_bytes, content_type, hint)
 
 
 # ---------------------------------------------------------------- 工厂

@@ -510,6 +510,22 @@ class WorkbookOut(BaseModel):
     created_at: datetime
 
 
+class WorkbookExtractIn(BaseModel):
+    page_range: str               # 老师填的页码范围原文，如「第 12-14 页 第 1-8 题」
+
+
+class ExtractedQuestionOut(BaseModel):
+    prompt: str                   # 识别出的题干（草稿，教师检查修改后才发布）
+    knowledge_point: str = ""     # 模型给的知识点猜测，可空
+    source_page: int              # 来源页（1-based）
+
+
+class WorkbookExtractOut(BaseModel):
+    pages: List[int]              # 实际识别的页号（1-based，已按 PDF 页数夹紧）
+    questions: List[ExtractedQuestionOut]
+    warnings: List[str] = []      # 逐页提示（如某页没识别到题目）
+
+
 class RemindOut(BaseModel):
     reminded_count: int           # 本次实际写入提醒的学生数
 
