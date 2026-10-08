@@ -34,6 +34,7 @@ from ..schemas import (
     AgentChatIn,
     AgentChatOut,
     AgentHistoryItem,
+    AssignmentScoreItem,
     ChatSessionOut,
     AssignmentDetail,
     BriefingOut,
@@ -53,7 +54,9 @@ from ..schemas import (
     PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
+    ReportScoresOut,
     SubjectReportOut,
+    SubjectScoreItem,
     KnowledgePointErrorItem,
     MistakeArchiveIn,
     MistakeAssignmentArchiveIn,
@@ -68,6 +71,7 @@ from ..schemas import (
 )
 from ..services import variant_gen
 from ..services import reviews as review_svc
+from ..services import scoring as scoring_svc
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
@@ -98,9 +102,17 @@ def present_for_student(submission: Submission, db: Session) -> dict:
             "errors": [],
             "follow_up_question": None,
             "review_status": "pending",
+            # 评分系统：分数跟诊断一起过审，待审核时不下发
+            "score": None,
         }
     out = present_diagnosis(submission, db)
     out["review_status"] = "approved"
+    # 评分系统：已通过才带本题得分（最终分/满分）+ 该作业累计；算不出时为 None
+    vis = scoring_svc.visible_score(db, submission)
+    if vis is not None and submission.question is not None:
+        vis.update(scoring_svc.assignment_progress(
+            db, submission.student_id, submission.question.assignment_id))
+    out["score"] = vis
     return out
 
 
@@ -174,12 +186,19 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
         rstatus = status_by_id.get(s.id, review_svc.APPROVED)
         # v0.9.0：待审核的提交不向学生泄露错误数（诊断结论不可见）
         err_n = 0 if rstatus == review_svc.PENDING else db.query(Error).filter(Error.submission_id == s.id).count()
+        # 评分系统：已通过的提交带最终分与本题满分；待审核不给分
+        score = max_score = None
+        if rstatus != review_svc.PENDING:
+            vis = scoring_svc.visible_score(db, s)
+            if vis:
+                score, max_score = vis["score"], vis["max_score"]
         items.append(SubmissionBrief(
             id=s.id, question_id=s.question_id,
             question_stem=s.question.stem if s.question else "",
             knowledge_point=s.question.knowledge_point if s.question else "",
             status=s.status, error_count=err_n, submitted_at=s.submitted_at,
             review_status=rstatus,
+            score=score, max_score=max_score,
         ))
     return {"total": total, "items": items}
 
@@ -774,6 +793,18 @@ def briefing(db: Session = Depends(get_db), current: User = Depends(require_stud
 @router.get("/report", response_model=List[SubjectReportOut], summary="我的学习报告（按科目）")
 def my_report(db: Session = Depends(get_db), current: User = Depends(require_student)):
     return student_report(db, current, visible_only=True)
+
+
+@router.get("/report/scores", response_model=ReportScoresOut, summary="我的成绩分析（评分系统新增）")
+def my_report_scores(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    """成绩分析：历次作业得分序列 + 学科/总体平均得分率。
+    只统计审核已通过且有分的提交（分数跟诊断一起过审，待审核不计入）。"""
+    data = scoring_svc.student_score_report(db, current)
+    return ReportScoresOut(
+        items=[AssignmentScoreItem(**it) for it in data["items"]],
+        subjects=[SubjectScoreItem(**s) for s in data["subjects"]],
+        overall_avg_rate=data["overall_avg_rate"],
+    )
 
 
 @router.get(
