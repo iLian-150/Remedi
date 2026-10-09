@@ -20,8 +20,10 @@ _FULL2HALF = str.maketrans({
     "＝": "=", "（": "(", "）": ")",
     "，": ",", "。": ".", "：": ":", "　": " ",
 })
-# 常见数学符号归一化
-_SYMBOL_MAP = {"×": "*", "÷": "/", "·": "*", "²": "**2", "³": "**3", "^": "**"}
+# 常见数学符号归一化（v0.13.1 补 −/√/π：做题板符号栏会插入这三个符号——
+# − 是 U+2212 减号、√ 归一为 sqrt（符号栏插入的是 √( 形式）、π 归一为 pi，
+# 不补的话学生点符号写出的步骤会被判「无法解析」）
+_SYMBOL_MAP = {"×": "*", "÷": "/", "·": "*", "²": "**2", "³": "**3", "^": "**", "−": "-", "√": "sqrt", "π": "pi"}
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _CJK_PAREN_RE = re.compile(r"[（(][\u4e00-\u9fff][^()（）]*[)）]")  # 中文括号注释，如 （检验略）
 # 步骤里允许出现的字符（归一化之后）
@@ -39,11 +41,35 @@ class ParsedStep:
     text: str  # 归一化后的文本
 
 
+def _sqrt_to_pow(t: str) -> str:
+    """把 sqrt(...) 改写成 (... )**(1/2)：本解析器 evaluate=False 下直接调
+    sqrt 函数会触发 SympifyError，幂形式可正常解析、与 sqrt 等价（归一化文本
+    两侧同形，检测器不受影响）。括号不配平时原样返回，留给后续解析报错。"""
+    while "sqrt(" in t:
+        i = t.index("sqrt(")
+        depth = 0
+        j = i + 4  # 指向 '('
+        while j < len(t):
+            if t[j] == "(":
+                depth += 1
+            elif t[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if j >= len(t):
+            break
+        inner = t[i + 5:j]
+        t = t[:i] + f"({inner})**(1/2)" + t[j + 1:]
+    return t
+
+
 def clean_text(raw: str) -> str:
     """归一化步骤文本：全角转半角、符号统一、去掉中文括号注释。"""
     t = raw.strip().translate(_FULL2HALF)
     for k, v in _SYMBOL_MAP.items():
         t = t.replace(k, v)
+    t = _sqrt_to_pow(t)
     t = _CJK_PAREN_RE.sub("", t)  # 去掉 "（检验）" 这类中文注释
     # 隐式乘法显式化：2(x+1) → 2*(x+1)，保证归一化文本形态一致（检测器依赖显式 *）
     t = re.sub(r"([0-9a-zA-Z])\(", r"\1*(", t)

@@ -3,15 +3,19 @@ from typing import Dict, List
 
 from sqlalchemy import func
 
-from ..models import Assignment, AssignmentExt, Correction, Error, Essay, Question, Step, Submission, User, Verification, Workbook
+from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, User, Verification, Workbook
 
 
 def assignment_ext_fields(db, assignment_id: int) -> Dict:
     """作业扩展字段（v0.5.0）：无 ext 行 = 线上作业，其余字段为 None。
     学生/教师作业列表与详情、学生简报共用同一口径拼装。"""
     ext = db.query(AssignmentExt).filter(AssignmentExt.assignment_id == assignment_id).first()
+    # v0.13.1：允许修改开关（assignment_settings，无行 = False）
+    setting = db.query(AssignmentSetting).filter(AssignmentSetting.assignment_id == assignment_id).first()
+    allow_revision = bool(setting.allow_revision) if setting else False
     if not ext:
-        return {"mode": "online", "workbook_title": None, "page_range": None, "deadline": None}
+        return {"mode": "online", "workbook_title": None, "page_range": None, "deadline": None,
+                "allow_revision": allow_revision}
     workbook_title = None
     if ext.workbook_id:
         wb = db.query(Workbook).filter(Workbook.id == ext.workbook_id).first()
@@ -21,6 +25,7 @@ def assignment_ext_fields(db, assignment_id: int) -> Dict:
         "workbook_title": workbook_title,
         "page_range": ext.page_range,
         "deadline": ext.deadline,
+        "allow_revision": allow_revision,
     }
 
 

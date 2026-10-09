@@ -227,11 +227,22 @@ def check_stubborn(db, student_id: int, knowledge_point: str, exclude_error_id: 
 # ---------------------------------------------------------------- 主流程
 
 def diagnose_submission(db, student: User, question: Question,
-                        step_texts: List[str]) -> Tuple[Submission, List[Step], List[Error]]:
-    """执行一次数学诊断，落库 Submission/Step/Error，返回 ORM 对象。"""
-    submission = Submission(student_id=student.id, question_id=question.id, status="submitted")
-    db.add(submission)
-    db.flush()  # 拿到 submission.id
+                        step_texts: List[str],
+                        reuse: Optional[Submission] = None) -> Tuple[Submission, List[Step], List[Error]]:
+    """执行一次数学诊断，落库 Submission/Step/Error，返回 ORM 对象。
+
+    reuse（v0.13.1）：延迟批改到期时复用原延迟提交行——先清掉它存着的
+    占位步骤/错误，再在同一 submission 上完成诊断，提交 id 与时间保持不变。"""
+    if reuse is not None:
+        submission = reuse
+        db.query(Step).filter(Step.submission_id == submission.id).delete()
+        db.query(Error).filter(Error.submission_id == submission.id).delete()
+        submission.status = "submitted"
+        db.flush()
+    else:
+        submission = Submission(student_id=student.id, question_id=question.id, status="submitted")
+        db.add(submission)
+        db.flush()  # 拿到 submission.id
 
     steps: List[Step] = []
     errors: List[Error] = []

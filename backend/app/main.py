@@ -1,4 +1,5 @@
 # Remedi MVP 后端入口。
+import asyncio
 import os
 
 from fastapi import FastAPI
@@ -6,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .database import init_db
+from .database import SessionLocal, init_db
+from .services import deferral as deferral_svc
 from .routers import auth as auth_router
 from .routers import health as health_router
 from .routers import student as student_router
@@ -44,6 +46,29 @@ app.mount("/api/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uplo
 @app.on_event("startup")
 def _startup():
     init_db()
+
+
+async def _deferred_grading_loop() -> None:
+    """延迟批改清扫（v0.13.1）：每分钟检查一次到期的「允许修改」作业，
+    把截止前收到的延迟提交统一批改。单容器单 worker 部署下进程内循环即可；
+    清扫失败只跳过本轮，绝不拖垮主服务。"""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            db = SessionLocal()
+            try:
+                deferral_svc.grade_due(db)
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            continue
+
+
+@app.on_event("startup")
+async def _start_deferred_grading() -> None:
+    asyncio.create_task(_deferred_grading_loop())
 
 
 @app.get("/", include_in_schema=False)
