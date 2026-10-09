@@ -92,15 +92,9 @@
           </button>
         </div>
       </div>
-      <div class="grid-2">
-        <div class="form-row">
-          <label>页码 / 题号范围</label>
-          <input v-model="pageRange" type="text" placeholder="例如：第 12-14 页 第 1-8 题" maxlength="64" />
-        </div>
-        <div class="form-row">
-          <label>截止时间（选填）</label>
-          <input v-model="deadline" type="datetime-local" />
-        </div>
+      <div class="form-row">
+        <label>页码 / 题号范围</label>
+        <input v-model="pageRange" type="text" placeholder="例如：第 12-14 页 第 1-8 题" maxlength="64" />
       </div>
       <!-- 按页提题（v0.13.0）：把所选页渲染成图，视觉 AI 逐页拆成草稿题 -->
       <div class="extract-row">
@@ -139,6 +133,26 @@
           </div>
         </div>
       </div>
+      <!-- 作业说明与截止时间（v0.13.1）：两种模式共用——学生端交作业页顶部会显示，
+           此前说明没有录入入口、截止时间只有线下表单有，线上作业永远显示不出 -->
+      <div class="form-row">
+        <label>作业说明（选填）</label>
+        <textarea v-model="description" rows="2" maxlength="2000" placeholder="例如：独立完成，写清每一步的依据；第 3 题可以用两种方法。"></textarea>
+      </div>
+      <div class="grid-2">
+        <div class="form-row">
+          <label>截止时间（选填）</label>
+          <input v-model="deadline" type="datetime-local" />
+        </div>
+        <div class="form-row">
+          <label>提交规则</label>
+          <label class="revision-check">
+            <input type="checkbox" v-model="allowRevision" />
+            <span>允许学生在截止前修改已提交的作答</span>
+          </label>
+          <p class="hint" style="margin-top: 6px">不勾选：每道题只能交一次，交完立即批改。勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。</p>
+        </div>
+      </div>
     </div>
 
     <!-- 线下模式：拍照上传题目页，一次识别成一道草稿题 -->
@@ -154,7 +168,7 @@
       <div class="q-head">
         <h3 style="margin-bottom: 0">第 {{ idx + 1 }} 题 · 数学</h3>
         <div class="q-actions">
-          <button class="btn small secondary inline-icon" :disabled="q.recognizing" @click="pickPhoto(idx)">
+          <button class="btn small secondary inline-icon" :disabled="q.recognizing" @click="pickPhoto(q)">
             <AppIcon name="camera" :size="15" /> {{ q.recognizing ? '识别中…' : '拍照识别题目' }}
           </button>
           <button class="btn small danger" :disabled="questions.length === 1" @click="questions.splice(idx, 1)">删除本题</button>
@@ -175,7 +189,7 @@
               class="btn small secondary inline-icon"
               :disabled="q.kp_guessing || !q.prompt.trim()"
               :title="q.prompt.trim() ? '按题干用 AI 猜知识点' : '先填题干，再用 AI 识别'"
-              @click="guessKp(idx)"
+              @click="guessKp(q, `第 ${idx + 1} 题`)"
             >
               <AppIcon name="sparkles" :size="13" /> {{ q.kp_guessing ? '识别中…' : 'AI 识别' }}
             </button>
@@ -198,7 +212,17 @@
       <div class="grid-q-body">
         <div class="form-row">
           <label>标准解题步骤（选填，每行一步，含第一步原式，供批改参考）</label>
-          <textarea v-model="q.standard_steps_text" rows="5" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
+          <div class="symbol-bar" role="group" aria-label="数学符号">
+            <button
+              v-for="s in STEP_SYMBOLS"
+              :key="s.label"
+              type="button"
+              class="symbol-btn"
+              :title="`插入 ${s.label}`"
+              @click="insertStepSymbol(q, s)"
+            >{{ s.label }}</button>
+          </div>
+          <textarea :ref="(el) => setStepsRef(q, el)" v-model="q.standard_steps_text" rows="5" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
         </div>
         <div class="form-row">
           <div class="answer-label-row">
@@ -207,7 +231,7 @@
               type="button"
               class="btn small secondary inline-icon"
               :disabled="q.check_status === 'checking' || !q.prompt.trim() || !q.reference_answer.trim()"
-              @click="checkOne(idx)"
+              @click="checkOne(q)"
             >
               <AppIcon name="sparkles" :size="13" /> {{ q.check_status === 'checking' ? '验算中…' : 'AI 验算' }}
             </button>
@@ -226,6 +250,107 @@
       </div>
     </div>
 
+    <!-- 大题（v0.13.1）：共享题干 + 若干小题，小题逐题作答/批改/计分 -->
+    <div v-for="(g, gi) in groups" :key="`g${gi}`" class="card group-card">
+      <div class="q-head">
+        <h3 style="margin-bottom: 0">大题 {{ gi + 1 }} · 数学</h3>
+        <div class="q-actions">
+          <button type="button" class="btn small danger" @click="groups.splice(gi, 1)">删除大题</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>大题题干（共享材料，每道小题上方都会展示给学生）</label>
+        <textarea v-model="g.stem" rows="3" placeholder="例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。"></textarea>
+      </div>
+      <div v-for="(sub, si) in g.subs" :key="si" class="sub-block">
+        <div class="q-head">
+          <h4 style="margin: 0">小题（{{ si + 1 }}）</h4>
+          <div class="q-actions">
+            <button type="button" class="btn small secondary inline-icon" :disabled="sub.recognizing" @click="pickPhoto(sub)">
+              <AppIcon name="camera" :size="15" /> {{ sub.recognizing ? '识别中…' : '拍照识别题目' }}
+            </button>
+            <button type="button" class="btn small danger" :disabled="g.subs.length === 1" @click="g.subs.splice(si, 1)">删除小题</button>
+          </div>
+        </div>
+        <p v-if="sub.recognized" class="ok-msg" style="margin-bottom: 12px">已通过照片识别填入，请检查题干与标准步骤是否正确，可直接修改后再发布。</p>
+        <div class="form-row">
+          <label>小题题干</label>
+          <textarea v-model="sub.prompt" rows="2" placeholder="例如：求斜边的长"></textarea>
+        </div>
+        <div class="grid-q-meta">
+          <div class="form-row">
+            <label>知识点</label>
+            <div class="kp-row">
+              <input v-model="sub.knowledge_point" type="text" placeholder="例如：勾股定理" maxlength="64" />
+              <button
+                type="button"
+                class="btn small secondary inline-icon"
+                :disabled="sub.kp_guessing || !sub.prompt.trim()"
+                :title="sub.prompt.trim() ? '按题干用 AI 猜知识点' : '先填题干，再用 AI 识别'"
+                @click="guessKp(sub, `大题 ${gi + 1} 小题（${si + 1}）`)"
+              >
+                <AppIcon name="sparkles" :size="13" /> {{ sub.kp_guessing ? '识别中…' : 'AI 识别' }}
+              </button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>分值占比（占总分的百分比）</label>
+            <div class="score-input-row">
+              <input
+                v-model.number="sub.weight_pct"
+                type="number" min="0" max="100" step="0.5"
+                class="score-input" placeholder="均分"
+              />
+              <span class="hint">
+                % · 本题满分约 {{ fmtScore(questionMax(sub)) }} 分<template v-if="sub.weight_pct === null || sub.weight_pct === undefined">（留空按题数均分）</template>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="grid-q-body">
+          <div class="form-row">
+            <label>标准解题步骤（选填，每行一步）</label>
+            <div class="symbol-bar" role="group" aria-label="数学符号">
+              <button
+                v-for="s in STEP_SYMBOLS"
+                :key="s.label"
+                type="button"
+                class="symbol-btn"
+                :title="`插入 ${s.label}`"
+                @click="insertStepSymbol(sub, s)"
+              >{{ s.label }}</button>
+            </div>
+            <textarea :ref="(el) => setStepsRef(sub, el)" v-model="sub.standard_steps_text" rows="5" placeholder="c²=a²+b²&#10;c²=3²+4²&#10;c²=25&#10;c=5"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="answer-label-row">
+              <label>参考答案（选填）</label>
+              <button
+                type="button"
+                class="btn small secondary inline-icon"
+                :disabled="sub.check_status === 'checking' || !sub.prompt.trim() || !sub.reference_answer.trim()"
+                @click="checkOne(sub)"
+              >
+                <AppIcon name="sparkles" :size="13" /> {{ sub.check_status === 'checking' ? '验算中…' : 'AI 验算' }}
+              </button>
+            </div>
+            <input v-model="sub.reference_answer" type="text" placeholder="例如：c=5" />
+            <p v-if="sub.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
+            <p v-else-if="showResult(sub) && sub.check_status === 'ok'" class="check-note ok" :title="sub.check_detail">
+              <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
+            </p>
+            <p v-else-if="showResult(sub) && sub.check_status === 'suspect'" class="check-note warn">
+              <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
+              <span>参考答案可能有误：{{ sub.check_detail }}（只是提醒，仍可照常发布）</span>
+            </p>
+          </div>
+        </div>
+      </div>
+      <button type="button" class="btn secondary small inline-icon" @click="g.subs.push(blankQuestion())">
+        <AppIcon name="plus" :size="14" /> 添加小题
+      </button>
+    </div>
+
     <input ref="photoRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhotoChange" />
     <!-- 分值占比合计（评分系统）：只统计会真正发布的题（题干或知识点已填） -->
     <div class="card weight-bar">
@@ -240,6 +365,7 @@
     </div>
     <div class="toolbar publish-actions">
       <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加一题</button>
+      <button class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
       <span class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
       <button class="btn" :disabled="submitting || checkingAll" @click="submit">
@@ -251,7 +377,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
@@ -295,6 +421,7 @@ function backToChoose() {
   window.scrollTo({ top: 0 })
 }
 const title = ref('')
+const description = ref('')   // 作业说明（v0.13.1）：两种模式共用，学生端交作业页顶部展示
 const subject = ref<'math'>('math')
 const totalScore = ref(100)   // 评分系统：作业总分（满分），默认 100
 const blankQuestion = (): QuestionForm => ({
@@ -304,6 +431,16 @@ const blankQuestion = (): QuestionForm => ({
   check_status: 'idle', check_detail: '', check_stamp: ''
 })
 const questions = ref<QuestionForm[]>([blankQuestion()])
+// v0.13.1：允许修改开关 + 大题/小题（大题 = 共享题干 + 若干小题，小题仍是普通题目）
+const allowRevision = ref(false)
+interface GroupForm { stem: string; subs: QuestionForm[] }
+const groups = ref<GroupForm[]>([])
+const blankGroup = (): GroupForm => ({ stem: '', subs: [blankQuestion()] })
+function addGroup() {
+  groups.value.push(blankGroup())
+}
+/** 全部题目表单（普通题 + 各大题的小题），校验/分值口径统一走这份名单 */
+const allForms = computed(() => [...questions.value, ...groups.value.flatMap((g) => g.subs)])
 const submitting = ref(false)
 const checkingAll = ref(false)  // 发布前批量验算进行中（v0.9.3）
 const error = ref('')
@@ -326,9 +463,9 @@ function fmtScore(v: number): string {
   return String(Math.round(v * 10) / 10)
 }
 
-/** 会真正发布的题目（题干或知识点已填），与 submit 的 valid 口径一致 */
+/** 会真正发布的题目（题干或知识点已填），与 submit 的 valid 口径一致（含大题小题） */
 const inPlayQuestions = computed(() =>
-  questions.value.filter((q) => q.prompt.trim() || q.knowledge_point.trim())
+  allForms.value.filter((q) => q.prompt.trim() || q.knowledge_point.trim())
 )
 
 function effectivePct(q: QuestionForm, n: number): number {
@@ -353,7 +490,7 @@ const weightSumOk = computed(() => Math.abs(weightSum.value - 100) <= 0.5)
 
 /** 一键均分：把 100% 平均写进每道会发布的题（最后一题吃掉小数尾差，合计恰好 100） */
 function distributeEvenly() {
-  const list = inPlayQuestions.value.length ? inPlayQuestions.value : questions.value
+  const list = inPlayQuestions.value.length ? inPlayQuestions.value : allForms.value
   const n = list.length
   if (!n) return
   const base = Math.floor((100 / n) * 10) / 10
@@ -399,14 +536,12 @@ async function runCheck(q: QuestionForm): Promise<void> {
   }
 }
 
-async function checkOne(idx: number) {
-  const q = questions.value[idx]
+async function checkOne(q: QuestionForm) {
   if (q) await runCheck(q)
 }
 
 // ---------- 知识点 AI 识别（v0.13.0）：文本模型按题干猜知识点，结果可改 ----------
-async function guessKp(idx: number) {
-  const q = questions.value[idx]
+async function guessKp(q: QuestionForm, label: string) {
   if (!q || q.kp_guessing || !q.prompt.trim()) return
   q.kp_guessing = true
   try {
@@ -417,14 +552,51 @@ async function guessKp(idx: number) {
     if (data.knowledge_point) {
       q.knowledge_point = data.knowledge_point
     } else {
-      error.value = `第 ${idx + 1} 题：AI 没能判断出知识点，请手动填写。`
+      error.value = `${label}：AI 没能判断出知识点，请手动填写。`
     }
   } catch (err) {
-    error.value = `第 ${idx + 1} 题知识点识别失败：` + errMsg(err, '请稍后重试或手动填写。')
+    error.value = `${label}知识点识别失败：` + errMsg(err, '请稍后重试或手动填写。')
     console.error(err)
   } finally {
     q.kp_guessing = false
   }
+}
+
+// ---------- 标准解题步骤做题板（v0.13.1）：符号栏与学生端同款，插入光标处 ----------
+// 只放后端解析器认得的符号；√ 插入成 √( 光标落在括号里
+interface StepSymbol { label: string; text: string; caretBack?: number }
+const STEP_SYMBOLS: StepSymbol[] = [
+  { label: '(', text: '(' },
+  { label: ')', text: ')' },
+  { label: '+', text: '+' },
+  { label: '−', text: '−' },
+  { label: '×', text: '×' },
+  { label: '÷', text: '÷' },
+  { label: '=', text: '=' },
+  { label: '·', text: '·' },
+  { label: 'x²', text: '²' },
+  { label: 'x³', text: '³' },
+  { label: 'xⁿ', text: '^' },
+  { label: '√', text: '√()', caretBack: 1 },
+  { label: 'π', text: 'π' }
+]
+const stepsRefs = new Map<QuestionForm, HTMLTextAreaElement>()
+function setStepsRef(q: QuestionForm, el: unknown) {
+  if (el) stepsRefs.set(q, el as HTMLTextAreaElement)
+  else stepsRefs.delete(q)
+}
+function insertStepSymbol(q: QuestionForm, s: StepSymbol) {
+  const ta = stepsRefs.get(q)
+  const cur = q.standard_steps_text
+  const start = ta ? ta.selectionStart : cur.length
+  const end = ta ? ta.selectionEnd : cur.length
+  q.standard_steps_text = cur.slice(0, start) + s.text + cur.slice(end)
+  void nextTick(() => {
+    if (!ta) return
+    ta.focus()
+    const pos = start + s.text.length - (s.caretBack ?? 0)
+    ta.setSelectionRange(pos, pos)
+  })
 }
 
 // ---------- 练习册知识库（v0.5.0） ----------
@@ -545,17 +717,21 @@ async function extractFromPdf() {
 
 // ---------- 拍照识别题目（v0.2.1）：识别结果填入当前题行，教师检查后再发布 ----------
 const photoRef = ref<HTMLInputElement | null>(null)
-const photoTarget = ref(-1)
+/** 拍照识别的目标题目表单（普通题/小题通用，v0.13.1 改为直接持有表单对象） */
+const photoTargetQ = ref<QuestionForm | null>(null)
+const photoAppend = ref(false)
 const appendRecognizing = ref(false)
 
-function pickPhoto(idx: number) {
-  photoTarget.value = idx
+function pickPhoto(q: QuestionForm) {
+  photoTargetQ.value = q
+  photoAppend.value = false
   photoRef.value?.click()
 }
 
 /** 线下模式：拍题目页 → 识别 → 追加一道草稿题（第一行还是空题时直接填第一行） */
 function pickPhotoAppend() {
-  photoTarget.value = -2
+  photoTargetQ.value = null
+  photoAppend.value = true
   photoRef.value?.click()
 }
 
@@ -572,7 +748,7 @@ async function onPhotoChange(e: Event) {
     error.value = '题目照片太大了（超过 10MB），请压缩后再试。'
     return
   }
-  const appendMode = photoTarget.value === -2
+  const appendMode = photoAppend.value
   let q: QuestionForm
   if (appendMode) {
     appendRecognizing.value = true
@@ -582,9 +758,8 @@ async function onPhotoChange(e: Event) {
     q = firstBlank ? first : blankQuestion()
     if (!firstBlank) questions.value.push(q)
   } else {
-    const found = questions.value[photoTarget.value]
-    if (!found) return
-    q = found
+    if (!photoTargetQ.value) return
+    q = photoTargetQ.value
   }
   q.recognizing = true
   error.value = ''
@@ -618,14 +793,40 @@ async function submit() {
       return
     }
   }
-  const valid = questions.value.filter((q) => q.prompt.trim() || q.knowledge_point.trim())
+  // 大题先验题干：有小题会发布的大题，共享题干必填
+  for (let gi = 0; gi < groups.value.length; gi++) {
+    const g = groups.value[gi]
+    const hasSub = g.subs.some((s) => s.prompt.trim() || s.knowledge_point.trim())
+    if (hasSub && !g.stem.trim()) {
+      error.value = `大题 ${gi + 1} 的题干还没填写（小题要靠它给材料）。`
+      return
+    }
+  }
+  // 待发布清单（v0.13.1：普通题在前、大题小题随后，与页面渲染顺序一致，
+  // 后端按数组顺序落 order_num；label 供报错定位）
+  interface Entry { q: QuestionForm; label: string; groupKey: string | null }
+  const entries: Entry[] = []
+  questions.value.forEach((q, i) => {
+    if (q.prompt.trim() || q.knowledge_point.trim()) entries.push({ q, label: `第 ${i + 1} 题`, groupKey: null })
+  })
+  const groupPayload: { key: string; stem: string }[] = []
+  groups.value.forEach((g, gi) => {
+    const key = `g${gi + 1}`
+    const subs = g.subs
+      .map((sub, si) => ({ sub, si }))
+      .filter(({ sub }) => sub.prompt.trim() || sub.knowledge_point.trim())
+    if (!subs.length) return
+    groupPayload.push({ key, stem: g.stem.trim() })
+    subs.forEach(({ sub, si }) => entries.push({ q: sub, label: `大题 ${gi + 1} 小题（${si + 1}）`, groupKey: key }))
+  })
+  const valid = entries.map((e) => e.q)
   if (!valid.length) {
     error.value = '至少填写 1 道题目。'
     return
   }
-  for (let i = 0; i < valid.length; i++) {
-    if (!valid[i].prompt.trim() || !valid[i].knowledge_point.trim()) {
-      error.value = `第 ${i + 1} 题的题干和知识点都要填写。`
+  for (const e of entries) {
+    if (!e.q.prompt.trim() || !e.q.knowledge_point.trim()) {
+      error.value = `${e.label}的题干和知识点都要填写。`
       return
     }
   }
@@ -655,9 +856,9 @@ async function submit() {
     }
     const suspects = withAnswer.filter((q) => q.check_status === 'suspect')
     if (suspects.length) {
-      const nums = suspects.map((q) => questions.value.indexOf(q) + 1).join('、')
+      const nums = suspects.map((q) => entries.find((e) => e.q === q)?.label ?? '某题').join('、')
       const go = window.confirm(
-        `有 ${suspects.length} 道题的参考答案可能有误（第 ${nums} 题），验算说明已标在对应题目下方。\n` +
+        `有 ${suspects.length} 道题的参考答案可能有误（${nums}），验算说明已标在对应题目下方。\n` +
         'AI 验算只是提醒，确认仍要发布吗？'
       )
       if (!go) return
@@ -667,27 +868,33 @@ async function submit() {
     title: title.value.trim(),
     subject: subject.value,
     total_score: total,
-    questions: valid.map((q) => ({
+    // v0.13.1：允许修改开关 + 大题（小题经 group_key 挂靠 groups）
+    allow_revision: allowRevision.value,
+    groups: groupPayload,
+    questions: entries.map((e) => ({
       type: 'math' as const,
-      prompt: q.prompt.trim(),
-      knowledge_point: q.knowledge_point.trim(),
-      standard_steps: q.standard_steps_text.split('\n').map((s) => s.trim()).filter(Boolean),
-      reference_answer: q.reference_answer.trim() || undefined,
+      prompt: e.q.prompt.trim(),
+      knowledge_point: e.q.knowledge_point.trim(),
+      standard_steps: e.q.standard_steps_text.split('\n').map((s) => s.trim()).filter(Boolean),
+      reference_answer: e.q.reference_answer.trim() || undefined,
       // 评分系统：填了占比才下发；留空的题后端按题数均分
-      weight_pct: q.weight_pct === null || q.weight_pct === undefined || Number.isNaN(Number(q.weight_pct))
+      weight_pct: e.q.weight_pct === null || e.q.weight_pct === undefined || Number.isNaN(Number(e.q.weight_pct))
         ? undefined
-        : Number(q.weight_pct)
+        : Number(e.q.weight_pct),
+      group_key: e.groupKey ?? undefined
     }))
   }
   // 空数组的 standard_steps 不下发，保持请求干净
   payload.questions.forEach((q) => {
     if (!q.standard_steps?.length) delete q.standard_steps
   })
+  // 说明与截止时间（v0.13.1）：两种模式都下发，此前截止只在线下分支里、说明根本没进 payload
+  if (description.value.trim()) payload.description = description.value.trim()
+  if (deadline.value) payload.deadline = deadline.value.length === 16 ? `${deadline.value}:00` : deadline.value
   if (mode.value === 'offline') {
     payload.mode = 'offline'
     payload.workbook_id = Number(workbookId.value)
     payload.page_range = pageRange.value.trim()
-    if (deadline.value) payload.deadline = deadline.value.length === 16 ? `${deadline.value}:00` : deadline.value
   }
   submitting.value = true
   try {
@@ -719,10 +926,12 @@ onMounted(async () => {
 
 <style scoped>
 /* ---------- 两级导航（v0.12.0） ---------- */
-.choose-grid { max-width: 880px; margin: 0 auto; }
+/* v0.13.1 修复「选模式后错位」：此前选择级是 880px 居中窄列、表单级是整幅宽，
+   点卡进入表单时内容突然变宽并整体左移，看起来像错位。两级统一为同一内容列宽。 */
+.choose-grid { max-width: none; margin: 0; }
 .choose-grid .mode-card { padding: 26px 24px; gap: 8px; }
 .mode-enter { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13.5px; font-weight: 700; color: var(--primary); }
-.choose-hint { text-align: center; color: var(--text-3); font-size: 13px; margin-top: 16px; }
+.choose-hint { text-align: left; color: var(--text-3); font-size: 13px; margin-top: 16px; }
 .form-topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .back-btn { padding-left: 4px; font-weight: 600; }
 .mode-chip {
@@ -827,6 +1036,45 @@ onMounted(async () => {
 .answer-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .answer-label-row label { margin-bottom: 0; }
 .card.q-suspect { border: 1.5px solid var(--amber); background: #FFFBEB; }
+/* ---------- v0.13.1：允许修改勾选 / 大题 / 标准步骤符号栏 / 过渡动画 ---------- */
+.revision-check {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 38px; font-size: 13.5px; font-weight: 600; color: var(--text);
+  cursor: pointer;
+}
+.publish-page .revision-check input[type="checkbox"] {
+  width: 17px; height: 17px; flex: none; margin: 0;
+  accent-color: var(--primary); cursor: pointer;
+}
+.group-card { border-left: 3px solid var(--primary); }
+.sub-block {
+  border-top: 1px dashed var(--border);
+  padding-top: 14px; margin-top: 14px;
+}
+.sub-block:first-of-type { border-top: none; padding-top: 4px; }
+.symbol-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.symbol-btn {
+  min-width: 38px; height: 34px; padding: 0 9px;
+  border: 1.5px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color .15s ease, color .15s ease, background .15s ease, transform .1s ease;
+}
+.symbol-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
+.symbol-btn:active { transform: translateY(1px); }
+/* 两级切换与卡片入场：淡入 + 轻微上移，选方式 → 进表单不再是硬切 */
+@keyframes publish-pane-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.publish-page .card,
+.publish-page .form-topbar {
+  animation: publish-pane-in .32s ease both;
+}
+.mode-grid .mode-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.mode-grid .mode-card:hover { transform: translateY(-3px); }
+.publish-actions { animation: publish-pane-in .32s ease both; }
 .check-note { display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; line-height: 1.5; margin-top: 7px; }
 .check-note .check-ic { flex: none; display: inline-flex; margin-top: 1px; }
 .check-note.ok { color: var(--green); align-items: center; }
