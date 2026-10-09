@@ -326,3 +326,37 @@ class SubmissionScore(Base):
                         comment="最后定分/改分的教师")
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+# ---------------------------------------------------------------- v0.13.1：提交规则 + 大题/小题
+
+class AssignmentSetting(Base):
+    """作业提交设置（v0.13.1 新增表）：一份作业一行，无行 = 全部默认。
+
+    allow_revision=True 表示教师在发布时勾选了「允许学生修改已提交的作答」：
+    截止前学生可反复修改（每次修改生成一份新的延迟提交），AI 不立即批改，
+    截止时间到后按每题最后一次提交统一批改；未勾选时每道题只能提交一次。"""
+    __tablename__ = "assignment_settings"
+
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
+    allow_revision = Column(Boolean, nullable=False, default=False,
+                            comment="是否允许截止前修改作答（开启后延迟到截止统一批改）")
+
+
+class QuestionGroup(Base):
+    """大题（v0.13.1 新增表）：共享题干 + 若干小题（小题仍是普通 Question 行，
+    逐题作答/批改/计分不变；分组关系见 QuestionGroupMember）。"""
+    __tablename__ = "question_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
+    stem = Column(Text, nullable=False, comment="大题共享题干（材料/背景）")
+    order_num = Column(Integer, nullable=False, default=0, comment="在作业题目序列中的位置（按首个小题排序）")
+
+
+class QuestionGroupMember(Base):
+    """大题成员（v0.13.1 新增表）：一道小题属于一个大题。"""
+    __tablename__ = "question_group_members"
+
+    question_id = Column(Integer, ForeignKey("questions.id"), primary_key=True)
+    group_id = Column(Integer, ForeignKey("question_groups.id"), nullable=False, index=True)

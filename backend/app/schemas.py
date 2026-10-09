@@ -43,6 +43,15 @@ class QuestionOut(BaseModel):
     knowledge_point: str
     stem: str
     order_num: int
+    # v0.13.1 新增（只加字段）：所属大题 id（QuestionGroup），普通题为 None
+    group_id: Optional[int] = None
+
+
+class QuestionGroupOut(BaseModel):
+    """大题（v0.13.1）：共享题干，成员小题见 QuestionOut.group_id。"""
+    id: int
+    stem: str
+    order_num: int
 
 
 class AssignmentBrief(BaseModel):
@@ -68,6 +77,9 @@ class AssignmentDetail(BaseModel):
     workbook_title: Optional[str] = None
     page_range: Optional[str] = None
     deadline: Optional[datetime] = None
+    # v0.13.1 新增（只加字段）：允许修改开关 + 大题列表
+    allow_revision: bool = False
+    groups: List[QuestionGroupOut] = []
 
 
 # ---------- 学生：数学诊断 ----------
@@ -458,6 +470,14 @@ class TeacherQuestionIn(BaseModel):
     reference_answer: Optional[str] = Field(default=None, max_length=2000)    # 参考答案
     # 评分系统新增（只加可选字段）：该题分值占比 %（占作业总分的百分比）；不传 = 按题数均分
     weight_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    # v0.13.1 新增（只加可选字段）：所属大题的客户端临时 key（与 groups[].key 对应），普通题为 None
+    group_key: Optional[str] = Field(default=None, max_length=32)
+
+
+class QuestionGroupIn(BaseModel):
+    """大题入参（v0.13.1）：key 是发布请求内的临时标识，小题用 group_key 挂靠。"""
+    key: str = Field(min_length=1, max_length=32)
+    stem: str = Field(min_length=1, max_length=4000)            # 大题共享题干
 
 
 class TeacherAssignmentCreate(BaseModel):
@@ -472,6 +492,10 @@ class TeacherAssignmentCreate(BaseModel):
     deadline: Optional[datetime] = None                     # 截止时间（ISO 8601）
     # 评分系统新增（只加可选字段）：作业总分（满分）；不传 = 100
     total_score: Optional[float] = Field(default=None, gt=0, le=10000)
+    # v0.13.1 新增（只加可选字段）：允许学生截止前修改作答（开启后延迟到截止统一批改）
+    allow_revision: bool = False
+    # v0.13.1 新增（只加可选字段）：大题列表（小题经 group_key 挂靠）
+    groups: List[QuestionGroupIn] = Field(default_factory=list, max_length=20)
 
 
 class TeacherAssignmentQuestionOut(BaseModel):
@@ -498,6 +522,8 @@ class TeacherAssignmentOut(BaseModel):
     deadline: Optional[datetime] = None
     # 评分系统新增（只加字段）：作业总分（生效值：配置值或默认 100）
     total_score: float = 100.0
+    # v0.13.1 新增（只加字段）：允许修改开关
+    allow_revision: bool = False
 
 
 # ---------- 教师：练习册知识库 + 提醒未交（v0.5.0 新增） ----------
