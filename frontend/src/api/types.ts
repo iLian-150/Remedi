@@ -43,10 +43,14 @@ export interface Question {
   knowledge_point: string
   stem: string
   order_num: number
+  group_id?: number | null // v0.13.1：所属大题 id，普通题为 null
 }
 
 export interface AssignmentDetail extends Assignment {
   questions: Question[]
+  // v0.13.1：允许修改开关 + 大题列表（共享题干）
+  allow_revision?: boolean
+  groups?: { id: number; stem: string; order_num: number }[]
 }
 
 // ---------- 数学提交与诊断 ----------
@@ -121,12 +125,13 @@ export interface SubmissionResult {
   submission_id: number
   question_id: number
   // v0.9.0：新增 'pending_review'——已提交、等老师审核，steps/errors 为空
-  status: 'submitted' | 'graded' | 'pending_review'
+  // v0.13.1：新增 'deferred'——已提交、等截止后统一批改，steps/errors 为空
+  status: 'submitted' | 'graded' | 'pending_review' | 'deferred'
   first_error_seq: number | null
   steps: StepDiagnosis[]
   errors: GradingError[]
   follow_up_question?: string | null // v0.4.0：启发式追问，无错时为 null
-  review_status?: 'pending' | 'approved' // v0.9.0：教师审核状态
+  review_status?: 'pending' | 'approved' | 'deferred' // v0.9.0：教师审核状态；v0.13.1 加 deferred
   // 评分系统：本题得分（最终分）与满分；待审核时为 null，分数跟诊断一起放行
   // assignment_* 是这份作业目前的累计得分与总分（成绩单展示用，可能缺失）
   score?: {
@@ -399,6 +404,7 @@ export interface TeacherQuestionInput {
   standard_steps?: string[]
   reference_answer?: string
   weight_pct?: number // 评分系统：该题分值占比 %（不传 = 按题数均分）
+  group_key?: string // v0.13.1：所属大题的临时 key（与 groups[].key 对应）
 }
 
 export interface TeacherAssignmentInput {
@@ -406,6 +412,10 @@ export interface TeacherAssignmentInput {
   subject?: 'math' | 'english'
   description?: string
   questions: TeacherQuestionInput[]
+  // v0.13.1：允许学生截止前修改作答（开启后延迟到截止统一批改）
+  allow_revision?: boolean
+  // v0.13.1：大题列表（共享题干），小题用 group_key 挂靠
+  groups?: { key: string; stem: string }[]
   // v0.5.0：发布模式（不传 = 线上）；线下模式带练习册/页码/截止
   mode?: 'online' | 'offline'
   workbook_id?: number

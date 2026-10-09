@@ -562,19 +562,24 @@ function briefWeakDetails(b: StudentBriefing): WeakPointDetail[] {
   return b.weak_points.map((kp) => ({ knowledge_point: kp, error_count: 0, last_error_at: null }))
 }
 
-// 简报「去完成」：选中该作业里第一道还没做的数学题，并引导拍照
+// 简报「去完成」：选中该作业里第一道还没做的数学题。
+// v0.13.1 按模式分流（此前一律引导拍照，线上作业也被说成拍照上传，与实际作答方式不符）：
+// 线上作业是在线作答——直接跳交作业页的做题板并定位到这道题；线下练习册才引导拍照。
 async function gotoAssignment(p: PendingAssignment) {
   assignmentId.value = p.id
   const qs = currentQuestions.value
   const target = qs.find((q) => !doneQids.value.has(q.id)) ?? qs[0]
   questionId.value = target ? target.id : ''
-  if (target) {
-    pushMsg({
-      side: 'ai',
-      kind: 'text',
-      text: `已帮你选中《${p.title}》的题目「${target.stem}」，点下方「拍照批改」，拍下你的作答过程就可以啦。`
-    })
+  if (!target) return
+  if (p.mode === 'online') {
+    router.push({ path: '/student/submit', query: { assignment_id: p.id, q: target.id } })
+    return
   }
+  pushMsg({
+    side: 'ai',
+    kind: 'text',
+    text: `已帮你选中《${p.title}》的题目「${target.stem}」，点下方「拍照批改」，拍下你的作答过程就可以啦。`
+  })
   scrollToBottom()
 }
 
