@@ -15,6 +15,9 @@ from ..models import (
     Assignment,
     AssignmentExt,
     AssignmentScoring,
+    AssignmentSetting,
+    QuestionGroup,
+    QuestionGroupMember,
     ChatMessage,
     Correction,
     Error,
@@ -426,14 +429,27 @@ def create_assignment(body: TeacherAssignmentCreate,
         db, assignment.id, body.total_score,
         [(q.id, pct) for q, pct in created_questions],
     )
-    if body.mode == "offline":
-        db.add(AssignmentExt(
-            assignment_id=assignment.id,
-            mode="offline",
-            workbook_id=workbook.id if workbook else None,
-            page_range=(body.page_range or "").strip() or None,
-            deadline=body.deadline,
-        ))
+    # v0.13.1：ext 行恒建（mode + deadline 两种模式都落，线上作业此前没 ext 行、
+    # 截止时间会被静默丢弃）；练习册/页码仅线下有
+    db.add(AssignmentExt(
+        assignment_id=assignment.id,
+        mode=body.mode,
+        workbook_id=workbook.id if (body.mode == "offline" and workbook) else None,
+        page_range=((body.page_range or "").strip() or None) if body.mode == "offline" else None,
+        deadline=body.deadline,
+    ))
+    # v0.13.1：提交设置（允许修改）与大题分组
+    if body.allow_revision:
+        db.add(AssignmentSetting(assignment_id=assignment.id, allow_revision=True))
+    group_id_by_key = {}
+    for gi, g in enumerate(body.groups, start=1):
+        grp = QuestionGroup(assignment_id=assignment.id, stem=g.stem, order_num=gi)
+        db.add(grp)
+        db.flush()
+        group_id_by_key[g.key] = grp.id
+    for (question, _pct), qin in zip(created_questions, body.questions):
+        if qin.group_key and qin.group_key in group_id_by_key:
+            db.add(QuestionGroupMember(question_id=question.id, group_id=group_id_by_key[qin.group_key]))
     db.commit()
     db.refresh(assignment)
     return _teacher_assignment_out(assignment, db)
@@ -496,7 +512,15 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
         # 评分系统：题目分值占比行随题目一并清理
         db.query(QuestionWeight).filter(QuestionWeight.question_id.in_(qids)) \
             .delete(synchronize_session=False)
+        # v0.13.1：大题成员行随题目一并清理
+        db.query(QuestionGroupMember).filter(QuestionGroupMember.question_id.in_(qids)) \
+            .delete(synchronize_session=False)
         db.query(Question).filter(Question.id.in_(qids)).delete(synchronize_session=False)
+    # v0.13.1：提交设置行与大题行随作业一并清理
+    db.query(AssignmentSetting).filter(AssignmentSetting.assignment_id == assignment.id) \
+        .delete(synchronize_session=False)
+    db.query(QuestionGroup).filter(QuestionGroup.assignment_id == assignment.id) \
+        .delete(synchronize_session=False)
     # v0.5.0：作业扩展行（发布模式/练习册关联）一并删除
     db.query(AssignmentExt).filter(AssignmentExt.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
