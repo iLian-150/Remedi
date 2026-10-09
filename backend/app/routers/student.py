@@ -21,6 +21,8 @@ from ..models import (
     Essay,
     Notification,
     Question,
+    QuestionGroup,
+    QuestionGroupMember,
     StudentMistakeArchive,
     StudentMistakeCategoryReview,
     StudentMistakeEvent,
@@ -70,6 +72,7 @@ from ..schemas import (
     VerificationSubmitOut,
 )
 from ..services import variant_gen
+from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services import scoring as scoring_svc
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
@@ -148,9 +151,29 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
         db.query(Question).filter(Question.assignment_id == a.id)
         .order_by(Question.order_num, Question.id).all()
     )
+    # v0.13.1：大题分组（成员映射 + 大题列表）
+    members = (
+        db.query(QuestionGroupMember)
+        .filter(QuestionGroupMember.question_id.in_([q.id for q in questions])).all()
+        if questions else []
+    )
+    group_by_qid = {m.question_id: m.group_id for m in members}
+    groups = (
+        db.query(QuestionGroup).filter(QuestionGroup.assignment_id == a.id)
+        .order_by(QuestionGroup.order_num, QuestionGroup.id).all()
+    )
     return AssignmentDetail(
         id=a.id, title=a.title, description=a.description,
-        questions=[QuestionOut.model_validate(q) for q in questions],
+        questions=[
+            QuestionOut(
+                id=q.id, subject=q.subject, knowledge_point=q.knowledge_point,
+                stem=q.stem, order_num=q.order_num, group_id=group_by_qid.get(q.id),
+            )
+            for q in questions
+        ],
+        groups=[
+            {"id": g.id, "stem": g.stem, "order_num": g.order_num} for g in groups
+        ],
         **assignment_ext_fields(db, a.id),
     )
 
@@ -165,6 +188,10 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
     if q.subject != "math":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题是作文题，请使用 /api/student/essays 提交")
+    # v0.13.1：提交锁定（每题一次）+ 延迟批改窗口（允许修改的作业截止前只收不批）
+    deferral_svc.assert_can_submit(db, current, q)
+    if deferral_svc.is_deferred_mode(db, q.assignment_id):
+        return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
     submission, steps, errors = diagnose_submission(db, current, q, data.steps)
     # v0.9.0：新提交先进教师审核队列，学生先看到「待老师审核」占位
     review_svc.create_pending_review(db, submission)
@@ -1024,6 +1051,17 @@ async def photo_diagnose(
             "照片中没有识别到学生作答，没有生成错题记录。请上传包含作答过程的照片。",
         )
 
+    # v0.13.1：拍照批改同链——提交锁定 + 延迟批改窗口
+    deferral_svc.assert_can_submit(db, current, question)
+    if deferral_svc.is_deferred_mode(db, question.assignment_id):
+        submission = deferral_svc.create_deferred(db, current, question, steps)
+        out = deferral_svc.deferred_out(submission)
+        out.update({
+            "recognized_question_text": recognition.get("question_text", ""),
+            "recognized_steps": steps,
+            "recognition_confidence": confidence,
+        })
+        return out
     submission, _, _ = diagnose_submission(db, current, question, steps)
     # v0.9.0：原图批改同样先进教师审核队列
     review_svc.create_pending_review(db, submission)
