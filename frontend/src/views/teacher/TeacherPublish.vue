@@ -7,9 +7,19 @@
            练习册知识库 4.15~4.17、拍照识别 4.9。本轮题目仍只支持数学。 -->
 <template>
   <div class="page publish-page">
-    <div class="page-head">
-      <h2>发布作业</h2>
-      <p class="page-sub">{{ step === 'choose' ? '先选一种发布方式，点进去再填内容。发布后学生端立即可见。' : '填写作业内容后点底部「发布」。返回上一级不会清空已填内容。' }}</p>
+    <!-- v0.13.4：页头两级共用同一结构——选完发布方式后，「重新选择 + 模式徽章」只出现在
+         标题右侧同一行，不再多出一行把整页往下顶，「发布作业」标题位置纹丝不动 -->
+    <div class="page-head publish-head">
+      <div class="ph-main">
+        <h2>发布作业</h2>
+        <p class="page-sub">先选一种发布方式，再填写内容发布；发布后学生端立即可见，返回重选不会清空已填内容。</p>
+      </div>
+      <div v-if="step === 'form'" class="ph-actions">
+        <button type="button" class="btn ghost inline-icon back-btn" @click="backToChoose">
+          <AppIcon name="chevron-left" :size="16" /> 重新选择发布方式
+        </button>
+        <span class="mode-chip"><AppIcon :name="mode === 'online' ? 'edit' : 'book'" :size="14" /> {{ mode === 'online' ? '线上作业' : '线下作业 · 练习册' }}</span>
+      </div>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -36,17 +46,16 @@
 
     <!-- 第二级：发布表单 -->
     <template v-if="step === 'form'">
-    <div class="form-topbar">
-      <button type="button" class="btn ghost inline-icon back-btn" @click="backToChoose">
-        <AppIcon name="chevron-left" :size="16" /> 重新选择发布方式
-      </button>
-      <span class="mode-chip"><AppIcon :name="mode === 'online' ? 'edit' : 'book'" :size="14" /> {{ mode === 'online' ? '线上作业' : '线下作业 · 练习册' }}</span>
-    </div>
-
     <!-- 线下模式：练习册与页码（v0.13.3：书本不再常驻表单——选书做成一个按钮，
          点开书架面板才陈列封面选书；选书按钮与页码输入并在同一行） -->
     <div v-if="mode === 'offline'" class="card">
-      <h3>练习册与范围</h3>
+      <!-- v0.13.4：整卡折叠——默认收起只剩标题行（带已选摘要），点标题行才展开选书/填页码 -->
+      <button type="button" class="fold-head" :aria-expanded="wbOpen" @click="wbOpen = !wbOpen">
+        <h3 style="margin: 0">练习册与范围</h3>
+        <span class="fold-sum">{{ wbSummary }}</span>
+        <AppIcon :name="wbOpen ? 'chevron-down' : 'chevron-right'" :size="16" />
+      </button>
+      <div v-if="wbOpen" class="fold-body">
       <div class="wb-pick-row">
         <div class="form-row">
           <label>选择练习册</label>
@@ -75,6 +84,7 @@
         <span class="hint">填好上面的页码后点这里：系统把这几页渲染成图，用视觉 AI 拆成草稿题填到下方题目卡；一次最多 8 页，识别结果是草稿，发布前请逐题检查。没识别到的页可以再用拍照补录。</span>
       </div>
       <p v-if="extractNote" class="ok-msg" style="margin-top: 10px; margin-bottom: 0">{{ extractNote }}</p>
+      </div>
     </div>
 
     <!-- 书架选书面板（v0.13.3）：点「选择练习册」才打开，封面陈列只在这里出现；
@@ -132,8 +142,8 @@
         <label>作业标题</label>
         <input v-model="title" type="text" :placeholder="mode === 'offline' ? '例如：练习册 P12-14 勾股定理练习' : '例如：第二周数学作业'" maxlength="128" />
       </div>
-      <!-- v0.13.2：学科 / 总分 / 截止时间并到同一行；截止时间下限锁定为当前时间、
-           发布时再校验一次，都不允许早于现在 -->
+      <!-- v0.13.4：学科 / 总分 / 时间限制并到同一行；时间限制点开是自制日历面板，
+           「允许学生修改」与「备注」都收在面板里（见下方 time-panel） -->
       <div class="grid-3">
         <div class="form-row">
           <label>学科</label>
@@ -149,36 +159,86 @@
           </div>
         </div>
         <div class="form-row">
-          <label>截止时间（选填）</label>
-          <input v-model="deadline" type="datetime-local" :min="nowMin" />
-          <p class="hint" style="margin-top: 6px">不能早于当前时间。</p>
+          <label>时间限制（选填）</label>
+          <button type="button" class="time-field" :aria-expanded="timeOpen" @click="toggleTime">
+            <AppIcon name="calendar" :size="16" />
+            <span class="time-field-text">{{ deadline ? deadlineText : '不设截止，点此设置' }}</span>
+            <span v-if="description.trim()" class="opt-dot">已填备注</span>
+            <AppIcon :name="timeOpen ? 'chevron-down' : 'chevron-right'" :size="15" />
+          </button>
         </div>
       </div>
-      <!-- v0.13.2：选填收进交互按钮——作业说明点开才出现，输入框随文案变长自动长高；
-           与「允许修改」开关并在同一行，常驻版面只剩一行 -->
-      <div class="opt-row">
-        <button type="button" class="btn small secondary inline-icon" :aria-expanded="descOpen" @click="toggleDesc">
-          <AppIcon name="edit" :size="14" /> 作业说明（选填）
-          <span v-if="description.trim()" class="opt-dot">已填</span>
-          <AppIcon :name="descOpen ? 'chevron-down' : 'chevron-right'" :size="14" />
-        </button>
-        <label class="revision-check">
-          <input type="checkbox" v-model="allowRevision" />
-          <span>允许学生在截止前修改已提交的作答</span>
-        </label>
+      <!-- v0.13.4：时间限制面板——自制日历选日 + 时分选择（不用系统自带日期框，
+           外面只显示「10月15日 周三 22:00 截止」这样的友好文案）；
+           「允许学生修改」与「备注（作业说明）」按新逻辑都收在这个面板里 -->
+      <div v-if="timeOpen" class="time-panel">
+        <div class="time-grid">
+          <div class="cal">
+            <div class="cal-head">
+              <button type="button" class="cal-nav" title="上个月" @click="shiftMonth(-1)"><AppIcon name="chevron-left" :size="15" /></button>
+              <span class="cal-title">{{ calCursor.y }}年{{ calCursor.m + 1 }}月</span>
+              <button type="button" class="cal-nav" title="下个月" @click="shiftMonth(1)"><AppIcon name="chevron-right" :size="15" /></button>
+            </div>
+            <div class="cal-week"><span v-for="w in ['一', '二', '三', '四', '五', '六', '日']" :key="w">{{ w }}</span></div>
+            <div class="cal-days">
+              <button
+                v-for="(c, i) in calCells"
+                :key="i"
+                type="button"
+                class="cal-day"
+                :class="{ blank: !c.day, today: c.isToday, sel: !!c.dateStr && c.dateStr === selDate }"
+                :disabled="!c.day || c.disabled"
+                @click="c.day && pickDay(c.dateStr)"
+              >{{ c.day || '' }}</button>
+            </div>
+            <p class="hint" style="margin-top: 8px">截止日期不能早于今天，过去的日期已置灰。</p>
+          </div>
+          <div class="time-side">
+            <div class="form-row">
+              <label>截止时刻</label>
+              <div class="time-pick-row">
+                <select v-model.number="selHour" @change="composeDeadline">
+                  <option v-for="h in 24" :key="h - 1" :value="h - 1">{{ pad2(h - 1) }} 时</option>
+                </select>
+                <span class="time-colon">:</span>
+                <select v-model.number="selMinute" @change="composeDeadline">
+                  <option v-for="m in minuteOptions" :key="m" :value="m">{{ pad2(m) }} 分</option>
+                </select>
+                <button type="button" class="btn small secondary" :disabled="!deadline" @click="clearDeadline">清除截止</button>
+              </div>
+              <div class="quick-row">
+                <button type="button" class="quick-chip" @click="quickPick(0)">今天 22:00</button>
+                <button type="button" class="quick-chip" @click="quickPick(1)">明天 22:00</button>
+                <button type="button" class="quick-chip" @click="quickPick(3)">三天后 22:00</button>
+                <button type="button" class="quick-chip" @click="quickPick(7)">一周后 22:00</button>
+              </div>
+              <p v-if="deadline && deadlinePast" class="deadline-warn">这个时刻已经过了，发布会被拦下，请选晚一点的时间。</p>
+              <p v-else-if="deadline" class="hint" style="margin-top: 8px">已设：{{ deadlineText }}</p>
+            </div>
+            <div class="form-row">
+              <label>提交规则</label>
+              <label class="revision-check">
+                <input type="checkbox" v-model="allowRevision" />
+                <span>允许学生在截止前修改已提交的作答</span>
+              </label>
+              <p v-if="allowRevision" class="hint" style="margin-top: 6px; line-height: 1.6">勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。不勾选：每道题只能交一次，交完立即批改。</p>
+            </div>
+            <div class="form-row" style="margin-bottom: 0">
+              <label>备注（作业说明，选填）</label>
+              <textarea
+                ref="descRef"
+                v-model="description"
+                rows="2"
+                maxlength="2000"
+                class="desc-textarea"
+                placeholder="例如：独立完成，写清每一步的依据；第 3 题可以用两种方法。"
+                @input="growDesc"
+              ></textarea>
+              <p class="hint" style="margin-top: 6px">会显示在学生端交作业页顶部；写得越长，输入框会自动长高。</p>
+            </div>
+          </div>
+        </div>
       </div>
-      <div v-if="descOpen" class="form-row desc-area">
-        <textarea
-          ref="descRef"
-          v-model="description"
-          rows="2"
-          maxlength="2000"
-          placeholder="例如：独立完成，写清每一步的依据；第 3 题可以用两种方法。"
-          @input="growDesc"
-        ></textarea>
-        <p class="hint" style="margin-top: 6px">会显示在学生端交作业页顶部；写得越长，输入框会自动长高。</p>
-      </div>
-      <p v-if="allowRevision" class="hint revision-hint">勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。不勾选：每道题只能交一次，交完立即批改。</p>
     </div>
 
     <!-- 线下模式：拍照上传题目页，一次识别成一道草稿题 -->
@@ -443,7 +503,6 @@ const step = ref<'choose' | 'form'>('choose')
 function chooseMode(m: 'online' | 'offline') {
   mode.value = m
   step.value = 'form'
-  nowMin.value = localNowStr() // 进表单时刷新截止时间下限
   router.replace({ query: { ...route.query, mode: m } })
   window.scrollTo({ top: 0 })
 }
@@ -472,27 +531,90 @@ function addGroup() {
   groups.value.push(blankGroup())
 }
 
-// ---------- v0.13.2：作业说明折叠 + 输入框自适应高度；截止时间下限 ----------
-const descOpen = ref(false)
+// ---------- v0.13.4：时间限制面板（自制日历 + 时分）/ 备注自适应高度 ----------
+// deadline 仍存 'YYYY-MM-DDTHH:mm' 字符串（提交与校验口径不变），只是录入换成
+// 自制日历、展示换成友好文案，不再露系统日期框的 yyyy 占位格式。
 const descRef = ref<HTMLTextAreaElement | null>(null)
-/** 说明输入框随文案变长自动长高（上限后内部滚动，避免无限撑长页面） */
+/** 备注输入框随文案变长自动长高（上限后内部滚动，避免无限撑长页面） */
 function growDesc() {
   const ta = descRef.value
   if (!ta) return
   ta.style.height = 'auto'
   ta.style.height = `${Math.min(ta.scrollHeight + 2, 242)}px`
 }
-function toggleDesc() {
-  descOpen.value = !descOpen.value
-  if (descOpen.value) void nextTick(growDesc)
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const timeOpen = ref(false)
+const selHour = ref(22)
+const selMinute = ref(0)
+const calCursor = ref<{ y: number; m: number }>({ y: new Date().getFullYear(), m: new Date().getMonth() })
+/** 已选日期（deadline 的日期部分）；没设截止为空串 */
+const selDate = computed(() => (deadline.value ? deadline.value.slice(0, 10) : ''))
+const minuteOptions = computed(() => {
+  const base = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
+  return base.includes(selMinute.value) ? base : [...base, selMinute.value].sort((a, b) => a - b)
+})
+function composeDeadline() {
+  if (!selDate.value) return
+  deadline.value = `${selDate.value}T${pad2(selHour.value)}:${pad2(selMinute.value)}`
 }
-/** datetime-local 的 min 值：本地时间的当前时刻，早于它的时间在选择器里禁选 */
-function localNowStr(): string {
+function toggleTime() {
+  timeOpen.value = !timeOpen.value
+  if (timeOpen.value) {
+    if (deadline.value) {
+      const d = new Date(deadline.value)
+      if (!Number.isNaN(d.getTime())) {
+        calCursor.value = { y: d.getFullYear(), m: d.getMonth() }
+        selHour.value = d.getHours()
+        selMinute.value = d.getMinutes()
+      }
+    }
+    void nextTick(growDesc)
+  }
+}
+function shiftMonth(delta: number) {
+  const d = new Date(calCursor.value.y, calCursor.value.m + delta, 1)
+  calCursor.value = { y: d.getFullYear(), m: d.getMonth() }
+}
+interface CalCell { day: number; dateStr: string; disabled: boolean; isToday: boolean }
+const calCells = computed<CalCell[]>(() => {
+  const { y, m } = calCursor.value
+  const lead = (new Date(y, m, 1).getDay() + 6) % 7 // 周一起头：月初前面空几格
+  const days = new Date(y, m + 1, 0).getDate()
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`
+  const cells: CalCell[] = []
+  for (let i = 0; i < lead; i++) cells.push({ day: 0, dateStr: '', disabled: true, isToday: false })
+  for (let d = 1; d <= days; d++) {
+    const ds = `${y}-${pad2(m + 1)}-${pad2(d)}`
+    cells.push({ day: d, dateStr: ds, disabled: ds < todayStr, isToday: ds === todayStr })
+  }
+  return cells
+})
+function pickDay(dateStr: string) {
+  deadline.value = `${dateStr}T${pad2(selHour.value)}:${pad2(selMinute.value)}`
+}
+function quickPick(daysFromToday: number) {
   const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+  d.setDate(d.getDate() + daysFromToday)
+  selHour.value = 22
+  selMinute.value = 0
+  calCursor.value = { y: d.getFullYear(), m: d.getMonth() }
+  deadline.value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T22:00`
 }
-const nowMin = ref(localNowStr())
+function clearDeadline() {
+  deadline.value = ''
+}
+/** 设好的截止是否已经过去（面板里即时提醒；发布时 submit 还会再拦一次） */
+const deadlinePast = computed(() => !!deadline.value && new Date(deadline.value).getTime() <= Date.now())
+/** 字段上显示的友好时间，如「10月15日 周三 22:00 截止」 */
+const deadlineText = computed(() => {
+  if (!deadline.value) return ''
+  const d = new Date(deadline.value)
+  if (Number.isNaN(d.getTime())) return ''
+  const wk = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()]
+  const yPart = d.getFullYear() !== new Date().getFullYear() ? `${d.getFullYear()}年` : ''
+  return `${yPart}${d.getMonth() + 1}月${d.getDate()}日 ${wk} ${pad2(d.getHours())}:${pad2(d.getMinutes())} 截止`
+})
 /** 全部题目表单（普通题 + 各大题的小题），校验/分值口径统一走这份名单 */
 const allForms = computed(() => [...questions.value, ...groups.value.flatMap((g) => g.subs)])
 const submitting = ref(false)
@@ -657,6 +779,13 @@ function insertStepSymbol(q: QuestionForm, s: StepSymbol) {
 const workbooks = ref<Workbook[]>([])
 const workbookId = ref<number | ''>('')
 const shelfOpen = ref(false)   // v0.13.3：书架选书面板开关（书本只在面板里陈列）
+const wbOpen = ref(false)      // v0.13.4：「练习册与范围」整卡折叠开关，默认收起
+/** 折叠标题行上的已选摘要：一眼看出选了哪本、填了什么范围 */
+const wbSummary = computed(() =>
+  selectedWorkbook.value
+    ? `${selectedWorkbook.value.title}${pageRange.value.trim() ? ` · ${pageRange.value.trim()}` : ''}`
+    : '还没选练习册，点开选择'
+)
 
 /** 书架里点选一本：选中即关面板，按钮上回显书名 */
 function pickWorkbook(w: Workbook) {
@@ -849,17 +978,19 @@ async function submit() {
     error.value = '请填写作业标题。'
     return
   }
-  // v0.13.2：截止时间不能早于当前时间（选择器的 min 只是禁选，手输/粘贴仍要拦一道）
+  // 截止时间不能早于当前时间（日历已置灰过去的日期，时刻仍可能选到已过点，这里兜底再拦一次）
   if (deadline.value && new Date(deadline.value).getTime() <= Date.now()) {
     error.value = '截止时间不能早于当前时间，请重新选择截止时间。'
     return
   }
   if (mode.value === 'offline') {
     if (!workbookId.value) {
+      wbOpen.value = true // 折叠着的时候报错也要把卡片展开，方便直接补选
       error.value = '线下作业要先选一本练习册（知识库是空的就先上传整本 PDF）。'
       return
     }
     if (!pageRange.value.trim()) {
+      wbOpen.value = true
       error.value = '请填写页码 / 题号范围，学生才知道做练习册的哪一部分。'
       return
     }
@@ -990,6 +1121,7 @@ onMounted(async () => {
     const wid = Number(route.query.workbook_id)
     if (wid && workbooks.value.some((w) => w.id === wid)) {
       workbookId.value = wid
+      wbOpen.value = true // 深链已带选好的书，直接展开范围卡方便接着填页码
     }
   }
 })
@@ -1003,7 +1135,8 @@ onMounted(async () => {
 .choose-grid .mode-card { padding: 26px 24px; gap: 8px; }
 .mode-enter { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13.5px; font-weight: 700; color: var(--primary); }
 .choose-hint { text-align: left; color: var(--text-3); font-size: 13px; margin-top: 16px; }
-.form-topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.page-head.publish-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ph-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
 .back-btn { padding-left: 4px; font-weight: 600; }
 .mode-chip {
   display: inline-flex; align-items: center; gap: 6px;
@@ -1018,12 +1151,60 @@ onMounted(async () => {
 @media (max-width: 760px) {
   .grid-3, .grid-q-meta { grid-template-columns: 1fr; }
 }
-/* ---------- v0.13.2：选填折叠行 / 说明自适应高度 / 验算提示整行 ---------- */
-.opt-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
-.opt-row .revision-check { min-height: 0; }
+/* ---------- v0.13.4：练习册折叠卡 / 时间限制面板（自制日历） ---------- */
 .opt-dot { background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
-.desc-area textarea { overflow-y: auto; resize: none; transition: height .18s ease; }
-.revision-hint { margin: -4px 0 14px; line-height: 1.6; }
+.fold-head {
+  width: 100%; display: flex; align-items: center; gap: 12px;
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: var(--font); color: var(--text); text-align: left;
+}
+.fold-sum { flex: 1; font-size: 13px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold-body { margin-top: 14px; animation: publish-pane-in .25s ease both; }
+.time-field {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; cursor: pointer; font-family: var(--font); font-size: 14px; color: var(--text);
+  background: #FBFCFF; border: 1.5px solid #D9E1F2; border-radius: 10px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.time-field:hover, .time-field:focus-visible { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-50); outline: none; }
+.time-field-text { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time-panel {
+  border: 1.5px solid #D9E1F2; border-radius: 12px; background: #FBFCFF;
+  padding: 14px; margin-bottom: 14px; animation: publish-pane-in .25s ease both;
+}
+.time-grid { display: grid; grid-template-columns: 288px 1fr; gap: 20px; }
+@media (max-width: 900px) { .time-grid { grid-template-columns: 1fr; } }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cal-title { font-weight: 700; font-size: 14.5px; }
+.cal-nav {
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--border); border-radius: 8px; background: #fff; color: var(--text); cursor: pointer;
+}
+.cal-nav:hover { border-color: var(--primary); color: var(--primary); }
+.cal-week, .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-week span { text-align: center; font-size: 11.5px; color: var(--text-3); padding: 2px 0; }
+.cal-day {
+  height: 34px; border: 1px solid transparent; border-radius: 9px; background: transparent;
+  cursor: pointer; font-family: var(--font); font-size: 13px; color: var(--text);
+  transition: border-color .12s ease, background .12s ease, color .12s ease;
+}
+.cal-day:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.cal-day.today { border-color: #B7C9F5; font-weight: 700; }
+.cal-day.sel { background: var(--primary); color: #fff; font-weight: 700; }
+.cal-day:disabled { color: var(--text-3); opacity: .4; cursor: not-allowed; }
+.cal-day.blank { visibility: hidden; }
+.time-pick-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.time-pick-row select { width: auto; padding: 8px 10px; }
+.time-colon { font-weight: 700; }
+.quick-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.quick-chip {
+  border: 1.5px solid var(--border); background: #fff; color: var(--text-2);
+  border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; font-family: var(--font);
+  transition: border-color .12s ease, color .12s ease, background .12s ease;
+}
+.quick-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
+.deadline-warn { margin-top: 8px; font-size: 12.5px; color: #92400E; }
+.desc-textarea { overflow-y: auto; resize: none; transition: height .18s ease; }
 .check-notes { margin: -6px 0 12px; }
 .check-notes .check-note { margin-top: 0; }
 /* ---------- 输入控件统一样式（全局裸样式太素，含 number/datetime 的补齐） ---------- */
@@ -1171,8 +1352,7 @@ onMounted(async () => {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.publish-page .card,
-.publish-page .form-topbar {
+.publish-page .card {
   animation: publish-pane-in .32s ease both;
 }
 .mode-grid .mode-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
