@@ -43,59 +43,25 @@
       <span class="mode-chip"><AppIcon :name="mode === 'online' ? 'edit' : 'book'" :size="14" /> {{ mode === 'online' ? '线上作业' : '线下作业 · 练习册' }}</span>
     </div>
 
-    <!-- 线下模式：练习册与页码 -->
+    <!-- 线下模式：练习册与页码（v0.13.3：书本不再常驻表单——选书做成一个按钮，
+         点开书架面板才陈列封面选书；选书按钮与页码输入并在同一行） -->
     <div v-if="mode === 'offline'" class="card">
       <h3>练习册与范围</h3>
-      <div class="form-row">
-        <label>选择练习册（知识库）</label>
-        <div class="wb-row">
-          <select v-model="workbookId" :disabled="!workbooks.length">
-            <option value="">{{ workbooks.length ? '请选择一本练习册…' : '知识库还是空的，先上传一本吧' }}</option>
-            <option v-for="w in workbooks" :key="w.id" :value="w.id">{{ w.title }}</option>
-          </select>
-          <button class="btn small secondary inline-icon" :disabled="uploadingWb" @click="wbFileRef?.click()">
-            <AppIcon name="plus" :size="14" /> {{ uploadingWb ? '上传中…' : '上传练习册 PDF' }}
-          </button>
-          <a
-            v-if="selectedWorkbook"
-            class="btn small secondary inline-icon"
-            :href="selectedWorkbook.file_url"
-            target="_blank"
-            rel="noopener"
-          >
-            <AppIcon name="file" :size="14" /> 查看 PDF
-          </a>
-          <button
-            v-if="selectedWorkbook"
-            class="btn small danger-outline"
-            @click="removeWorkbook"
-          >
-            {{ confirmDeleteWb ? '确认删除这本？' : '删除这本' }}
+      <div class="wb-pick-row">
+        <div class="form-row">
+          <label>选择练习册</label>
+          <button type="button" class="wb-pick-btn" @click="shelfOpen = true">
+            <AppIcon name="book" :size="17" />
+            <span class="wb-pick-name">{{ selectedWorkbook ? selectedWorkbook.title : (workbooks.length ? '点这里从书架选一本' : '书架还是空的，点这里上传') }}</span>
+            <AppIcon name="chevron-right" :size="15" />
           </button>
         </div>
-        <input ref="wbFileRef" type="file" accept="application/pdf" hidden @change="onWorkbookFile" />
-        <p class="hint" style="margin-top: 6px">把整本练习册的 PDF 传进知识库，以后发布线下作业直接选，不用重复上传（单个文件 ≤30MB）。</p>
-        <!-- 练习册封面缩略图条（v0.6.0）：点封面直接选中，与上方下拉同步 -->
-        <div v-if="workbooks.length" class="wb-strip">
-          <button
-            v-for="w in workbooks"
-            :key="w.id"
-            type="button"
-            class="wb-thumb"
-            :class="{ active: Number(workbookId) === w.id }"
-            :title="w.title"
-            @click="workbookId = w.id"
-          >
-            <img v-if="w.cover_url" :src="w.cover_url" :alt="w.title" />
-            <span v-else class="wb-thumb-spine"><AppIcon name="book" :size="18" /></span>
-            <span class="wb-thumb-name">{{ w.title }}</span>
-          </button>
+        <div class="form-row">
+          <label>页码 / 题号范围</label>
+          <input v-model="pageRange" type="text" placeholder="例如：第 12-14 页 第 1-8 题" maxlength="64" />
         </div>
       </div>
-      <div class="form-row">
-        <label>页码 / 题号范围</label>
-        <input v-model="pageRange" type="text" placeholder="例如：第 12-14 页 第 1-8 题" maxlength="64" />
-      </div>
+      <input ref="wbFileRef" type="file" accept="application/pdf" hidden @change="onWorkbookFile" />
       <!-- 按页提题（v0.13.0）：把所选页渲染成图，视觉 AI 逐页拆成草稿题 -->
       <div class="extract-row">
         <button
@@ -111,48 +77,108 @@
       <p v-if="extractNote" class="ok-msg" style="margin-top: 10px; margin-bottom: 0">{{ extractNote }}</p>
     </div>
 
+    <!-- 书架选书面板（v0.13.3）：点「选择练习册」才打开，封面陈列只在这里出现；
+         上传 / 查看 / 删除也都收在面板里，表单常驻区只留一行选书按钮 -->
+    <div v-if="shelfOpen" class="shelf-mask" @click.self="shelfOpen = false">
+      <div class="shelf-panel">
+        <div class="shelf-head">
+          <h3 style="margin: 0">从书架选择练习册</h3>
+          <button type="button" class="btn small secondary" @click="shelfOpen = false">关闭</button>
+        </div>
+        <div v-if="workbooks.length" class="shelf-grid">
+          <button
+            v-for="w in workbooks"
+            :key="w.id"
+            type="button"
+            class="wb-thumb shelf-thumb"
+            :class="{ active: Number(workbookId) === w.id }"
+            :title="w.title"
+            @click="pickWorkbook(w)"
+          >
+            <img v-if="w.cover_url" :src="w.cover_url" :alt="w.title" />
+            <span v-else class="wb-thumb-spine"><AppIcon name="book" :size="22" /></span>
+            <span class="wb-thumb-name">{{ w.title }}</span>
+          </button>
+        </div>
+        <p v-else class="hint" style="line-height: 1.6">书架还是空的。把整本练习册的 PDF 传进来，以后发布线下作业直接选，不用重复上传（单个文件 ≤30MB）。</p>
+        <div class="shelf-actions">
+          <button type="button" class="btn small secondary inline-icon" :disabled="uploadingWb" @click="wbFileRef?.click()">
+            <AppIcon name="plus" :size="14" /> {{ uploadingWb ? '上传中…' : '上传练习册 PDF' }}
+          </button>
+          <a
+            v-if="selectedWorkbook"
+            class="btn small secondary inline-icon"
+            :href="selectedWorkbook.file_url"
+            target="_blank"
+            rel="noopener"
+          >
+            <AppIcon name="file" :size="14" /> 查看已选 PDF
+          </a>
+          <button
+            v-if="selectedWorkbook"
+            type="button"
+            class="btn small danger-outline"
+            @click="removeWorkbook"
+          >
+            {{ confirmDeleteWb ? '确认删除这本？' : '删除已选这本' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h3>基本信息</h3>
       <div class="form-row">
         <label>作业标题</label>
         <input v-model="title" type="text" :placeholder="mode === 'offline' ? '例如：练习册 P12-14 勾股定理练习' : '例如：第二周数学作业'" maxlength="128" />
       </div>
-      <div class="grid-2">
+      <!-- v0.13.2：学科 / 总分 / 截止时间并到同一行；截止时间下限锁定为当前时间、
+           发布时再校验一次，都不允许早于现在 -->
+      <div class="grid-3">
         <div class="form-row">
           <label>学科</label>
           <select v-model="subject" disabled>
             <option value="math">数学</option>
           </select>
-          <p class="hint" style="margin-top: 6px">目前专注数学作业，支持拍照批改与逐步诊断。</p>
         </div>
         <div class="form-row">
           <label>作业总分（满分）</label>
           <div class="score-input-row">
             <input v-model.number="totalScore" type="number" min="1" max="10000" step="1" class="score-input" />
-            <span class="hint">分 · AI 按步骤对错打分，待审核里可改分；每题满分按下方的「分值占比」折算。</span>
+            <span class="hint">分 · 按步骤对错打分，待审核里可改分</span>
           </div>
         </div>
-      </div>
-      <!-- 作业说明与截止时间（v0.13.1）：两种模式共用——学生端交作业页顶部会显示，
-           此前说明没有录入入口、截止时间只有线下表单有，线上作业永远显示不出 -->
-      <div class="form-row">
-        <label>作业说明（选填）</label>
-        <textarea v-model="description" rows="2" maxlength="2000" placeholder="例如：独立完成，写清每一步的依据；第 3 题可以用两种方法。"></textarea>
-      </div>
-      <div class="grid-2">
         <div class="form-row">
           <label>截止时间（选填）</label>
-          <input v-model="deadline" type="datetime-local" />
-        </div>
-        <div class="form-row">
-          <label>提交规则</label>
-          <label class="revision-check">
-            <input type="checkbox" v-model="allowRevision" />
-            <span>允许学生在截止前修改已提交的作答</span>
-          </label>
-          <p class="hint" style="margin-top: 6px">不勾选：每道题只能交一次，交完立即批改。勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。</p>
+          <input v-model="deadline" type="datetime-local" :min="nowMin" />
+          <p class="hint" style="margin-top: 6px">不能早于当前时间。</p>
         </div>
       </div>
+      <!-- v0.13.2：选填收进交互按钮——作业说明点开才出现，输入框随文案变长自动长高；
+           与「允许修改」开关并在同一行，常驻版面只剩一行 -->
+      <div class="opt-row">
+        <button type="button" class="btn small secondary inline-icon" :aria-expanded="descOpen" @click="toggleDesc">
+          <AppIcon name="edit" :size="14" /> 作业说明（选填）
+          <span v-if="description.trim()" class="opt-dot">已填</span>
+          <AppIcon :name="descOpen ? 'chevron-down' : 'chevron-right'" :size="14" />
+        </button>
+        <label class="revision-check">
+          <input type="checkbox" v-model="allowRevision" />
+          <span>允许学生在截止前修改已提交的作答</span>
+        </label>
+      </div>
+      <div v-if="descOpen" class="form-row desc-area">
+        <textarea
+          ref="descRef"
+          v-model="description"
+          rows="2"
+          maxlength="2000"
+          placeholder="例如：独立完成，写清每一步的依据；第 3 题可以用两种方法。"
+          @input="growDesc"
+        ></textarea>
+        <p class="hint" style="margin-top: 6px">会显示在学生端交作业页顶部；写得越长，输入框会自动长高。</p>
+      </div>
+      <p v-if="allowRevision" class="hint revision-hint">勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。不勾选：每道题只能交一次，交完立即批改。</p>
     </div>
 
     <!-- 线下模式：拍照上传题目页，一次识别成一道草稿题 -->
@@ -179,6 +205,8 @@
         <label>题干</label>
         <textarea v-model="q.prompt" rows="2" placeholder="例如：解方程：3x-5=10"></textarea>
       </div>
+      <!-- v0.13.2：知识点 / 分值占比 / 参考答案并到同一行（AI 识别贴知识点右侧、
+           AI 验算贴参考答案右侧），验算提示整行显示，下面整行留给标准解题步骤 -->
       <div class="grid-q-meta">
         <div class="form-row">
           <label>知识点</label>
@@ -196,7 +224,7 @@
           </div>
         </div>
         <div class="form-row">
-          <label>分值占比（占总分的百分比）</label>
+          <label>分值占比（占总分 %）</label>
           <div class="score-input-row">
             <input
               v-model.number="q.weight_pct"
@@ -204,49 +232,50 @@
               class="score-input" placeholder="均分"
             />
             <span class="hint">
-              % · 本题满分约 {{ fmtScore(questionMax(q)) }} 分<template v-if="q.weight_pct === null || q.weight_pct === undefined">（留空按题数均分）</template>
+              % · 满分约 {{ fmtScore(questionMax(q)) }} 分<template v-if="q.weight_pct === null || q.weight_pct === undefined">（留空均分）</template>
             </span>
           </div>
         </div>
-      </div>
-      <div class="grid-q-body">
         <div class="form-row">
-          <label>标准解题步骤（选填，每行一步，含第一步原式，供批改参考）</label>
-          <div class="symbol-bar" role="group" aria-label="数学符号">
-            <button
-              v-for="s in STEP_SYMBOLS"
-              :key="s.label"
-              type="button"
-              class="symbol-btn"
-              :title="`插入 ${s.label}`"
-              @click="insertStepSymbol(q, s)"
-            >{{ s.label }}</button>
-          </div>
-          <textarea :ref="(el) => setStepsRef(q, el)" v-model="q.standard_steps_text" rows="5" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
-        </div>
-        <div class="form-row">
-          <div class="answer-label-row">
-            <label>参考答案（选填）</label>
+          <label>参考答案（选填）</label>
+          <div class="kp-row">
+            <input v-model="q.reference_answer" type="text" placeholder="例如：x=5" />
             <button
               type="button"
               class="btn small secondary inline-icon"
               :disabled="q.check_status === 'checking' || !q.prompt.trim() || !q.reference_answer.trim()"
+              :title="q.reference_answer.trim() ? '用 AI 验算参考答案' : '先填参考答案，再验算'"
               @click="checkOne(q)"
             >
               <AppIcon name="sparkles" :size="13" /> {{ q.check_status === 'checking' ? '验算中…' : 'AI 验算' }}
             </button>
           </div>
-          <input v-model="q.reference_answer" type="text" placeholder="例如：x=5" />
-          <p v-if="q.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
-          <p v-else-if="showResult(q) && q.check_status === 'ok'" class="check-note ok" :title="q.check_detail">
-            <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
-          </p>
-          <p v-else-if="showResult(q) && q.check_status === 'suspect'" class="check-note warn">
-            <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
-            <span>参考答案可能有误：{{ q.check_detail }}（只是提醒，仍可照常发布）</span>
-          </p>
-          <p class="hint" style="margin-top: 8px">标准步骤是批改的参照系，写得越完整，步骤诊断越准。</p>
         </div>
+      </div>
+      <div v-if="q.check_status === 'checking' || (showResult(q) && (q.check_status === 'ok' || q.check_status === 'suspect'))" class="check-notes">
+        <p v-if="q.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
+        <p v-else-if="showResult(q) && q.check_status === 'ok'" class="check-note ok" :title="q.check_detail">
+          <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
+        </p>
+        <p v-else-if="showResult(q) && q.check_status === 'suspect'" class="check-note warn">
+          <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
+          <span>参考答案可能有误：{{ q.check_detail }}（只是提醒，仍可照常发布）</span>
+        </p>
+      </div>
+      <div class="form-row">
+        <label>标准解题步骤（选填，每行一步，含第一步原式，供批改参考）</label>
+        <div class="symbol-bar" role="group" aria-label="数学符号">
+          <button
+            v-for="s in STEP_SYMBOLS"
+            :key="s.label"
+            type="button"
+            class="symbol-btn"
+            :title="`插入 ${s.label}`"
+            @click="insertStepSymbol(q, s)"
+          >{{ s.label }}</button>
+        </div>
+        <textarea :ref="(el) => setStepsRef(q, el)" v-model="q.standard_steps_text" rows="5" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
+        <p class="hint" style="margin-top: 8px">标准步骤是批改的参照系，写得越完整，步骤诊断越准。</p>
       </div>
     </div>
 
@@ -277,6 +306,7 @@
           <label>小题题干</label>
           <textarea v-model="sub.prompt" rows="2" placeholder="例如：求斜边的长"></textarea>
         </div>
+        <!-- v0.13.2：与普通题同版式——知识点 / 分值占比 / 参考答案一行，步骤整行在下 -->
         <div class="grid-q-meta">
           <div class="form-row">
             <label>知识点</label>
@@ -294,7 +324,7 @@
             </div>
           </div>
           <div class="form-row">
-            <label>分值占比（占总分的百分比）</label>
+            <label>分值占比（占总分 %）</label>
             <div class="score-input-row">
               <input
                 v-model.number="sub.weight_pct"
@@ -302,48 +332,49 @@
                 class="score-input" placeholder="均分"
               />
               <span class="hint">
-                % · 本题满分约 {{ fmtScore(questionMax(sub)) }} 分<template v-if="sub.weight_pct === null || sub.weight_pct === undefined">（留空按题数均分）</template>
+                % · 满分约 {{ fmtScore(questionMax(sub)) }} 分<template v-if="sub.weight_pct === null || sub.weight_pct === undefined">（留空均分）</template>
               </span>
             </div>
           </div>
-        </div>
-        <div class="grid-q-body">
           <div class="form-row">
-            <label>标准解题步骤（选填，每行一步）</label>
-            <div class="symbol-bar" role="group" aria-label="数学符号">
-              <button
-                v-for="s in STEP_SYMBOLS"
-                :key="s.label"
-                type="button"
-                class="symbol-btn"
-                :title="`插入 ${s.label}`"
-                @click="insertStepSymbol(sub, s)"
-              >{{ s.label }}</button>
-            </div>
-            <textarea :ref="(el) => setStepsRef(sub, el)" v-model="sub.standard_steps_text" rows="5" placeholder="c²=a²+b²&#10;c²=3²+4²&#10;c²=25&#10;c=5"></textarea>
-          </div>
-          <div class="form-row">
-            <div class="answer-label-row">
-              <label>参考答案（选填）</label>
+            <label>参考答案（选填）</label>
+            <div class="kp-row">
+              <input v-model="sub.reference_answer" type="text" placeholder="例如：c=5" />
               <button
                 type="button"
                 class="btn small secondary inline-icon"
                 :disabled="sub.check_status === 'checking' || !sub.prompt.trim() || !sub.reference_answer.trim()"
+                :title="sub.reference_answer.trim() ? '用 AI 验算参考答案' : '先填参考答案，再验算'"
                 @click="checkOne(sub)"
               >
                 <AppIcon name="sparkles" :size="13" /> {{ sub.check_status === 'checking' ? '验算中…' : 'AI 验算' }}
               </button>
             </div>
-            <input v-model="sub.reference_answer" type="text" placeholder="例如：c=5" />
-            <p v-if="sub.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
-            <p v-else-if="showResult(sub) && sub.check_status === 'ok'" class="check-note ok" :title="sub.check_detail">
-              <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
-            </p>
-            <p v-else-if="showResult(sub) && sub.check_status === 'suspect'" class="check-note warn">
-              <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
-              <span>参考答案可能有误：{{ sub.check_detail }}（只是提醒，仍可照常发布）</span>
-            </p>
           </div>
+        </div>
+        <div v-if="sub.check_status === 'checking' || (showResult(sub) && (sub.check_status === 'ok' || sub.check_status === 'suspect'))" class="check-notes">
+          <p v-if="sub.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
+          <p v-else-if="showResult(sub) && sub.check_status === 'ok'" class="check-note ok" :title="sub.check_detail">
+            <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
+          </p>
+          <p v-else-if="showResult(sub) && sub.check_status === 'suspect'" class="check-note warn">
+            <span class="check-ic"><AppIcon name="alert" :size="13" /></span>
+            <span>参考答案可能有误：{{ sub.check_detail }}（只是提醒，仍可照常发布）</span>
+          </p>
+        </div>
+        <div class="form-row">
+          <label>标准解题步骤（选填，每行一步）</label>
+          <div class="symbol-bar" role="group" aria-label="数学符号">
+            <button
+              v-for="s in STEP_SYMBOLS"
+              :key="s.label"
+              type="button"
+              class="symbol-btn"
+              :title="`插入 ${s.label}`"
+              @click="insertStepSymbol(sub, s)"
+            >{{ s.label }}</button>
+          </div>
+          <textarea :ref="(el) => setStepsRef(sub, el)" v-model="sub.standard_steps_text" rows="5" placeholder="c²=a²+b²&#10;c²=3²+4²&#10;c²=25&#10;c=5"></textarea>
         </div>
       </div>
       <button type="button" class="btn secondary small inline-icon" @click="g.subs.push(blankQuestion())">
@@ -412,6 +443,7 @@ const step = ref<'choose' | 'form'>('choose')
 function chooseMode(m: 'online' | 'offline') {
   mode.value = m
   step.value = 'form'
+  nowMin.value = localNowStr() // 进表单时刷新截止时间下限
   router.replace({ query: { ...route.query, mode: m } })
   window.scrollTo({ top: 0 })
 }
@@ -439,6 +471,28 @@ const blankGroup = (): GroupForm => ({ stem: '', subs: [blankQuestion()] })
 function addGroup() {
   groups.value.push(blankGroup())
 }
+
+// ---------- v0.13.2：作业说明折叠 + 输入框自适应高度；截止时间下限 ----------
+const descOpen = ref(false)
+const descRef = ref<HTMLTextAreaElement | null>(null)
+/** 说明输入框随文案变长自动长高（上限后内部滚动，避免无限撑长页面） */
+function growDesc() {
+  const ta = descRef.value
+  if (!ta) return
+  ta.style.height = 'auto'
+  ta.style.height = `${Math.min(ta.scrollHeight + 2, 242)}px`
+}
+function toggleDesc() {
+  descOpen.value = !descOpen.value
+  if (descOpen.value) void nextTick(growDesc)
+}
+/** datetime-local 的 min 值：本地时间的当前时刻，早于它的时间在选择器里禁选 */
+function localNowStr(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+const nowMin = ref(localNowStr())
 /** 全部题目表单（普通题 + 各大题的小题），校验/分值口径统一走这份名单 */
 const allForms = computed(() => [...questions.value, ...groups.value.flatMap((g) => g.subs)])
 const submitting = ref(false)
@@ -602,6 +656,14 @@ function insertStepSymbol(q: QuestionForm, s: StepSymbol) {
 // ---------- 练习册知识库（v0.5.0） ----------
 const workbooks = ref<Workbook[]>([])
 const workbookId = ref<number | ''>('')
+const shelfOpen = ref(false)   // v0.13.3：书架选书面板开关（书本只在面板里陈列）
+
+/** 书架里点选一本：选中即关面板，按钮上回显书名 */
+function pickWorkbook(w: Workbook) {
+  workbookId.value = w.id
+  confirmDeleteWb.value = false
+  shelfOpen.value = false
+}
 const pageRange = ref('')
 const deadline = ref('')
 const wbFileRef = ref<HTMLInputElement | null>(null)
@@ -638,6 +700,7 @@ async function onWorkbookFile(e: Event) {
     workbooks.value.unshift(wb)
     workbookId.value = wb.id
     confirmDeleteWb.value = false
+    shelfOpen.value = false // 上传成功即选中并关掉书架面板
   } catch (err) {
     error.value = '练习册上传失败：' + errMsg(err, '请稍后重试。')
     console.error(err)
@@ -704,8 +767,9 @@ async function extractFromPdf() {
       if (draft.knowledge_point) q.knowledge_point = draft.knowledge_point
       q.recognized = true
     }
+    distributeEvenly() // v0.13.3：识别进来的题先自动均分，教师再按需调整
     extractNote.value =
-      `已从第 ${data.pages.join('、')} 页识别出 ${data.questions.length} 道题，填到下方题目卡里了，请逐题检查修改后再发布。` +
+      `已从第 ${data.pages.join('、')} 页识别出 ${data.questions.length} 道题，填到下方题目卡里了，分值已先自动均分，请逐题检查修改后再发布。` +
       (data.warnings.length ? `（${data.warnings.join(' ')}）` : '')
   } catch (err) {
     error.value = '自动识别失败：' + errMsg(err, '请稍后重试，或用拍照补录。')
@@ -768,6 +832,8 @@ async function onPhotoChange(e: Event) {
     if (res.question_text) q.prompt = res.question_text
     if (res.steps?.length) q.standard_steps_text = res.steps.join('\n')
     q.recognized = true
+    // v0.13.3：拍照追加的题先自动均分（单题拍照只改本题内容、题数不变，不重排分值）
+    if (appendMode) distributeEvenly()
   } catch (err: unknown) {
     error.value = '照片识别失败：' + errMsg(err, '请稍后重试。')
     console.error(err)
@@ -781,6 +847,11 @@ async function submit() {
   error.value = ''
   if (!title.value.trim()) {
     error.value = '请填写作业标题。'
+    return
+  }
+  // v0.13.2：截止时间不能早于当前时间（选择器的 min 只是禁选，手输/粘贴仍要拦一道）
+  if (deadline.value && new Date(deadline.value).getTime() <= Date.now()) {
+    error.value = '截止时间不能早于当前时间，请重新选择截止时间。'
     return
   }
   if (mode.value === 'offline') {
@@ -941,13 +1012,20 @@ onMounted(async () => {
   padding: 6px 13px; border-radius: 999px;
 }
 /* ---------- 表单布局：按实际位置并排，不再逐行堆叠 ---------- */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.grid-q-meta { display: grid; grid-template-columns: 1fr 330px; gap: 14px; margin-bottom: 14px; }
-.grid-q-body { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
-.grid-2 .form-row, .grid-q-meta .form-row, .grid-q-body .form-row { margin-bottom: 0; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1.1fr 1.3fr; gap: 14px; margin-bottom: 14px; }
+.grid-q-meta { display: grid; grid-template-columns: 1.5fr 1fr 1.3fr; gap: 14px; margin-bottom: 14px; }
+.grid-3 .form-row, .grid-q-meta .form-row { margin-bottom: 0; }
 @media (max-width: 760px) {
-  .grid-2, .grid-q-meta, .grid-q-body { grid-template-columns: 1fr; }
+  .grid-3, .grid-q-meta { grid-template-columns: 1fr; }
 }
+/* ---------- v0.13.2：选填折叠行 / 说明自适应高度 / 验算提示整行 ---------- */
+.opt-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+.opt-row .revision-check { min-height: 0; }
+.opt-dot { background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
+.desc-area textarea { overflow-y: auto; resize: none; transition: height .18s ease; }
+.revision-hint { margin: -4px 0 14px; line-height: 1.6; }
+.check-notes { margin: -6px 0 12px; }
+.check-notes .check-note { margin-top: 0; }
 /* ---------- 输入控件统一样式（全局裸样式太素，含 number/datetime 的补齐） ---------- */
 .publish-page input[type='text'], .publish-page input[type='number'],
 .publish-page input[type='datetime-local'], .publish-page textarea, .publish-page select {
@@ -992,11 +1070,38 @@ onMounted(async () => {
 .mode-card.active .mode-icon { background: var(--primary); color: #fff; }
 .mode-name { font-size: 16px; font-weight: 700; }
 .mode-desc { font-size: 13px; color: var(--text-2); line-height: 1.55; }
-.wb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.wb-row select { flex: 1 1 220px; width: auto; }
-.wb-row a.btn { text-decoration: none; }
-/* 练习册封面缩略图条（v0.6.0） */
-.wb-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+/* ---------- v0.13.3：选书按钮与页码同行 / 书架选书面板 ---------- */
+.wb-pick-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.wb-pick-row .form-row { margin-bottom: 0; }
+@media (max-width: 760px) { .wb-pick-row { grid-template-columns: 1fr; } }
+.wb-pick-btn {
+  width: 100%; display: flex; align-items: center; gap: 9px;
+  padding: 10px 12px; cursor: pointer; font-family: var(--font); font-size: 14px; color: var(--text);
+  background: #FBFCFF; border: 1.5px solid #D9E1F2; border-radius: 10px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.wb-pick-btn:hover, .wb-pick-btn:focus-visible { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-50); outline: none; }
+.wb-pick-name { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shelf-mask {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(15, 23, 42, .45);
+  display: flex; align-items: center; justify-content: center; padding: 18px;
+  animation: publish-pane-in .25s ease both;
+}
+.shelf-panel {
+  width: min(680px, 100%); max-height: 82vh; overflow-y: auto;
+  background: var(--card); border-radius: 16px; padding: 18px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .3);
+}
+.shelf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.shelf-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+.shelf-thumb { width: 108px; padding: 8px 8px 7px; }
+.shelf-thumb img { width: 62px; height: 83px; }
+.shelf-thumb .wb-thumb-spine { width: 62px; height: 83px; }
+.shelf-thumb .wb-thumb-name { max-width: 92px; font-size: 12px; }
+.shelf-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; border-top: 1px dashed var(--border); padding-top: 14px; }
+.shelf-actions a.btn { text-decoration: none; }
+/* 练习册封面缩略图（v0.6.0，现仅用于书架面板） */
 .wb-thumb {
   width: 76px; padding: 6px 6px 5px; cursor: pointer; font-family: var(--font); color: var(--text);
   background: #fff; border: 2px solid #E4E9F2; border-radius: 10px;
@@ -1033,8 +1138,6 @@ onMounted(async () => {
 .weight-bar .btn { margin-left: auto; }
 .offline-photo-card { border: 1px dashed #B7C9F5; background: #FBFCFF; }
 /* 参考答案 AI 验算（v0.9.3） */
-.answer-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.answer-label-row label { margin-bottom: 0; }
 .card.q-suspect { border: 1.5px solid var(--amber); background: #FFFBEB; }
 /* ---------- v0.13.1：允许修改勾选 / 大题 / 标准步骤符号栏 / 过渡动画 ---------- */
 .revision-check {
