@@ -220,7 +220,8 @@
                 <input type="checkbox" v-model="allowRevision" />
                 <span>允许学生在截止前修改已提交的作答</span>
               </label>
-              <p v-if="allowRevision" class="hint" style="margin-top: 6px; line-height: 1.6">勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。不勾选：每道题只能交一次，交完立即批改。</p>
+              <!-- v0.13.6：这段小字一直显示（此前只在勾选后才出现，老师没勾时看不到区别） -->
+              <p class="hint" style="margin-top: 6px; line-height: 1.6">勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。不勾选：每道题只能交一次，交完立即批改。</p>
             </div>
           </div>
         </div>
@@ -510,12 +511,12 @@ function chooseMode(m: 'online' | 'offline') {
   mode.value = m
   step.value = 'form'
   router.replace({ query: { ...route.query, mode: m } })
-  window.scrollTo({ top: 0 })
+  // v0.13.6：不再 scrollTo(0)——点卡时页面停在原地，顶部标题位置一点都不动
 }
 
 function backToChoose() {
   step.value = 'choose'
-  window.scrollTo({ top: 0 })
+  // 同上：不跳滚动位置
 }
 const title = ref('')
 const description = ref('')   // 作业说明（v0.13.1）：两种模式共用，学生端交作业页顶部展示
