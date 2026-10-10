@@ -29,7 +29,7 @@ class Settings:
     CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3.8-27b").strip()
     # 视觉（拍照转写）模型。仅 CloudflareProvider 使用；其余 Provider 降级为 Mock 转写。
     CLOUDFLARE_VISION_MODEL: str = os.getenv(
-        "CLOUDFLARE_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct").strip()
+        "CLOUDFLARE_VISION_MODEL", "@cf/moondream/moondream3.1-9B-A2B").strip()
 
     # 拍照上传的图片本地存放目录（默认 backend/uploads/）。只存文件，不落库。
     UPLOAD_DIR: str = os.getenv(
@@ -43,7 +43,7 @@ class Settings:
     # CORS。默认放行所有来源方便前端 dev server 联调；生产请收紧。
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    APP_VERSION: str = "0.13.6"
+    APP_VERSION: str = "0.13.7"
 
 
 settings = Settings()
