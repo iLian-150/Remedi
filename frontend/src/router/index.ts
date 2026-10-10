@@ -64,7 +64,12 @@ const routes: RouteRecordRaw[] = [
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
+  // v0.13.6：换页恒回顶部——此前没配 scrollBehavior，从长页面点进发布页会停在原来的
+  // 滚动位置上，顶部标题看起来「变了位置」；回顶部后每次进来位置都一致。
+  // 但同页内的 query 变化（如发布页选模式时 replace ?mode=）不许动滚动位置，
+  // 否则点一下模式卡标题又会跳——按 path 是否变化区分这两种情况。
+  scrollBehavior: (to, from) => (to.path === from.path ? false : { top: 0 })
 })
 
 // 路由守卫：未登录强制回登录页；角色不匹配时跳到各自首页
