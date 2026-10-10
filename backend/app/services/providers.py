@@ -410,61 +410,94 @@ class CloudflareProvider(DeepSeekProvider):
     """
 
     def __init__(self, account_id: str, api_token: str, model: str,
-                 vision_model: str = "@cf/meta/llama-3.2-11b-vision-instruct"):
+                 vision_model: str = "@cf/moondream/moondream3.1-9B-A2B"):
         if not account_id or not api_token:
             raise RuntimeError("未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN")
         base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
         super().__init__(api_key=api_token, base_url=base_url, model=model)
         self.vision_model = vision_model
+        self.account_id = account_id
+
+    def _vision_text(self, data_url: str, system_text: str, prompt: str,
+                     timeout: int) -> str:
+        """视觉调用分流（v0.13.7）：统一返回模型的文本输出，JSON 解析由调用方做。
+
+        - Moondream 3.1 不走 OpenAI 兼容的 /chat/completions，而是 Workers AI 的
+          任务式接口 POST /ai/run/{model}，入参 {task:"query", image:<data URI>,
+          question:<指令>, reasoning:false}，文本结果在 result.answer 里。
+        - 其余聊天式视觉模型（如 llama 系列）继续走原来的 /chat/completions。
+        """
+        import requests
+        if "moondream" in self.vision_model:
+            resp = requests.post(
+                "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}".format(
+                    self.account_id, self.vision_model),
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "task": "query",
+                    "image": data_url,
+                    "question": f"{system_text}\n{prompt}",
+                    "reasoning": False,
+                    "temperature": 0.1,
+                    "max_tokens": 4096,
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            answer = (payload.get("result") or {}).get("answer")
+            if not answer:
+                raise RuntimeError(f"Moondream 未返回 answer: {str(payload)[:200]}")
+            return str(answer)
+        resp = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={
+                "model": self.vision_model,
+                "temperature": 0.1,
+                "messages": [
+                    {"role": "system", "content": system_text},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": data_url}},
+                        ],
+                    },
+                ],
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
 
     def transcribe_image(self, image_bytes: bytes, content_type: str,
                          question_context: str = "", question_only: bool = False) -> Dict:
         """视觉模型直接读取作答原图，并报告识别把握和作答证据。
         解析失败/请求异常时降级为 Mock 转写（沿用全站降级风格，流程不中断）。"""
         try:
-            import requests
             data_url = "data:{};base64,{}".format(
                 content_type or "image/jpeg",
                 base64.b64encode(image_bytes).decode("ascii"),
             )
-            resp = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "model": self.vision_model,
-                    "temperature": 0.1,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "你是作业照片理解助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
-                        },
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": (
-                                        "请直接阅读这张作业原图，识别题目和学生作答。"
-                                        f"已知题目参考：{question_context or '请从图片识别题目'}。"
-                                        f"当前是{'自由上传题答疑' if question_only else '作业作答识别'}，请只按图片里的实际笔迹判断是否存在学生作答。"
-                                        "题目放进 question_text；学生的作答步骤按顺序逐行放进 steps，steps 不要包含题干。"
-                                        "数学公式用纯文本，如 2x+3=7、x=5，不要用 LaTeX。"
-                                        "若图片模糊、裁切或无法可靠辨认，needs_image_review=true；"
-                                        "若只有题目、没有学生作答，student_work_detected=false 且 steps 为空。"
-                                        "confidence 为识别把握，取 0 到 1。"
-                                        '只输出 JSON：{"question_text":"...","steps":["..."],'
-                                        '"student_work_detected":true,"needs_image_review":false,"confidence":0.9}'
-                                    ),
-                                },
-                                {"type": "image_url", "image_url": {"url": data_url}},
-                            ],
-                        },
-                    ],
-                },
+            prompt = (
+                "请直接阅读这张作业原图，识别题目和学生作答。"
+                f"已知题目参考：{question_context or '请从图片识别题目'}。"
+                f"当前是{'自由上传题答疑' if question_only else '作业作答识别'}，请只按图片里的实际笔迹判断是否存在学生作答。"
+                "题目放进 question_text；学生的作答步骤按顺序逐行放进 steps，steps 不要包含题干。"
+                "数学公式用纯文本，如 2x+3=7、x=5，不要用 LaTeX。"
+                "若图片模糊、裁切或无法可靠辨认，needs_image_review=true；"
+                "若只有题目、没有学生作答，student_work_detected=false 且 steps 为空。"
+                "confidence 为识别把握，取 0 到 1。"
+                '只输出 JSON：{"question_text":"...","steps":["..."],'
+                '"student_work_detected":true,"needs_image_review":false,"confidence":0.9}'
+            )
+            content = self._vision_text(
+                data_url,
+                "你是作业照片理解助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
+                prompt,
                 timeout=60,
             )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
             data = self._extract_json(content)
             steps = [str(s).strip() for s in data.get("steps", []) if str(s).strip()]
             question_text = str(data.get("question_text", "")).strip()
@@ -492,7 +525,6 @@ class CloudflareProvider(DeepSeekProvider):
         一页多题全部提取、按页面顺序返回。异常时降级为基类示例草稿并记日志
         （与全站降级风格一致，草稿带前缀不会被误认为真识别）。"""
         try:
-            import requests
             data_url = "data:{};base64,{}".format(
                 content_type or "image/jpeg",
                 base64.b64encode(image_bytes).decode("ascii"),
@@ -506,30 +538,12 @@ class CloudflareProvider(DeepSeekProvider):
             if hint:
                 prompt += f"老师给的范围提示：{hint}，优先提取这些题。"
             prompt += '只输出 JSON：{"questions":[{"prompt":"...","knowledge_point":"..."}]}。这一页没有题目就输出 {"questions":[]}。'
-            resp = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "model": self.vision_model,
-                    "temperature": 0.1,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "你是练习册题目提取助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
-                        },
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": data_url}},
-                            ],
-                        },
-                    ],
-                },
+            content = self._vision_text(
+                data_url,
+                "你是练习册题目提取助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
+                prompt,
                 timeout=90,
             )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
             data = self._extract_json(content)
             out: List[Dict] = []
             for item in data.get("questions", []) or []:
