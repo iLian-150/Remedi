@@ -410,7 +410,7 @@ class CloudflareProvider(DeepSeekProvider):
     """
 
     def __init__(self, account_id: str, api_token: str, model: str,
-                 vision_model: str = "@cf/moondream/moondream3.1-9B-A2B"):
+                 vision_model: str = "@cf/qwen/qwen3.8-27b"):
         if not account_id or not api_token:
             raise RuntimeError("未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN")
         base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
