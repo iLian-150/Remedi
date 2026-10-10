@@ -143,7 +143,7 @@
         <input v-model="title" type="text" :placeholder="mode === 'offline' ? '例如：练习册 P12-14 勾股定理练习' : '例如：第二周数学作业'" maxlength="128" />
       </div>
       <!-- v0.13.4：学科 / 总分 / 时间限制并到同一行；时间限制点开是自制日历面板，
-           「允许学生修改」与「备注」都收在面板里（见下方 time-panel） -->
+           「允许学生修改」收在面板里（见下方 time-panel）；作业说明是独立折叠按钮 -->
       <div class="grid-3">
         <div class="form-row">
           <label>学科</label>
@@ -163,14 +163,13 @@
           <button type="button" class="time-field" :aria-expanded="timeOpen" @click="toggleTime">
             <AppIcon name="calendar" :size="16" />
             <span class="time-field-text">{{ deadline ? deadlineText : '不设截止，点此设置' }}</span>
-            <span v-if="description.trim()" class="opt-dot">已填备注</span>
             <AppIcon :name="timeOpen ? 'chevron-down' : 'chevron-right'" :size="15" />
           </button>
         </div>
       </div>
       <!-- v0.13.4：时间限制面板——自制日历选日 + 时分选择（不用系统自带日期框，
            外面只显示「10月15日 周三 22:00 截止」这样的友好文案）；
-           「允许学生修改」与「备注（作业说明）」按新逻辑都收在这个面板里 -->
+           「允许学生修改」收在这个面板里（作业说明已于 v0.13.5 拎出为独立折叠按钮） -->
       <div v-if="timeOpen" class="time-panel">
         <div class="time-grid">
           <div class="cal">
@@ -223,21 +222,28 @@
               </label>
               <p v-if="allowRevision" class="hint" style="margin-top: 6px; line-height: 1.6">勾选后：截止前可反复修改，AI 先不批改，到截止时间按每题最后一次提交统一批改（请同时设置截止时间；没设截止则仍是立即批改）。不勾选：每道题只能交一次，交完立即批改。</p>
             </div>
-            <div class="form-row" style="margin-bottom: 0">
-              <label>备注（作业说明，选填）</label>
-              <textarea
-                ref="descRef"
-                v-model="description"
-                rows="2"
-                maxlength="2000"
-                class="desc-textarea"
-                placeholder="例如：独立完成，写清每一步的依据；第 3 题可以用两种方法。"
-                @input="growDesc"
-              ></textarea>
-              <p class="hint" style="margin-top: 6px">会显示在学生端交作业页顶部；写得越长，输入框会自动长高。</p>
-            </div>
           </div>
         </div>
+      </div>
+      <!-- v0.13.5：作业说明从时间面板里拎出来，恢复独立的折叠按钮（点开才出现，
+           输入框随文案自动长高）；时间面板只管截止与允许修改 -->
+      <div class="desc-row">
+        <button type="button" class="btn small secondary inline-icon" :aria-expanded="descOpen" @click="toggleDesc">
+          <AppIcon name="edit" :size="14" /> 作业说明（选填）
+          <span v-if="description.trim()" class="opt-dot">已填</span>
+          <AppIcon :name="descOpen ? 'chevron-down' : 'chevron-right'" :size="14" />
+        </button>
+      </div>
+      <div v-if="descOpen" class="form-row desc-area">
+        <textarea
+          ref="descRef"
+          v-model="description"
+          rows="2"
+          maxlength="2000"
+          placeholder="例如：独立完成，写清每一步的依据；第 3 题可以用两种方法。"
+          @input="growDesc"
+        ></textarea>
+        <p class="hint" style="margin-top: 6px">会显示在学生端交作业页顶部；写得越长，输入框会自动长高。</p>
       </div>
     </div>
 
@@ -535,12 +541,17 @@ function addGroup() {
 // deadline 仍存 'YYYY-MM-DDTHH:mm' 字符串（提交与校验口径不变），只是录入换成
 // 自制日历、展示换成友好文案，不再露系统日期框的 yyyy 占位格式。
 const descRef = ref<HTMLTextAreaElement | null>(null)
-/** 备注输入框随文案变长自动长高（上限后内部滚动，避免无限撑长页面） */
+/** 作业说明输入框随文案变长自动长高（上限后内部滚动，避免无限撑长页面） */
 function growDesc() {
   const ta = descRef.value
   if (!ta) return
   ta.style.height = 'auto'
   ta.style.height = `${Math.min(ta.scrollHeight + 2, 242)}px`
+}
+const descOpen = ref(false)   // v0.13.5：作业说明独立折叠按钮（已从时间面板拎出）
+function toggleDesc() {
+  descOpen.value = !descOpen.value
+  if (descOpen.value) void nextTick(growDesc)
 }
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const timeOpen = ref(false)
@@ -1204,7 +1215,8 @@ onMounted(async () => {
 }
 .quick-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
 .deadline-warn { margin-top: 8px; font-size: 12.5px; color: #92400E; }
-.desc-textarea { overflow-y: auto; resize: none; transition: height .18s ease; }
+.desc-row { margin-bottom: 14px; }
+.desc-area textarea { overflow-y: auto; resize: none; transition: height .18s ease; }
 .check-notes { margin: -6px 0 12px; }
 .check-notes .check-note { margin-top: 0; }
 /* ---------- 输入控件统一样式（全局裸样式太素，含 number/datetime 的补齐） ---------- */
