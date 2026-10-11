@@ -36,12 +36,19 @@
           <div class="mistake-reference-line"><span>题目</span><p>{{ mistake.question_stem || '题目内容暂未记录' }}</p></div>
           <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 <AppIcon name="arrow-right" :size="12"/></a>
           <div v-if="mistake.step_text" class="mistake-reference-line is-error"><span>错误作答</span><p>{{ mistake.step_text }}</p></div>
-          <div v-if="mistake.source_kind !== 'student_saved'" class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
           <div class="mistake-point-reason"><strong>{{ mistake.source_kind === 'student_saved' ? '复习提示' : '错因分析' }}</strong><p>{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</p></div>
-          <section v-if="mistake.solution_steps?.length" class="mistake-solution" aria-label="解题过程">
-            <strong>解题过程</strong>
-            <ol><li v-for="(step, index) in mistake.solution_steps" :key="`${index}-${step}`"><span>{{ index + 1 }}</span><p>{{ step }}</p></li></ol>
-          </section>
+          <!-- v0.13.10：正确答案与解题过程不直接给（用户口径）——先自己想，
+               点开才显示；切换错题时自动收起 -->
+          <template v-if="mistake.source_kind !== 'student_saved'">
+            <button v-if="!answerRevealed" type="button" class="mistake-answer-reveal" @click="answerRevealed = true">自己先想一想，想看时点这里：查看正确答案与解题过程</button>
+            <template v-else>
+              <div class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
+              <section v-if="mistake.solution_steps?.length" class="mistake-solution" aria-label="解题过程">
+                <strong>解题过程</strong>
+                <ol><li v-for="(step, index) in mistake.solution_steps" :key="`${index}-${step}`"><span>{{ index + 1 }}</span><p>{{ step }}</p></li></ol>
+              </section>
+            </template>
+          </template>
           <div v-if="mistake.latest_correction?.content" class="mistake-reference-line correction" :class="mistake.latest_correction.is_correct === true ? 'is-correct' : mistake.latest_correction.is_correct === false ? 'is-error' : 'is-revision'"><span>{{ mistake.latest_correction.is_correct === true ? '正确写法' : mistake.latest_correction.is_correct === false ? '订正尝试' : '订正记录' }}</span><p>{{ mistake.latest_correction.content }}</p></div>
         </div>
         <small>{{ mistake.source_kind === 'student_saved' ? '由你主动加入错题本' : `来自 ${mistake.assignment_title}` }}</small>
@@ -118,12 +125,15 @@ const messages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([])
 const sending = ref(false)
 const summaryCollapsed = ref(false)
 const error = ref('')
+/** v0.13.10：正确答案/解题过程默认不展示，学生点开才看；换一道错题自动收起 */
+const answerRevealed = ref(false)
 
 watch(() => props.mistake.id, () => {
   question.value = ''
   messages.value = []
   error.value = ''
   summaryCollapsed.value = false
+  answerRevealed.value = false
 })
 
 function subjectName(value: string) {
@@ -187,6 +197,8 @@ async function sendQuestion() {
 .mistake-solution li > span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-50); font-size: 11px; font-weight: 700; }
 .mistake-solution li p { margin: 1px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .mistake-capture-image-link { display: inline-flex; align-items: center; gap: 3px; margin: 6px 0 10px; color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
+.mistake-answer-reveal { margin: 10px 0 2px; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: 9px; background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; }
+.mistake-answer-reveal:hover { border-color: var(--primary); background: var(--primary-50); }
 .mistake-point-transcript { overflow-y: auto; }
 .mistake-point-message p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mistake-point-composer textarea { resize: vertical; }
