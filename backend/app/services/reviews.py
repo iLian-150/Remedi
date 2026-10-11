@@ -17,15 +17,31 @@ REVIEW_THRESHOLD = 0.60
 
 def create_pending_review(db: Session, submission: Submission) -> SubmissionReview:
     """实时批改入口产生新提交后调用：建一条 pending 审核行（幂等，已有行不覆盖）。"""
-    row = db.query(SubmissionReview).filter(
-        SubmissionReview.submission_id == submission.id
-    ).first()
-    if row is None:
-        row = SubmissionReview(submission_id=submission.id, status=PENDING)
-        db.add(row)
+    return create_pending_reviews(db, [submission])[submission.id]
+
+
+def create_pending_reviews(
+    db: Session, submissions: Iterable[Submission]
+) -> dict[int, SubmissionReview]:
+    """幂等地为多条提交建待审行，只做一次查询和一次提交。"""
+    unique_submissions = {item.id: item for item in submissions if item.id is not None}
+    if not unique_submissions:
+        return {}
+
+    existing_rows = db.query(SubmissionReview).filter(
+        SubmissionReview.submission_id.in_(unique_submissions)
+    ).all()
+    rows_by_id = {row.submission_id: row for row in existing_rows}
+    added = False
+    for submission_id in unique_submissions:
+        if submission_id not in rows_by_id:
+            row = SubmissionReview(submission_id=submission_id, status=PENDING)
+            db.add(row)
+            rows_by_id[submission_id] = row
+            added = True
+    if added:
         db.commit()
-        db.refresh(row)
-    return row
+    return rows_by_id
 
 
 def visual_confidence_signals(image_confidence, visual_steps) -> List[float]:
@@ -160,16 +176,17 @@ def create_review_if_needed(db: Session, submission: Submission,
         db, submission, confidence_signals, assignment_context=assignment_context
     ):
         return None
-    row = create_pending_review(db, submission)
-
+    submissions_to_review = [submission]
     if assignment_context:
         latest_submissions, correct, total, complete = assignment_context
         if complete and total > 0 and correct / total < REVIEW_THRESHOLD:
             # 作业整体低于阈值时，把该学生本学科各题的最新提交一起送审，
             # 教师窗口能看到完整作业，卡片正确率也按整份作业计算。
-            for item in latest_submissions:
-                create_pending_review(db, item)
-    return row
+            submissions_to_review = list(latest_submissions)
+            if all(item.id != submission.id for item in submissions_to_review):
+                submissions_to_review.append(submission)
+    rows_by_id = create_pending_reviews(db, submissions_to_review)
+    return rows_by_id[submission.id]
 
 
 def review_status(db: Session, submission_id: int) -> str:
