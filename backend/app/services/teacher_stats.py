@@ -3,6 +3,8 @@
 # 一份作业「全部完成」= 作业内每道题都已提交。
 from typing import Dict, List, Optional
 
+from sqlalchemy import func
+
 from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
 
 
@@ -104,23 +106,42 @@ def class_overview(db) -> Dict:
 def uncorrected_overview(db) -> List[Dict]:
     """订正未完成概览：每位学生「出错但尚无一条订正正确」的错题数，降序。
     口径与学生简报的待订正判定一致（corrections 里没有 is_correct=True 即未完成）。"""
-    fixed_ids = {
-        c.error_id
-        for c in db.query(Correction).filter(Correction.is_correct.is_(True)).all()
+    students = _students(db)
+    student_ids = [student.id for student in students]
+    if not student_ids:
+        return []
+
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == Submission.student_id,
+        Correction.is_correct.is_(True),
+    ).exists()
+    pending_query = (
+        db.query(Submission.student_id, Error.knowledge_point)
+        .join(Error, Error.submission_id == Submission.id)
+        .filter(Submission.student_id.in_(student_ids), ~has_correct_correction)
+    )
+    counts_by_student = {
+        student_id: count
+        for student_id, count in pending_query.with_entities(
+            Submission.student_id, func.count(Error.id)
+        ).group_by(Submission.student_id).all()
     }
-    rows = []
-    for st in _students(db):
-        sub_ids = [s.id for s in db.query(Submission).filter(Submission.student_id == st.id).all()]
-        if not sub_ids:
-            continue
-        errs = db.query(Error).filter(Error.submission_id.in_(sub_ids)).all()
-        pending = [e for e in errs if e.id not in fixed_ids]
-        if pending:
-            rows.append({
-                "student_id": st.id,
-                "student_name": st.name,
-                "uncorrected_count": len(pending),
-                "knowledge_points": sorted({e.knowledge_point for e in pending}),
-            })
-    rows.sort(key=lambda x: x["uncorrected_count"], reverse=True)
+    knowledge_points_by_student: Dict[int, set] = {}
+    for student_id, knowledge_point in pending_query.with_entities(
+        Submission.student_id, Error.knowledge_point
+    ).distinct().all():
+        knowledge_points_by_student.setdefault(student_id, set()).add(knowledge_point)
+
+    rows = [
+        {
+            "student_id": student.id,
+            "student_name": student.name,
+            "uncorrected_count": counts_by_student[student.id],
+            "knowledge_points": sorted(knowledge_points_by_student.get(student.id, set())),
+        }
+        for student in students
+        if counts_by_student.get(student.id, 0)
+    ]
+    rows.sort(key=lambda row: row["uncorrected_count"], reverse=True)
     return rows
