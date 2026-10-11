@@ -62,7 +62,7 @@
                 <button v-for="(subject, index) in subjects" :key="subject.key" class="mistake-network-node subject-node" :class="{ selected: subjectExpanded && subject.key === activeSubject?.key }" type="button" :style="{ ...pointStyle(subjectPoints[index]), '--accent': subjectColor(index) }" @click="selectSubject(subject.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ subject.label }}</strong><small>{{ subject.topics.length }} 个知识点 · {{ subject.recordCount }} 条错题</small></button>
                 <template v-if="subjectExpanded && activeSubject"><button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-network-node topic-node knowledge-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(topicPoints[index]), '--accent': activeColor }" @click="selectTopic(topic.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ topic.label }}</strong><small>{{ topic.entries.length }} 条错题 · {{ topic.errorPoints.length }} 个错误点{{ topic.studied ? ' · 已学完' : '' }}</small></button></template>
                 <template v-if="activeTopic"><button v-for="(point, index) in activeTopic.errorPoints" :key="point.key" class="mistake-network-node leaf-node" :class="{ studied: point.studied, selected: point.key === selectedPointKey }" type="button" :style="{ ...pointStyle(pointPoints[index]), '--accent': activeColor }" @click="openPoint(point)"><strong>{{ point.label }}</strong><small>{{ point.entries.length }} 道相关错题 · <span v-if="point.studied">已学会</span><span v-else>查看问答 <AppIcon name="arrow-up-right" :size="11"/></span></small></button></template>
-                <div class="mistake-network-hub" :style="pointStyle(hub)"><span>知</span><strong>{{ studentName || '我的' }}</strong><small>{{ recordCount }} 条错题</small></div>
+                <div ref="networkHub" class="mistake-network-hub" :style="pointStyle(hub)"><span>知</span><strong>{{ studentName || '我的' }}</strong><small>{{ recordCount }} 条错题</small></div>
               </div>
             </div>
           </div>
@@ -92,6 +92,7 @@ const selectedTopicKey = ref<string | null>(null)
 const selectedPointKey = ref<string | null>(null)
 const viewport = ref<HTMLElement | null>(null)
 const mapRoot = ref<HTMLElement | null>(null)
+const networkHub = ref<HTMLElement | null>(null)
 const isPanning = ref(false)
 let panStart: { pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null = null
 
@@ -166,6 +167,9 @@ const orbitRings = computed(() => [{ rx: 112, ry: 86 }, { rx: radii.value.subjec
 
 watch(() => props.mode, (mode) => { zoom.value = mode === 'network' ? 0.85 : 1; resetMap() })
 watch(() => props.mistakes.length, () => { if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) resetMap() })
+watch(() => props.mode === 'network' ? subjects.value[0]?.key ?? '' : '', (firstSubjectKey) => {
+  if (firstSubjectKey && !selectedSubjectKey.value) selectedSubjectKey.value = firstSubjectKey
+}, { immediate: true })
 watch(() => [props.mode, props.split, props.mistakes.length, zoom.value, networkWidth.value, networkHeight.value, selectedPointKey.value], () => { void nextTick(centerNetwork) })
 onMounted(() => { void nextTick(centerNetwork) })
 
@@ -218,9 +222,20 @@ function centerNetwork() {
     })
     return
   }
-  const selectedIndex = activeTopic.value?.errorPoints.findIndex((item) => item.key === selectedPointKey.value) ?? -1
-  const target = selectedIndex >= 0 ? pointPoints.value[selectedIndex] : hub.value
-  viewport.value.scrollTo({ left: Math.max(0, target.x * zoom.value - viewport.value.clientWidth / 2), top: Math.max(0, target.y * zoom.value - viewport.value.clientHeight / 2), behavior: 'smooth' })
+  const selectedNode = selectedPointKey.value
+    ? viewport.value.querySelector<HTMLElement>('.mistake-network-node.leaf-node.selected')
+    : null
+  const target = selectedNode || networkHub.value
+  if (!target) return
+  const viewportRect = viewport.value.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const viewportCenterX = viewportRect.left + viewport.value.clientLeft + viewport.value.clientWidth / 2
+  const viewportCenterY = viewportRect.top + viewport.value.clientTop + viewport.value.clientHeight / 2
+  viewport.value.scrollTo({
+    left: viewport.value.scrollLeft + targetRect.left + targetRect.width / 2 - viewportCenterX,
+    top: viewport.value.scrollTop + targetRect.top + targetRect.height / 2 - viewportCenterY,
+    behavior: 'smooth',
+  })
 }
 function selectSubject(key: string) { selectedSubjectKey.value = key; selectedTopicKey.value = null; selectedPointKey.value = null }
 function selectTopic(key: string) { selectedTopicKey.value = key; selectedPointKey.value = null }
