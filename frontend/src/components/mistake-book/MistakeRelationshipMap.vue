@@ -8,7 +8,7 @@
         <button v-for="branch in branches" :key="branch.key" type="button" :class="{ selected: branch.key === selectedSubjectKey }" :aria-pressed="branch.key === selectedSubjectKey" @click="selectSubject(branch.key)"><span class="mistake-map-branch-swatch" :style="{ backgroundColor: branch.color }"/><span>{{ branch.label }}</span><small>{{ branch.recordCount }}</small></button>
       </div>
       <div class="mistake-map-viewport-frame">
-        <div ref="viewport" class="mistake-map-viewport" role="region" aria-label="思维导图画布">
+        <div ref="viewport" class="mistake-map-viewport" :class="{ 'is-panning': isPanning }" role="region" aria-label="思维导图画布" @pointerdown="startPanning" @pointermove="movePanning" @pointerup="stopPanning" @pointercancel="stopPanning" @lostpointercapture="stopPanning">
           <div class="mistake-map-stage" :style="{ width: `${1680 * zoom}px`, height: `${canvasHeight * zoom}px` }">
             <div class="mistake-map-scaled" :style="{ width: `${1680 * zoom}px`, height: `${canvasHeight * zoom}px` }">
               <div class="mistake-map-canvas" :style="{ width: '1680px', height: `${canvasHeight}px`, transform: `scale(${zoom})`, transformOrigin: 'top left' }">
@@ -91,6 +91,8 @@ const selectedSubjectKey = ref<string | null>(null)
 const selectedTopicKey = ref<string | null>(null)
 const selectedPointKey = ref<string | null>(null)
 const viewport = ref<HTMLElement | null>(null)
+const isPanning = ref(false)
+let panStart: { pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null = null
 
 const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', biology: '生物', chinese: '语文', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
 const colors = ['#1D4ED8', '#059669', '#D97706', '#DC2626', '#7C3AED', '#0284C7', '#DB2777', '#65A30D']
@@ -176,6 +178,27 @@ function signalPath(from: Point, to: Point, direction = 1) {
 function curve(from: Point, to: Point, side: 'left' | 'right') { const bend = side === 'left' ? -1 : 1; return `M ${from.x} ${from.y} C ${from.x + bend * 26} ${from.y}, ${to.x - bend * 22} ${to.y}, ${to.x} ${to.y}` }
 function pointStyle(point: Point) { return { left: `${point.x}px`, top: `${point.y}px` } }
 function subjectColor(index: number) { return colors[index % colors.length] }
+function startPanning(event: PointerEvent) {
+  if (!viewport.value || event.button !== 0 || !event.isPrimary) return
+  const target = event.target
+  if (target instanceof Element && target.closest('button, a, input, textarea, select')) return
+  panStart = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, scrollLeft: viewport.value.scrollLeft, scrollTop: viewport.value.scrollTop }
+  isPanning.value = true
+  viewport.value.setPointerCapture(event.pointerId)
+  event.preventDefault()
+}
+function movePanning(event: PointerEvent) {
+  if (!panStart || panStart.pointerId !== event.pointerId || !viewport.value) return
+  viewport.value.scrollLeft = panStart.scrollLeft - (event.clientX - panStart.x)
+  viewport.value.scrollTop = panStart.scrollTop - (event.clientY - panStart.y)
+}
+function stopPanning(event: PointerEvent) {
+  if (!panStart || panStart.pointerId !== event.pointerId) return
+  const pointerId = panStart.pointerId
+  panStart = null
+  isPanning.value = false
+  if (viewport.value?.hasPointerCapture(pointerId)) viewport.value.releasePointerCapture(pointerId)
+}
 function zoomBy(amount: number) { zoom.value = Math.min(1.4, Math.max(props.mode === 'mindmap' ? 0.65 : 0.6, Math.round((zoom.value + amount) * 100) / 100)) }
 function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1; void nextTick(centerNetwork) }
 function centerNetwork() {

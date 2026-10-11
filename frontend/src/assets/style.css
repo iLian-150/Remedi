@@ -387,6 +387,8 @@ table.table tr:hover td { background: #F8FAFF; }
   /* 移动端：FAB 下移到 52px 顶栏下方，避免压住顶栏的菜单/品牌区 */
   .notes-fab, .cal-fab { top: 64px; }
 }
+/* 问答侧栏打开时，把全局提醒入口移出关闭按钮所在的右上角区域。 */
+.app-shell:has(.mistake-point-assistant) .notes-fab { top: 68px; }
 @keyframes badge-pop {
   0% { transform: scale(0.4); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }

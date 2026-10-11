@@ -35,9 +35,9 @@
           </div>
           <div class="mistake-reference-line"><span>题目</span><p>{{ mistake.question_stem || '题目内容暂未记录' }}</p></div>
           <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 <AppIcon name="arrow-right" :size="12"/></a>
-          <div v-if="mistake.step_text" class="mistake-reference-line"><span>作答</span><p>{{ mistake.step_text }}</p></div>
+          <div v-if="mistake.step_text" class="mistake-reference-line is-error"><span>错误作答</span><p>{{ mistake.step_text }}</p></div>
           <div class="mistake-point-summary-markdown">{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</div>
-          <div v-if="mistake.latest_correction?.content" class="mistake-reference-line correction"><span>订正</span><p>{{ mistake.latest_correction.content }}</p></div>
+          <div v-if="mistake.latest_correction?.content" class="mistake-reference-line correction" :class="mistake.latest_correction.is_correct === true ? 'is-correct' : mistake.latest_correction.is_correct === false ? 'is-error' : 'is-revision'"><span>{{ mistake.latest_correction.is_correct === true ? '正确写法' : mistake.latest_correction.is_correct === false ? '订正尝试' : '订正记录' }}</span><p>{{ mistake.latest_correction.content }}</p></div>
         </div>
         <small>{{ mistake.source_kind === 'student_saved' ? '由你主动加入错题本' : `来自 ${mistake.assignment_title}` }}</small>
         <div v-if="mistake.source_kind !== 'student_saved' && related.length > 1" class="mistake-point-related-assignments">
@@ -164,6 +164,13 @@ async function sendQuestion() {
 .mistake-reference-line { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; align-items: start; margin: 9px 0; color: var(--text-3); font-size: 12px; }
 .mistake-reference-line p { margin: 0; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .mistake-reference-line.correction p { color: var(--green); }
+.mistake-reference-line.is-error, .mistake-reference-line.is-correct, .mistake-reference-line.is-revision { grid-template-columns: max-content minmax(0, 1fr); padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; }
+.mistake-reference-line.is-error { border-color: #FECACA; color: #991B1B; background: #FEF2F2; }
+.mistake-reference-line.is-error p { color: #991B1B; }
+.mistake-reference-line.is-correct { border-color: #A7F3D0; color: #065F46; background: #ECFDF5; }
+.mistake-reference-line.is-correct p { color: #065F46; }
+.mistake-reference-line.is-revision { border-color: #FDE68A; color: #92400E; background: #FFFBEB; }
+.mistake-reference-line.is-revision p { color: #92400E; }
 .mistake-point-summary-detail-head span { color: var(--text-3); }
 .mistake-point-summary-detail-head strong { color: var(--green); }
 .mistake-point-summary-markdown { margin-top: 10px; color: var(--text-2); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
