@@ -868,7 +868,7 @@
 
 .remedi-mistake-book .mistake-map-section.is-split, .remedi-mistake-book.mistake-map-section.is-split {
   display: grid;
-  height: calc(100dvh - 88px);
+  height: 100%;
   min-height: 420px;
   grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
   grid-template-areas: "map assistant";
