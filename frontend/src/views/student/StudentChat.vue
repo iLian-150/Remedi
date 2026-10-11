@@ -341,6 +341,16 @@
     <div class="chat-composer" :class="{ 'chat-composer-welcome': isWelcomeScreen }">
       <div class="chat-inner">
         <div class="composer-panel">
+          <div v-if="selectedImage && selectedImageUrl" class="composer-image-preview">
+            <img :src="selectedImageUrl" :alt="selectedImage.name || '待发送图片'" />
+            <div class="composer-image-details">
+              <span>{{ selectedImage.name || '已选择图片' }}</span>
+              <small>点击发送后开始识别</small>
+            </div>
+            <button class="composer-image-remove" type="button" aria-label="移除图片" title="移除图片" :disabled="chatSending" @click="clearSelectedImage">
+              <AppIcon name="x" :size="15" />
+            </button>
+          </div>
           <textarea
             v-model="chatInput"
             class="chat-text-input"
@@ -358,7 +368,7 @@
               </button>
               <span v-if="selectedQuestion" class="composer-context"><AppIcon name="clipboard" :size="13" /> {{ selectedQuestion.stem }}</span>
             </div>
-            <button class="btn send-btn" type="button" aria-label="发送" title="发送" :disabled="chatSending || !chatInput.trim()" @click="sendChat()">
+            <button class="btn send-btn" type="button" :aria-label="selectedImage ? '发送图片' : '发送'" :title="selectedImage ? '发送图片' : '发送'" :disabled="chatSending || (!chatInput.trim() && !selectedImage)" @click="sendChat()">
               <AppIcon name="send" :size="17" />
             </button>
           </div>
@@ -370,7 +380,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
@@ -471,6 +481,9 @@ function questionStem(qid: number): string {
 
 // ---------- 输入区 ----------
 const fileRef = ref<HTMLInputElement | null>(null)
+const selectedImage = ref<File | null>(null)
+const selectedImageUrl = ref('')
+const imageObjectUrls = new Set<string>()
 const bodyRef = ref<HTMLElement | null>(null)
 const loadingInit = ref(true)
 const welcomeBriefing = computed(() => messages.value.find((msg) => msg.kind === 'briefing')?.briefing ?? null)
@@ -589,6 +602,26 @@ async function gotoAssignment(p: PendingAssignment) {
 const chatInput = ref('')
 const chatSending = ref(false)
 
+function createImageUrl(file: File): string {
+  const url = URL.createObjectURL(file)
+  imageObjectUrls.add(url)
+  return url
+}
+
+function clearSelectedImage() {
+  if (selectedImageUrl.value) {
+    URL.revokeObjectURL(selectedImageUrl.value)
+    imageObjectUrls.delete(selectedImageUrl.value)
+  }
+  selectedImage.value = null
+  selectedImageUrl.value = ''
+}
+
+onUnmounted(() => {
+  imageObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+  imageObjectUrls.clear()
+})
+
 // ---------- 会话（v0.6.2 状态层；v0.8.1 合并修复）：会话列表与当前会话归 store，
 // 与左侧栏会话区共用同一份状态；本页不再自持会话状态，侧栏操作改 store.sessionView，
 // 本页 watch 其 seq 变化后同步重渲染（同步逻辑在下方「会话查看同步」段） ----------
@@ -634,6 +667,7 @@ watch(
     if (seqVal === appliedViewSeq) return
     appliedViewSeq = seqVal
     const view = student.sessionView
+    clearSelectedImage()
     suggestions.value = []
     briefManual.value = null
     messages.value = messages.value.filter((m) => m.kind === 'briefing')
@@ -655,9 +689,17 @@ watch(
 
 async function sendChat(raw?: string) {
   const text = (typeof raw === 'string' ? raw : chatInput.value).trim()
-  if (!text || chatSending.value) return
+  const image = selectedImage.value
+  if ((!text && !image) || chatSending.value) return
   if (text.length > 2000) {
     pushMsg({ side: 'ai', kind: 'error', text: '这条消息有点太长了（最多 2000 字），拆成两条发给我吧。' })
+    return
+  }
+  if (image) {
+    chatInput.value = ''
+    clearSelectedImage()
+    suggestions.value = []
+    await sendPhotoReview(image, text)
     return
   }
   chatInput.value = ''
@@ -721,10 +763,14 @@ async function onFileChange(e: Event) {
     pushMsg({ side: 'ai', kind: 'error', text: '图片太大了（超过 10MB），请压缩后再试。' })
     return
   }
-  const prompt = chatInput.value.trim()
-  chatInput.value = ''
+  clearSelectedImage()
+  selectedImage.value = file
+  selectedImageUrl.value = createImageUrl(file)
+}
+
+async function sendPhotoReview(file: File, prompt: string) {
   suggestions.value = []
-  pushMsg({ side: 'user', kind: 'image', url: URL.createObjectURL(file) })
+  pushMsg({ side: 'user', kind: 'image', url: createImageUrl(file) })
   if (prompt) pushMsg({ side: 'user', kind: 'text', text: prompt })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别题目和作答情况…', pending: true })
   chatSending.value = true
@@ -1114,6 +1160,14 @@ onMounted(async () => {
   border-color: rgba(29, 78, 216, 0.35);
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06), 0 0 0 3px rgba(29, 78, 216, 0.14);
 }
+.composer-image-preview { display: flex; align-items: center; gap: 11px; margin: 0 8px 11px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--gray-bg); }
+.composer-image-preview > img { width: 54px; height: 54px; flex: 0 0 auto; object-fit: cover; border-radius: 8px; background: #fff; }
+.composer-image-details { display: grid; min-width: 0; flex: 1; gap: 4px; }
+.composer-image-details span { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.composer-image-details small { color: var(--text-3); font-size: 11px; }
+.composer-image-remove { display: inline-flex; width: 30px; height: 30px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--text-2); cursor: pointer; }
+.composer-image-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.composer-image-remove:disabled { opacity: 0.55; cursor: not-allowed; }
 .chat-text-input { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none; font: inherit; font-size: 15px; line-height: 1.65; }
 .chat-text-input:focus { border: 0; outline: 0; box-shadow: none; }
 .chat-text-input-welcome { min-height: 54px; font-size: 16px; }
