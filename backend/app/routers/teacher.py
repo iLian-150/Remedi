@@ -10,6 +10,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_teacher
@@ -82,7 +83,6 @@ from ..services.answer_check import check_reference_answer
 from ..services.diagnosis import present_diagnosis, present_error
 from ..services.providers import get_provider
 from ..services.stats import (
-    assignment_ext_fields,
     class_repair_rate,
     knowledge_point_ranking,
     list_students,
@@ -527,33 +527,122 @@ def guess_knowledge_point(body: KnowledgePointGuessIn,
     return KnowledgePointGuessOut(knowledge_point=get_provider().guess_knowledge_point(stem))
 
 
-def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
+def _teacher_assignments_out(
+    assignments: List[Assignment], db: Session
+) -> List[TeacherAssignmentOut]:
+    """批量组装教师作业列表，避免逐作业、逐题查询统计和配置。"""
+    if not assignments:
+        return []
+
+    assignment_ids = [assignment.id for assignment in assignments]
     questions = (
-        db.query(Question).filter(Question.assignment_id == a.id)
-        .order_by(Question.order_num, Question.id).all()
+        db.query(Question)
+        .filter(Question.assignment_id.in_(assignment_ids))
+        .order_by(Question.assignment_id, Question.order_num, Question.id)
+        .all()
     )
-    items = []
-    for q in questions:
-        count = db.query(Submission).filter(Submission.question_id == q.id).count()
-        count += db.query(Essay).filter(Essay.question_id == q.id).count()
-        items.append(TeacherAssignmentQuestionOut(
-            id=q.id,
-            type="math" if q.subject == "math" else "essay",
-            prompt=q.stem,
-            knowledge_point=q.knowledge_point,
-            standard_answer=q.standard_answer,
-            submission_count=count,
-            # 评分系统：生效分值占比（配置值或均分）
-            weight_pct=round(scoring_svc.effective_weight_pct(db, q), 2),
+    question_ids = [question.id for question in questions]
+    question_counts = {}
+    for question in questions:
+        question_counts[question.assignment_id] = (
+            question_counts.get(question.assignment_id, 0) + 1
+        )
+
+    submission_counts = {}
+    essay_counts = {}
+    weights = {}
+    if question_ids:
+        submission_counts = dict(
+            db.query(Submission.question_id, func.count(Submission.id))
+            .filter(Submission.question_id.in_(question_ids))
+            .group_by(Submission.question_id)
+            .all()
+        )
+        essay_counts = dict(
+            db.query(Essay.question_id, func.count(Essay.id))
+            .filter(Essay.question_id.in_(question_ids))
+            .group_by(Essay.question_id)
+            .all()
+        )
+        weights = {
+            row.question_id: float(row.weight_pct)
+            for row in db.query(QuestionWeight).filter(
+                QuestionWeight.question_id.in_(question_ids)
+            ).all()
+        }
+
+    extensions = {
+        row.assignment_id: row
+        for row in db.query(AssignmentExt).filter(
+            AssignmentExt.assignment_id.in_(assignment_ids)
+        ).all()
+    }
+    settings_by_assignment = {
+        row.assignment_id: row
+        for row in db.query(AssignmentSetting).filter(
+            AssignmentSetting.assignment_id.in_(assignment_ids)
+        ).all()
+    }
+    total_scores = {
+        row.assignment_id: float(row.total_score) if row.total_score else 100.0
+        for row in db.query(AssignmentScoring).filter(
+            AssignmentScoring.assignment_id.in_(assignment_ids)
+        ).all()
+    }
+    workbook_ids = {row.workbook_id for row in extensions.values() if row.workbook_id}
+    workbook_titles = {
+        row.id: row.title
+        for row in db.query(Workbook).filter(Workbook.id.in_(workbook_ids)).all()
+    } if workbook_ids else {}
+
+    questions_by_assignment = {}
+    for question in questions:
+        questions_by_assignment.setdefault(question.assignment_id, []).append(question)
+
+    result = []
+    for assignment in assignments:
+        question_items = []
+        count_for_assignment = question_counts.get(assignment.id, 0)
+        for question in questions_by_assignment.get(assignment.id, []):
+            weight_pct = weights.get(
+                question.id, 100.0 / count_for_assignment if count_for_assignment else 100.0
+            )
+            question_items.append(TeacherAssignmentQuestionOut(
+                id=question.id,
+                type="math" if question.subject == "math" else "essay",
+                prompt=question.stem,
+                knowledge_point=question.knowledge_point,
+                standard_answer=question.standard_answer,
+                submission_count=(
+                    submission_counts.get(question.id, 0)
+                    + essay_counts.get(question.id, 0)
+                ),
+                weight_pct=round(weight_pct, 2),
+            ))
+
+        extension = extensions.get(assignment.id)
+        setting = settings_by_assignment.get(assignment.id)
+        result.append(TeacherAssignmentOut(
+            id=assignment.id,
+            title=assignment.title,
+            description=assignment.description,
+            created_at=assignment.created_at,
+            questions=question_items,
+            mode=(extension.mode or "online") if extension else "online",
+            workbook_title=(
+                workbook_titles.get(extension.workbook_id)
+                if extension and extension.workbook_id else None
+            ),
+            page_range=extension.page_range if extension else None,
+            deadline=extension.deadline if extension else None,
+            total_score=total_scores.get(assignment.id, 100.0),
+            allow_revision=bool(setting.allow_revision) if setting else False,
         ))
-    return TeacherAssignmentOut(
-        id=a.id, title=a.title, description=a.description,
-        created_at=a.created_at, questions=items,
-        # v0.5.0：发布模式与线下作业信息
-        **assignment_ext_fields(db, a.id),
-        # 评分系统：作业总分（配置值或默认 100）
-        total_score=scoring_svc.assignment_total(db, a.id),
-    )
+    return result
+
+
+def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
+    return _teacher_assignments_out([a], db)[0]
 
 
 @router.post("/assignments", response_model=TeacherAssignmentOut, summary="发布作业")
@@ -628,7 +717,7 @@ def create_assignment(body: TeacherAssignmentCreate,
 def list_teacher_assignments(db: Session = Depends(get_db),
                              current: User = Depends(require_teacher)):
     assignments = db.query(Assignment).order_by(Assignment.id).all()
-    items = [_teacher_assignment_out(a, db) for a in assignments]
+    items = _teacher_assignments_out(assignments, db)
     return {"total": len(items), "items": items}
 
 
