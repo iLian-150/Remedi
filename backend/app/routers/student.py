@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -57,6 +58,7 @@ from ..schemas import (
     PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
+    RelatedMistakeOut,
     ReportScoresOut,
     SubjectReportOut,
     SubjectScoreItem,
@@ -67,6 +69,7 @@ from ..schemas import (
     SubmissionBrief,
     SubmissionCreate,
     StudentMistakeOut,
+    StudentQuestionCaptureCreate,
     VerificationCreate,
     VerificationOut,
     VerificationSubmitIn,
@@ -82,6 +85,7 @@ from ..services.answer_check import (
     student_visible_reference_answer,
     student_visible_solution_steps,
 )
+from ..services.related_mistakes import find_related_mistake
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
@@ -195,6 +199,23 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
     )
 
 
+@router.get("/questions/{question_id}/related-mistake", response_model=Optional[RelatedMistakeOut],
+            summary="查看题目对应的历史同类错题")
+def related_mistake_for_question(question_id: int, db: Session = Depends(get_db),
+                                 current: User = Depends(require_student)):
+    question = db.query(Question).filter(Question.id == question_id).first()
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    assignment = db.query(Assignment).filter(Assignment.id == question.assignment_id).first()
+    creator = db.query(User).filter(User.id == assignment.created_by).first() if assignment and assignment.created_by else None
+    if creator and creator.role == "student" and assignment.created_by != current.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    return find_related_mistake(
+        db, current.id, question.subject, question.knowledge_point,
+        exclude_assignment_id=question.assignment_id,
+    )
+
+
 # ---------- 数学诊断 ----------
 
 @router.post("/submissions", response_model=DiagnosisOut, summary="提交数学作业并诊断")
@@ -210,8 +231,8 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
     if deferral_svc.is_deferred_mode(db, q.assignment_id):
         return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
     submission, steps, errors = diagnose_submission(db, current, q, data.steps)
-    # v0.9.0：新提交先进教师审核队列，学生先看到「待老师审核」占位
-    review_svc.create_pending_review(db, submission)
+    # 仅错因置信率低于 60% 的提交进入教师审核队列。
+    review_svc.create_review_if_needed(db, submission)
     return present_for_student(submission, db)
 
 
@@ -466,7 +487,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             verification_status=None,
             source_kind="student_saved",
             capture_id=capture.id,
-            image_url=f"/api/uploads/{capture.image_path}",
+            image_url=f"/api/uploads/{capture.image_path}" if capture.image_path else None,
         ))
     result.sort(key=lambda item: item.created_at, reverse=True)
     return result
@@ -1010,11 +1031,16 @@ async def photo_review(
         db.flush()
 
     submission, _, _ = diagnose_submission(db, current, question, steps)
-    # v0.9.0：拍照批改同样先进教师审核队列，学生先看到待审核占位
-    review_svc.create_pending_review(db, submission)
+    review_svc.create_review_if_needed(db, submission)
     diagnosis = present_for_student(submission, db)
+    result_copy = (
+        "已提交老师审核。"
+        if diagnosis["review_status"] == "pending"
+        else ("诊断发现作答错误，已加入错题本和订正。"
+              if diagnosis["errors"] else "诊断完成，暂未发现错误。")
+    )
     session_id = save_chat_result(
-        f"已识别题目：{question_text}\n识别到 {len(steps)} 步作答，已提交老师审核。"
+        f"已识别题目：{question_text}\n识别到 {len(steps)} 步作答，{result_copy}"
     )
     return {"mode": "diagnosis", "question_text": question_text,
             "steps": steps, "capture_id": None, "diagnosis": diagnosis,
@@ -1036,6 +1062,27 @@ def save_photo_capture(capture_id: int, body: PhotoCaptureSaveIn,
         capture.explanation = body.explanation.strip()
     capture.archived_at = None
     db.commit()
+    return {"capture_id": capture.id, "saved": True, "saved_at": capture.saved_at}
+
+
+@router.post("/question-captures", summary="将文本题目加入错题本")
+def save_text_question(body: StudentQuestionCaptureCreate,
+                       db: Session = Depends(get_db),
+                       current: User = Depends(require_student)):
+    question_text = body.question_text.strip()
+    if not question_text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "题目内容不能为空")
+    capture = StudentQuestionCapture(
+        student_id=current.id,
+        subject=body.subject.strip() or "math",
+        question_text=question_text,
+        image_path="",
+        explanation=body.explanation.strip() or None,
+        saved_at=datetime.now(),
+    )
+    db.add(capture)
+    db.commit()
+    db.refresh(capture)
     return {"capture_id": capture.id, "saved": True, "saved_at": capture.saved_at}
 
 
@@ -1132,8 +1179,7 @@ async def photo_diagnose(
         })
         return out
     submission, _, _ = diagnose_submission(db, current, question, steps)
-    # v0.9.0：原图批改同样先进教师审核队列
-    review_svc.create_pending_review(db, submission)
+    review_svc.create_review_if_needed(db, submission)
     result = present_for_student(submission, db)
     result.update({
         "recognized_question_text": recognition.get("question_text", ""),
@@ -1192,7 +1238,8 @@ def agent_session_messages(session_id: int, db: Session = Depends(get_db),
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
     return [
-        {"role": m.role, "content": m.content, "created_at": m.created_at}
+        {"role": m.role, "content": m.content, "created_at": m.created_at,
+         "related_mistake": cs.related_mistake_for_message(db, current, m)}
         for m in cs.session_messages(db, session)
     ]
 
@@ -1248,7 +1295,7 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
         cs.append_message(db, session, "user", text)
 
     def event(name: str, payload: dict) -> str:
-        return f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        return f"event: {name}\ndata: {json.dumps(jsonable_encoder(payload), ensure_ascii=False)}\n\n"
 
     def stream_events():
         yield ": connected\n\n"
@@ -1263,11 +1310,15 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
                 yield event("token", {"text": chunk})
 
             reply = result["reply"]
-            cs.append_message(db, session, "assistant", reply)
+            assistant_message = cs.append_message(db, session, "assistant", reply)
+            related_mistake = result.get("related_mistake")
+            if related_mistake:
+                cs.link_related_mistake(db, assistant_message, related_mistake.get("id"))
             yield event("done", {
                 "reply": reply,
                 "suggestions": student_suggestions(text, result.get("tools_used")),
                 "session_id": session.id,
+                "related_mistake": related_mistake,
             })
         except Exception:
             logger.exception("学生学习助手流式回复中断")
@@ -1294,7 +1345,8 @@ def agent_history(db: Session = Depends(get_db), current: User = Depends(require
     if session is None:
         return []
     return [
-        {"role": m.role, "content": m.content, "created_at": m.created_at}
+        {"role": m.role, "content": m.content, "created_at": m.created_at,
+         "related_mistake": cs.related_mistake_for_message(db, current, m)}
         for m in cs.session_messages(db, session, limit=_AGENT_HISTORY_RETURN)
     ]
 

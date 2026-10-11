@@ -22,6 +22,7 @@ from ..models import (
     QuestionGroup,
     QuestionGroupMember,
     ChatMessage,
+    ChatSessionMessageMistakeLink,
     Correction,
     Error,
     Essay,
@@ -491,6 +492,9 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                 e.id for e in db.query(Error).filter(Error.submission_id.in_(sub_ids)).all()
             ]
             if err_ids:
+                db.query(ChatSessionMessageMistakeLink).filter(
+                    ChatSessionMessageMistakeLink.error_id.in_(err_ids)
+                ).delete(synchronize_session=False)
                 db.query(Correction).filter(Correction.error_id.in_(err_ids)) \
                     .delete(synchronize_session=False)
                 db.query(StudentMistakeArchive).filter(StudentMistakeArchive.error_id.in_(err_ids)) \

@@ -1,4 +1,4 @@
-# Agent 工具集：三个工具全部复用 services/stats.py 的既有聚合函数。
+# Agent 工具集：按学生身份查个人数据，并将学生明确提供的数学作答接入现有诊断管线。
 # 学生身份（db 会话 + student 对象）在建工具时以闭包注入，模型无法传 user_id，
 # 从根本上杜绝越权查询他人数据。工具返回值是给模型看的紧凑文本摘要，不塞原始 JSON。
 from typing import List
@@ -6,12 +6,17 @@ from typing import List
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from ..models import User
+from datetime import datetime
+
+from ..models import Assignment, Question, User
+from ..services import reviews as review_svc
+from ..services.diagnosis import diagnose_submission
 from ..services.stats import (
     knowledge_point_errors,
     student_briefing,
     student_report,
 )
+from ..services.related_mistakes import find_related_mistake
 
 _STATUS_LABEL = {
     "pending": "待修复",
@@ -86,8 +91,10 @@ def kp_errors_to_text(knowledge_point: str, items: List[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_tools(db: Session, student: User) -> list:
+def build_tools(db: Session, student: User) -> tuple[list, dict]:
     """按当前学生构造工具列表（身份闭包注入）。"""
+    related_result: dict = {"mistake": None}
+    text_diagnosis_result: dict = {"summary": None}
 
     @tool
     def get_my_briefing() -> str:
@@ -106,4 +113,70 @@ def build_tools(db: Session, student: User) -> list:
         items = knowledge_point_errors(db, student, knowledge_point, visible_only=True)
         return kp_errors_to_text(knowledge_point, items)
 
-    return [get_my_briefing, get_my_report, get_knowledge_point_errors]
+    @tool
+    def find_my_related_mistake(subject: str, knowledge_point: str) -> str:
+        """查找学生过去在这个学科和知识点做错的最近一道题，供回看历史作业。
+        学生只发来题目、没有自己的作答步骤并需要解题或讲解时，识别学科（math 或 english）和知识点后调用一次；
+        学生已经给出数学作答过程时改用 diagnose_student_text_work，不要与该工具同轮调用；
+        普通闲聊或查询学习报告时不要调用。"""
+        match = find_related_mistake(
+            db, student.id, subject, knowledge_point
+        )
+        if match is not None:
+            related_result["mistake"] = match
+        if match is None:
+            return f"该学生以前没有在「{subject} / {knowledge_point}」相关作业中留下可回看的错题。"
+        return (
+            f"找到一条历史错题：作业《{match['assignment_title']}》，题目："
+            f"{match['question_stem']}；错因：{match['error_type']}。"
+            "回答当前题目时可提醒学生有同类错题可回看。"
+        )
+
+    @tool
+    def diagnose_student_text_work(question_stem: str, steps: List[str],
+                                   knowledge_point: str) -> str:
+        """诊断学生在聊天消息中明确写出的数学题目和本人作答步骤。
+        仅当学生给出了具体题干和至少一步自己的解题过程、要求检查或讲解时调用；
+        只有题目、要求直接解答时不要调用。此工具会保存一次提交，重复调用同轮只使用首次结果。"""
+        if text_diagnosis_result["summary"] is not None:
+            return text_diagnosis_result["summary"]
+        stem = (question_stem or "").strip()[:12000]
+        student_steps = [str(step).strip()[:2000] for step in (steps or []) if str(step).strip()]
+        if not stem or not student_steps or len(student_steps) > 20:
+            return "没有足够的题干和作答步骤，未创建提交记录。"
+
+        kp = (knowledge_point or "").strip()[:64] or "自主输入题"
+        related_result["mistake"] = find_related_mistake(db, student.id, "math", kp)
+        assignment = Assignment(
+            title=f"学习助手文本题目 · {datetime.now():%Y-%m-%d %H:%M}",
+            description="学生在学习助手中提交的数学作答。",
+            created_by=student.id,
+        )
+        db.add(assignment)
+        db.flush()
+        question = Question(
+            assignment_id=assignment.id,
+            subject="math",
+            knowledge_point=kp,
+            stem=stem,
+            order_num=1,
+        )
+        db.add(question)
+        db.flush()
+
+        submission, _, errors = diagnose_submission(db, student, question, student_steps)
+        pending = review_svc.create_review_if_needed(db, submission) is not None
+        if pending:
+            summary = (
+                "这份作答已提交教师复核。只告知学生结果正在复核，不要透露诊断细节。"
+            )
+        elif errors:
+            summary = "批改发现作答错误，错题已加入错题本并进入订正流程。"
+        else:
+            summary = "检查后作答正确，没有创建错题记录。"
+        text_diagnosis_result["summary"] = summary
+        text_diagnosis_result["submission_id"] = submission.id
+        return summary
+
+    return [get_my_briefing, get_my_report, get_knowledge_point_errors,
+            find_my_related_mistake, diagnose_student_text_work], related_result

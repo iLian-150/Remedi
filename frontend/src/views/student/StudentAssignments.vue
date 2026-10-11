@@ -15,7 +15,7 @@
   <div class="page">
     <div class="page-head">
       <h2>作业列表</h2>
-      <p class="page-sub">选择一份作业开始作答，老师审核通过后就能看到你的诊断报告。</p>
+      <p class="page-sub">选择一份作业开始作答，系统会自动批改；判断不确定的作答会送老师复核。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>

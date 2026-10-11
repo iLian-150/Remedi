@@ -9,10 +9,11 @@ from typing import Iterable, List, Optional, Set
 
 from sqlalchemy.orm import Session
 
-from ..models import Notification, Submission, SubmissionReview
+from ..models import Error, Notification, Submission, SubmissionReview
 
 PENDING = "pending"
 APPROVED = "approved"
+REVIEW_CONFIDENCE_THRESHOLD = 0.60
 
 
 def create_pending_review(db: Session, submission: Submission) -> SubmissionReview:
@@ -26,6 +27,28 @@ def create_pending_review(db: Session, submission: Submission) -> SubmissionRevi
         db.commit()
         db.refresh(row)
     return row
+
+
+def needs_teacher_review(db: Session, submission: Submission) -> bool:
+    """只把错因判断置信率低于 60% 的提交送入教师队列。
+
+    一份提交可能有多条错误；只要其中一条低于阈值，就审核整份提交。
+    没有错误记录的全对提交不需要审核。
+    """
+    confidences = [
+        float(row[0])
+        for row in db.query(Error.confidence)
+        .filter(Error.submission_id == submission.id)
+        .all()
+    ]
+    return any(value < REVIEW_CONFIDENCE_THRESHOLD for value in confidences)
+
+
+def create_review_if_needed(db: Session, submission: Submission) -> Optional[SubmissionReview]:
+    """按错因置信率决定是否建立待审核记录。"""
+    if not needs_teacher_review(db, submission):
+        return None
+    return create_pending_review(db, submission)
 
 
 def review_status(db: Session, submission_id: int) -> str:

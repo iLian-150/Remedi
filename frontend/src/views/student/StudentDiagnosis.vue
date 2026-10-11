@@ -52,7 +52,7 @@
             <b class="tnum">{{ fmtScore(mathDetail.score.assignment_score) }} / {{ fmtScore(mathDetail.score.assignment_total ?? 0) }} 分</b>
           </p>
         </div>
-        <p class="hint" style="margin-top: 8px">分数是老师审核通过后的最终分；订正和二次验证能帮你把知识点真正修好，分数也会在重新提交后更新。</p>
+        <p class="hint" style="margin-top: 8px">分数是当前批改结果；订正和二次验证能帮你把知识点真正修好，分数也会在重新提交后更新。</p>
       </div>
 
       <div class="card">

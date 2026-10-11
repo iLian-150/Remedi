@@ -225,6 +225,25 @@ class StudentMistakeOut(BaseModel):
     image_url: Optional[str] = None
 
 
+class RelatedMistakeOut(BaseModel):
+    id: int
+    submission_id: int
+    question_id: int
+    assignment_id: int
+    assignment_title: str
+    assignment_created_at: datetime
+    question_subject: str
+    question_stem: str
+    solution_steps: List[str] = Field(default_factory=list)
+    knowledge_point: str
+    error_type: str
+    detail: Optional[str] = None
+    step_seq: Optional[int] = None
+    step_text: Optional[str] = None
+    created_at: datetime
+    latest_correction: Optional[MistakeCorrectionBrief] = None
+
+
 class MistakeCategoryStudyIn(BaseModel):
     assignment_id: int
     category_key: str = Field(min_length=1, max_length=256)
@@ -361,6 +380,12 @@ class PhotoReviewOut(BaseModel):
 
 
 class PhotoCaptureSaveIn(BaseModel):
+    explanation: str = Field(default="", max_length=12000)
+
+
+class StudentQuestionCaptureCreate(BaseModel):
+    question_text: str = Field(min_length=1, max_length=12000)
+    subject: str = Field(default="math", max_length=32)
     explanation: str = Field(default="", max_length=12000)
 
 
@@ -585,6 +610,7 @@ class AgentHistoryItem(BaseModel):
     role: str                     # user | assistant
     content: str
     created_at: datetime
+    related_mistake: Optional[RelatedMistakeOut] = None
 
 
 class ChatSessionOut(BaseModel):

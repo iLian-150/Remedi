@@ -230,6 +230,17 @@
 - 索引：`ix_chat_session_messages_session_id`。
 - 说明：上下文组装只取当前会话最近 20 条，会话之间隔离；删除会话时应用层一并删除其消息。
 
+### 2.16 chat_session_message_mistake_links —— 助手消息关联历史错题（v0.13.13 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| message_id | INTEGER PK，FK → chat_session_messages.id | 否 | — | 关联的助手回复；每条回复最多关联一条历史错题 |
+| error_id | INTEGER | 否 | — | 关联的历史错误记录 ID；由服务层校验学生归属、审核状态和归档状态 |
+| created_at | TIMESTAMP | 否 | now | 关联创建时间 |
+
+- 索引：`ix_chat_session_message_mistake_links_error_id`。
+- 说明：`error_id` 按逻辑关系保存，不设数据库外键；删除教师作业时由应用层同步清理关联。消息恢复时再校验错题仍属于当前学生且可见。
+
 ## 3. 关系图（ER，文本版）
 
 ```
@@ -242,6 +253,7 @@ users 1 ──< workbooks (teacher_id)
 users 1 ──< chat_sessions (user_id)
 errors 1 ──< verifications (source_error_id, 可空)
 chat_sessions 1 ──< chat_session_messages (session_id)
+chat_session_messages 1 ─── chat_session_message_mistake_links (message_id)
 
 assignments 1 ──< questions (assignment_id)
 assignments 1 ─── assignment_ext (assignment_id, 1:0..1)
@@ -313,3 +325,4 @@ WHERE s.student_id = S
 | v0.4.0 | 2026-10-07 | 新增一张表：`verifications`（二次验证记录）；不改任何现有表/列。知识点状态口径升级为四态（见 api-contract 3.13），「已修复」只认 verifications 的 passed 记录 |
 | v0.5.0 | 2026-10-07 | 新增两张表：`workbooks`（练习册知识库）、`assignment_ext`（作业发布模式扩展）；不改任何现有表/列。教师 Agent 对话复用 `chat_messages`（按 user_id 区分），提醒未交复用 `notifications`（新 type 值 `teacher_reminder`） |
 | v0.6.0 | 2026-10-07 | 新增两张表：`chat_sessions`（对话会话）、`chat_session_messages`（会话内消息）；不改任何现有表/列。`chat_messages` 停用（旧数据首次访问会话接口时迁移为「之前的对话」会话后清空对应行）。练习册封面走文件约定（UPLOAD_DIR/covers/{id}.jpg），不给 `workbooks` 加列 |
+| v0.13.13 | 2026-10-12 | 新增 `chat_session_message_mistake_links`，持久化助手回复与历史错题的关联；不改现有表和列。 |

@@ -100,7 +100,7 @@ def agent_reply_stream(db: Session, student: User,
         class AgentState(TypedDict):
             messages: Annotated[list, add_messages]
 
-        tools = build_tools(db, student)
+        tools, related_result = build_tools(db, student)
         llm_with_tools = llm.bind_tools(tools)
 
         def call_model(state: AgentState):
@@ -144,7 +144,11 @@ def agent_reply_stream(db: Session, student: User,
         if not reply:
             raise ValueError("模型返回了空回复")
         names = list(dict.fromkeys(name for name in tool_names.values() if name))
-        return {"reply": reply, "tools_used": names}
+        return {
+            "reply": reply,
+            "tools_used": names,
+            "related_mistake": related_result.get("mistake"),
+        }
     except Exception:
         logger.exception("Agent 流式调用失败")
         raise

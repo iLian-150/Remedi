@@ -167,6 +167,15 @@ class ChatSessionMessage(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class ChatSessionMessageMistakeLink(Base):
+    """持久化助手回复关联的历史错题入口，便于重开会话后继续查看。"""
+    __tablename__ = "chat_session_message_mistake_links"
+
+    message_id = Column(Integer, ForeignKey("chat_session_messages.id"), primary_key=True)
+    error_id = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class Notification(Base):
     """站内提醒（v0.3.0 新增表）：如教师一键纠错后提醒被纠错的学生。"""
     __tablename__ = "notifications"

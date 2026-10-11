@@ -92,7 +92,7 @@
             </p>
           </div>
         </template>
-        <div v-else class="empty">还没有已出分的作业。交一份作业、等老师审核通过后，这里就会出现你的成绩走势。</div>
+        <div v-else class="empty">还没有已出分的作业。完成作业批改后，这里就会出现你的成绩走势。</div>
       </div>
     </template>
   </div>

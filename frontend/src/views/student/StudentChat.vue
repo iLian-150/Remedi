@@ -209,8 +209,13 @@
 
           <!-- AI 普通文本 -->
           <div v-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
-            <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
-            {{ msg.text }}
+            <div class="ai-message-text">
+              <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
+              <span>{{ msg.text }}</span>
+            </div>
+            <button v-if="msg.relatedMistake" type="button" class="related-mistake-link" @click="openRelatedMistake(msg.relatedMistake)">
+              回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
+            </button>
             <div v-if="msg.captureId" class="photo-capture-action">
               <span v-if="msg.saved">已加入错题本</span>
               <button v-else class="btn small secondary" :disabled="msg.savingCapture" @click="savePhotoQuestion(msg)">
@@ -388,6 +393,7 @@
       </button>
       <img :src="imagePreview.url" :alt="imagePreview.alt" />
     </div>
+    <PreviousMistakeModal :mistake="selectedRelatedMistake" @close="selectedRelatedMistake = null" />
   </div>
 </template>
 
@@ -400,6 +406,7 @@ import type {
   Assignment,
   PendingAssignment,
   Question,
+  RelatedMistake,
   StepStatus,
   StudentBriefing,
   SubmissionResult,
@@ -410,6 +417,7 @@ import { sanitizeStudentCopy } from '../../utils/errorType'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
+import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
 
 const auth = useAuthStore()
 const student = useStudentStore()
@@ -435,6 +443,7 @@ interface ChatMsg {
   captureId: number | null
   saved: boolean
   savingCapture: boolean
+  relatedMistake: RelatedMistake | null
 }
 
 const messages = ref<ChatMsg[]>([])
@@ -458,6 +467,7 @@ function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
     captureId: null,
     saved: false,
     savingCapture: false,
+    relatedMistake: null,
     ...partial
   }
   messages.value.push(msg)
@@ -498,6 +508,11 @@ const fileRef = ref<HTMLInputElement | null>(null)
 const selectedImage = ref<File | null>(null)
 const selectedImageUrl = ref('')
 const imagePreview = ref<{ url: string; alt: string } | null>(null)
+const selectedRelatedMistake = ref<RelatedMistake | null>(null)
+
+function openRelatedMistake(mistake: RelatedMistake) {
+  selectedRelatedMistake.value = mistake
+}
 const imageObjectUrls = new Set<string>()
 const bodyRef = ref<HTMLElement | null>(null)
 const loadingInit = ref(true)
@@ -677,7 +692,8 @@ async function prependBriefing() {
       result: null,
       captureId: null,
       saved: false,
-      savingCapture: false
+      savingCapture: false,
+      relatedMistake: null
     })
   } catch (e) {
     console.error(e)
@@ -704,7 +720,8 @@ watch(
       try {
         const rows = await student.fetchSessionMessages(view.id)
         rows.forEach((h) =>
-          pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content })
+          pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content,
+            relatedMistake: h.related_mistake ?? null })
         )
       } catch (e) {
         pushMsg({ side: 'ai', kind: 'error', text: '打开这条对话失败：' + (errDetail(e) || '请稍后重试。') })
@@ -732,17 +749,33 @@ async function sendChat(raw?: string) {
   }
   chatInput.value = ''
   suggestions.value = []
+  const previousQuestion = [...messages.value].reverse().find((item) => item.side === 'user' && item.kind === 'text')?.text ?? ''
   pushMsg({ side: 'user', kind: 'text', text })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
   chatSending.value = true
   try {
+    const saveIntent = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(text) && /错题本|错题/.test(text)
+    const refersToPrevious = /刚才|上一题|前面那题|之前那题/.test(text)
+    const cleanedQuestion = text.replace(/[，,。 ]*(?:顺便)?(?:请)?(?:把)?(?:这道题|这题)?(?:加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏)(?:错题本|错题)(?:里|中)?[。！!]?/g, '').trim()
+    const containsQuestion = /[=+\-×÷?？]/.test(cleanedQuestion) || cleanedQuestion.length > 10
     const pendingCapture = [...messages.value].reverse().find((item) => item.captureId && !item.saved)
-    if (pendingCapture && /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(text) && /错题本|错题/.test(text)) {
+    if (pendingCapture && saveIntent && !containsQuestion && !refersToPrevious) {
       await student.savePhotoCapture(pendingCapture.captureId!, pendingCapture.text)
       pendingCapture.saved = true
       wait.text = '已经把刚才的题目加入错题本了。'
       await student.loadSessions(true)
       return
+    }
+    if (saveIntent) {
+      const questionToSave = refersToPrevious || !containsQuestion
+        ? previousQuestion
+        : cleanedQuestion
+      if (questionToSave) {
+        await student.saveTextQuestion(questionToSave)
+        wait.text = '已经把这道题加入错题本了。'
+        await student.loadSessions(true)
+        if (refersToPrevious || !containsQuestion) return
+      }
     }
     await streamAssistantReply(wait, text)
   } catch (e) {
@@ -771,6 +804,7 @@ async function streamAssistantReply(wait: ChatMsg, prompt: string, persistUserMe
   }, persistUserMessage)
   wait.pending = false
   wait.text = result.reply
+  wait.relatedMistake = result.related_mistake ?? null
   if (result.session_id) student.setActiveSession(result.session_id)
   suggestions.value = result.suggestions ?? []
   // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
@@ -819,14 +853,25 @@ async function sendPhotoReview(file: File, prompt: string) {
     wait.steps = [...res.steps]
     if (res.mode === 'answer') {
       wait.captureId = res.capture_id
+      const saveQuestion = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(prompt) && /错题本|错题/.test(prompt)
       const agentPrompt = [
         '学生上传的是只有题目、没有学生作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。',
         `识别出的题目：${res.question_text.slice(0, 1300)}`,
         prompt ? `学生补充的问题：${prompt.slice(0, 300)}` : ''
       ].filter(Boolean).join('\n')
       await streamAssistantReply(wait, agentPrompt, false)
+      if (saveQuestion && wait.captureId) {
+        try {
+          await student.savePhotoCapture(wait.captureId, wait.text)
+          wait.saved = true
+          await student.loadSessions(true)
+        } catch (saveError) {
+          wait.text += '\n题目已经解答，但加入错题本失败，请稍后点下方按钮重试。'
+          console.error(saveError)
+        }
+      }
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
-      // v0.9.0：新批改先过老师审核，pending 时不报对错结论
+      // 低置信度错因进入教师审核；pending 时不报对错结论。
       wait.text = res.diagnosis.status === 'pending_review'
         ? '识别到作答过程并完成提交，老师审核后你就能看到批改结果了。'
         : res.diagnosis.errors.length
@@ -943,7 +988,8 @@ onMounted(async () => {
       result: null,
       captureId: null,
       saved: false,
-      savingCapture: false
+      savingCapture: false,
+      relatedMistake: null
     })
   } catch (e) {
     pushMsg({ side: 'ai', kind: 'error', text: '学习简报加载失败，刷新页面可以重试。' })
@@ -956,7 +1002,8 @@ onMounted(async () => {
       ? []
       : await student.fetchSessionMessages(student.activeSessionId)
     history.forEach((h) =>
-      pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content })
+      pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content,
+        relatedMistake: h.related_mistake ?? null })
     )
   } catch (e) {
     console.error(e)
@@ -983,6 +1030,9 @@ onMounted(async () => {
 .chat-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
+.ai-message-text { display: flex; align-items: flex-start; gap: 8px; white-space: pre-wrap; line-height: 1.75; }
+.related-mistake-link { display: inline-flex; align-items: center; gap: 3px; margin-top: 9px; padding: 0; border: 0; background: none; color: var(--primary); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.related-mistake-link:hover { text-decoration: underline; }
 
 .chat-content-shell { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
 .chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 28px 24px 168px; }
@@ -1047,7 +1097,7 @@ onMounted(async () => {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
 }
 .bubble { border-radius: 14px; padding: 11px 16px; font-size: 14.5px; max-width: 78%; white-space: pre-wrap; word-break: break-word; }
-.ai-bubble { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; align-items: center; gap: 8px; }
+.ai-bubble { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; }
 .error-bubble { background: var(--red-bg); color: #991B1B; display: inline-flex; align-items: center; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
 .user-image-card { display: grid; width: fit-content; max-width: min(440px, 82vw); gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 16px 16px 4px 16px; background: #F3F4F0; }

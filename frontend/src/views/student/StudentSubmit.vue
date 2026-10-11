@@ -1,7 +1,6 @@
 <!-- 学生端：交作业（v0.2.1 拍照为主；v0.3.0 拍照批改原地完成；v0.6.0 一键直达）
      v0.9.0：作业切换改成页面顶部一条独立 sticky 切换条（下拉选作业，原地切换，
-     与下方题目列表视觉分开，不再混在题目卡里）；新批改先过老师审核——
-     提交后题目状态显示「待老师审核」，审核通过后诊断才可见。
+     与下方题目列表视觉分开，不再混在题目卡里）；低置信度错因才进入老师审核。
      v0.9.2 两项逻辑纠正：
      ① 作答方式按作业模式分流——线上作业（mode=online）恢复「在线作答」：
         每道题卡内是文本编辑器（一行一步），提交走 3.3 文本提交接口，与拍照
@@ -166,6 +165,10 @@
             <div v-if="answerErrors[currentQ.id]" class="error-msg" style="margin-top: 10px">{{ answerErrors[currentQ.id] }}</div>
           </div>
 
+          <button v-if="relatedByQid[currentQ.id]" type="button" class="related-mistake-entry" @click="openRelatedMistake(relatedByQid[currentQ.id]!)">
+            回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
+          </button>
+
           <!-- 底部导航：左答题卡、右翻页（右下角） -->
           <div class="board-nav">
             <button type="button" class="btn secondary inline-icon" @click="cardOpen = !cardOpen">
@@ -241,6 +244,9 @@
               @active="onFlowActive(q.id, $event)"
             />
           </div>
+          <button v-if="relatedByQid[q.id]" type="button" class="related-mistake-entry" @click="openRelatedMistake(relatedByQid[q.id]!)">
+            回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
+          </button>
           </div>
         </template>
       </div>
@@ -266,6 +272,7 @@
         <div class="empty">这份作业暂时没有可作答的题目。</div>
       </div>
     </template>
+    <PreviousMistakeModal :mistake="selectedRelatedMistake" @close="selectedRelatedMistake = null" />
   </div>
 </template>
 
@@ -273,9 +280,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { Assignment, AssignmentDetail, Question, SubmissionResult, SubmissionSummary } from '../../api/types'
+import type { Assignment, AssignmentDetail, Question, RelatedMistake, SubmissionResult, SubmissionSummary } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import PhotoGradeFlow from '../../components/PhotoGradeFlow.vue'
+import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
 
 const student = useStudentStore()
 const route = useRoute()
@@ -328,18 +336,23 @@ const doneQids = ref<Set<number>>(new Set())
 const pendingQids = ref<Set<number>>(new Set()) // v0.9.0：最新一次提交在等老师审核的题目
 const deferredQids = ref<Set<number>>(new Set()) // v0.13.1：已提交、在等截止后统一批改的题目
 const scoreByQid = ref<Record<number, { score: number; max: number }>>({}) // 评分系统：已通过题目的得分 chip
+const relatedByQid = ref<Record<number, RelatedMistake>>({})
+const selectedRelatedMistake = ref<RelatedMistake | null>(null)
 const loading = ref(false)
 const error = ref('')
 
 const mathQuestions = computed(() => questions.value.filter((q) => q.subject === 'math'))
+function openRelatedMistake(mistake: RelatedMistake) {
+  selectedRelatedMistake.value = mistake
+}
 /** 作答方式按作业模式分流：offline=线下练习册走拍照，其余（online）走在线作答 */
 const isOffline = computed(() => currentDetail.value?.mode === 'offline')
 
 const headSub = computed(() => {
-  if (!currentDetail.value) return '先在上方选一份作业，再逐题完成作答；老师审核后就能看到逐步批改。'
+  if (!currentDetail.value) return '先在上方选一份作业，再逐题完成作答；判断不确定的结果会送老师复核。'
   return isOffline.value
-    ? '选好题目，拍一张作答照片；老师审核后就能看到逐步批改。'
-    : '在线写下每道题的解题步骤提交；老师审核后就能看到逐步批改。'
+    ? '选好题目，拍一张作答照片；系统会自动批改，判断不确定的结果会送老师复核。'
+    : '在线写下每道题的解题步骤提交；系统会自动批改，判断不确定的结果会送老师复核。'
 })
 const listSub = computed(() =>
   isOffline.value
@@ -566,6 +579,14 @@ async function loadQuestions(id: number) {
   const detail = await student.fetchAssignmentDetail(id)
   questions.value = detail.questions
   currentDetail.value = detail
+  const relatedRows = await Promise.all(detail.questions
+    .filter((q) => q.subject === 'math')
+    .map(async (q) => ({ questionId: q.id, mistake: await student.fetchRelatedMistake(q.id).catch(() => null) })))
+  const related: Record<number, RelatedMistake> = {}
+  relatedRows.forEach(({ questionId, mistake }) => {
+    if (mistake) related[questionId] = mistake
+  })
+  relatedByQid.value = related
   // 恢复本机草稿（按题目），并为线上作业自动展开第一道未完成题的编辑器
   const restored: Record<number, string> = {}
   detail.questions.forEach((q) => {
@@ -589,6 +610,7 @@ async function loadQuestions(id: number) {
 
 async function selectAssignment(id: number) {
   questions.value = []
+  relatedByQid.value = {}
   currentDetail.value = null
   flowActive.value = {}
   collapsedQids.value = new Set()
@@ -611,7 +633,7 @@ async function onAssignmentChange() {
   await selectAssignment(id)
 }
 
-/** 批改完成（v0.9.0）：新提交先过老师审核——pending 进待审核集，否则进已完成集 */
+/** 批改完成：低置信度错因进入待审核集，其他提交直接标记完成。 */
 function onGraded(qid: number, result: SubmissionResult) {
   if (result.status === 'deferred' || result.review_status === 'deferred') {
     // v0.13.1：延迟批改——只落库不诊断，进「已提交待统一批改」集
@@ -824,6 +846,8 @@ onMounted(async () => {
   margin-top: 16px; padding-top: 14px;
   border-top: 1px solid #F1F3F6;
 }
+.related-mistake-entry { display: inline-flex; align-items: center; gap: 4px; margin: 12px 0 4px; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.related-mistake-entry:hover { text-decoration: underline; }
 .board-nav-right { display: flex; gap: 8px; margin-left: auto; }
 .answer-card-pop {
   position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 40;

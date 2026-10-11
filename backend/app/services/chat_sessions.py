@@ -12,7 +12,13 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from ..models import ChatMessage, ChatSession, ChatSessionMessage, User
+from ..models import (
+    ChatMessage,
+    ChatSession,
+    ChatSessionMessage,
+    ChatSessionMessageMistakeLink,
+    User,
+)
 
 LEGACY_SESSION_TITLE = "之前的对话"
 DEFAULT_SESSION_TITLE = "新对话"
@@ -147,11 +153,41 @@ def append_message(db: Session, session: ChatSession, role: str, content: str) -
     return msg
 
 
+def link_related_mistake(db: Session, message: ChatSessionMessage,
+                         error_id: Optional[int]) -> None:
+    """将一条助手回复与其历史错题入口关联，支持会话恢复。"""
+    if error_id is None:
+        return
+    link = ChatSessionMessageMistakeLink(message_id=message.id, error_id=error_id)
+    db.merge(link)
+    db.commit()
+
+
+def related_mistake_for_message(db: Session, user: User,
+                                message: ChatSessionMessage) -> Optional[dict]:
+    if message.role != "assistant":
+        return None
+    link = db.query(ChatSessionMessageMistakeLink).filter_by(
+        message_id=message.id
+    ).first()
+    if link is None:
+        return None
+    from .related_mistakes import find_related_mistake_for_error
+
+    return find_related_mistake_for_error(db, user.id, link.error_id)
+
+
 def delete_session(db: Session, user: User, session_id: int) -> bool:
     """删除本人的一条会话及其全部消息；不存在/非本人返回 False。"""
     session = get_own_session(db, user, session_id)
     if session is None:
         return False
+    message_ids = [row[0] for row in db.query(ChatSessionMessage.id)
+                   .filter(ChatSessionMessage.session_id == session.id).all()]
+    if message_ids:
+        db.query(ChatSessionMessageMistakeLink).filter(
+            ChatSessionMessageMistakeLink.message_id.in_(message_ids)
+        ).delete(synchronize_session=False)
     db.query(ChatSessionMessage) \
         .filter(ChatSessionMessage.session_id == session.id) \
         .delete(synchronize_session=False)

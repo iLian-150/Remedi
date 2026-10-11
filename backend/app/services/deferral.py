@@ -143,7 +143,7 @@ def grade_due(db: Session) -> int:
                 sub.status = SUPERSEDED
                 continue
             graded_sub, _, _ = diagnose_submission(db, student, question, step_texts, reuse=sub)
-            review_svc.create_pending_review(db, graded_sub)
+            review_svc.create_review_if_needed(db, graded_sub)
             graded += 1
         db.commit()
     return graded

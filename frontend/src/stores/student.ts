@@ -17,6 +17,7 @@ import type {
   PageResult,
   PhotoReviewResult,
   PhotoTranscribeResult,
+  RelatedMistake,
   StudentBriefing,
   StudentProfile,
   StudentMistake,
@@ -97,6 +98,12 @@ export const useStudentStore = defineStore('student', {
     // 错题本：全部诊断错误，附作业、分类、订正与历史同类错误
     async fetchMyMistakes(archived = false): Promise<StudentMistake[]> {
       const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', { params: { archived } })
+      return data
+    },
+    async fetchRelatedMistake(questionId: number): Promise<RelatedMistake | null> {
+      const { data } = await api.get<RelatedMistake | null>(
+        `/api/student/questions/${questionId}/related-mistake`
+      )
       return data
     },
     /** 可订正错题（v0.9.1 抽到 store 供订正页与右栏订正日历共用）：
@@ -198,6 +205,13 @@ export const useStudentStore = defineStore('student', {
     },
     async savePhotoCapture(captureId: number, explanation: string): Promise<void> {
       await api.post(`/api/student/photo-captures/${captureId}/save`, { explanation })
+    },
+    async saveTextQuestion(questionText: string, subject = 'math', explanation = ''): Promise<void> {
+      await api.post('/api/student/question-captures', {
+        question_text: questionText,
+        subject,
+        explanation
+      })
     },
     // 3.13 学习报告（v0.2.1）：按科目聚合 + 知识点状态
     async fetchReport(): Promise<SubjectReport[]> {

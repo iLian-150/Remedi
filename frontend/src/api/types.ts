@@ -123,6 +123,31 @@ export interface StudentMistake {
   image_url?: string | null
 }
 
+export interface RelatedMistake {
+  id: number
+  submission_id: number
+  question_id: number
+  assignment_id: number
+  assignment_title: string
+  assignment_created_at: string
+  question_subject: string
+  question_stem: string
+  solution_steps: string[]
+  knowledge_point: string
+  error_type: string
+  detail: string | null
+  step_seq: number | null
+  step_text: string | null
+  created_at: string
+  latest_correction: {
+    id: number
+    content: string
+    is_correct: boolean | null
+    note: string | null
+    submitted_at: string
+  } | null
+}
+
 // POST /api/student/submissions 与 GET /api/student/submissions/{id} 的响应体
 export interface SubmissionResult {
   submission_id: number
@@ -369,6 +394,7 @@ export interface AgentHistoryItem {
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  related_mistake?: RelatedMistake | null
 }
 
 // ---------- 站内提醒（v0.3.0） ----------
@@ -463,6 +489,7 @@ export interface AgentChatResult {
   reply: string
   suggestions: string[]
   session_id: number | null
+  related_mistake?: RelatedMistake | null
 }
 
 // ---------- v0.2.1 新增：学习报告（科目 → 知识点 → 错题时间线 → 步骤诊断） ----------
