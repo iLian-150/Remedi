@@ -135,10 +135,20 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
              .order_by(Assignment.id).all())
     result = []
     for a in items:
-        qc = db.query(Question).filter(Question.assignment_id == a.id).count()
+        qids = [row[0] for row in
+                db.query(Question.id).filter(Question.assignment_id == a.id).all()]
+        # v0.13.9：该学生在这份作业里已提交的题数（去重到题）——交作业页的
+        # 「正在交的作业」下拉据此把已全部交完的作业滤掉，不再列出来
+        submitted = (
+            db.query(Submission.question_id)
+            .filter(Submission.student_id == current.id,
+                    Submission.question_id.in_(qids))
+            .distinct().count()
+        ) if qids else 0
         result.append({
             "id": a.id, "title": a.title, "description": a.description,
-            "question_count": qc, "created_at": a.created_at,
+            "question_count": len(qids), "submitted_count": submitted,
+            "created_at": a.created_at,
             # v0.5.0：发布模式与线下作业信息（mode/workbook_title/page_range/deadline）
             **assignment_ext_fields(db, a.id),
         })

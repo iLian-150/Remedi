@@ -29,6 +29,7 @@ export interface Assignment {
   title: string
   description: string
   question_count: number
+  submitted_count?: number // v0.13.9：当前学生已提交的题数（交作业页下拉过滤已交完作业用）
   created_at: string
   // v0.5.0：发布模式与线下作业信息（线上作业 mode='online'、其余为 null）
   mode: 'online' | 'offline'
