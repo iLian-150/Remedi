@@ -22,6 +22,12 @@ services:
       - CLOUDFLARE_MODEL=${CLOUDFLARE_MODEL:-@cf/qwen/qwen3-30b-a3b-fp8}
       - CLOUDFLARE_VISION_MODEL=${CLOUDFLARE_VISION_MODEL:-@cf/qwen/qwen3.8-27b}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   web:
     build:
@@ -31,7 +37,8 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
