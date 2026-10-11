@@ -315,9 +315,13 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
         kp = s.question.knowledge_point if s.question else "未知"
         kp_attempts[kp] = kp_attempts.get(kp, 0) + 1
     kp_errors: Dict[str, int] = {}
+    kp_last_error_at = {}
     stubborn_kps = set()
     for e in errors:
         kp_errors[e.knowledge_point] = kp_errors.get(e.knowledge_point, 0) + 1
+        last_error_at = kp_last_error_at.get(e.knowledge_point)
+        if last_error_at is None or e.created_at > last_error_at:
+            kp_last_error_at[e.knowledge_point] = e.created_at
         if e.is_stubborn:
             stubborn_kps.add(e.knowledge_point)
     weak_points = sorted(stubborn_kps)
@@ -331,11 +335,10 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     # 需加固知识点的明细（v0.2.1 新增字段，供简报卡片展示出错次数/最近出错时间）
     weak_point_details = []
     for kp in weak_points:
-        kp_errs = [e for e in errors if e.knowledge_point == kp]
         weak_point_details.append({
             "knowledge_point": kp,
-            "error_count": len(kp_errs),
-            "last_error_at": max((e.created_at for e in kp_errs), default=None),
+            "error_count": kp_errors.get(kp, 0),
+            "last_error_at": kp_last_error_at.get(kp),
         })
 
     # 最近一次批改的一句话摘要
