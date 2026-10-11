@@ -201,6 +201,9 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
     err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
     answer_steps = db.query(Step).filter(Step.submission_id == sub.id).all()
     correct_steps, total_steps = scoring_svc.step_counts(answer_steps)
+    assignment_context = review_svc.assignment_accuracy_context(db, sub)
+    assignment_correct_steps = assignment_context[1] if assignment_context else 0
+    assignment_total_steps = assignment_context[2] if assignment_context else 0
     review_reasons = review_svc.review_reasons(db, sub)
     if not review_reasons:
         # 当前待审记录没有低步骤率或低错因置信度时，来源是视觉模型判断置信度。
@@ -239,6 +242,8 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
         error_count=err_n,
         correct_steps=correct_steps,
         total_steps=total_steps,
+        assignment_correct_steps=assignment_correct_steps,
+        assignment_total_steps=assignment_total_steps,
         review_reason="；".join(review_reasons),
         submitted_at=sub.submitted_at,
         image_url=image_url,

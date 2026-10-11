@@ -1,4 +1,4 @@
-<!-- 教师端：待审核（v0.9.0 新增）——低置信度错因由老师复核，通过后学生才看得到诊断。
+<!-- 教师端：待审核（v0.9.0 新增）——老师复核低置信度 AI 判断；学生可先查看诊断、错题并订正，成绩等审核通过后放行。
      作业列表保持为背景页，点击作业直接打开审核窗口；学生和题目在窗口左侧切换，
      右侧显示答题情况（过程提示/分步诊断/错因复核/
      AI 评分/最终分与通过）。逐条错因可先一键纠错再通过（改后通过）；
@@ -11,7 +11,7 @@
   <div class="page">
     <div class="page-head">
       <h2>待审核</h2>
-      <p class="page-sub">本次作答正确率或错因置信度低于 60% 的记录会进入这里复核；点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
+      <p class="page-sub">整份作业同学科题目提交完成后，累计正确率低于 60% 的作业会进入复核；单题正确率或错因置信度低于 60% 也会即时进入。点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -64,7 +64,7 @@
               <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
             </span>
             <span class="assign-card-accuracy" :class="accuracyClass(g)">
-              <span class="accuracy-label">待审步骤正确率</span>
+              <span class="accuracy-label">作业累计正确率</span>
               <strong>{{ accuracyPercent(g) ?? '—' }}<small v-if="accuracyPercent(g) !== null">%</small></strong>
               <span class="accuracy-steps" v-if="g.totalAnswerSteps">
                 {{ g.correctSteps }} / {{ g.totalAnswerSteps }} 步正确
@@ -261,7 +261,7 @@
                     </div>
                   </div>
                   <div class="approve-actions">
-                    <p class="hint" style="margin: 0">通过后，学生会收到提醒并能查看诊断与错题。</p>
+                    <p class="hint" style="margin: 0">通过后学生会收到提醒，成绩正式生效。</p>
                     <button class="btn" :disabled="approving" @click="approveSelected">
                       {{ approving ? '通过中…' : '通过审核' }}
                     </button>
@@ -345,6 +345,7 @@ interface AssignmentGroup {
   errorItems: number
   correctSteps: number
   totalAnswerSteps: number
+  countedStudentSubjects: Set<string>
   reviewReasons: string[]
   questionIds: number[]
   questionStems: string[]
@@ -366,6 +367,7 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
         errorItems: 0,
         correctSteps: 0,
         totalAnswerSteps: 0,
+        countedStudentSubjects: new Set(),
         reviewReasons: [],
         questionIds: [],
         questionStems: [],
@@ -382,8 +384,12 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
     sg.items.push(it)
     g.total += 1
     if (it.error_count) g.errorItems += 1
-    g.correctSteps += it.correct_steps ?? 0
-    g.totalAnswerSteps += it.total_steps ?? 0
+    const accuracyKey = `${it.student.id}:${it.subject}`
+    if (!g.countedStudentSubjects.has(accuracyKey)) {
+      g.countedStudentSubjects.add(accuracyKey)
+      g.correctSteps += it.assignment_correct_steps ?? it.correct_steps ?? 0
+      g.totalAnswerSteps += it.assignment_total_steps ?? it.total_steps ?? 0
+    }
     for (const reason of (it.review_reason || '').split('；').filter(Boolean)) {
       if (!g.reviewReasons.includes(reason)) g.reviewReasons.push(reason)
     }
