@@ -257,6 +257,17 @@
       </button>
     </div>
 
+    <!-- v0.13.9：空态——还没加任何题目时先做选择：小题是独立的一道题，
+         大题是一段共同题干下面挂几道小题 -->
+    <div v-if="!questions.length && !groups.length" class="card q-empty">
+      <h3 style="margin-bottom: 6px">添加题目</h3>
+      <p class="card-sub">这次作业还没有题目。添加小题，就是一道独立的题；添加大题，是先写一段共同题干，再在下面挂几道小题。</p>
+      <div class="q-add-row">
+        <button type="button" class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
+        <button type="button" class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
+      </div>
+    </div>
+
     <div v-for="(q, idx) in questions" :key="idx" class="card" :class="{ 'q-suspect': showResult(q) && q.check_status === 'suspect' }">
       <div class="q-head">
         <h3 style="margin-bottom: 0">第 {{ idx + 1 }} 题 · 数学</h3>
@@ -264,7 +275,7 @@
           <button class="btn small secondary inline-icon" :disabled="q.recognizing" @click="pickPhoto(q)">
             <AppIcon name="camera" :size="15" /> {{ q.recognizing ? '识别中…' : '拍照识别题目' }}
           </button>
-          <button class="btn small danger" :disabled="questions.length === 1" @click="questions.splice(idx, 1)">删除本题</button>
+          <button class="btn small danger" @click="questions.splice(idx, 1)">删除本题</button>
         </div>
       </div>
       <p v-if="q.recognized" class="ok-msg" style="margin-bottom: 12px">已通过照片识别填入，请检查题干与标准步骤是否正确，可直接修改后再发布。</p>
@@ -450,8 +461,9 @@
     </div>
 
     <input ref="photoRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhotoChange" />
-    <!-- 分值占比合计（评分系统）：只统计会真正发布的题（题干或知识点已填） -->
-    <div class="card weight-bar">
+    <!-- 分值占比合计（评分系统）：只统计会真正发布的题（题干或知识点已填）；
+         v0.13.9：一道题都还没加时不显示这条，避免空着就报「还差 100%」 -->
+    <div v-if="questions.length || groups.length" class="card weight-bar">
       <span class="weight-sum" :class="{ bad: !weightSumOk }">
         分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b>
         <template v-if="weightSumOk">，正好 100%</template>
@@ -462,7 +474,7 @@
       <button type="button" class="btn small secondary" @click="distributeEvenly">一键均分</button>
     </div>
     <div class="toolbar publish-actions">
-      <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加一题</button>
+      <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
       <button class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
       <span class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
@@ -528,7 +540,9 @@ const blankQuestion = (): QuestionForm => ({
   recognized: false, recognizing: false, kp_guessing: false,
   check_status: 'idle', check_detail: '', check_stamp: ''
 })
-const questions = ref<QuestionForm[]>([blankQuestion()])
+// v0.13.9：进表单时一道题都不给——老师先选「添加小题」或「添加大题」，
+// 避免一进来就摆一道空题、还得先删
+const questions = ref<QuestionForm[]>([])
 // v0.13.1：允许修改开关 + 大题/小题（大题 = 共享题干 + 若干小题，小题仍是普通题目）
 const allowRevision = ref(false)
 interface GroupForm { stem: string; subs: QuestionForm[] }
@@ -1007,43 +1021,47 @@ async function submit() {
       return
     }
   }
-  // 大题先验题干：有小题会发布的大题，共享题干必填
+  // v0.13.9：题目完整性改严格口径——没加题目不能发；加了的卡片只要没填、
+  // 或只填了一半（缺题干或缺知识点）也不能发，必须填完或删掉（此前空白卡
+  // 会被静默跳过、照样发布）。待发布清单与页面渲染顺序一致（小题在前、
+  // 大题小题随后），后端按数组顺序落 order_num；label 供报错定位。
+  if (!questions.value.length && !groups.value.length) {
+    error.value = '还没有添加题目，请先点「添加小题」或「添加大题」。'
+    return
+  }
+  interface Entry { q: QuestionForm; label: string; groupKey: string | null }
+  const entries: Entry[] = []
+  for (let i = 0; i < questions.value.length; i++) {
+    const q = questions.value[i]
+    if (!q.prompt.trim() || !q.knowledge_point.trim()) {
+      error.value = `第 ${i + 1} 题还没填完整（题干和知识点都要填），填完或删除这一题后再发布。`
+      return
+    }
+    entries.push({ q, label: `第 ${i + 1} 题`, groupKey: null })
+  }
+  const groupPayload: { key: string; stem: string }[] = []
   for (let gi = 0; gi < groups.value.length; gi++) {
     const g = groups.value[gi]
-    const hasSub = g.subs.some((s) => s.prompt.trim() || s.knowledge_point.trim())
-    if (hasSub && !g.stem.trim()) {
+    if (!g.stem.trim()) {
       error.value = `大题 ${gi + 1} 的题干还没填写（小题要靠它给材料）。`
       return
     }
-  }
-  // 待发布清单（v0.13.1：普通题在前、大题小题随后，与页面渲染顺序一致，
-  // 后端按数组顺序落 order_num；label 供报错定位）
-  interface Entry { q: QuestionForm; label: string; groupKey: string | null }
-  const entries: Entry[] = []
-  questions.value.forEach((q, i) => {
-    if (q.prompt.trim() || q.knowledge_point.trim()) entries.push({ q, label: `第 ${i + 1} 题`, groupKey: null })
-  })
-  const groupPayload: { key: string; stem: string }[] = []
-  groups.value.forEach((g, gi) => {
-    const key = `g${gi + 1}`
-    const subs = g.subs
-      .map((sub, si) => ({ sub, si }))
-      .filter(({ sub }) => sub.prompt.trim() || sub.knowledge_point.trim())
-    if (!subs.length) return
-    groupPayload.push({ key, stem: g.stem.trim() })
-    subs.forEach(({ sub, si }) => entries.push({ q: sub, label: `大题 ${gi + 1} 小题（${si + 1}）`, groupKey: key }))
-  })
-  const valid = entries.map((e) => e.q)
-  if (!valid.length) {
-    error.value = '至少填写 1 道题目。'
-    return
-  }
-  for (const e of entries) {
-    if (!e.q.prompt.trim() || !e.q.knowledge_point.trim()) {
-      error.value = `${e.label}的题干和知识点都要填写。`
+    if (!g.subs.length) {
+      error.value = `大题 ${gi + 1} 还没有小题，请添加小题或删除这个大题。`
       return
     }
+    const key = `g${gi + 1}`
+    groupPayload.push({ key, stem: g.stem.trim() })
+    for (let si = 0; si < g.subs.length; si++) {
+      const sub = g.subs[si]
+      if (!sub.prompt.trim() || !sub.knowledge_point.trim()) {
+        error.value = `大题 ${gi + 1} 的小题（${si + 1}）还没填完整（题干和知识点都要填），填完或删除后再发布。`
+        return
+      }
+      entries.push({ q: sub, label: `大题 ${gi + 1} 小题（${si + 1}）`, groupKey: key })
+    }
   }
+  const valid = entries.map((e) => e.q)
   // 评分系统：总分合法性 + 分值占比合计必须 = 100%（容差 0.5），否则拦截发布
   const total = Number(totalScore.value)
   if (!total || Number.isNaN(total) || total <= 0) {
@@ -1245,6 +1263,7 @@ onMounted(async () => {
 .weight-mini { font-size: 13px; color: var(--text-2); }
 .weight-mini b { color: var(--green); }
 .weight-mini.bad b { color: var(--red); }
+.q-empty .q-add-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .q-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
 .q-actions { display: flex; gap: 8px; align-items: center; }
 .mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
