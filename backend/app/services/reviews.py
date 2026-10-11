@@ -400,22 +400,14 @@ def approve_submission(db: Session, submission: Submission, teacher,
 
 def pending_reviews(db: Session) -> List[Submission]:
     """教师端待审核队列：pending 的提交按提交时间正序（先交先审）。"""
-    rows = (
-        db.query(SubmissionReview)
-        .filter(SubmissionReview.status == PENDING)
-        .all()
-    )
-    pending_ids = [r.submission_id for r in rows]
-    if not pending_ids:
-        return []
-    subs = (
+    return (
         db.query(Submission)
+        .join(SubmissionReview, SubmissionReview.submission_id == Submission.id)
         .options(
             joinedload(Submission.student),
             joinedload(Submission.question).joinedload(Question.assignment),
         )
-        .filter(Submission.id.in_(pending_ids))
+        .filter(SubmissionReview.status == PENDING)
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
-    return subs
