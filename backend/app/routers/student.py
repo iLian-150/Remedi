@@ -1,4 +1,5 @@
 # /api/student/* 学生端
+import heapq
 import json
 import logging
 import os
@@ -438,6 +439,58 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         key, _ = _mistake_category(question.subject, error.error_type, error.knowledge_point)
         history_by_category.setdefault(key, []).append((error, submission, question, assignment))
 
+    # 每个「类别 × 作业」只需保留最新一条错题。按作业时间扫描，并用堆按错题时间
+    # 排序此前的作业；每条记录可直接取前 5 个相似错题，避免反复扫描全部历史记录。
+    def datetime_order_key(value: datetime) -> int:
+        return (
+            ((value.toordinal() * 24 + value.hour) * 60 + value.minute) * 60
+            + value.second
+        ) * 1_000_000 + value.microsecond
+
+    similar_by_category_assignment = {}
+    for category_key, category_rows in history_by_category.items():
+        latest_by_assignment = {}
+        assignments_by_id = {}
+        for entry in category_rows:
+            assignment = entry[3]
+            latest_by_assignment.setdefault(assignment.id, entry)
+            assignments_by_id.setdefault(assignment.id, assignment)
+
+        representatives = sorted(
+            latest_by_assignment.values(),
+            key=lambda entry: (entry[3].created_at, entry[3].id),
+        )
+        current_assignments = sorted(
+            assignments_by_id.values(),
+            key=lambda assignment: (assignment.created_at, assignment.id),
+        )
+        eligible = []
+        representative_index = 0
+        for assignment in current_assignments:
+            while (
+                representative_index < len(representatives)
+                and representatives[representative_index][3].created_at < assignment.created_at
+            ):
+                entry = representatives[representative_index]
+                representative_index += 1
+                error = entry[0]
+                heapq.heappush(
+                    eligible,
+                    (-datetime_order_key(error.created_at), -error.id, entry),
+                )
+            top_five = heapq.nsmallest(5, eligible)
+            similar_by_category_assignment[(category_key, assignment.id)] = [
+                {
+                    "id": entry[0].id,
+                    "submission_id": entry[1].id,
+                    "assignment_id": entry[3].id,
+                    "assignment_title": entry[3].title,
+                    "assignment_created_at": entry[3].created_at,
+                    "question_stem": entry[2].stem,
+                }
+                for _, _, entry in top_five
+            ]
+
     result = []
     review_status_by_submission = review_svc.review_status_map(
         db, [submission.id for _, submission, _, _, _ in rows]
@@ -446,18 +499,6 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         category_key, category_label = _mistake_category(
             question.subject, error.error_type, error.knowledge_point
         )
-        previous_by_assignment = {}
-        for previous_error, previous_submission, previous_question, previous_assignment in history_by_category.get(category_key, []):
-            if previous_assignment.id == assignment.id or previous_assignment.created_at >= assignment.created_at:
-                continue
-            previous_by_assignment.setdefault(previous_assignment.id, {
-                "id": previous_error.id,
-                "submission_id": previous_submission.id,
-                "assignment_id": previous_assignment.id,
-                "assignment_title": previous_assignment.title,
-                "assignment_created_at": previous_assignment.created_at,
-                "question_stem": previous_question.stem,
-            })
         correction = correction_by_error.get(error.id)
         verification = verification_by_error.get(error.id)
         correct_answer = (
@@ -498,7 +539,9 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             category_label=category_label,
             category_studied=(assignment.id, category_key) in reviewed,
             archived_at=archived_at_by_error.get(error.id),
-            similar_occurrences=list(previous_by_assignment.values())[:5],
+            similar_occurrences=similar_by_category_assignment.get(
+                (category_key, assignment.id), []
+            ),
             latest_correction=({
                 "id": correction.id,
                 "content": correction.content,
