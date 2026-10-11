@@ -29,8 +29,9 @@ def init_db():
     """建表并幂等补齐会话消息读取索引（MVP 用；生产请用 Alembic 迁移）。"""
     from . import models  # noqa: F401  确保模型被注册到 Base.metadata
     Base.metadata.create_all(bind=engine)
-    # create_all 不会给已存在的表补建后来添加的索引；启动时显式幂等创建。
-    for index in models.SubmissionReview.__table__.indexes:
-        index.create(bind=engine, checkfirst=True)
+    # create_all 不会给已存在的表补建后来添加的索引；启动时显式幂等创建热查询表索引。
+    for model in (models.SubmissionReview, models.Correction, models.Verification):
+        for index in model.__table__.indexes:
+            index.create(bind=engine, checkfirst=True)
     for index in models.ChatSessionMessage.__table__.indexes:
         index.create(bind=engine, checkfirst=True)

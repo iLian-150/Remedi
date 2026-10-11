@@ -107,6 +107,12 @@ class Error(Base):
 
 class Correction(Base):
     __tablename__ = "corrections"
+    __table_args__ = (
+        Index(
+            "ix_corrections_student_error_submitted",
+            "student_id", "error_id", "submitted_at", "id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     error_id = Column(Integer, ForeignKey("errors.id"), nullable=False, index=True)
@@ -215,6 +221,12 @@ class Verification(Base):
     通过验证才算该知识点「已修复」。variant_json 存变式题全量
     （prompt / standard_steps / answer / mode），只把 prompt 下发给学生。"""
     __tablename__ = "verifications"
+    __table_args__ = (
+        Index(
+            "ix_verifications_student_source_error_created",
+            "student_id", "source_error_id", "created_at", "id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
