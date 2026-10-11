@@ -192,8 +192,10 @@ async function enterSubject(s: SubjectCard) {
 
 onMounted(async () => {
   loading.value = true
+  const reportRequest = student.fetchReport()
+  const scoresRequest = student.fetchReportScores()
   try {
-    report.value = await student.fetchReport()
+    report.value = await reportRequest
   } catch (e) {
     error.value = '学习报告加载失败，请确认后端已启动。'
     console.error(e)
@@ -202,7 +204,7 @@ onMounted(async () => {
   }
   // 成绩分析独立加载：失败不影响报告主体
   try {
-    scoreData.value = await student.fetchReportScores()
+    scoreData.value = await scoresRequest
   } catch (e) {
     console.error(e)
   }
