@@ -493,7 +493,7 @@ interface ChatMsg {
 }
 
 const messages = ref<ChatMsg[]>([])
-const STREAM_MARKDOWN_REFRESH_MS = 48
+const STREAM_MARKDOWN_REFRESH_MS = 16
 const streamMarkdownTimers = new WeakMap<ChatMsg, number>()
 
 function scheduleStreamingMarkdown(msg: ChatMsg) {
