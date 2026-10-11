@@ -58,6 +58,7 @@ export const useStudentStore = defineStore('student', {
     activeSessionId: null as number | null,
     sessionsLoading: false,
     sessionsLoaded: false,
+    sessionsLoadPromise: null as Promise<void> | null,
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
@@ -347,10 +348,17 @@ export const useStudentStore = defineStore('student', {
     // ---- 会话区状态层（v0.6.2）：左侧栏会话导航与对话页共用 ----
     /** 拉取会话列表进 store；首次自动定位当前会话 = 最近更新的一条 */
     async loadSessions(force = false) {
-      if (this.sessionsLoading) return
+      if (this.sessionsLoadPromise) {
+        try {
+          await this.sessionsLoadPromise
+        } catch {
+          // 让强制刷新继续重试；普通并发调用复用这次结果即可。
+        }
+        if (!force) return
+      }
       if (this.sessionsLoaded && !force) return
       this.sessionsLoading = true
-      try {
+      const task = (async () => {
         this.sessions = await this.fetchSessions()
         this.sessionsLoaded = true
         const activeExists = this.sessions.some((session) => session.id === this.activeSessionId)
@@ -362,11 +370,35 @@ export const useStudentStore = defineStore('student', {
             : this.sessions[0]?.id ?? null
           persistActiveSessionId(this.activeSessionId)
         }
+      })()
+      this.sessionsLoadPromise = task
+      try {
+        await task
       } catch (e) {
         console.error(e)
       } finally {
-        this.sessionsLoading = false
+        if (this.sessionsLoadPromise === task) {
+          this.sessionsLoadPromise = null
+          this.sessionsLoading = false
+        }
       }
+    },
+    /** 首次发送消息时提前准备会话，让左侧历史列表在 AI 长耗时处理期间也能显示当前对话。 */
+    async ensureActiveChatSession(): Promise<number> {
+      if (!this.sessionsLoaded) await this.loadSessions()
+      const active = this.sessions.find((session) => session.id === this.activeSessionId)
+        ?? this.sessions[0]
+      if (active) {
+        this.activeSessionId = active.id
+        persistActiveSessionId(active.id)
+        return active.id
+      }
+      const session = await this.createSession()
+      this.sessions = [session, ...this.sessions.filter((item) => item.id !== session.id)]
+      this.activeSessionId = session.id
+      this.sessionsLoaded = true
+      persistActiveSessionId(session.id)
+      return session.id
     },
     setActiveSession(id: number | null) {
       this.activeSessionId = id

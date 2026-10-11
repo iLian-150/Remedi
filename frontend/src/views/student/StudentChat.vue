@@ -787,6 +787,7 @@ async function sendChat(raw?: string) {
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
   chatSending.value = true
   try {
+    await student.ensureActiveChatSession()
     const saveIntent = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(text) && /错题本|错题/.test(text)
     const refersToPrevious = /刚才|上一题|前面那题|之前那题/.test(text)
     const cleanedQuestion = text.replace(/[，,。 ]*(?:顺便)?(?:请)?(?:把)?(?:这道题|这题)?(?:加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏)(?:错题本|错题)(?:里|中)?[。！!]?/g, '').trim()
@@ -878,6 +879,7 @@ async function sendPhotoReview(file: File, prompt: string) {
   let photoReviewSucceeded = false
   let explanationPrompt: string | null = null
   try {
+    await student.ensureActiveChatSession()
     // 只有从具体作业题目跳转过来时才自动关联题目，避免把自由上传的照片误绑到默认第一题。
     const explicitQuestionId = selectedQuestion.value?.id ?? null
     const res = await student.reviewPhoto(
