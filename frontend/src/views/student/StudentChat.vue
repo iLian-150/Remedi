@@ -211,7 +211,7 @@
           <div v-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
             <div class="ai-message-text">
               <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
-              <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming">{{ msg.text }}</div>
+              <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming" v-html="renderAssistantMarkdown(msg.text)"></div>
               <div v-else class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
             </div>
             <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-empty': !msg.mistakeSync.errorCount }">
