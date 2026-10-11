@@ -61,13 +61,21 @@ def latest_submission(db: Session, student_id: int, question_id: int) -> Optiona
 def assert_can_submit(db: Session, student: User, question: Question) -> None:
     """提交锁定：已有生效提交且作业不允许（或已过可修改窗口）→ 拒绝再交。
 
-    放行情形：从未提交过；或作业开启允许修改且最新提交还是延迟态
-    （截止前的修改）；或开启允许修改但没设截止（立即批改口径下继续放行）。"""
+    放行情形：从未提交过；或作业开启允许修改且截止前最新提交还是延迟态；
+    或开启允许修改但没设截止（立即批改口径下继续放行）。截止后即使后台批改
+    尚未处理完 deferred 记录，也不能再接受修改。"""
     latest = latest_submission(db, student.id, question.id)
     if latest is None:
         return
     if latest.status == DEFERRED:
-        return  # 截止前修改：新的延迟提交会成为最新一份
+        if is_deferred_mode(db, question.assignment_id):
+            return  # 截止前修改：新的延迟提交会成为最新一份
+        deadline = assignment_deadline(db, question.assignment_id)
+        if deadline is not None and datetime.now() >= deadline:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "作业已过截止时间，不能继续修改；已提交内容会自动批改。",
+            )
     if allow_revision(db, question.assignment_id) and assignment_deadline(db, question.assignment_id) is None:
         return  # 无截止的允许修改作业：立即批改口径，继续放行
     raise HTTPException(
