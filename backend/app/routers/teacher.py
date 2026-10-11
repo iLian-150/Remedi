@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_teacher
 from ..config import settings
@@ -97,18 +97,29 @@ logger = logging.getLogger(__name__)
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")
 
 
-def _teacher_error_item(err: Error, db: Session) -> TeacherErrorItem:
-    sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
-    student = db.query(User).filter(User.id == sub.student_id).first() if sub else None
-    question = db.query(Question).filter(Question.id == sub.question_id).first() if sub else None
-    base = present_error(err, db)
-    rstatus = review_svc.review_status(db, err.submission_id)
+def _teacher_error_item(
+    err: Error, db: Session, preloaded: Optional[dict] = None
+) -> TeacherErrorItem:
+    preloaded = preloaded or {}
+    if "review_status" in preloaded:
+        student = preloaded["student"]
+        question = preloaded["question"]
+        base = preloaded["base"]
+        rstatus = preloaded["review_status"]
+        vis = preloaded.get("visible_score")
+    else:
+        sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
+        student = db.query(User).filter(User.id == sub.student_id).first() if sub else None
+        question = db.query(Question).filter(Question.id == sub.question_id).first() if sub else None
+        base = present_error(err, db)
+        rstatus = review_svc.review_status(db, err.submission_id)
+        vis = None
+        if rstatus != review_svc.PENDING and sub is not None:
+            vis = scoring_svc.visible_score(db, sub)
     # 评分系统：已通过的条目带上最终分小标数据；待审核不给分（分数跟审核一起放行）
     score = max_score = None
-    if rstatus != review_svc.PENDING and sub is not None:
-        vis = scoring_svc.visible_score(db, sub)
-        if vis:
-            score, max_score = vis["score"], vis["max_score"]
+    if vis:
+        score, max_score = vis["score"], vis["max_score"]
     return TeacherErrorItem(
         id=base["id"],
         submission_id=err.submission_id,
@@ -154,8 +165,59 @@ def list_errors(
     if stubborn_only:
         query = query.filter(Error.is_stubborn.is_(True))
     total = query.count()
-    errs = query.order_by(Error.created_at.desc()).offset(offset).limit(limit).all()
-    return {"total": total, "items": [_teacher_error_item(e, db) for e in errs]}
+    errs = (
+        query.options(
+            joinedload(Error.step),
+            joinedload(Error.submission).joinedload(Submission.student),
+            joinedload(Error.submission).joinedload(Submission.question),
+        )
+        .order_by(Error.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    submission_by_id = {
+        err.submission_id: err.submission
+        for err in errs
+        if err.submission is not None
+    }
+    status_by_id = review_svc.review_status_map(db, submission_by_id)
+    approved_submissions = [
+        submission
+        for submission_id, submission in submission_by_id.items()
+        if status_by_id.get(submission_id, review_svc.APPROVED) != review_svc.PENDING
+    ]
+    preloaded_by_error_id = {}
+    for err in errs:
+        submission = submission_by_id.get(err.submission_id)
+        step = err.step
+        preloaded_by_error_id[err.id] = {
+            "student": UserOut.model_validate(submission.student),
+            "question": QuestionOut.model_validate(submission.question),
+            "base": {
+                "id": err.id,
+                "step_seq": step.seq if step else None,
+                "step_text": step.text if step else None,
+                "knowledge_point": err.knowledge_point,
+                "error_type": err.error_type,
+                "confidence": err.confidence,
+                "is_stubborn": err.is_stubborn,
+                "detail": err.detail,
+                "teacher_corrected": err.teacher_corrected,
+                "teacher_note": err.teacher_note,
+                "created_at": err.created_at,
+            },
+        }
+    scores_by_id = scoring_svc.visible_scores(db, approved_submissions)
+    items = []
+    for err in errs:
+        rstatus = status_by_id.get(err.submission_id, review_svc.APPROVED)
+        items.append(_teacher_error_item(err, db, {
+            **preloaded_by_error_id[err.id],
+            "review_status": rstatus,
+            "visible_score": scores_by_id.get(err.submission_id),
+        }))
+    return {"total": total, "items": items}
 
 
 @router.post("/errors/{error_id}/correct", response_model=TeacherErrorItem, summary="教师一键纠错")
