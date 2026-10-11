@@ -6,6 +6,7 @@ import secrets
 from bisect import bisect_right
 from collections import defaultdict
 from datetime import datetime, timedelta
+from functools import wraps
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -837,7 +838,33 @@ def _delete_unreferenced_submission_images(db: Session, file_paths: set[str]) ->
             )
 
 
+def _trace_assignment_delete_failures(handler):
+    """保留删除请求的服务端异常上下文，并给教师可关联的错误编号。"""
+    @wraps(handler)
+    def wrapped(assignment_id: int, db: Session = Depends(get_db),
+                current: User = Depends(require_teacher)):
+        try:
+            return handler(assignment_id, db, current)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            db.rollback()
+            incident_id = secrets.token_hex(4)
+            logger.exception(
+                "教师删除作业失败 (assignment_id=%s, incident_id=%s, error_type=%s)",
+                assignment_id,
+                incident_id,
+                type(exc).__name__,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"删除失败，错误编号 {incident_id}，请稍后重试。",
+            ) from exc
+    return wrapped
+
+
 @router.delete("/assignments/{assignment_id}", summary="删除已发布作业")
+@_trace_assignment_delete_failures
 def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_teacher)):
     """删除教师作业管理列表中的一份作业（v0.3.0 新增）。教师端列表包含学生自主上传题，
