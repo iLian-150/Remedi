@@ -29,6 +29,8 @@ import type {
   VerificationSubmitResult
 } from '../api/types'
 
+const STUDENT_STREAM_CHARACTER_DELAY_MS = 10
+
 function activeSessionStorageKey(): string | null {
   const userId = useAuthStore().user?.id
   return userId == null ? null : `remedi_student_active_session_${userId}`
@@ -253,7 +255,9 @@ export const useStudentStore = defineStore('student', {
         typingTask = (async () => {
           while (offset < characters.length) {
             onText(characters[offset++])
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 20))
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, STUDENT_STREAM_CHARACTER_DELAY_MS)
+            )
           }
         })().finally(() => {
           typingTask = null
@@ -397,8 +401,10 @@ export const useStudentStore = defineStore('student', {
         typingTask = (async () => {
           while (queueOffset < characterQueue.length) {
             onText(characterQueue[queueOffset++])
-            // 20ms 约为常见 60Hz 屏幕一帧稍长，避免浏览器合并绘制让逐字效果看起来像整段出现。
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 20))
+            // 逐字推进但减少人工等待，避免长讲解被动画额外拖慢。
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, STUDENT_STREAM_CHARACTER_DELAY_MS)
+            )
           }
         })().finally(() => {
           typingTask = null
