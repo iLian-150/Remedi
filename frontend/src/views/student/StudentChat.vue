@@ -313,9 +313,15 @@
 
           <!-- 用户消息 -->
           <div v-else-if="msg.side === 'user' && msg.kind === 'image'" class="user-image">
-            <button class="user-image-trigger" type="button" aria-label="放大作业照片" @click="openImagePreview(msg.url, '作业照片')">
-              <img :src="msg.url" alt="作业照片" />
-            </button>
+            <div class="user-image-card">
+              <p v-if="msg.text" class="user-image-prompt">{{ msg.text }}</p>
+              <button class="user-image-trigger" type="button" :aria-label="`放大${msg.fileName || '作业照片'}`" @click="openImagePreview(msg.url, msg.fileName || '作业照片')">
+                <img :src="msg.url" :alt="msg.fileName || '作业照片'" />
+              </button>
+              <button class="user-image-caption" type="button" @click="openImagePreview(msg.url, msg.fileName || '作业照片')">
+                {{ msg.fileName || '作业照片' }} · 点击查看大图
+              </button>
+            </div>
           </div>
           <div v-else-if="msg.side === 'user'" class="bubble user-bubble">{{ msg.text }}</div>
         </div>
@@ -417,6 +423,7 @@ interface ChatMsg {
   kind: 'briefing' | 'text' | 'image' | 'transcribe' | 'diagnosis' | 'error'
   text: string
   url: string
+  fileName?: string
   briefing: StudentBriefing | null
   questionText: string
   steps: string[]
@@ -439,6 +446,7 @@ function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
     kind: 'text',
     text: '',
     url: '',
+    fileName: '',
     briefing: null,
     questionText: '',
     steps: [],
@@ -790,8 +798,7 @@ async function onFileChange(e: Event) {
 
 async function sendPhotoReview(file: File, prompt: string) {
   suggestions.value = []
-  pushMsg({ side: 'user', kind: 'image', url: createImageUrl(file) })
-  if (prompt) pushMsg({ side: 'user', kind: 'text', text: prompt })
+  pushMsg({ side: 'user', kind: 'image', text: prompt, fileName: file.name, url: createImageUrl(file) })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别题目和作答情况…', pending: true })
   chatSending.value = true
   try {
@@ -1043,8 +1050,11 @@ onMounted(async () => {
 .ai-bubble { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; align-items: center; gap: 8px; }
 .error-bubble { background: var(--red-bg); color: #991B1B; display: inline-flex; align-items: center; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
-.user-image-trigger { display: block; max-width: 320px; padding: 0; overflow: hidden; border: 0; border-radius: 12px; background: transparent; cursor: zoom-in; }
-.user-image img { display: block; max-width: 100%; max-height: 380px; border: 1px solid var(--border); border-radius: 12px; }
+.user-image-card { display: grid; width: fit-content; max-width: min(440px, 82vw); gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 16px 16px 4px 16px; background: #F3F4F0; }
+.user-image-prompt { margin: 0 2px 2px; color: var(--text); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.user-image-trigger { display: flex; width: fit-content; max-width: 100%; justify-content: center; margin: 0 auto; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: zoom-in; }
+.user-image img { display: block; width: auto; height: auto; max-width: 100%; max-height: 340px; object-fit: contain; }
+.user-image-caption { display: block; max-width: 100%; padding: 0 2px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; cursor: zoom-in; }
 
 .ai-card {
   background: var(--card); border: 1px solid var(--border); border-radius: 14px;
@@ -1217,7 +1227,8 @@ onMounted(async () => {
 @media (max-width: 960px) {
   .chat-layout { height: calc(100dvh - 72px); }
   .chat-status { display: none; }
-  .user-image-trigger { max-width: 240px; }
+  .user-image-card { max-width: min(360px, 82vw); }
+  .user-image img { max-height: 280px; }
   .bubble { max-width: 88%; }
   .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 150px; }
   .chat-composer-welcome .chat-inner { padding: 0; }
