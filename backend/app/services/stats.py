@@ -211,21 +211,6 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
     submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
-    # 「交过没交过」按全部提交算（含待审核的），不能在未完成作业里再出现一次；
-    # 学习报告摘要只算已审核诊断，但待订正数量单独纳入待审核错题。
-    if visible_only:
-        done_qids = {
-            s.question_id
-            for s in db.query(Submission).filter(Submission.student_id == student.id).all()
-        }
-    else:
-        done_qids = {s.question_id for s in submissions}
-    done_qids |= {
-        e.question_id
-        for e in db.query(Essay).filter(
-            Essay.student_id == student.id, Essay.question_id.isnot(None)
-        ).all()
-    }
 
     # 未完成作业：批量读取作业、题目数与扩展信息，避免按作业逐条查库。
     # 与学生作业列表保持相同可见范围：学生自主上传题目只归上传者练习，不进入班级作业简报。
@@ -235,35 +220,58 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
             db.query(User.id).filter(User.role == "student")
         ))
     )
+    # 每题最多计一次；UNION 同时包含待审核提交和作文，保持“交过即完成”的原有口径，
+    # 并让数据库直接汇总，避免把全班作业的题目 ID 载入 Python 后逐题扫描。
+    done_question_ids = (
+        db.query(Submission.question_id.label("question_id"))
+        .filter(Submission.student_id == student.id)
+        .union(
+            db.query(Essay.question_id.label("question_id")).filter(
+                Essay.student_id == student.id,
+                Essay.question_id.isnot(None),
+            )
+        )
+        .subquery()
+    )
+    question_stats = (
+        db.query(
+            Question.assignment_id.label("assignment_id"),
+            func.count(Question.id).label("question_count"),
+            func.count(done_question_ids.c.question_id).label("submitted_count"),
+        )
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .outerjoin(done_question_ids, done_question_ids.c.question_id == Question.id)
+        .filter(visible_assignment)
+        .group_by(Question.assignment_id)
+        .subquery()
+    )
     assignment_rows = (
-        db.query(Assignment, AssignmentExt, AssignmentSetting, Workbook.title)
+        db.query(
+            Assignment,
+            AssignmentExt,
+            AssignmentSetting,
+            Workbook.title,
+            func.coalesce(question_stats.c.question_count, 0),
+            func.coalesce(question_stats.c.submitted_count, 0),
+        )
         .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
         .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
         .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
+        .outerjoin(question_stats, question_stats.c.assignment_id == Assignment.id)
         .filter(visible_assignment)
         .order_by(Assignment.id)
         .all()
     )
-    question_ids_by_assignment: Dict[int, List[int]] = {}
-    question_rows = (
-        db.query(Question.assignment_id, Question.id)
-        .join(Assignment, Assignment.id == Question.assignment_id)
-        .filter(visible_assignment)
-        .order_by(Question.assignment_id, Question.id)
-        .all()
-    )
-    for assignment_id, question_id in question_rows:
-        question_ids_by_assignment.setdefault(assignment_id, []).append(question_id)
 
     pending_assignments = []
-    for a, ext, setting, workbook_title in assignment_rows:
-        question_ids = question_ids_by_assignment.get(a.id, [])
-        remaining = sum(1 for question_id in question_ids if question_id not in done_qids)
-        if question_ids and remaining > 0:
+    for a, ext, setting, workbook_title, question_count, submitted_count in assignment_rows:
+        question_count = int(question_count)
+        remaining = question_count - int(submitted_count)
+        if question_count > 0 and remaining > 0:
             pending_assignments.append({
                 "id": a.id,
                 "title": a.title,
-                "question_count": len(question_ids),
+                "question_count": question_count,
                 "remaining_count": remaining,
                 "created_at": a.created_at,
                 "mode": (ext.mode or "online") if ext else "online",
