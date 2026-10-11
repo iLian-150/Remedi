@@ -170,8 +170,9 @@ watch(() => props.mistakes.length, () => { if (selectedSubjectKey.value && !subj
 watch(() => props.mode === 'network' ? subjects.value[0]?.key ?? '' : '', (firstSubjectKey) => {
   if (firstSubjectKey && !selectedSubjectKey.value) selectedSubjectKey.value = firstSubjectKey
 }, { immediate: true })
-watch(() => [props.mode, props.split, props.mistakes.length, zoom.value, networkWidth.value, networkHeight.value, selectedPointKey.value], () => { void nextTick(centerNetwork) })
-onMounted(() => { void nextTick(centerNetwork) })
+watch(() => [props.mode, props.split, props.mistakes.length, networkWidth.value, networkHeight.value], () => { void nextTick(() => centerNetwork('auto')) })
+watch(() => [zoom.value, selectedPointKey.value], () => { void nextTick(centerNetwork) })
+onMounted(() => { void nextTick(() => requestAnimationFrame(() => centerNetwork('auto'))) })
 
 function subjectAngle(index: number, count: number) { if (count === 1) return -Math.PI * 0.36; if (count === 2) return index === 0 ? -Math.PI : 0; return -Math.PI / 2 + index * Math.PI * 2 / count }
 function ringPoint(center: Point, radiusX: number, radiusY: number, angle: number): Point { return { x: center.x + Math.cos(angle) * radiusX, y: center.y + Math.sin(angle) * radiusY } }
@@ -206,7 +207,7 @@ function stopPanning(event: PointerEvent) {
 }
 function zoomBy(amount: number) { zoom.value = Math.min(1.4, Math.max(props.mode === 'mindmap' ? 0.65 : 0.6, Math.round((zoom.value + amount) * 100) / 100)) }
 function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1; void nextTick(centerNetwork) }
-function centerNetwork() {
+function centerNetwork(behavior: ScrollBehavior = 'smooth') {
   if (!viewport.value) return
   // 按根节点的实际屏幕位置居中，计入画布为拖拽预留的空白区域。
   if (props.mode === 'mindmap') {
@@ -218,7 +219,7 @@ function centerNetwork() {
     viewport.value.scrollTo({
       left: viewport.value.scrollLeft + rootRect.left + rootRect.width / 2 - viewportCenterX,
       top: viewport.value.scrollTop + rootRect.top + rootRect.height / 2 - viewportCenterY,
-      behavior: 'smooth',
+      behavior,
     })
     return
   }
@@ -234,7 +235,7 @@ function centerNetwork() {
   viewport.value.scrollTo({
     left: viewport.value.scrollLeft + targetRect.left + targetRect.width / 2 - viewportCenterX,
     top: viewport.value.scrollTop + targetRect.top + targetRect.height / 2 - viewportCenterY,
-    behavior: 'smooth',
+    behavior,
   })
 }
 function selectSubject(key: string) { selectedSubjectKey.value = key; selectedTopicKey.value = null; selectedPointKey.value = null }
@@ -245,5 +246,11 @@ function openPoint(point: ErrorPoint) { selectedPointKey.value = point.key; cons
 <style scoped>
 .mistake-map-section, .mistake-network { min-width: 0; min-height: 0; height: 100%; }
 .mistake-map-viewport-frame, .mistake-map-viewport, .mistake-network-frame, .mistake-network-viewport { height: 100%; min-height: 0; }
+.mistake-network:not(.is-split) .mistake-network-frame, .mistake-network:not(.is-split) .mistake-network-viewport { width: 100%; height: 100%; min-height: 0; }
+.mistake-network .mistake-network-viewport, .mistake-network .mistake-network-topic-nav { scrollbar-width: none; }
+.mistake-network .mistake-network-viewport::-webkit-scrollbar, .mistake-network .mistake-network-topic-nav::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .mistake-board-empty { min-height: 100%; height: 100%; }
+@media (min-width: 761px) {
+  .mistake-network-topic-nav { width: max-content; max-width: calc(100% - 300px); box-sizing: border-box; }
+}
 </style>
