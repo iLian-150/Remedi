@@ -830,7 +830,10 @@
 }
 
 .remedi-mistake-book .mistake-network-topic-nav select, .remedi-mistake-book.mistake-network-topic-nav select {
+  width: auto;
+  min-width: 100px;
   max-width: 150px;
+  box-sizing: border-box;
   padding: 5px 14px 5px 10px;
   border: 0;
   border-radius: 999px;
