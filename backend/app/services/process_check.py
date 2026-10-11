@@ -86,7 +86,9 @@ def _same_values(a: List, b: List) -> bool:
     return True
 
 
-def analyze_process(db, submission: Submission) -> Dict:
+def analyze_process(
+    db, submission: Submission, steps: Optional[List[Step]] = None
+) -> Dict:
     """判定一份提交是否「答案对、过程存疑」。
 
     返回 {suspicious, signals: [{code, text}], final_answer, reference_answer}；
@@ -107,12 +109,15 @@ def analyze_process(db, submission: Submission) -> Dict:
     if question is None or question.subject != "math":
         return result
 
-    steps = (
-        db.query(Step)
-        .filter(Step.submission_id == submission.id, Step.seq >= 1)
-        .order_by(Step.seq)
-        .all()
-    )
+    if steps is None:
+        steps = (
+            db.query(Step)
+            .filter(Step.submission_id == submission.id, Step.seq >= 1)
+            .order_by(Step.seq)
+            .all()
+        )
+    else:
+        steps = [step for step in steps if step.seq >= 1]
     if not steps:
         return result
     total = len(steps)

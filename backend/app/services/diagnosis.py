@@ -464,8 +464,9 @@ def verify_correction(db, error: Error, content: str) -> Tuple[Optional[bool], s
 
 # ---------------------------------------------------------------- 出参组装
 
-def present_error(err: Error, db) -> dict:
-    step = db.query(Step).filter(Step.id == err.step_id).first() if err.step_id else None
+def present_error(err: Error, db, step: Optional[Step] = None) -> dict:
+    if step is None and err.step_id:
+        step = db.query(Step).filter(Step.id == err.step_id).first()
     return {
         "id": err.id,
         "submission_id": err.submission_id,
@@ -484,6 +485,7 @@ def present_error(err: Error, db) -> dict:
 
 def present_diagnosis(submission: Submission, db) -> dict:
     steps = db.query(Step).filter(Step.submission_id == submission.id).order_by(Step.seq).all()
+    steps_by_id = {step.id: step for step in steps}
     errors = db.query(Error).filter(Error.submission_id == submission.id).order_by(Error.id).all()
     # first_error_seq：首个 status=error（真正不等价）步骤的 seq；
     # 若只有无法解析，则取首个 unparseable 的 seq；全对则为 None
@@ -519,7 +521,9 @@ def present_diagnosis(submission: Submission, db) -> dict:
     # 怀疑字眼；判定本身（suspicious/signals）绝不进学生出参。
     try:
         from .process_check import analyze_process
-        pc = analyze_process(db, submission)
+        pc = analyze_process(
+            db, submission, [step for step in steps if step.seq >= 1]
+        )
     except Exception:
         pc = {"suspicious": False, "signals": []}
     if pc.get("suspicious"):
@@ -551,6 +555,6 @@ def present_diagnosis(submission: Submission, db) -> dict:
         "status": submission.status,
         "first_error_seq": first_error_seq,
         "steps": [{"seq": s.seq, "text": s.text, "status": s.status} for s in steps],
-        "errors": [present_error(e, db) for e in errors],
+        "errors": [present_error(e, db, steps_by_id.get(e.step_id)) for e in errors],
         "follow_up_question": follow_up_question,
     }

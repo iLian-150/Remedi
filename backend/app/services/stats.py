@@ -2,8 +2,9 @@
 from typing import Dict, List
 
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
-from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, User, Verification, Workbook
+from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Submission, User, Verification, Workbook
 
 
 def assignment_ext_fields(db, assignment_id: int) -> Dict:
@@ -94,7 +95,10 @@ def _student_submissions(db, student: User, visible_only: bool):
     """取学生提交列表；学生画像等审核敏感统计可选择只计已审核提交。
     教师端调用一律 visible_only=False，全量可见。"""
     submissions = (
-        db.query(Submission).filter(Submission.student_id == student.id).all()
+        db.query(Submission)
+        .options(joinedload(Submission.question))
+        .filter(Submission.student_id == student.id)
+        .all()
     )
     if visible_only:
         from .reviews import visible_submissions
@@ -151,6 +155,7 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     if sub_ids:
         errors = (
             db.query(Error)
+            .options(joinedload(Error.step))
             .filter(Error.submission_id.in_(sub_ids))
             .order_by(Error.created_at.desc())
             .all()
@@ -174,11 +179,10 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     knowledge_points.sort(key=lambda x: x["mastery"])
 
     from .diagnosis import present_error
-    from ..models import Step
     stubborn_list = [e for e in errors if e.is_stubborn]
     stubborn_errors = []
     for e in stubborn_list:
-        st = db.query(Step).filter(Step.id == e.step_id).first() if e.step_id else None
+        st = e.step if e.step_id else None
         stubborn_errors.append({
             "id": e.id,
             "knowledge_point": e.knowledge_point,
@@ -187,7 +191,7 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
             "created_at": e.created_at,
         })
 
-    recent_errors = [present_error(e, db) for e in errors[:5]]
+    recent_errors = [present_error(e, db, e.step) for e in errors[:5]]
 
     # v0.9.1：建议改本地模板拼装（见 _profile_suggestion），画像接口不再同步等 LLM
     suggestion = _profile_suggestion(db, student, knowledge_points, stubborn_errors, errors)
@@ -522,6 +526,7 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
         return []
     errors = (
         db.query(Error)
+        .options(joinedload(Error.step))
         .filter(Error.submission_id.in_(sub_ids), Error.knowledge_point == knowledge_point)
         .order_by(Error.created_at.desc(), Error.id.desc())
         .all()
@@ -532,7 +537,7 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
     for e in errors:
         s = sub_by_id.get(e.submission_id)
         q = s.question if s else None
-        step = db.query(Step).filter(Step.id == e.step_id).first() if e.step_id else None
+        step = e.step if e.step_id else None
         items.append({
             "created_at": e.created_at,
             "assignment_title": q.assignment.title if q and q.assignment else "",
@@ -553,20 +558,53 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
 def class_repair_rate(db) -> Dict:
     """教师端：班级知识修复率 + 各知识点修复率（只读聚合，不改任何已有口径）。"""
     students = db.query(User).filter(User.role == "student").order_by(User.id).all()
+    if not students:
+        return {
+            "class_repair_rate": 0.0,
+            "students_with_errors": 0,
+            "total_knowledge_point_pairs": 0,
+            "fixed_knowledge_point_pairs": 0,
+            "knowledge_points": [],
+        }
+    errors_by_student: Dict[int, List[Error]] = {}
+    for student_id, error in (
+        db.query(Submission.student_id, Error)
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(User, User.id == Submission.student_id)
+        .filter(User.role == "student")
+        .all()
+    ):
+        errors_by_student.setdefault(student_id, []).append(error)
+
+    fixed_by_student: Dict[int, set] = {}
+    for student_id, error_id in (
+        db.query(Correction.student_id, Correction.error_id)
+        .join(User, User.id == Correction.student_id)
+        .filter(User.role == "student", Correction.is_correct.is_(True))
+        .all()
+    ):
+        fixed_by_student.setdefault(student_id, set()).add(error_id)
+
+    passed_by_student: Dict[int, set] = {}
+    for student_id, knowledge_point in (
+        db.query(Verification.student_id, Verification.knowledge_point)
+        .join(User, User.id == Verification.student_id)
+        .filter(User.role == "student", Verification.status == "passed")
+        .all()
+    ):
+        passed_by_student.setdefault(student_id, set()).add(knowledge_point)
+
     total_pairs = 0
     fixed_pairs = 0
     students_with_errors = 0
     per_kp: Dict[str, Dict] = {}
     for st in students:
-        sub_ids = [s.id for s in db.query(Submission).filter(Submission.student_id == st.id).all()]
-        if not sub_ids:
-            continue
-        errs = db.query(Error).filter(Error.submission_id.in_(sub_ids)).all()
+        errs = errors_by_student.get(st.id, [])
         if not errs:
             continue
         students_with_errors += 1
-        fixed_ids = _fixed_error_ids(db, st)
-        passed_kps = _passed_verification_kps(db, st.id)
+        fixed_ids = fixed_by_student.get(st.id, set())
+        passed_kps = passed_by_student.get(st.id, set())
         by_kp: Dict[str, List] = {}
         for e in errs:
             by_kp.setdefault(e.knowledge_point, []).append(e)
