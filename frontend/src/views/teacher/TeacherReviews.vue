@@ -1,6 +1,6 @@
 <!-- 教师端：待审核（v0.9.0 新增）——低置信度错因由老师复核，通过后学生才看得到诊断。
-     v0.13.12 重构为三级：先按作业分（一个个作业卡），点进作业后按学生分，
-     左边是学生个人信息、右边是该生的答题情况（过程提示/分步诊断/错因复核/
+     作业列表保持为背景页，点击作业直接打开审核窗口；学生和题目在窗口左侧切换，
+     右侧显示答题情况（过程提示/分步诊断/错因复核/
      AI 评分/最终分与通过）。逐条错因可先一键纠错再通过（改后通过）；
      通过后后端给学生发 review_approved 提醒。页顶可一键全部通过。
      v0.13.12 顺带修掉「改分后点通过没反应」：最终分输入框 type=number 时
@@ -11,7 +11,7 @@
   <div class="page">
     <div class="page-head">
       <h2>待审核</h2>
-      <p class="page-sub">错因判断置信率低于 60% 的作答会进入这里复核；先选作业和学生，确认无误后点「通过」，学生就能查看诊断与错题。错因分错了可以先改再通过。</p>
+      <p class="page-sub">错因判断置信率低于 60% 的作答会进入这里复核；点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -19,280 +19,244 @@
     <div v-if="loading" class="loading">加载待审核队列中…</div>
 
     <template v-else>
-      <!-- ===== 一级：作业列表 ===== -->
-      <template v-if="viewAssignmentId === null">
-        <div class="card queue-head">
-          <span class="queue-count">
-            待审核 <b class="tnum">{{ items.length }}</b> 份 · 来自 <b class="tnum">{{ assignmentGroups.length }}</b> 份作业
+      <div class="card queue-head">
+        <span class="queue-count">
+          待审核 <b class="tnum">{{ items.length }}</b> 份 · 来自 <b class="tnum">{{ assignmentGroups.length }}</b> 份作业
+        </span>
+        <button class="btn small" :disabled="!items.length || approvingAll" @click="approveAll">
+          {{ approvingAll ? '处理中…' : '全部通过' }}
+        </button>
+      </div>
+
+      <div v-if="!items.length" class="card">
+        <div class="empty">太好了，没有待审核的提交，AI 批改的结果都已经放行给学生了。</div>
+      </div>
+
+      <div v-else class="assign-list">
+        <button
+          v-for="g in assignmentGroups"
+          :key="String(g.id)"
+          type="button"
+          class="card assign-card"
+          @click="enterAssignment(g)"
+        >
+          <span class="assign-card-thumb">
+            <img v-if="g.imageUrl" :src="imageSrc(g.imageUrl)" :alt="`${g.title}作业原图`" loading="lazy" />
+            <span v-else class="assign-card-thumb-empty">暂无作业图片</span>
           </span>
-          <button class="btn small" :disabled="!items.length || approvingAll" @click="approveAll">
-            {{ approvingAll ? '处理中…' : '全部通过' }}
-          </button>
-        </div>
-
-        <div v-if="!items.length" class="card">
-          <div class="empty">太好了，没有待审核的提交，AI 批改的结果都已经放行给学生了。</div>
-        </div>
-
-        <div v-else class="assign-list">
-          <button
-            v-for="g in assignmentGroups"
-            :key="String(g.id)"
-            type="button"
-            class="card assign-card"
-            @click="enterAssignment(g)"
-          >
-            <span class="assign-card-thumb">
-              <img v-if="g.imageUrl" :src="imageSrc(g.imageUrl)" :alt="`${g.title}作业原图`" loading="lazy" />
-              <span v-else class="assign-card-thumb-empty">暂无作业图片</span>
+          <span class="assign-card-main">
+            <span class="assign-card-title">{{ g.title }}</span>
+            <span class="assign-card-meta">
+              <span class="tnum">{{ g.students.length }}</span> 名学生 ·
+              待审核 <span class="tnum">{{ g.total }}</span> 份 ·
+              <span v-if="g.errorItems" class="meta-bad">有问题 {{ g.errorItems }} 份</span>
+              <span v-if="g.total - g.errorItems" class="meta-good">全对 {{ g.total - g.errorItems }} 份</span>
             </span>
-            <span class="assign-card-main">
-              <span class="assign-card-title">{{ g.title }}</span>
-              <span class="assign-card-meta">
-                <span class="tnum">{{ g.students.length }}</span> 名学生 ·
-                待审核 <span class="tnum">{{ g.total }}</span> 份 ·
-                <span v-if="g.errorItems" class="meta-bad">有问题 {{ g.errorItems }} 份</span>
-                <span v-if="g.total - g.errorItems" class="meta-good">全对 {{ g.total - g.errorItems }} 份</span>
+            <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
+          </span>
+          <AppIcon name="chevron-right" :size="18" class="queue-row-arrow" />
+        </button>
+      </div>
+
+      <div v-if="modalOpen" class="review-modal-mask" @click.self="closeReviewModal">
+        <section class="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
+          <header class="review-modal-header">
+            <div class="review-modal-brand">
+              <span class="review-modal-mark"><BrandLogo :size="23" /></span>
+              <strong>Remedi</strong>
+              <span id="review-modal-title" class="review-modal-title">原题与解题过程</span>
+              <span class="review-modal-meta">
+                {{ currentAssignment?.title }}<template v-if="detail"> · {{ detail.student.name }} · {{ fmtTime(detail.submitted_at) }}</template>
               </span>
-              <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
-            </span>
-            <AppIcon name="chevron-right" :size="18" class="queue-row-arrow" />
-          </button>
-        </div>
-      </template>
+            </div>
+            <button type="button" class="review-modal-close" aria-label="关闭" @click="closeReviewModal">×</button>
+          </header>
 
-      <!-- ===== 二级：作业内（左学生信息 / 右答题情况） ===== -->
-      <template v-else>
-        <div class="card queue-head">
-          <button class="btn small secondary inline-icon" @click="backToAssignments">
-            <AppIcon name="chevron-left" :size="15" /> 返回作业列表
-          </button>
-          <span class="queue-count">
-            {{ currentAssignment?.title }} · 待审核 <b class="tnum">{{ currentAssignment?.total ?? 0 }}</b> 份
-          </span>
-          <span class="hint">先在左边选学生，右边看他的答题情况</span>
-        </div>
-
-        <div class="review-grid">
-          <!-- 左列：学生信息 + 学生名单 + 该生题目 -->
-          <div class="review-side">
-            <div class="card student-info-card" v-if="currentStudent">
-              <div class="student-info-head">
-                <span class="student-avatar">{{ currentStudent.name.slice(0, 1) }}</span>
-                <div class="student-info-main">
-                  <router-link :to="`/teacher/students/${currentStudent.id}`" class="student-name">{{ currentStudent.name }}</router-link>
-                  <span class="student-no">学号 {{ currentStudent.student_no }}</span>
-                </div>
-              </div>
-              <div class="student-info-stats">
-                <span>本作业待审核 <b class="tnum">{{ currentStudentItems.length }}</b> 题</span>
-                <span v-if="currentStudentErrorItems">有问题 <b class="tnum bad">{{ currentStudentErrorItems }}</b> 题</span>
-                <span v-else>目前全对</span>
-              </div>
-              <div class="student-questions">
+          <div class="review-modal-body">
+            <aside class="review-modal-nav">
+              <p class="side-title">本作业的学生（{{ currentAssignment?.students.length ?? 0 }}）</p>
+              <div v-for="sg in currentAssignment?.students ?? []" :key="sg.student.id" class="review-modal-nav-group">
                 <button
-                  v-for="it in currentStudentItems"
-                  :key="it.submission_id"
                   type="button"
-                  class="sq-row"
-                  :class="{ active: it.submission_id === selectedId }"
-                  @click="selectItem(it.submission_id)"
+                  class="queue-row"
+                  :class="{ active: sg.student.id === selectedStudentId }"
+                  @click="selectStudent(sg.student.id)"
                 >
-                  <span class="sq-stem">{{ it.question_stem }}</span>
-                  <span class="sq-badges">
-                    <span class="badge badge-blue">{{ it.knowledge_point }}</span>
-                    <span v-if="it.error_count" class="badge badge-red tnum">{{ it.error_count }} 处问题</span>
-                    <span v-else class="badge badge-green">全对</span>
+                  <span class="student-avatar small">{{ sg.student.name.slice(0, 1) }}</span>
+                  <span class="queue-row-main">
+                    <span class="queue-row-top">
+                      <strong>{{ sg.student.name }}</strong>
+                      <span class="badge badge-amber tnum">待审核 {{ sg.items.length }}</span>
+                    </span>
+                    <span class="queue-row-meta">
+                      <span>学号 {{ sg.student.student_no }}</span>
+                      <span v-if="sg.items.some((i) => i.error_count)" class="meta-bad">有错题</span>
+                      <span v-else class="meta-good">全对</span>
+                    </span>
                   </span>
                 </button>
-              </div>
-            </div>
-
-            <div class="card queue-card">
-              <p class="side-title">本作业的学生（{{ currentAssignment?.students.length ?? 0 }}）</p>
-              <button
-                v-for="sg in currentAssignment?.students ?? []"
-                :key="sg.student.id"
-                type="button"
-                class="queue-row"
-                :class="{ active: sg.student.id === selectedStudentId }"
-                @click="selectStudent(sg.student.id)"
-              >
-                <span class="student-avatar small">{{ sg.student.name.slice(0, 1) }}</span>
-                <span class="queue-row-main">
-                  <span class="queue-row-top">
-                    <strong>{{ sg.student.name }}</strong>
-                    <span class="badge badge-amber tnum">待审核 {{ sg.items.length }}</span>
-                  </span>
-                  <span class="queue-row-meta">
-                    <span>学号 {{ sg.student.student_no }}</span>
-                    <span v-if="sg.items.some((i) => i.error_count)" class="meta-bad">有错题</span>
-                    <span v-else class="meta-good">全对</span>
-                  </span>
-                </span>
-                <AppIcon name="chevron-right" :size="16" class="queue-row-arrow" />
-              </button>
-            </div>
-          </div>
-
-          <!-- 选择提交后，以原题与解题过程弹窗集中复核。 -->
-          <div v-if="modalOpen" class="review-modal-mask" @click.self="closeReviewModal">
-            <section class="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
-              <header class="review-modal-header">
-                <div class="review-modal-brand">
-                  <span class="review-modal-mark"><BrandLogo :size="23" /></span>
-                  <strong>Remedi</strong>
-                  <span id="review-modal-title" class="review-modal-title">原题与解题过程</span>
-                  <span v-if="detail" class="review-modal-meta">
-                    {{ detail.student.name }} · {{ fmtTime(detail.submitted_at) }}
-                  </span>
+                <div v-if="sg.student.id === selectedStudentId" class="student-questions">
+                  <button
+                    v-for="it in sg.items"
+                    :key="it.submission_id"
+                    type="button"
+                    class="sq-row"
+                    :class="{ active: it.submission_id === selectedId }"
+                    @click="selectItem(it.submission_id)"
+                  >
+                    <span class="sq-stem">{{ it.question_stem }}</span>
+                    <span class="sq-badges">
+                      <span class="badge badge-blue">{{ it.knowledge_point }}</span>
+                      <span v-if="it.error_count" class="badge badge-red tnum">{{ it.error_count }} 处问题</span>
+                      <span v-else class="badge badge-green">全对</span>
+                    </span>
+                  </button>
                 </div>
-                <button type="button" class="review-modal-close" aria-label="关闭" @click="closeReviewModal">×</button>
-              </header>
-
-              <div v-if="detailLoading" class="review-modal-loading">
-                <span class="loading">加载诊断中…</span>
               </div>
-              <div v-else-if="detail" class="review-modal-body">
-                <div class="review-modal-left">
-                  <section class="review-modal-panel">
-                    <div class="review-panel-heading">
-                      <h3>上传的原图</h3>
-                      <span>{{ currentReviewItem?.image_name || '作业原图' }}</span>
-                    </div>
-                    <a
-                      v-if="currentReviewItem?.image_url"
-                      class="review-original-image-link"
-                      :href="imageSrc(currentReviewItem.image_url)"
-                      target="_blank"
-                      rel="noopener noreferrer"
+            </aside>
+
+            <div v-if="detailLoading" class="review-modal-loading">
+              <span class="loading">加载诊断中…</span>
+            </div>
+            <div v-else-if="detail" class="review-modal-content">
+              <div class="review-modal-left">
+                <section class="review-modal-panel">
+                  <div class="review-panel-heading">
+                    <h3>上传的原图</h3>
+                    <span>{{ currentReviewItem?.image_name || '作业原图' }}</span>
+                  </div>
+                  <a
+                    v-if="currentReviewItem?.image_url"
+                    class="review-original-image-link"
+                    :href="imageSrc(currentReviewItem.image_url)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <img :src="imageSrc(currentReviewItem.image_url)" :alt="currentReviewItem.image_name || '学生作答原图'" />
+                  </a>
+                  <div v-else class="review-image-empty">当前提交没有可显示的作答原图。</div>
+                </section>
+
+                <section class="review-modal-panel">
+                  <div class="review-panel-heading">
+                    <h3>图片中的文字</h3>
+                    <span>识别题目，供审核对照</span>
+                  </div>
+                  <div class="review-question-text">{{ detail.question.stem }}</div>
+                </section>
+              </div>
+
+              <div class="review-modal-right">
+                <section class="review-modal-panel">
+                  <div class="review-panel-heading">
+                    <h3>解题过程</h3>
+                    <span>{{ reviewAnswerSteps.length }} 步</span>
+                  </div>
+                  <div v-if="detail.process_check?.suspicious" class="review-process-note">
+                    <strong>过程提示</strong>
+                    <p v-for="s in detail.process_check.signals" :key="s.code">{{ s.text }}</p>
+                    <small v-if="detail.process_check.final_answer || detail.process_check.reference_answer">
+                      学生答案：{{ detail.process_check.final_answer ?? '—' }} · 参考答案：{{ detail.process_check.reference_answer ?? '—' }}
+                    </small>
+                  </div>
+                  <div class="review-solution-steps">
+                    <article
+                      v-for="st in reviewAnswerSteps"
+                      :key="st.seq"
+                      class="review-solution-step"
+                      :class="{ 'is-error': st.status === 'error', 'is-correct': st.status === 'ok' }"
                     >
-                      <img :src="imageSrc(currentReviewItem.image_url)" :alt="currentReviewItem.image_name || '学生作答原图'" />
-                    </a>
-                    <div v-else class="review-image-empty">当前提交没有可显示的作答原图。</div>
-                  </section>
+                      <div class="review-solution-step-head">
+                        <strong>第 {{ st.seq }} 步</strong>
+                        <span>{{ STEP_STATUS_TEXT[st.status] }}</span>
+                      </div>
+                      <p>{{ st.text }}</p>
+                    </article>
+                    <p v-if="!reviewAnswerSteps.length" class="review-empty-note">这份提交没有可展示的分步作答。</p>
+                  </div>
+                  <p v-if="!detail.diagnosis.errors.length" class="ok-line">这份作答全部正确，通过后学生会看到鼓励反馈。</p>
+                </section>
 
-                  <section class="review-modal-panel">
-                    <div class="review-panel-heading">
-                      <h3>图片中的文字</h3>
-                      <span>识别题目，供审核对照</span>
+                <section v-if="detail.diagnosis.errors.length" class="review-modal-panel">
+                  <div class="review-panel-heading">
+                    <h3>需要修改的地方</h3>
+                    <span>{{ detail.diagnosis.errors.length }} 处</span>
+                  </div>
+                  <p class="review-panel-note">分类不对的先在这里修改；保存后再通过，学生收到的是修正后的诊断。</p>
+                  <div v-for="e in detail.diagnosis.errors" :key="e.id" class="review-error">
+                    <div class="review-error-head">
+                      <span>第 {{ e.step_seq ?? '—' }} 步</span>
+                      <ErrorTypeBadge :type="e.error_type" />
+                      <span class="conf-text tnum">置信度 {{ Math.round(e.confidence * 100) }}%</span>
                     </div>
-                    <div class="review-question-text">{{ detail.question.stem }}</div>
-                  </section>
-                </div>
-
-                <div class="review-modal-right">
-                  <section class="review-modal-panel">
-                    <div class="review-panel-heading">
-                      <h3>解题过程</h3>
-                      <span>{{ reviewAnswerSteps.length }} 步</span>
-                    </div>
-                    <div v-if="detail.process_check?.suspicious" class="review-process-note">
-                      <strong>过程提示</strong>
-                      <p v-for="s in detail.process_check.signals" :key="s.code">{{ s.text }}</p>
-                      <small v-if="detail.process_check.final_answer || detail.process_check.reference_answer">
-                        学生答案：{{ detail.process_check.final_answer ?? '—' }} · 参考答案：{{ detail.process_check.reference_answer ?? '—' }}
-                      </small>
-                    </div>
-                    <div class="review-solution-steps">
-                      <article
-                        v-for="st in reviewAnswerSteps"
-                        :key="st.seq"
-                        class="review-solution-step"
-                        :class="{ 'is-error': st.status === 'error', 'is-correct': st.status === 'ok' }"
+                    <p class="detail-text">{{ e.detail }}</p>
+                    <p v-if="e.step_text" class="review-error-step">作答：{{ e.step_text }}</p>
+                    <div class="correct-row">
+                      <select v-model="correctForms[e.id].type">
+                        <option value="">改错因…</option>
+                        <option v-for="t in ERROR_TYPES" :key="t" :value="t">{{ t }}</option>
+                      </select>
+                      <input v-model="correctForms[e.id].note" type="text" placeholder="备注（可选）" />
+                      <button
+                        class="btn small secondary"
+                        :disabled="!correctForms[e.id].type || correctingId === e.id"
+                        @click="saveCorrection(e.id)"
                       >
-                        <div class="review-solution-step-head">
-                          <strong>第 {{ st.seq }} 步</strong>
-                          <span>{{ STEP_STATUS_TEXT[st.status] }}</span>
-                        </div>
-                        <p>{{ st.text }}</p>
-                      </article>
-                      <p v-if="!reviewAnswerSteps.length" class="review-empty-note">这份提交没有可展示的分步作答。</p>
-                    </div>
-                    <p v-if="!detail.diagnosis.errors.length" class="ok-line">这份作答全部正确，通过后学生会看到鼓励反馈。</p>
-                  </section>
-
-                  <section v-if="detail.diagnosis.errors.length" class="review-modal-panel">
-                    <div class="review-panel-heading">
-                      <h3>需要修改的地方</h3>
-                      <span>{{ detail.diagnosis.errors.length }} 处</span>
-                    </div>
-                    <p class="review-panel-note">分类不对的先在这里修改；保存后再通过，学生收到的是修正后的诊断。</p>
-                    <div v-for="e in detail.diagnosis.errors" :key="e.id" class="review-error">
-                      <div class="review-error-head">
-                        <span>第 {{ e.step_seq ?? '—' }} 步</span>
-                        <ErrorTypeBadge :type="e.error_type" />
-                        <span class="conf-text tnum">置信度 {{ Math.round(e.confidence * 100) }}%</span>
-                      </div>
-                      <p class="detail-text">{{ e.detail }}</p>
-                      <p v-if="e.step_text" class="review-error-step">作答：{{ e.step_text }}</p>
-                      <div class="correct-row">
-                        <select v-model="correctForms[e.id].type">
-                          <option value="">改错因…</option>
-                          <option v-for="t in ERROR_TYPES" :key="t" :value="t">{{ t }}</option>
-                        </select>
-                        <input v-model="correctForms[e.id].note" type="text" placeholder="备注（可选）" />
-                        <button
-                          class="btn small secondary"
-                          :disabled="!correctForms[e.id].type || correctingId === e.id"
-                          @click="saveCorrection(e.id)"
-                        >
-                          {{ correctingId === e.id ? '保存中…' : '保存纠错' }}
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section v-if="detail.score" class="review-modal-panel review-score-panel">
-                    <h3>AI 评分</h3>
-                    <p class="score-line">
-                      本题满分 <b class="tnum">{{ fmtScore(detail.score.question_max) }}</b> 分 ·
-                      AI 评分 <b class="tnum">{{ detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : '—' }}</b> 分
-                      <span class="hint">（步骤对了 {{ detail.score.ok_steps }}/{{ detail.score.total_steps }} 步）</span>
-                    </p>
-                    <p v-if="detail.score.final_score !== null" class="score-line">最终分 {{ fmtScore(detail.score.final_score) }} 分（已落定）</p>
-                  </section>
-
-                  <section class="review-modal-panel approve-bar">
-                    <div v-if="detail.review_status === 'pending' && detail.score" class="score-editor">
-                      <div class="score-editor-row">
-                        <label for="final-score-input">最终分</label>
-                        <span class="score-input-wrap" :class="{ changed: scoreChanged }">
-                          <input
-                            id="final-score-input"
-                            v-model="finalScoreInput"
-                            type="text"
-                            inputmode="decimal"
-                            :placeholder="detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : 'AI 分'"
-                          />
-                          <span class="score-suffix">分</span>
-                        </span>
-                        <span class="score-max">/ 本题满分 {{ fmtScore(detail.score.question_max) }} 分</span>
-                      </div>
-                      <div class="score-editor-row sub">
-                        <span class="hint">留空 = 用 AI 评分；填入数值则按该分数通过。</span>
-                        <span class="score-quick">
-                          <button type="button" class="chip-btn" :disabled="!scoreChanged" @click="finalScoreInput = ''">用 AI 评分</button>
-                          <button type="button" class="chip-btn" @click="finalScoreInput = fmtScore(detail.score.question_max)">给满分</button>
-                        </span>
-                      </div>
-                    </div>
-                    <div class="approve-actions">
-                      <p class="hint" style="margin: 0">通过后，学生会收到提醒并能查看诊断与错题。</p>
-                      <button class="btn" :disabled="approving" @click="approveSelected">
-                        {{ approving ? '通过中…' : '通过审核' }}
+                        {{ correctingId === e.id ? '保存中…' : '保存纠错' }}
                       </button>
                     </div>
-                  </section>
-                </div>
+                  </div>
+                </section>
+
+                <section v-if="detail.score" class="review-modal-panel review-score-panel">
+                  <h3>AI 评分</h3>
+                  <p class="score-line">
+                    本题满分 <b class="tnum">{{ fmtScore(detail.score.question_max) }}</b> 分 ·
+                    AI 评分 <b class="tnum">{{ detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : '—' }}</b> 分
+                    <span class="hint">（步骤对了 {{ detail.score.ok_steps }}/{{ detail.score.total_steps }} 步）</span>
+                  </p>
+                  <p v-if="detail.score.final_score !== null" class="score-line">最终分 {{ fmtScore(detail.score.final_score) }} 分（已落定）</p>
+                </section>
+
+                <section class="review-modal-panel approve-bar">
+                  <div v-if="detail.review_status === 'pending' && detail.score" class="score-editor">
+                    <div class="score-editor-row">
+                      <label for="final-score-input">最终分</label>
+                      <span class="score-input-wrap" :class="{ changed: scoreChanged }">
+                        <input
+                          id="final-score-input"
+                          v-model="finalScoreInput"
+                          type="text"
+                          inputmode="decimal"
+                          :placeholder="detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : 'AI 分'"
+                        />
+                        <span class="score-suffix">分</span>
+                      </span>
+                      <span class="score-max">/ 本题满分 {{ fmtScore(detail.score.question_max) }} 分</span>
+                    </div>
+                    <div class="score-editor-row sub">
+                      <span class="hint">留空 = 用 AI 评分；填入数值则按该分数通过。</span>
+                      <span class="score-quick">
+                        <button type="button" class="chip-btn" :disabled="!scoreChanged" @click="finalScoreInput = ''">用 AI 评分</button>
+                        <button type="button" class="chip-btn" @click="finalScoreInput = fmtScore(detail.score.question_max)">给满分</button>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="approve-actions">
+                    <p class="hint" style="margin: 0">通过后，学生会收到提醒并能查看诊断与错题。</p>
+                    <button class="btn" :disabled="approving" @click="approveSelected">
+                      {{ approving ? '通过中…' : '通过审核' }}
+                    </button>
+                  </div>
+                </section>
               </div>
-              <div v-else class="review-modal-loading">
-                <span class="error-msg">{{ error || '审核详情暂时无法加载。' }}</span>
-              </div>
-            </section>
+            </div>
+            <div v-else class="review-modal-loading">
+              <span class="error-msg">{{ error || '审核详情暂时无法加载。' }}</span>
+            </div>
           </div>
-        </div>
-      </template>
+        </section>
+      </div>
     </template>
   </div>
 </template>
@@ -349,7 +313,7 @@ function errDetail(e: unknown): string {
   return typeof d === 'string' ? d : '请稍后重试。'
 }
 
-// ---------- v0.13.12：按作业、按学生分组 ----------
+// ---------- 按作业、按学生分组 ----------
 
 type StudentOfItem = ReviewPendingItem['student']
 interface StudentGroup { student: StudentOfItem; items: ReviewPendingItem[] }
@@ -394,20 +358,12 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
   return [...map.values()]
 })
 
-/** 当前所在层级：null = 作业列表；否则是作业 id（字符串键，与分组口径一致） */
+/** 当前审核窗口对应的作业 id（字符串键，与分组口径一致） */
 const viewAssignmentId = ref<string | null>(null)
 const selectedStudentId = ref<number | null>(null)
 
 const currentAssignment = computed(() =>
   assignmentGroups.value.find((g) => String(g.id) === viewAssignmentId.value) ?? null
-)
-const currentStudentGroup = computed(() =>
-  currentAssignment.value?.students.find((s) => s.student.id === selectedStudentId.value) ?? null
-)
-const currentStudent = computed(() => currentStudentGroup.value?.student ?? null)
-const currentStudentItems = computed(() => currentStudentGroup.value?.items ?? [])
-const currentStudentErrorItems = computed(() =>
-  currentStudentItems.value.filter((i) => i.error_count).length
 )
 const currentReviewItem = computed(() =>
   items.value.find((i) => i.submission_id === selectedId.value) ?? null
@@ -418,6 +374,10 @@ const reviewAnswerSteps = computed(() =>
 
 function closeReviewModal() {
   modalOpen.value = false
+  viewAssignmentId.value = null
+  selectedStudentId.value = null
+  selectedId.value = null
+  detail.value = null
 }
 
 function handleReviewModalKeydown(event: KeyboardEvent) {
@@ -426,19 +386,11 @@ function handleReviewModalKeydown(event: KeyboardEvent) {
 
 function enterAssignment(g: AssignmentGroup) {
   viewAssignmentId.value = String(g.id)
-  const first = g.students[0]
+  const first = g.students.find((student) => student.items.length > 0)
   if (first) {
     selectedStudentId.value = first.student.id
     void selectItem(first.items[0].submission_id)
   }
-}
-
-function backToAssignments() {
-  closeReviewModal()
-  viewAssignmentId.value = null
-  selectedStudentId.value = null
-  selectedId.value = null
-  detail.value = null
 }
 
 function selectStudent(studentId: number) {
@@ -447,18 +399,18 @@ function selectStudent(studentId: number) {
   if (sg?.items.length) void selectItem(sg.items[0].submission_id)
 }
 
-/** 通过一份后重新定位：同学生下一题 → 同作业下一位学生 → 回作业列表 */
+/** 审核通过后仍留在窗口，自动打开同作业下一份，再到下一作业。 */
 async function relocateAfterApprove(assignmentKey: string | null, studentId: number | null) {
-  const g = assignmentGroups.value.find((x) => String(x.id) === assignmentKey)
-  if (viewAssignmentId.value !== null && g) {
-    const sg = g.students.find((s) => s.student.id === studentId) ?? g.students[0]
-    if (sg) {
-      selectedStudentId.value = sg.student.id
-      await selectItem(sg.items[0].submission_id)
-      return
-    }
+  const groups = assignmentGroups.value
+  const g = groups.find((x) => String(x.id) === assignmentKey) ?? groups[0]
+  const sg = g?.students.find((s) => s.student.id === studentId) ?? g?.students[0]
+  if (g && sg) {
+    viewAssignmentId.value = String(g.id)
+    selectedStudentId.value = sg.student.id
+    await selectItem(sg.items[0].submission_id)
+    return
   }
-  backToAssignments()
+  closeReviewModal()
 }
 
 // ---------- 队列与详情 ----------
@@ -620,18 +572,10 @@ onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown
 .assign-card-time { font-size: 12px; color: var(--text-3); }
 .meta-bad { color: #B91C1C; font-weight: 600; }
 .meta-good { color: #15803D; font-weight: 600; }
-/* 二级：左列（学生信息 + 名单）/ 右列（答题情况） */
-.review-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
-@media (max-width: 1080px) {
-  .review-grid { grid-template-columns: 1fr; }
-}
 @media (max-width: 760px) {
   .assign-card { flex-wrap: wrap; }
   .assign-card-thumb { width: 100%; max-width: none; min-width: 0; flex-basis: 100%; height: 180px; }
 }
-.review-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.student-info-card { padding: 16px 18px; }
-.student-info-head { display: flex; align-items: center; gap: 12px; }
 .student-avatar {
   width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
   background: var(--primary-50); color: var(--primary);
@@ -639,12 +583,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown
   font-size: 18px; font-weight: 700;
 }
 .student-avatar.small { width: 34px; height: 34px; font-size: 15px; }
-.student-info-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.student-name { font-size: 16px; font-weight: 700; color: var(--primary); text-decoration: none; }
-.student-no { font-size: 12.5px; color: var(--text-3); }
-.student-info-stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: var(--text-2); }
-.student-info-stats b { color: var(--primary); }
-.student-info-stats b.bad { color: #B91C1C; }
 .student-questions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .sq-row {
   display: flex; flex-direction: column; gap: 5px; text-align: left; width: 100%;
@@ -657,7 +595,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown
 .sq-stem { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sq-badges { display: flex; gap: 6px; flex-wrap: wrap; }
 .side-title { font-size: 13px; font-weight: 700; color: var(--text-2); margin-bottom: 10px; }
-.queue-card { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
 .queue-row {
   display: flex; align-items: center; gap: 8px; text-align: left;
   background: #fff; border: 1px solid #EDF0F4; border-radius: 10px;
@@ -701,9 +638,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown
 }
 .review-modal-close:hover { border-color: var(--primary); color: var(--primary); }
 .review-modal-body {
-  display: grid; grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr); gap: 16px;
+  display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 16px;
   min-height: 0; flex: 1; padding: 16px; overflow: hidden;
 }
+.review-modal-nav { display: flex; flex-direction: column; gap: 9px; min-width: 0; min-height: 0; overflow: auto; }
+.review-modal-nav .side-title { padding: 2px 3px; }
+.review-modal-nav-group { display: flex; flex-direction: column; gap: 6px; }
+.review-modal-nav .queue-row { margin: 0; }
+.review-modal-content { display: grid; grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr); gap: 16px; min-width: 0; min-height: 0; overflow: hidden; }
 .review-modal-left, .review-modal-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow: auto; }
 .review-modal-panel {
   flex: 0 0 auto; padding: 17px 18px; border: 1px solid #E4EAE5; border-radius: 16px;
@@ -795,6 +737,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown
   .review-modal-mask { padding: 10px; }
   .review-modal { width: 100%; height: 96vh; border-radius: 13px; }
   .review-modal-body { grid-template-columns: 1fr; overflow: auto; }
+  .review-modal-nav { max-height: 28vh; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .review-modal-content { grid-template-columns: 1fr; overflow: visible; }
   .review-modal-left, .review-modal-right { overflow: visible; }
   .review-original-image-link, .review-original-image-link img { max-height: 38vh; }
 }
