@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from datetime import datetime
 
-from ..models import Assignment, Question, User
+from ..models import Assignment, Question, StudentQuestionCapture, User
 from ..services import reviews as review_svc
 from ..services.diagnosis import diagnose_submission
 from ..services.stats import (
@@ -95,6 +95,37 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
     """按当前学生构造工具列表（身份闭包注入）。"""
     related_result: dict = {"mistake": None}
     text_diagnosis_result: dict = {"summary": None}
+    text_capture_result: dict = {"summary": None}
+
+    def save_text_capture(question_text: str, subject: str,
+                          knowledge_point: str = "", explanation: str = "") -> str:
+        """持久化学生主动收录的文字题目；同轮重复调用保持幂等。"""
+        if text_capture_result["summary"] is not None:
+            return text_capture_result["summary"]
+        stem = (question_text or "").strip()[:12000]
+        if not stem:
+            return "题目内容为空，没有加入错题本。"
+        normalized_subject = (subject or "math").strip()[:32] or "math"
+        capture = StudentQuestionCapture(
+            student_id=student.id,
+            subject=normalized_subject,
+            question_text=stem,
+            image_path="",
+            explanation=(explanation or "").strip()[:2000] or None,
+            saved_at=datetime.now(),
+        )
+        db.add(capture)
+        db.commit()
+        text_capture_result["summary"] = (
+            "这道题已按你的要求加入错题本，可以在错题本的自主收录题目中查看。"
+        )
+
+        kp = (knowledge_point or "").strip()[:64]
+        if kp:
+            related_result["mistake"] = find_related_mistake(
+                db, student.id, normalized_subject, kp
+            )
+        return text_capture_result["summary"]
 
     @tool
     def get_my_briefing() -> str:
@@ -133,11 +164,21 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
         )
 
     @tool
+    def save_student_text_question(question_text: str, subject: str,
+                                   knowledge_point: str = "") -> str:
+        """将学生明确要求收录的纯文字题目加入其错题本。
+        subject 使用 math、english 等学科标识。仅在学生明确要求加入、收藏或保存时调用；
+        不得因学生只问答案而收录。"""
+        return save_text_capture(question_text, subject, knowledge_point)
+
+    @tool
     def diagnose_student_text_work(question_stem: str, steps: List[str],
-                                   knowledge_point: str) -> str:
+                                   knowledge_point: str,
+                                   save_to_mistakes: bool = False) -> str:
         """诊断学生在聊天消息中明确写出的数学题目和本人作答步骤。
-        仅当学生给出了具体题干和至少一步自己的解题过程、要求检查或讲解时调用；
-        只有题目、要求直接解答时不要调用。此工具会保存一次提交，重复调用同轮只使用首次结果。"""
+        学生只要给出具体题干和至少一步本人作答就调用，不要求其额外说“检查”；
+        只有题目、没有本人作答时不要调用。save_to_mistakes 仅在学生明确要求收录时设为 true。
+        此工具会保存一次提交，重复调用同轮只使用首次结果。"""
         if text_diagnosis_result["summary"] is not None:
             return text_diagnosis_result["summary"]
         stem = (question_stem or "").strip()[:12000]
@@ -174,10 +215,18 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
         elif errors:
             summary = "批改发现作答错误，错题已加入错题本并进入订正流程。"
         else:
-            summary = "检查后作答正确，没有创建错题记录。"
+            if save_to_mistakes:
+                summary = save_text_capture(
+                    stem, "math", kp,
+                    "学习助手已检查这份作答，未发现错误；按学生要求收录复习。",
+                )
+                summary = "检查后作答正确；" + summary
+            else:
+                summary = "检查后作答正确，没有创建错题记录。"
         text_diagnosis_result["summary"] = summary
         text_diagnosis_result["submission_id"] = submission.id
         return summary
 
     return [get_my_briefing, get_my_report, get_knowledge_point_errors,
-            find_my_related_mistake, diagnose_student_text_work], related_result
+            find_my_related_mistake, save_student_text_question,
+            diagnose_student_text_work], related_result
