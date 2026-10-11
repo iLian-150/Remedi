@@ -88,7 +88,8 @@ def _message_chunk_text(msg) -> str:
 
 
 def agent_reply_stream(db: Session, student: User,
-                       history: List[BaseMessage], user_text: str):
+                       history: List[BaseMessage], user_text: str,
+                       safe_tools_only: bool = False):
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
     llm = _build_llm()
 
@@ -101,6 +102,8 @@ def agent_reply_stream(db: Session, student: User,
             messages: Annotated[list, add_messages]
 
         tools, related_result = build_tools(db, student)
+        if safe_tools_only:
+            tools = [tool for tool in tools if tool.name == "find_my_related_mistake"]
         llm_with_tools = llm.bind_tools(tools)
 
         def call_model(state: AgentState):
@@ -115,6 +118,13 @@ def agent_reply_stream(db: Session, student: User,
         graph = builder.compile()
 
         system = build_system_prompt(student.name, _context_summary(db, student))
+        if safe_tools_only:
+            system += (
+                "\n\n本轮是已完成照片批改后的讲解：批改记录已由照片流程保存。"
+                "不要调用诊断、提交或其他写入工具，也不要重复批改。"
+                "如果题目是数学或英语，可调用 find_my_related_mistake 只读查询历史同类错题；"
+                "除此之外直接讲解题目。"
+            )
         messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
         reply_parts: list[str] = []
         tool_names: dict[int, str] = {}

@@ -1336,9 +1336,47 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
     def event(name: str, payload: dict) -> str:
         return f"event: {name}\ndata: {json.dumps(jsonable_encoder(payload), ensure_ascii=False)}\n\n"
 
+    def failure_detail(exc: Exception, homework_saved: bool) -> str:
+        """把常见模型故障转成可操作提示，不把上游响应或凭证信息暴露给学生。"""
+        chain = []
+        current = exc
+        while current is not None and current not in chain:
+            chain.append(current)
+            current = current.__cause__ or current.__context__
+
+        if any("timeout" in type(item).__name__.lower() for item in chain):
+            if homework_saved:
+                return "学习助手等待模型响应超时。批改记录已保存，可以点击“重试讲解”，无需重新上传。"
+            return "学习助手等待模型响应超时，请稍后重试。"
+
+        status_code = next((
+            getattr(item, "status_code", None)
+            or getattr(getattr(item, "response", None), "status_code", None)
+            for item in chain
+            if getattr(item, "status_code", None)
+            or getattr(getattr(item, "response", None), "status_code", None)
+        ), None)
+        if status_code == 429:
+            if homework_saved:
+                return "学习助手当前请求较多。批改记录已保存，请稍后点击“重试讲解”。"
+            return "学习助手当前请求较多，请稍后重试。"
+        if status_code in (401, 403):
+            if homework_saved:
+                return "学习助手模型服务暂不可用。批改记录已保存，请稍后重试。"
+            return "学习助手模型服务暂不可用，请稍后重试。"
+        if isinstance(status_code, int) and status_code >= 500:
+            if homework_saved:
+                return "学习助手模型服务暂时繁忙。批改记录已保存，请稍后点击“重试讲解”。"
+            return "学习助手模型服务暂时繁忙，请稍后重试。"
+        if homework_saved:
+            return "学习助手暂时无法生成讲解。批改记录已保存，可以点击“重试讲解”，无需重新上传。"
+        return "学习助手暂时无法生成回复，请稍后重试。"
+
     def stream_events():
         yield ": connected\n\n"
-        reply_stream = agent_reply_stream(db, current, history, text)
+        reply_stream = agent_reply_stream(
+            db, current, history, text, safe_tools_only=body.safe_tools_only
+        )
         try:
             while True:
                 try:
@@ -1359,9 +1397,12 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
                 "session_id": session.id,
                 "related_mistake": related_mistake,
             })
-        except Exception:
-            logger.exception("学生学习助手流式回复中断")
-            yield event("error", {"detail": "回复生成中断，请稍后重试。"})
+        except Exception as exc:
+            logger.exception(
+                "学生学习助手流式回复中断（session_id=%s, safe_tools_only=%s）",
+                session.id, body.safe_tools_only,
+            )
+            yield event("error", {"detail": failure_detail(exc, body.safe_tools_only)})
 
     return StreamingResponse(
         stream_events(),

@@ -216,6 +216,9 @@
             <button v-if="msg.relatedMistake" type="button" class="related-mistake-link" @click="openRelatedMistake(msg.relatedMistake)">
               回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
             </button>
+            <button v-if="msg.retryPrompt" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
+              {{ msg.pending ? '正在重新生成…' : '重试讲解' }}
+            </button>
             <div v-if="msg.captureId" class="photo-capture-action">
               <span v-if="msg.saved">已加入错题本</span>
               <button v-else class="btn small secondary" :disabled="msg.savingCapture" @click="savePhotoQuestion(msg)">
@@ -227,6 +230,15 @@
           <!-- AI 错误提示 -->
           <div v-else-if="msg.kind === 'error'" class="bubble error-bubble">
             <AppIcon name="alert" :size="16" /> {{ msg.text }}
+            <button v-if="msg.retryPrompt" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
+              {{ msg.pending ? '正在重新生成…' : '重试讲解' }}
+            </button>
+            <div v-if="msg.captureId" class="photo-capture-action">
+              <span v-if="msg.saved">已加入错题本</span>
+              <button v-else class="btn small secondary" :disabled="msg.savingCapture" @click="savePhotoQuestion(msg)">
+                {{ msg.savingCapture ? '正在收录…' : '加入错题本' }}
+              </button>
+            </div>
           </div>
 
           <!-- 转写卡片 -->
@@ -442,6 +454,8 @@ interface ChatMsg {
   pending: boolean
   result: SubmissionResult | null
   captureId: number | null
+  retryPrompt?: string
+  retrySafeToolsOnly?: boolean
   saved: boolean
   savingCapture: boolean
   relatedMistake: RelatedMistake | null
@@ -808,7 +822,12 @@ async function sendChat(raw?: string) {
   }
 }
 
-async function streamAssistantReply(wait: ChatMsg, prompt: string, persistUserMessage = true) {
+async function streamAssistantReply(
+  wait: ChatMsg,
+  prompt: string,
+  persistUserMessage = true,
+  safeToolsOnly = false
+) {
   let firstCharacter = true
   wait.text = '正在生成回复…'
   wait.pending = true
@@ -820,10 +839,12 @@ async function streamAssistantReply(wait: ChatMsg, prompt: string, persistUserMe
     }
     wait.text += character
     scrollToBottom()
-  }, persistUserMessage)
+  }, persistUserMessage, safeToolsOnly)
   wait.pending = false
   wait.text = result.reply
   wait.relatedMistake = result.related_mistake ?? null
+  wait.retryPrompt = undefined
+  wait.retrySafeToolsOnly = undefined
   if (result.session_id) student.setActiveSession(result.session_id)
   suggestions.value = result.suggestions ?? []
   // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
@@ -855,6 +876,7 @@ async function sendPhotoReview(file: File, prompt: string) {
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别题目和作答情况…', pending: true })
   chatSending.value = true
   let photoReviewSucceeded = false
+  let explanationPrompt: string | null = null
   try {
     // 只有从具体作业题目跳转过来时才自动关联题目，避免把自由上传的照片误绑到默认第一题。
     const explicitQuestionId = selectedQuestion.value?.id ?? null
@@ -877,11 +899,12 @@ async function sendPhotoReview(file: File, prompt: string) {
       wait.captureId = res.capture_id
       const saveQuestion = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(prompt) && /错题本|错题/.test(prompt)
       const agentPrompt = [
-        '学生上传的是只有题目、没有学生作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。',
+        '学生上传的是只有题目、没有学生作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录；如果是数学或英语题，识别出知识点后可用只读工具查询是否有历史同类错题。',
         `识别出的题目：${res.question_text.slice(0, 1300)}`,
         prompt ? `学生补充的问题：${prompt.slice(0, 300)}` : ''
       ].filter(Boolean).join('\n')
-      await streamAssistantReply(wait, agentPrompt, false)
+      explanationPrompt = agentPrompt
+      await streamAssistantReply(wait, agentPrompt, false, true)
       if (saveQuestion && wait.captureId) {
         try {
           await student.savePhotoCapture(wait.captureId, wait.text)
@@ -900,13 +923,14 @@ async function sendPhotoReview(file: File, prompt: string) {
           ? `系统已确认的错因：${res.diagnosis.errors.map((error) => `第${error.step_seq}步，${error.error_type}：${error.detail}`).join('；')}`
           : '系统批改结果为这道题没有发现错误。'
       const agentPrompt = [
-        '学生上传了数学作业照片并希望得到答疑。请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点。不要重复创建错题记录。',
+        '学生上传了数学作业照片并希望得到答疑。批改记录已经写入，不要再次批改或创建作答记录；请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点；并用只读工具查询是否有历史同类错题。',
         `识别出的题目：${res.question_text.slice(0, 800)}`,
         `识别出的学生步骤：${res.steps.slice(0, 12).map((step, index) => `${index + 1}. ${step}`).join('\n').slice(0, 650)}`,
         diagnosisContext,
         prompt ? `学生补充的问题：${prompt.slice(0, 250)}` : ''
       ].filter(Boolean).join('\n').slice(0, 1950)
-      await streamAssistantReply(wait, agentPrompt, false)
+      explanationPrompt = agentPrompt
+      await streamAssistantReply(wait, agentPrompt, false, true)
     } else {
       wait.kind = 'transcribe'
       wait.text = ''
@@ -914,8 +938,7 @@ async function sendPhotoReview(file: File, prompt: string) {
     }
   } catch (err) {
     if (wait.captureId) {
-      wait.kind = 'error'
-      wait.captureId = null
+      wait.kind = 'text'
       wait.text = '题目已识别，但模型暂时无法生成讲解：' + (errDetail(err) || '请稍后重试。')
     } else if (photoReviewSucceeded) {
       wait.kind = 'text'
@@ -924,6 +947,10 @@ async function sendPhotoReview(file: File, prompt: string) {
       wait.kind = 'error'
       wait.text = '识别失败：' + (errDetail(err) || '请稍后重试。')
     }
+    if (photoReviewSucceeded && explanationPrompt) {
+      wait.retryPrompt = explanationPrompt
+      wait.retrySafeToolsOnly = true
+    }
     wait.pending = false
     await student.loadSessions(true)
     console.error(err)
@@ -931,6 +958,27 @@ async function sendPhotoReview(file: File, prompt: string) {
     chatSending.value = false
   }
   scrollToBottom()
+}
+
+async function retryExplanation(msg: ChatMsg) {
+  if (!msg.retryPrompt || chatSending.value) return
+  const prompt = msg.retryPrompt
+  const safeToolsOnly = msg.retrySafeToolsOnly ?? true
+  chatSending.value = true
+  msg.pending = true
+  try {
+    await streamAssistantReply(msg, prompt, false, safeToolsOnly)
+  } catch (err) {
+    msg.kind = 'text'
+    msg.text = '批改记录已保存，但讲解仍未生成：' + (errDetail(err) || '请稍后重试。')
+    msg.retryPrompt = prompt
+    msg.retrySafeToolsOnly = safeToolsOnly
+    console.error(err)
+  } finally {
+    msg.pending = false
+    chatSending.value = false
+    scrollToBottom()
+  }
 }
 
 async function savePhotoQuestion(msg: ChatMsg) {

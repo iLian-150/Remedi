@@ -236,7 +236,8 @@ export const useStudentStore = defineStore('student', {
       message: string,
       sessionId: number | null | undefined,
       onCharacter: (character: string) => void,
-      persistUserMessage = true
+      persistUserMessage = true,
+      safeToolsOnly = false
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/stream' }), {
@@ -248,7 +249,8 @@ export const useStudentStore = defineStore('student', {
         body: JSON.stringify({
           message,
           session_id: sessionId ?? undefined,
-          persist_user_message: persistUserMessage
+          persist_user_message: persistUserMessage,
+          safe_tools_only: safeToolsOnly
         })
       })
 
