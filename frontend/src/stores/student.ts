@@ -270,8 +270,34 @@ export const useStudentStore = defineStore('student', {
       const decoder = new TextDecoder()
       let buffer = ''
       let result: AgentChatResult | null = null
+      const characterQueue: string[] = []
+      let queueOffset = 0
+      let typingTask: Promise<void> | null = null
 
-      const consumeEvent = async (block: string) => {
+      const startTypewriter = () => {
+        if (typingTask || queueOffset >= characterQueue.length) return
+        typingTask = (async () => {
+          while (queueOffset < characterQueue.length) {
+            onText(characterQueue[queueOffset++])
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 12))
+          }
+        })().finally(() => {
+          typingTask = null
+          characterQueue.splice(0, queueOffset)
+          queueOffset = 0
+          if (characterQueue.length) startTypewriter()
+        })
+      }
+
+      const waitForTypewriter = async () => {
+        while (typingTask) await typingTask
+        if (characterQueue.length) {
+          startTypewriter()
+          await waitForTypewriter()
+        }
+      }
+
+      const consumeEvent = (block: string) => {
         let eventName = ''
         const dataLines: string[] = []
         for (const line of block.split('\n')) {
@@ -288,11 +314,9 @@ export const useStudentStore = defineStore('student', {
         if (eventName === 'token') {
           const text = typeof payload.text === 'string' ? payload.text : ''
           if (text) {
-            // 后端按 token 推送；前端再按字符呈现，避免整段突然出现。
-            for (const character of Array.from(text)) {
-              onText(character)
-              await new Promise<void>((resolve) => window.setTimeout(resolve, 12))
-            }
+            // 网络流持续读取；独立的队列逐字渲染，避免打字延时反压模型流。
+            characterQueue.push(...Array.from(text))
+            startTypewriter()
           }
         } else if (eventName === 'done') {
           result = payload as unknown as AgentChatResult
@@ -301,18 +325,24 @@ export const useStudentStore = defineStore('student', {
         }
       }
 
-      while (true) {
-        const { value, done } = await reader.read()
-        buffer += decoder.decode(value, { stream: !done })
-        let boundary = buffer.indexOf('\n\n')
-        while (boundary >= 0) {
-          await consumeEvent(buffer.slice(0, boundary))
-          buffer = buffer.slice(boundary + 2)
-          boundary = buffer.indexOf('\n\n')
+      try {
+        while (true) {
+          const { value, done } = await reader.read()
+          buffer += decoder.decode(value, { stream: !done })
+          let boundary = buffer.indexOf('\n\n')
+          while (boundary >= 0) {
+            consumeEvent(buffer.slice(0, boundary))
+            buffer = buffer.slice(boundary + 2)
+            boundary = buffer.indexOf('\n\n')
+          }
+          if (done) break
         }
-        if (done) break
+        if (buffer.trim()) consumeEvent(buffer)
+      } catch (error) {
+        await waitForTypewriter()
+        throw error
       }
-      if (buffer.trim()) await consumeEvent(buffer)
+      await waitForTypewriter()
       if (!result) throw new Error('学习助手的流式回复没有正常结束，请重试。')
       return result
     },

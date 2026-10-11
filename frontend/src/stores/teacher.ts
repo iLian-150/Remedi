@@ -165,7 +165,31 @@ export const useTeacherStore = defineStore('teacher', {
       const decoder = new TextDecoder()
       let buffer = ''
       let result: AgentChatResult | null = null
-      const consumeEvent = async (block: string) => {
+      const characterQueue: string[] = []
+      let queueOffset = 0
+      let typingTask: Promise<void> | null = null
+      const startTypewriter = () => {
+        if (typingTask || queueOffset >= characterQueue.length) return
+        typingTask = (async () => {
+          while (queueOffset < characterQueue.length) {
+            onCharacter(characterQueue[queueOffset++])
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 18))
+          }
+        })().finally(() => {
+          typingTask = null
+          characterQueue.splice(0, queueOffset)
+          queueOffset = 0
+          if (characterQueue.length) startTypewriter()
+        })
+      }
+      const waitForTypewriter = async () => {
+        while (typingTask) await typingTask
+        if (characterQueue.length) {
+          startTypewriter()
+          await waitForTypewriter()
+        }
+      }
+      const consumeEvent = (block: string) => {
         let eventName = ''
         const dataLines: string[] = []
         for (const line of block.split('\n')) {
@@ -181,9 +205,9 @@ export const useTeacherStore = defineStore('teacher', {
         const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
         if (eventName === 'token') {
           const text = typeof payload.text === 'string' ? payload.text : ''
-          for (const character of Array.from(text)) {
-            onCharacter(character)
-            await new Promise((resolve) => window.setTimeout(resolve, 18))
+          if (text) {
+            characterQueue.push(...Array.from(text))
+            startTypewriter()
           }
         } else if (eventName === 'done') {
           result = payload as unknown as AgentChatResult
@@ -192,18 +216,24 @@ export const useTeacherStore = defineStore('teacher', {
         }
       }
 
-      while (true) {
-        const { value, done } = await reader.read()
-        buffer += decoder.decode(value, { stream: !done })
-        let boundary = buffer.indexOf('\n\n')
-        while (boundary >= 0) {
-          await consumeEvent(buffer.slice(0, boundary))
-          buffer = buffer.slice(boundary + 2)
-          boundary = buffer.indexOf('\n\n')
+      try {
+        while (true) {
+          const { value, done } = await reader.read()
+          buffer += decoder.decode(value, { stream: !done })
+          let boundary = buffer.indexOf('\n\n')
+          while (boundary >= 0) {
+            consumeEvent(buffer.slice(0, boundary))
+            buffer = buffer.slice(boundary + 2)
+            boundary = buffer.indexOf('\n\n')
+          }
+          if (done) break
         }
-        if (done) break
+        if (buffer.trim()) consumeEvent(buffer)
+      } catch (error) {
+        await waitForTypewriter()
+        throw error
       }
-      if (buffer.trim()) await consumeEvent(buffer)
+      await waitForTypewriter()
       if (!result) throw new Error('教师助手的流式回复没有正常结束，请重试。')
       return result
     },
