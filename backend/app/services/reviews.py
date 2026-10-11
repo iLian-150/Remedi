@@ -7,11 +7,11 @@ from typing import Iterable, List, Optional, Set
 
 from sqlalchemy.orm import Session
 
-from ..models import Error, Notification, Submission, SubmissionReview
+from ..models import Error, Notification, Step, Submission, SubmissionReview
 
 PENDING = "pending"
 APPROVED = "approved"
-REVIEW_CONFIDENCE_THRESHOLD = 0.60
+REVIEW_THRESHOLD = 0.60
 
 
 def create_pending_review(db: Session, submission: Submission) -> SubmissionReview:
@@ -28,22 +28,31 @@ def create_pending_review(db: Session, submission: Submission) -> SubmissionRevi
 
 
 def needs_teacher_review(db: Session, submission: Submission) -> bool:
-    """只把错因判断置信率低于 60% 的提交送入教师队列。
+    """本次作答正确率或错因置信度低于 60% 时送入教师队列。
 
-    一份提交可能有多条错误；只要其中一条低于阈值，就审核整份提交。
-    没有错误记录的全对提交不需要审核。
+    正确率按有效作答步骤计算；错因置信度按错误记录计算。任一条件触发，
+    就审核整份提交。没有作答步骤和错误记录的提交不需要审核。
     """
+    step_statuses = [row[0] for row in db.query(Step.status).filter(
+        Step.submission_id == submission.id,
+        Step.seq >= 1,
+    ).all()]
+    if step_statuses:
+        accuracy = sum(1 for value in step_statuses if value == "ok") / len(step_statuses)
+        if accuracy < REVIEW_THRESHOLD:
+            return True
+
     confidences = [
         float(row[0])
         for row in db.query(Error.confidence)
         .filter(Error.submission_id == submission.id)
         .all()
     ]
-    return any(value < REVIEW_CONFIDENCE_THRESHOLD for value in confidences)
+    return any(value < REVIEW_THRESHOLD for value in confidences)
 
 
 def create_review_if_needed(db: Session, submission: Submission) -> Optional[SubmissionReview]:
-    """按错因置信率决定是否建立待审核记录。"""
+    """按作答正确率和错因置信度决定是否建立待审核记录。"""
     if not needs_teacher_review(db, submission):
         return None
     return create_pending_review(db, submission)

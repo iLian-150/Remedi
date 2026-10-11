@@ -230,7 +230,7 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
     if deferral_svc.is_deferred_mode(db, q.assignment_id):
         return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
     submission, steps, errors = diagnose_submission(db, current, q, data.steps)
-    # 仅错因置信率低于 60% 的提交进入教师审核队列。
+    # 本次作答正确率或错因置信度低于 60% 时进入教师审核队列。
     review_svc.create_review_if_needed(db, submission)
     return present_for_student(submission, db)
 

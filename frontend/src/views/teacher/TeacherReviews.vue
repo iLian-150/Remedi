@@ -11,7 +11,7 @@
   <div class="page">
     <div class="page-head">
       <h2>待审核</h2>
-      <p class="page-sub">错因判断置信率低于 60% 的作答会进入这里复核；点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
+      <p class="page-sub">本次作答正确率或错因置信度低于 60% 的记录会进入这里复核；点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
