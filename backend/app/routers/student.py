@@ -1033,15 +1033,9 @@ async def photo_review(
     submission, _, _ = diagnose_submission(db, current, question, steps)
     review_svc.create_review_if_needed(db, submission)
     diagnosis = present_for_student(submission, db)
-    result_copy = (
-        "已提交老师审核。"
-        if diagnosis["review_status"] == "pending"
-        else ("诊断发现作答错误，已加入错题本和订正。"
-              if diagnosis["errors"] else "诊断完成，暂未发现错误。")
-    )
-    session_id = save_chat_result(
-        f"已识别题目：{question_text}\n识别到 {len(steps)} 步作答，{result_copy}"
-    )
+    # 学习助手随后会基于识别出的题目和步骤流式回答，避免在对话历史里
+    # 先保存一条“等待审核”的占位回复，再额外显示批改结果卡片。
+    session_id = chat_session.id if chat_session is not None else None
     return {"mode": "diagnosis", "question_text": question_text,
             "steps": steps, "capture_id": None, "diagnosis": diagnosis,
             "session_id": session_id}

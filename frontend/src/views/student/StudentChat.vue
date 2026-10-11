@@ -835,6 +835,7 @@ async function sendPhotoReview(file: File, prompt: string) {
   pushMsg({ side: 'user', kind: 'image', text: prompt, fileName: file.name, url: createImageUrl(file) })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别题目和作答情况…', pending: true })
   chatSending.value = true
+  let photoReviewSucceeded = false
   try {
     // 只有从具体作业题目跳转过来时才自动关联题目，避免把自由上传的照片误绑到默认第一题。
     const explicitQuestionId = selectedQuestion.value?.id ?? null
@@ -846,6 +847,7 @@ async function sendPhotoReview(file: File, prompt: string) {
       true,
       prompt
     )
+    photoReviewSucceeded = true
     if (res.session_id) student.setActiveSession(res.session_id)
     await student.loadSessions(true)
     wait.pending = false
@@ -871,13 +873,20 @@ async function sendPhotoReview(file: File, prompt: string) {
         }
       }
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
-      // 低置信度错因进入教师审核；pending 时不报对错结论。
-      wait.text = res.diagnosis.status === 'pending_review'
-        ? '识别到作答过程并完成提交，老师审核后你就能看到批改结果了。'
+      const pendingReview = res.diagnosis.status === 'pending_review'
+      const diagnosisContext = pendingReview
+        ? '这次作答的批改结果正在等待老师审核，不要把任何自动判断说成最终结论；仍请独立解答题目并讲清思路。'
         : res.diagnosis.errors.length
-          ? '识别到作答过程并完成批改，发现的错题已自动加入错题本。'
-          : '识别到作答过程并完成批改，这道题目前没有发现错误。'
-      pushMsg({ side: 'ai', kind: 'diagnosis', result: res.diagnosis })
+          ? `系统已确认的错因：${res.diagnosis.errors.map((error) => `第${error.step_seq}步，${error.error_type}：${error.detail}`).join('；')}`
+          : '系统批改结果为这道题没有发现错误。'
+      const agentPrompt = [
+        '学生上传了数学作业照片并希望得到答疑。请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点。不要重复创建错题记录。',
+        `识别出的题目：${res.question_text.slice(0, 800)}`,
+        `识别出的学生步骤：${res.steps.slice(0, 12).map((step, index) => `${index + 1}. ${step}`).join('\n').slice(0, 650)}`,
+        diagnosisContext,
+        prompt ? `学生补充的问题：${prompt.slice(0, 250)}` : ''
+      ].filter(Boolean).join('\n').slice(0, 1950)
+      await streamAssistantReply(wait, agentPrompt, false)
     } else {
       wait.kind = 'transcribe'
       wait.text = ''
@@ -888,6 +897,9 @@ async function sendPhotoReview(file: File, prompt: string) {
       wait.kind = 'error'
       wait.captureId = null
       wait.text = '题目已识别，但模型暂时无法生成讲解：' + (errDetail(err) || '请稍后重试。')
+    } else if (photoReviewSucceeded) {
+      wait.kind = 'text'
+      wait.text = '作业已处理，但暂时无法生成题目讲解：' + (errDetail(err) || '请稍后重试。')
     } else {
       wait.kind = 'error'
       wait.text = '识别失败：' + (errDetail(err) || '请稍后重试。')
