@@ -78,14 +78,46 @@
         </div>
         <div class="card">
           <h3>题目回顾</h3>
-          <p class="step-text">出错的步骤：{{ selectedError.step_text }}</p>
-          <p class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(selectedError.detail) }}</p>
+          <!-- v0.13.9：原来这里只有出错的一步、看不到原题——改成完整回顾：
+               原来的题目 → 我当时的作答（错步在原步骤里原地标出）→ 解析 →
+               正确答案与标准解题过程，看全了再动手订正 -->
+          <div class="review-block">
+            <span class="review-label">原来的题目</span>
+            <p class="review-stem">{{ selectedError.question_stem || '题目内容暂未记录' }}</p>
+            <a v-if="selectedError.image_url" class="review-img-link" :href="imageHref(selectedError.image_url)" target="_blank" rel="noreferrer">查看上传原图</a>
+          </div>
+          <div class="review-block">
+            <span class="review-label">我当时的作答</span>
+            <ol v-if="origSteps.length" class="orig-steps">
+              <li v-for="st in origSteps" :key="st.seq" :class="origStepClass(st)">
+                <span class="orig-seq">{{ st.seq }}</span>
+                <span class="orig-text">{{ st.text }}</span>
+                <span v-if="st.status === 'error'" class="orig-flag">出错在这里</span>
+              </li>
+            </ol>
+            <p v-else-if="selectedError.step_text" class="step-text">第 {{ selectedError.step_seq ?? '?' }} 步：{{ selectedError.step_text }}（这一步出错了）</p>
+            <p v-else class="detail">原来的作答步骤暂未记录。</p>
+          </div>
+          <p class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(selectedError.detail ?? '') }}</p>
           <p style="margin-top: 10px">
             <ErrorTypeBadge :type="selectedError.error_type" />
             <span class="badge badge-blue">{{ selectedError.knowledge_point }}</span>
             <span v-if="fixedIds.has(selectedError.id)" class="badge badge-green">已订正</span>
             <span v-else-if="selectedError.is_stubborn" class="badge badge-amber">需要加固</span>
           </p>
+          <div v-if="selectedError.correct_answer" class="review-block" style="margin-top: 14px; margin-bottom: 0">
+            <span class="review-label">正确答案</span>
+            <p class="review-answer">{{ selectedError.correct_answer }}</p>
+          </div>
+          <div v-if="selectedError.solution_steps?.length" class="review-block" style="margin-bottom: 0">
+            <span class="review-label">标准解题过程</span>
+            <ol class="orig-steps">
+              <li v-for="(s, i) in selectedError.solution_steps" :key="i">
+                <span class="orig-seq">{{ i + 1 }}</span>
+                <span class="orig-text">{{ s }}</span>
+              </li>
+            </ol>
+          </div>
         </div>
 
         <div class="card">
@@ -148,7 +180,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import { useAuthStore } from '../../stores/auth'
-import type { CorrectionResult, GradingError, StudentMistake } from '../../api/types'
+import type { CorrectionResult, GradingError, StepDiagnosis, StudentMistake } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -253,7 +285,43 @@ function syncSelection() {
   }
 }
 
-const selectedError = computed(() => errorList.value.find((e) => e.id === selectedErrorId.value) ?? null)
+// v0.13.9：工作区直接消费错题原条目（StudentMistake）——题目回顾要用的原题、
+// 正确答案、标准解题过程、原图都在原条目上，经 toGradingError 映射后会丢掉
+const selectedError = computed(() => visibleMistakes.value.find((e) => e.id === selectedErrorId.value) ?? null)
+
+// v0.13.9：题目回顾要展示「我当时的作答」全文——错题条目里只有出错的那一步，
+// 完整原步骤在提交详情里（每步带判定状态），选中错题时按 submission_id 拉一次；
+// 拉不到就降级为只显示出错步骤（模板里的 v-else 分支）
+const origSteps = ref<StepDiagnosis[]>([])
+let origLoadToken = 0
+async function loadOrigSteps() {
+  const err = selectedError.value
+  origSteps.value = []
+  if (!err) return
+  const token = ++origLoadToken
+  try {
+    const detail = await student.fetchSubmissionDetail(err.submission_id)
+    if (token !== origLoadToken) return
+    // seq=0 是题干伪步骤，已在「原来的题目」里单独展示，这里只列作答步
+    origSteps.value = (detail.steps ?? []).filter((s) => s.status !== 'stem')
+  } catch {
+    if (token === origLoadToken) origSteps.value = []
+  }
+}
+watch(selectedError, () => { void loadOrigSteps() })
+
+function origStepClass(st: StepDiagnosis) {
+  return {
+    'is-error': st.status === 'error',
+    'is-dim': st.status === 'skipped' || st.status === 'unparseable'
+  }
+}
+
+/** 原图链接（与错题本同口径：相对路径按 API 基址补全） */
+function imageHref(value: string) {
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  return base ? `${base.replace(/\/+$/, '')}${value}` : value
+}
 
 // ---------- 二次验证（迁入本页：报告纯化后验证入口只在订正流里） ----------
 /** 当前打开了变式题面板的知识点（空 = 未打开）；墙面待验证区与结果区共用这一个状态 */
@@ -387,6 +455,20 @@ function toGradingError(item: StudentMistake): GradingError {
 .filter-progress-text { font-size: 13.5px; color: var(--text-2); }
 .step-text { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .detail { font-size: 14px; color: var(--text-2); }
+/* v0.13.9：题目回顾完整版——原题 / 原作答（错步原地标红）/ 正确答案 / 标准过程 */
+.review-block { margin-bottom: 14px; }
+.review-label { display: block; font-size: 12px; font-weight: 700; color: var(--text-3); letter-spacing: .4px; margin-bottom: 5px; }
+.review-stem { font-size: 16px; font-weight: 600; line-height: 1.65; }
+.review-img-link { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--primary); font-weight: 600; }
+.review-answer { font-size: 15px; font-weight: 600; color: #15803D; }
+.orig-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.orig-steps li { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px; border-radius: 9px; background: var(--bg); font-size: 14px; }
+.orig-steps li.is-error { background: #FEF2F2; box-shadow: inset 0 0 0 1.5px #DC2626; }
+.orig-steps li.is-dim { opacity: .55; }
+.orig-seq { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; transform: translateY(2px); }
+.orig-steps li.is-error .orig-seq { background: #DC2626; border-color: transparent; color: #fff; }
+.orig-text { flex: 1; line-height: 1.55; word-break: break-word; }
+.orig-flag { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #DC2626; }
 .note { margin-top: 8px; font-size: 14px; color: var(--text); }
 .note.hint { color: var(--text-3); font-size: 13px; }
 .verify-cta {
