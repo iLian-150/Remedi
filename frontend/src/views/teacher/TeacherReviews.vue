@@ -64,7 +64,7 @@
               <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
             </span>
             <span class="assign-card-accuracy" :class="accuracyClass(g)">
-              <span class="accuracy-label">作业累计正确率</span>
+              <span class="accuracy-label">待审核学生累计正确率</span>
               <strong>{{ accuracyPercent(g) ?? '—' }}<small v-if="accuracyPercent(g) !== null">%</small></strong>
               <span class="accuracy-steps" v-if="g.totalAnswerSteps">
                 {{ g.correctSteps }} / {{ g.totalAnswerSteps }} 步正确
@@ -154,17 +154,35 @@
                   </a>
                   <div v-else class="review-image-empty">当前提交没有可显示的作答原图。</div>
                 </section>
-
-                <section class="review-modal-panel">
-                  <div class="review-panel-heading">
-                    <h3>图片中的文字</h3>
-                    <span>识别题目，供审核对照</span>
-                  </div>
-                  <div class="review-question-text">{{ detail.question.stem }}</div>
-                </section>
               </div>
 
               <div class="review-modal-right">
+                <section class="review-modal-panel review-homework-accuracy" :class="itemAccuracyClass(currentReviewItem)">
+                  <div class="review-homework-accuracy-main">
+                    <div>
+                      <strong>该生本作业累计正确率</strong>
+                      <span v-if="currentReviewItem?.assignment_total_steps">
+                        {{ currentReviewItem.assignment_correct_steps }} / {{ currentReviewItem.assignment_total_steps }} 步正确
+                      </span>
+                      <span v-else>暂无有效作答步骤</span>
+                    </div>
+                    <strong class="review-homework-accuracy-value">
+                      {{ itemAccuracyPercent(currentReviewItem) ?? '—' }}<small v-if="itemAccuracyPercent(currentReviewItem) !== null">%</small>
+                    </strong>
+                  </div>
+                  <p v-if="currentReviewItem?.review_reason" class="review-homework-reason">
+                    复核原因：{{ currentReviewItem.review_reason }}
+                  </p>
+                </section>
+
+                <section class="review-modal-panel">
+                  <div class="review-panel-heading">
+                    <h3>题目</h3>
+                    <span>{{ detail.question.knowledge_point || detail.question.subject }}</span>
+                  </div>
+                  <div class="review-question-text">{{ detail.question.stem }}</div>
+                </section>
+
                 <section class="review-modal-panel">
                   <div class="review-panel-heading">
                     <h3>解题过程</h3>
@@ -410,6 +428,20 @@ function accuracyPercent(group: AssignmentGroup): number | null {
 
 function accuracyClass(group: AssignmentGroup): string {
   const rate = accuracyPercent(group)
+  if (rate === null) return 'accuracy-no-data'
+  if (rate < 60) return 'accuracy-low'
+  if (rate < 80) return 'accuracy-mid'
+  return 'accuracy-high'
+}
+
+function itemAccuracyPercent(item: ReviewPendingItem | null): number | null {
+  return item && item.assignment_total_steps > 0
+    ? Math.round(item.assignment_correct_steps / item.assignment_total_steps * 1000) / 10
+    : null
+}
+
+function itemAccuracyClass(item: ReviewPendingItem | null): string {
+  const rate = itemAccuracyPercent(item)
   if (rate === null) return 'accuracy-no-data'
   if (rate < 60) return 'accuracy-low'
   if (rate < 80) return 'accuracy-mid'
@@ -732,7 +764,7 @@ onUnmounted(() => {
 .queue-row-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
 .queue-row-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
 .queue-row-arrow { color: var(--text-3); flex-shrink: 0; }
-/* 详情弹窗：原图与识别文本在左，诊断过程、错因和审核操作在右。 */
+/* 详情弹窗：左侧原图；右侧突出该生作业正确率、题目和诊断过程。 */
 .review-modal-mask {
   position: fixed; inset: 0; z-index: 500;
   display: flex; align-items: center; justify-content: center;
@@ -770,7 +802,7 @@ onUnmounted(() => {
 .review-modal-nav .side-title { padding: 2px 3px; }
 .review-modal-nav-group { display: flex; flex-direction: column; gap: 6px; }
 .review-modal-nav .queue-row { margin: 0; }
-.review-modal-content { display: grid; grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr); gap: 16px; min-width: 0; min-height: 0; overflow: hidden; }
+.review-modal-content { display: grid; grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr); gap: 16px; min-width: 0; min-height: 0; overflow: hidden; }
 .review-modal-left, .review-modal-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow: auto; }
 .review-modal-panel {
   flex: 0 0 auto; padding: 17px 18px; border: 1px solid #E4EAE5; border-radius: 16px;
@@ -789,6 +821,18 @@ onUnmounted(() => {
   background: #F7F8F7; color: var(--text-3); text-align: center;
 }
 .review-question-text { padding: 15px 16px; border: 1px solid #E6ECE7; border-radius: 12px; background: #FAFBFA; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.85; }
+.review-homework-accuracy { border-width: 2px; }
+.review-homework-accuracy-main { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.review-homework-accuracy-main > div { display: flex; flex-direction: column; gap: 5px; }
+.review-homework-accuracy-main > div > strong { font-size: 15px; }
+.review-homework-accuracy-main > div > span { font-size: 13px; color: var(--text-2); }
+.review-homework-accuracy-value { flex: 0 0 auto; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
+.review-homework-accuracy-value small { margin-left: 2px; font-size: 23px; }
+.review-homework-accuracy.accuracy-low { border-color: #FECACA; }
+.review-homework-accuracy.accuracy-mid { border-color: #FDE68A; }
+.review-homework-accuracy.accuracy-high { border-color: #BBF7D0; }
+.review-homework-accuracy.accuracy-no-data { border-color: #E2E8F0; }
+.review-homework-reason { margin: 10px 0 0; padding-top: 9px; border-top: 1px solid rgba(148, 163, 184, 0.22); font-size: 12px; line-height: 1.5; color: var(--text-2); }
 .review-process-note { margin-bottom: 12px; padding: 12px 14px; border-left: 4px solid #D97706; border-radius: 8px; background: #FFFBEB; color: #854D0E; }
 .review-process-note p { margin: 4px 0; }
 .review-process-note small { display: block; margin-top: 7px; color: var(--text-2); }
@@ -877,6 +921,8 @@ onUnmounted(() => {
   .review-modal-body { padding: 10px; gap: 10px; }
   .review-modal-panel { padding: 13px; }
   .review-panel-heading h3, .review-modal-panel > h3 { font-size: 17px; }
+  .review-homework-accuracy-value { font-size: 38px; }
+  .review-homework-accuracy-value small { font-size: 19px; }
   .review-modal .approve-actions { align-items: stretch; }
   .review-modal .approve-actions .btn { width: 100%; }
 }
