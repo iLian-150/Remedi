@@ -160,14 +160,16 @@
 
               <div class="card">
                 <h3>分步诊断</h3>
-                <div
-                  v-for="st in detail.diagnosis.steps"
-                  :key="st.seq"
-                  class="step"
-                  :class="{ 'first-error': st.status === 'error', correct: st.status === 'ok' }"
-                >
-                  <div class="step-title">{{ st.seq === 0 ? '题干' : `步骤 ${st.seq}` }} · {{ STEP_STATUS_TEXT[st.status] }}</div>
-                  <p>{{ st.text }}</p>
+                <div class="review-steps">
+                  <div
+                    v-for="st in detail.diagnosis.steps"
+                    :key="st.seq"
+                    class="review-step"
+                    :class="{ 'is-error': st.status === 'error', 'is-correct': st.status === 'ok' }"
+                  >
+                    <div class="review-step-title">{{ st.seq === 0 ? '题干' : `步骤 ${st.seq}` }} · {{ STEP_STATUS_TEXT[st.status] }}</div>
+                    <p>{{ st.text }}</p>
+                  </div>
                 </div>
                 <p v-if="!detail.diagnosis.errors.length" class="ok-line">这份作答全部正确，通过后学生会看到鼓励反馈。</p>
               </div>
@@ -591,6 +593,14 @@ onMounted(() => {
 .queue-row-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
 .queue-row-arrow { color: var(--text-3); flex-shrink: 0; }
 .review-detail > .card:last-child { margin-bottom: 0; }
+.review-steps { display: flex; flex-direction: column; }
+.review-step { padding: 10px 0; border-bottom: 1px solid #F1F3F6; }
+.review-step:first-child { padding-top: 2px; }
+.review-step:last-child { border-bottom: 0; padding-bottom: 2px; }
+.review-step-title { margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--text-3); }
+.review-step.is-error .review-step-title { color: #991B1B; }
+.review-step.is-correct .review-step-title { color: #065F46; }
+.review-step p { margin: 0; font-size: 15px; }
 .detail-text { margin-top: 8px; font-size: 14px; color: var(--text-2); }
 .review-error { padding: 12px 0; border-bottom: 1px solid #F1F3F6; }
 .review-error:last-child { border-bottom: none; padding-bottom: 2px; }
