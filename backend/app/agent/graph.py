@@ -147,6 +147,99 @@ def agent_reply_full(db: Session, student: User,
         return {"reply": mock_reply(db, student, user_text), "tools_used": []}
 
 
+def _message_chunk_text(msg) -> str:
+    """提取 LangChain 流式消息块中的文本，不裁掉块边界上的空格。"""
+    content = getattr(msg, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return ""
+
+
+def agent_reply_stream(db: Session, student: User,
+                       history: List[BaseMessage], user_text: str):
+    """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
+    try:
+        llm = _build_llm()
+    except Exception as e:
+        logger.warning("Agent LLM 构造失败，降级为规则回复: %s", e)
+        reply = mock_reply(db, student, user_text)
+        yield from reply
+        return {"reply": reply, "tools_used": []}
+    if llm is None:
+        reply = mock_reply(db, student, user_text)
+        yield from reply
+        return {"reply": reply, "tools_used": []}
+
+    try:
+        from langgraph.graph import START, StateGraph
+        from langgraph.graph.message import add_messages
+        from langgraph.prebuilt import ToolNode, tools_condition
+
+        class AgentState(TypedDict):
+            messages: Annotated[list, add_messages]
+
+        tools = build_tools(db, student)
+        llm_with_tools = llm.bind_tools(tools)
+
+        def call_model(state: AgentState):
+            return {"messages": [llm_with_tools.invoke(state["messages"])]}
+
+        builder = StateGraph(AgentState)
+        builder.add_node("agent", call_model)
+        builder.add_node("tools", ToolNode(tools))
+        builder.add_edge(START, "agent")
+        builder.add_conditional_edges("agent", tools_condition)
+        builder.add_edge("tools", "agent")
+        graph = builder.compile()
+
+        system = build_system_prompt(student.name, _context_summary(db, student))
+        messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
+        reply_parts: list[str] = []
+        tool_names: dict[int, str] = {}
+
+        for part in graph.stream(
+            {"messages": messages},
+            config={"recursion_limit": 15},
+            stream_mode="messages",
+            version="v2",
+        ):
+            if part.get("type") != "messages":
+                continue
+            message_chunk, metadata = part["data"]
+            if metadata.get("langgraph_node") != "agent":
+                continue
+            text = _message_chunk_text(message_chunk)
+            if text:
+                reply_parts.append(text)
+                yield text
+            for call in getattr(message_chunk, "tool_call_chunks", None) or []:
+                name = call.get("name")
+                if name:
+                    index = call.get("index", len(tool_names))
+                    tool_names[index] = tool_names.get(index, "") + name
+
+        reply = "".join(reply_parts).strip()
+        if not reply:
+            raise ValueError("模型返回了空回复")
+        names = list(dict.fromkeys(name for name in tool_names.values() if name))
+        return {"reply": reply, "tools_used": names}
+    except Exception as e:
+        logger.warning("Agent 流式调用失败，降级为规则回复: %s", e)
+        if 'reply_parts' in locals() and reply_parts:
+            raise
+        reply = mock_reply(db, student, user_text)
+        yield from reply
+        return {"reply": reply, "tools_used": []}
+
+
 def agent_reply(db: Session, student: User,
                 history: List[BaseMessage], user_text: str) -> str:
     """兼容旧签名的纯文本入口（v0.6.0 起内部走 agent_reply_full）。"""

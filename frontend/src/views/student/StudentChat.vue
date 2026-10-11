@@ -532,8 +532,10 @@ function scrollToBottom() {
 }
 
 function errDetail(e: unknown): string {
-  const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-  return typeof d === 'string' ? d : ''
+  const error = e as { response?: { data?: { detail?: string } }; message?: string }
+  const detail = error?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  return typeof error?.message === 'string' ? error.message : ''
 }
 
 function stepIcon(s: StepStatus): IconName {
@@ -672,12 +674,7 @@ async function sendChat(raw?: string) {
       await student.loadSessions(true)
       return
     }
-    const res = await student.agentChat(text, student.activeSessionId)
-    wait.text = res.reply
-    if (res.session_id) student.setActiveSession(res.session_id)
-    suggestions.value = res.suggestions ?? []
-    // 刷新侧栏会话列表（v0.6.2 联动）：首问生成标题、顺序按最近更新重排
-    student.loadSessions(true)
+    await streamAssistantReply(wait, text)
   } catch (e) {
     wait.kind = 'error'
     wait.text = '发送失败：' + (errDetail(e) || '请稍后重试。')
@@ -687,6 +684,27 @@ async function sendChat(raw?: string) {
     chatSending.value = false
     scrollToBottom()
   }
+}
+
+async function streamAssistantReply(wait: ChatMsg, prompt: string) {
+  let firstCharacter = true
+  wait.text = '正在生成回复…'
+  wait.pending = true
+  const result = await student.agentChatStream(prompt, student.activeSessionId, (character) => {
+    if (firstCharacter) {
+      wait.text = ''
+      wait.pending = false
+      firstCharacter = false
+    }
+    wait.text += character
+    scrollToBottom()
+  })
+  wait.pending = false
+  wait.text = result.reply
+  if (result.session_id) student.setActiveSession(result.session_id)
+  suggestions.value = result.suggestions ?? []
+  // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
+  student.loadSessions(true)
 }
 
 // ---------- 拍照批改 ----------
@@ -724,11 +742,7 @@ async function onFileChange(e: Event) {
         `识别出的题目：${res.question_text.slice(0, 1300)}`,
         prompt ? `学生补充的问题：${prompt.slice(0, 300)}` : ''
       ].filter(Boolean).join('\n')
-      const answer = await student.agentChat(agentPrompt, student.activeSessionId)
-      wait.text = answer.reply
-      if (answer.session_id) student.setActiveSession(answer.session_id)
-      suggestions.value = answer.suggestions ?? []
-      student.loadSessions(true)
+      await streamAssistantReply(wait, agentPrompt)
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
       // v0.9.0：新批改先过老师审核，pending 时不报对错结论
       wait.text = res.diagnosis.status === 'pending_review'

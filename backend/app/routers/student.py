@@ -1,5 +1,6 @@
 # /api/student/* 学生端
 import json
+import logging
 import os
 import re
 import secrets
@@ -7,6 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -92,6 +94,7 @@ from ..services.stats import (
 )
 
 router = APIRouter(prefix="/api/student", tags=["student"])
+logger = logging.getLogger(__name__)
 
 
 # ---------- 教师审核可见性（v0.9.0）：学生侧统一出口 ----------
@@ -1212,6 +1215,74 @@ def agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
         "suggestions": student_suggestions(text, result.get("tools_used")),
         "session_id": session.id,
     }
+
+
+@router.post("/agent/chat/stream", summary="与学习助手流式对话")
+def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
+                      current: User = Depends(require_student)):
+    """以 SSE 逐块返回学习助手回复，结束时写入会话并返回建议追问。"""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from ..agent.graph import agent_reply_stream
+    from ..agent.suggestions import student_suggestions
+    from ..services import chat_sessions as cs
+
+    text = body.message.strip()
+    if not text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息不能为空")
+    if len(text) > _AGENT_MSG_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
+
+    cs.ensure_migrated(db, current)
+    if body.session_id is not None:
+        session = cs.get_own_session(db, current, body.session_id)
+        if session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    else:
+        session = cs.get_or_create_current(db, current)
+
+    rows = cs.session_messages(db, session, limit=_AGENT_HISTORY_WINDOW)
+    history = [
+        HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
+        for row in rows
+    ]
+
+    def event(name: str, payload: dict) -> str:
+        return f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    def stream_events():
+        yield ": connected\n\n"
+        reply_stream = agent_reply_stream(db, current, history, text)
+        try:
+            while True:
+                try:
+                    chunk = next(reply_stream)
+                except StopIteration as stopped:
+                    result = stopped.value
+                    break
+                yield event("token", {"text": chunk})
+
+            reply = result["reply"]
+            cs.append_message(db, session, "user", text)
+            cs.append_message(db, session, "assistant", reply)
+            yield event("done", {
+                "reply": reply,
+                "suggestions": student_suggestions(text, result.get("tools_used")),
+                "session_id": session.id,
+            })
+        except Exception:
+            logger.exception("学生学习助手流式回复中断")
+            yield event("error", {"detail": "回复生成中断，请稍后重试。"})
+
+    return StreamingResponse(
+        stream_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/agent/history", response_model=List[AgentHistoryItem], summary="我的对话历史")

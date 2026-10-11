@@ -2,6 +2,7 @@
 // 路径与字段严格对齐 docs/api-contract.md v0.1.0
 import { defineStore } from 'pinia'
 import api from '../api/client'
+import { useAuthStore } from './auth'
 import type {
   AgentChatResult,
   AgentHistoryItem,
@@ -165,7 +166,9 @@ export const useStudentStore = defineStore('student', {
       if (questionId) form.append('question_id', String(questionId))
       if (questionContext) form.append('question_context', questionContext)
       const { data } = await api.post<PhotoReviewResult>('/api/student/photo-review', form, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        // 视觉模型最多等待 60 秒；给网络和后端收尾留出余量，避免前端先超时。
+        timeout: 90000
       })
       return data
     },
@@ -197,6 +200,80 @@ export const useStudentStore = defineStore('student', {
         session_id: sessionId ?? undefined
       })
       return data
+    },
+    async agentChatStream(
+      message: string,
+      sessionId: number | null | undefined,
+      onCharacter: (character: string) => void
+    ): Promise<AgentChatResult> {
+      const auth = useAuthStore()
+      const response = await fetch(api.getUri({ url: '/api/student/agent/chat/stream' }), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {})
+        },
+        body: JSON.stringify({ message, session_id: sessionId ?? undefined })
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: unknown } | null
+        if (response.status === 401) {
+          auth.logout()
+          if (window.location.pathname !== '/') window.location.href = '/'
+        }
+        const detail = typeof payload?.detail === 'string' ? payload.detail : ''
+        throw new Error(detail || `学习助手请求失败（HTTP ${response.status}）`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('浏览器无法读取学习助手的流式回复。')
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let result: AgentChatResult | null = null
+
+      const consumeEvent = async (block: string) => {
+        let eventName = ''
+        const dataLines: string[] = []
+        for (const line of block.split('\n')) {
+          if (!line || line.startsWith(':')) continue
+          const separator = line.indexOf(':')
+          const field = separator < 0 ? line : line.slice(0, separator)
+          let value = separator < 0 ? '' : line.slice(separator + 1)
+          if (value.startsWith(' ')) value = value.slice(1)
+          if (field === 'event') eventName = value
+          else if (field === 'data') dataLines.push(value)
+        }
+        if (!dataLines.length) return
+        const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
+        if (eventName === 'token') {
+          const text = typeof payload.text === 'string' ? payload.text : ''
+          for (const character of Array.from(text)) {
+            onCharacter(character)
+            // 控制展示节奏，让较大的网络数据块也逐字呈现。
+            await new Promise((resolve) => window.setTimeout(resolve, 18))
+          }
+        } else if (eventName === 'done') {
+          result = payload as unknown as AgentChatResult
+        } else if (eventName === 'error') {
+          throw new Error(typeof payload.detail === 'string' ? payload.detail : '回复生成中断，请稍后重试。')
+        }
+      }
+
+      while (true) {
+        const { value, done } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        let boundary = buffer.indexOf('\n\n')
+        while (boundary >= 0) {
+          await consumeEvent(buffer.slice(0, boundary))
+          buffer = buffer.slice(boundary + 2)
+          boundary = buffer.indexOf('\n\n')
+        }
+        if (done) break
+      }
+      if (buffer.trim()) await consumeEvent(buffer)
+      if (!result) throw new Error('学习助手的流式回复没有正常结束，请重试。')
+      return result
     },
     // 3.16 我的对话历史（v0.3.0；v0.6.0 起返回当前会话最近 50 条，时间正序）
     async fetchAgentHistory(): Promise<AgentHistoryItem[]> {
