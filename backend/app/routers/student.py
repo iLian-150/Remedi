@@ -971,14 +971,8 @@ async def photo_review(
             os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
         )
 
-    def save_chat_result(text: str) -> Optional[int]:
-        if chat_session is None:
-            return None
-        from ..services import chat_sessions as cs
-
-        cs.append_message(db, chat_session, "assistant", text)
-        return chat_session.id
-
+    # 诊断错误由聊天页和并行的视觉讲解流共同呈现；这里不写助手占位消息，
+    # 避免视觉讲解成功后历史会话仍残留一条误导性的“识别失败”回复。
     vision_started_at = perf_counter()
     try:
         recognition = await run_in_threadpool(
@@ -990,7 +984,6 @@ async def photo_review(
             failure_message = "图片识别服务暂时不可用，照片已保存在当前对话中，请稍后重新识别。"
         else:
             failure_message = "图片识别服务暂时不可用，请稍后重新上传。"
-        save_chat_result(failure_message)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
             failure_message,
@@ -1003,7 +996,6 @@ async def photo_review(
              if isinstance(step, dict) and str(step.get("text", "")).strip()]
     has_work = bool(recognition.get("student_work_detected", bool(visual_steps)))
     if recognition.get("needs_image_review") or confidence < 0.45:
-        save_chat_result("这张照片暂时无法可靠辨认，请拍清楚题目和作答后重试。")
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "照片暂时无法可靠辨认，没有生成错题记录。请拍清楚后重试。",
@@ -1013,7 +1005,6 @@ async def photo_review(
     recognized_knowledge_point = str(recognition.get("knowledge_point", "")).strip()[:64]
     if not has_work:
         if not question_text:
-            save_chat_result("这张照片里没有识别到题目内容，请拍清楚题干后重试。")
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "没有识别到题目内容，请拍清楚题干后重试。",
@@ -1056,14 +1047,12 @@ async def photo_review(
                 "image_url": image_url, "related_mistake": related_mistake}
 
     if not steps:
-        save_chat_result("照片里检测到作答，但步骤无法可靠辨认，请重拍后再试。")
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "照片里似乎有作答，但步骤无法辨认。请重拍，或手动整理步骤后再提交。",
         )
     if question is None:
         if not question_text:
-            save_chat_result("题目内容没有识别清楚，暂时无法核对作答，请重拍或补充题干。")
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "题目内容没有识别清楚，暂时无法核对作答。请重拍，或在聊天里补充题干。",
