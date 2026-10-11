@@ -1015,6 +1015,11 @@ def _has_recognized_student_work(recognition: dict, step_texts: List[str]) -> bo
     return recognition.get("student_work_detected") is True
 
 
+def _visual_review_confidence(confidence: float, recognition: dict) -> float:
+    """needs_image_review 本身就是低置信信号，确保这次作答进入教师复核。"""
+    return min(confidence, 0.59) if recognition.get("needs_image_review") else confidence
+
+
 @router.post("/photo-review", response_model=PhotoReviewOut, summary="识别题目图片并按作答情况分流")
 async def photo_review(
     file: UploadFile = File(...),
@@ -1104,15 +1109,15 @@ async def photo_review(
     steps = [str(step.get("text", "")).strip() for step in visual_steps
              if isinstance(step, dict) and str(step.get("text", "")).strip()]
     has_work = _has_recognized_student_work(recognition, steps)
-    if recognition.get("needs_image_review") or confidence < 0.45:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "照片暂时无法可靠辨认，没有生成错题记录。请拍清楚后重试。",
-        )
 
     question_text = str(recognition.get("question_text", "")).strip() or (question.stem if question else "")
     recognized_knowledge_point = str(recognition.get("knowledge_point", "")).strip()[:64]
     if not has_work:
+        if recognition.get("needs_image_review") or confidence < 0.45:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "照片暂时无法可靠辨认，没有生成错题记录。请拍清楚后重试。",
+            )
         if not question_text:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1239,7 +1244,9 @@ async def photo_review(
     )
     review_svc.create_review_if_needed(
         db, submission,
-        confidence_signals=review_svc.visual_confidence_signals(confidence, visual_steps),
+        confidence_signals=review_svc.visual_confidence_signals(
+            _visual_review_confidence(confidence, recognition), visual_steps
+        ),
     )
     related_mistake = find_related_mistake(
         db, current.id, question.subject, question.knowledge_point,
@@ -1377,12 +1384,7 @@ async def photo_diagnose(
     visual_steps = recognition.get("steps", [])
     steps = [str(step.get("text", "")).strip() for step in visual_steps
              if isinstance(step, dict) and str(step.get("text", "")).strip()]
-    if recognition.get("needs_image_review") or confidence < 0.45:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "这张照片暂时无法可靠辨认，没有生成错题记录。请拍清楚题目和作答过程后重试。",
-        )
-    if not _has_recognized_student_work(recognition, steps) or not visual_steps:
+    if not _has_recognized_student_work(recognition, steps) or not steps:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "照片中没有识别到学生作答，没有生成错题记录。请上传包含作答过程的照片。",
@@ -1412,7 +1414,9 @@ async def photo_diagnose(
     _save_submission_image_link(db, submission, image_path, image_name)
     review_svc.create_review_if_needed(
         db, submission,
-        confidence_signals=review_svc.visual_confidence_signals(confidence, visual_steps),
+        confidence_signals=review_svc.visual_confidence_signals(
+            _visual_review_confidence(confidence, recognition), visual_steps
+        ),
     )
     result = present_for_student(submission, db)
     result.update({
