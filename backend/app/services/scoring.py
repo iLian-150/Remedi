@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..models import (
     AssignmentScoring,
@@ -210,14 +210,6 @@ def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict
         ).all()
     }
 
-    # 正常的新提交都有分数行；旧数据缺分时仍走 visible_score 的补算/落库路径。
-    missing = [submission for submission in valid if submission.id not in score_values]
-    fallback_scores = {
-        submission.id: score
-        for submission in missing
-        if (score := visible_score(db, submission)) is not None
-    }
-
     total_scores = {
         row.assignment_id: float(row.total_score) if row.total_score else DEFAULT_TOTAL
         for row in db.query(AssignmentScoring).filter(
@@ -236,22 +228,65 @@ def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict
         .group_by(Question.assignment_id)
         .all()
     )
-
-    result = dict(fallback_scores)
+    max_scores = {}
     for submission in valid:
-        score = score_values.get(submission.id)
-        if score is None:
-            continue
         question_id, assignment_id = question_data[submission.id]
         question_count = question_counts.get(assignment_id, 0)
         weight_pct = weights.get(
             question_id, 100.0 / question_count if question_count else 100.0
         )
-        max_score = round(
+        max_scores[submission.id] = round(
             total_scores.get(assignment_id, DEFAULT_TOTAL) * weight_pct / 100.0,
             1,
         )
-        result[submission.id] = {"score": score, "max_score": max_score}
+
+    # 历史记录可能缺少分数行：批量读取步骤、按统一公式补分并一次写回。
+    missing = [submission for submission in valid if submission.id not in score_values]
+    result = {}
+    if missing:
+        missing_ids = [submission.id for submission in missing]
+        step_counts_by_submission = {}
+        for submission_id, status in db.query(Step.submission_id, Step.status).filter(
+            Step.submission_id.in_(missing_ids),
+            Step.seq >= 1,
+            Step.status.in_(("ok", "error", "unparseable")),
+        ).all():
+            counts = step_counts_by_submission.setdefault(submission_id, [0, 0])
+            counts[1] += 1
+            if status == "ok":
+                counts[0] += 1
+
+        rows_to_create = []
+        for submission in missing:
+            correct, total = step_counts_by_submission.get(submission.id, (0, 0))
+            ai_score = round(
+                max_scores[submission.id] * (correct / total if total else 0.0), 1
+            )
+            result[submission.id] = {
+                "score": ai_score,
+                "max_score": max_scores[submission.id],
+            }
+            rows_to_create.append(SubmissionScore(
+                submission_id=submission.id,
+                ai_score=ai_score,
+            ))
+
+        expire_on_commit = db.expire_on_commit
+        db.expire_on_commit = False
+        try:
+            db.add_all(rows_to_create)
+            db.commit()
+        finally:
+            db.expire_on_commit = expire_on_commit
+
+    for submission in valid:
+        score = score_values.get(submission.id)
+        if score is None:
+            continue
+        result[submission.id] = {
+            "score": score,
+            "max_score": max_scores[submission.id],
+        }
     return result
 
 
@@ -313,22 +348,31 @@ def student_score_report(db: Session, student) -> Dict:
 
     subs = (
         db.query(Submission)
+        .options(joinedload(Submission.question).joinedload(Question.assignment))
         .filter(Submission.student_id == student.id, Submission.status == "graded")
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
     pending = review_svc.pending_submission_ids(db, student.id)
+    visible_subs = [
+        sub for sub in subs
+        if sub.id not in pending and sub.question is not None
+    ]
+    scores_by_submission = {}
+    for start in range(0, len(visible_subs), 300):
+        scores_by_submission.update(
+            visible_scores(db, visible_subs[start:start + 300])
+        )
     # assignment_id -> {question_id: (submitted_at, final, max)}，后写覆盖 = 取最新一次
     per_assignment: Dict[int, Dict[int, Tuple]] = {}
     meta: Dict[int, Dict] = {}
-    for sub in subs:
-        if sub.id in pending or sub.question is None:
+    for sub in visible_subs:
+        score_info = scores_by_submission.get(sub.id)
+        if score_info is None:
             continue
-        row = ensure_score(db, sub)
-        final = row.final_score if row.final_score is not None else row.ai_score
         q = sub.question
         per_assignment.setdefault(q.assignment_id, {})[q.id] = (
-            sub.submitted_at, float(final), question_max_score(db, q),
+            sub.submitted_at, score_info["score"], score_info["max_score"],
         )
         if q.assignment_id not in meta:
             assignment = q.assignment
