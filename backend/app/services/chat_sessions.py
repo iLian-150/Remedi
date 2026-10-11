@@ -10,6 +10,7 @@
 from datetime import datetime
 from typing import List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -96,27 +97,34 @@ def get_own_session(db: Session, user: User, session_id: int) -> Optional[ChatSe
 
 
 def list_sessions(db: Session, user: User) -> List[dict]:
-    sessions = (
-        db.query(ChatSession)
+    message_counts = (
+        db.query(
+            ChatSessionMessage.session_id.label("session_id"),
+            func.count(ChatSessionMessage.id).label("message_count"),
+        )
+        .group_by(ChatSessionMessage.session_id)
+        .subquery()
+    )
+    rows = (
+        db.query(
+            ChatSession,
+            func.coalesce(message_counts.c.message_count, 0),
+        )
+        .outerjoin(message_counts, message_counts.c.session_id == ChatSession.id)
         .filter(ChatSession.user_id == user.id)
         .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
         .all()
     )
-    result = []
-    for s in sessions:
-        count = (
-            db.query(ChatSessionMessage)
-            .filter(ChatSessionMessage.session_id == s.id)
-            .count()
-        )
-        result.append({
+    return [
+        {
             "id": s.id,
             "title": s.title,
             "created_at": s.created_at,
             "updated_at": s.updated_at,
-            "message_count": count,
-        })
-    return result
+            "message_count": int(message_count),
+        }
+        for s, message_count in rows
+    ]
 
 
 def session_messages(db: Session, session: ChatSession,
