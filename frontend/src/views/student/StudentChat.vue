@@ -1129,10 +1129,10 @@ onMounted(async () => {
 .ai-bubble { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; }
 .error-bubble { background: var(--red-bg); color: #991B1B; display: inline-flex; align-items: center; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
-.user-image-card { display: grid; width: fit-content; max-width: min(340px, 78vw); gap: 9px; padding: 10px; border: 1px solid var(--border); border-radius: 16px 16px 4px 16px; background: #F3F4F0; }
+.user-image-card { display: grid; width: fit-content; max-width: min(210px, 72vw); gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 16px 16px 4px 16px; background: #F3F4F0; }
 .user-image-prompt { margin: 0 2px 2px; color: var(--text); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .user-image-trigger { display: flex; width: fit-content; max-width: 100%; justify-content: center; margin: 0 auto; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: zoom-in; }
-.user-image img { display: block; width: auto; height: auto; max-width: 100%; max-height: 220px; object-fit: contain; }
+.user-image img { display: block; width: auto; height: auto; max-width: 190px; max-height: 135px; object-fit: contain; }
 .user-image-caption { display: block; max-width: 100%; padding: 0 2px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; cursor: zoom-in; }
 
 .ai-card {
@@ -1272,9 +1272,9 @@ onMounted(async () => {
   border-color: rgba(29, 78, 216, 0.35);
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06), 0 0 0 3px rgba(29, 78, 216, 0.14);
 }
-.composer-image-preview { position: relative; width: fit-content; max-width: min(220px, 100%); margin: 0 8px 11px; }
-.composer-image-open { display: block; max-width: 100%; max-height: 150px; padding: 3px; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: zoom-in; }
-.composer-image-open img { display: block; width: auto; height: auto; max-width: 210px; max-height: 142px; object-fit: contain; border-radius: 8px; }
+.composer-image-preview { position: relative; width: fit-content; max-width: min(132px, 100%); margin: 0 8px 8px; }
+.composer-image-open { display: block; max-width: 100%; max-height: 92px; padding: 3px; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: zoom-in; }
+.composer-image-open img { display: block; width: auto; height: auto; max-width: 122px; max-height: 84px; object-fit: contain; border-radius: 8px; }
 .composer-image-remove { position: absolute; top: 8px; right: 8px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: rgba(255, 255, 255, 0.96); color: var(--text-2); box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16); cursor: pointer; }
 .composer-image-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
 .composer-image-remove:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -1306,8 +1306,8 @@ onMounted(async () => {
 @media (max-width: 960px) {
   .chat-layout { height: calc(100dvh - 72px); }
   .chat-status { display: none; }
-  .user-image-card { max-width: min(320px, 82vw); }
-  .user-image img { max-height: 220px; }
+  .user-image-card { max-width: min(210px, 72vw); }
+  .user-image img { max-width: 190px; max-height: 125px; }
   .bubble { max-width: 88%; }
   .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 150px; }
   .chat-composer-welcome .chat-inner { padding: 0; }
