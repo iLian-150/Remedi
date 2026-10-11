@@ -5,7 +5,12 @@
 
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import { init, use, type ECharts } from 'echarts/core'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+use([BarChart, LineChart, PieChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{
   option: Record<string, unknown>
@@ -15,11 +20,11 @@ const emit = defineEmits<{
 }>()
 
 const chartRef = ref<HTMLDivElement | null>(null)
-let chart: echarts.ECharts | null = null
+let chart: ECharts | null = null
 
 onMounted(() => {
   if (chartRef.value) {
-    chart = echarts.init(chartRef.value)
+    chart = init(chartRef.value)
     chart.setOption(props.option)
     chart.on('click', (params: { data?: unknown }) => emit('chart-click', params.data))
     window.addEventListener('resize', handleResize)
