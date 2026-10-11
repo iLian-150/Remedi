@@ -84,6 +84,21 @@ class LLMProvider(ABC):
             {"prompt": "（示例草稿）计算：√12+√27", "knowledge_point": "二次根式的加减"},
         ]
 
+    def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:
+        """拍照识别大题（v0.13.11）：一张图 → {stem, sub_questions:[{question_text, steps}]}。
+
+        默认实现（Mock 与无视觉能力的 Provider 共用）返回罐头大题（深拷贝）；
+        CloudflareProvider 覆写为视觉模型一次拆出共同题干与全部小题——
+        识别入口在大题层级，不再逐个小题拍照。与单题转写同一契约：
+        返回值永远只是草稿，教师检查修改后才发布。"""
+        return {
+            "stem": MOCK_GROUP_TRANSCRIPTION["stem"],
+            "sub_questions": [
+                {"question_text": s["question_text"], "steps": list(s["steps"])}
+                for s in MOCK_GROUP_TRANSCRIPTION["sub_questions"]
+            ],
+        }
+
 
 # ---------------------------------------------------------------- Mock（确定性）
 
@@ -99,6 +114,19 @@ _LINKING_WORDS = {
 MOCK_TRANSCRIPTION: Dict = {
     "question_text": "解方程：2x+3=7",
     "steps": ["2x+3=7", "2x=7+3", "2x=10", "x=5"],
+}
+
+# Mock 大题转写（罐头数据，v0.13.11）：一次函数大题——共同题干 + 两道小题，
+# 内容与单题罐头明显不同，本地/降级时一眼可辨不是真识别。
+MOCK_GROUP_TRANSCRIPTION: Dict = {
+    "stem": "已知一次函数 y = kx + b 的图像经过点 A(0, 2) 和 B(3, 5)，回答下列问题。",
+    "sub_questions": [
+        {"question_text": "求这个一次函数的解析式。",
+         "steps": ["将 A(0, 2) 代入得 b = 2", "将 B(3, 5) 代入得 3k + 2 = 5",
+                   "解得 k = 1", "所以解析式为 y = x + 2"]},
+        {"question_text": "求该函数图像与 x 轴的交点坐标。",
+         "steps": ["令 y = 0，得 x + 2 = 0", "解得 x = -2", "交点坐标为 (-2, 0)"]},
+    ],
 }
 
 
@@ -515,6 +543,51 @@ class CloudflareProvider(DeepSeekProvider):
         except Exception as e:
             logger.warning("LLM transcribe_image 失败，降级为 Mock 转写: %s", e)
             return self._mock.transcribe_image(image_bytes, content_type, question_context, question_only)
+
+    def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:
+        """视觉模型识别大题（v0.13.11）：共同题干 + 全部小题一次拆出。
+
+        照片通常是大题原题（可能带印刷/手写解题过程）：stem 放共同材料，
+        每道小题的题干放 question_text；照片里有该小题的解题过程才填 steps，
+        没有就留空数组（教师后续可补标准步骤）。解析失败/请求异常时降级为
+        Mock 罐头大题（沿用全站降级风格，流程不中断）。"""
+        try:
+            data_url = "data:{};base64,{}".format(
+                content_type or "image/jpeg",
+                base64.b64encode(image_bytes).decode("ascii"),
+            )
+            prompt = (
+                "请直接阅读这张照片，它是一道数学大题：一段共同题干（材料）下面挂着几道小题。"
+                "把共同题干放进 stem（不要把任何一道小题的题干混进 stem）；"
+                "每道小题的题干放进 sub_questions 的 question_text，按照片里的顺序；"
+                "如果照片里有这道小题的解题过程（手写或印刷都算），按顺序逐行放进它的 steps，"
+                "没有解题过程就给空数组。"
+                "数学公式用纯文本，如 y = kx + b、x = -2，不要用 LaTeX。"
+                '只输出 JSON：{"stem":"...","sub_questions":[{"question_text":"...","steps":["..."]}]}'
+            )
+            content = self._vision_text(
+                data_url,
+                "你是作业照片理解助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
+                prompt,
+                timeout=90,
+            )
+            data = self._extract_json(content)
+            stem = str(data.get("stem", "")).strip()
+            subs: List[Dict] = []
+            for raw in data.get("sub_questions") or []:
+                if not isinstance(raw, dict):
+                    continue
+                qt = str(raw.get("question_text") or raw.get("prompt") or "").strip()
+                if not qt:
+                    continue
+                steps = [str(s).strip() for s in (raw.get("steps") or []) if str(s).strip()]
+                subs.append({"question_text": qt, "steps": steps})
+            if not stem and not subs:
+                raise ValueError("大题识别结果为空")
+            return {"stem": stem, "sub_questions": subs}
+        except Exception as e:
+            logger.warning("LLM transcribe_group_image 失败，降级为 Mock 大题: %s", e)
+            return self._mock.transcribe_group_image(image_bytes, content_type)
 
 
     def extract_questions_from_page(self, image_bytes: bytes, content_type: str,
