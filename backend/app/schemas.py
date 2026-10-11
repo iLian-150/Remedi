@@ -581,12 +581,6 @@ class AgentChatIn(BaseModel):
     persist_user_message: bool = True  # 流式接口允许复用已保存的拍照消息，避免重复记一条
 
 
-class AgentChatOut(BaseModel):
-    reply: str
-    suggestions: List[str] = []   # v0.6.0 新增：本轮回复后的建议追问（最多 3 条，规则映射生成）
-    session_id: Optional[int] = None  # v0.6.0 新增：本条消息实际写入的会话 id
-
-
 class AgentHistoryItem(BaseModel):
     role: str                     # user | assistant
     content: str

@@ -2,8 +2,7 @@
 #
 # 每轮助手回复后，前端在最新回复下方弹出最多 3 条可点发送的后续问题。
 # 建议不额外调 LLM：按「本轮意图」查表——意图优先取本轮真实调用过的工具
-# （LLM 路径），取不到工具时按用户消息关键词判定（mock 路径同口径判定，
-# 与 mock_agent / teacher_mock 的路由关键词保持一致）。
+# （LLM 路径），取不到工具时按用户消息关键词判定。
 # 每条建议都必须是对应 Agent 用现有工具能答上来的问题，避免点了答不出。
 
 # ---------------- 学生端 ----------------
@@ -29,7 +28,7 @@ _STUDENT_SUGGESTIONS = {
 
 
 def student_intent(message: str, tools_used: list | None = None) -> str:
-    """判定学生本轮意图：先看真实用过的工具，再按关键词路由（与 mock_agent 一致）。"""
+    """判定学生本轮意图：先看真实用过的工具，再按关键词路由。"""
     for tool in tools_used or []:
         if tool in _STUDENT_TOOL_INTENT:
             return _STUDENT_TOOL_INTENT[tool]
@@ -82,7 +81,7 @@ _TEACHER_SUGGESTIONS = {
 
 
 def teacher_intent(message: str, tools_used: list | None = None) -> str:
-    """判定教师本轮意图：先看真实用过的工具，再按关键词路由（与 teacher_mock 一致）。"""
+    """判定教师本轮意图：先看真实用过的工具，再按关键词路由。"""
     for tool in tools_used or []:
         if tool in _TEACHER_TOOL_INTENT:
             return _TEACHER_TOOL_INTENT[tool]
