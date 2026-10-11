@@ -973,9 +973,21 @@ async def photo_review(
         cs.append_message(db, chat_session, "assistant", text)
         return chat_session.id
 
-    recognition = await run_in_threadpool(
-        get_provider().diagnose_math_image, data, file.content_type, context
-    )
+    try:
+        recognition = await run_in_threadpool(
+            get_provider().diagnose_math_image, data, file.content_type, context
+        )
+    except Exception as exc:
+        logger.exception("学生图片诊断模型调用失败（student_id=%s）", current.id)
+        if stored_image_path:
+            failure_message = "图片识别服务暂时不可用，照片已保存在当前对话中，请稍后重新识别。"
+        else:
+            failure_message = "图片识别服务暂时不可用，请稍后重新上传。"
+        save_chat_result(failure_message)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            failure_message,
+        ) from exc
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
     visual_steps = recognition.get("steps", [])
     steps = [str(step.get("text", "")).strip() for step in visual_steps
