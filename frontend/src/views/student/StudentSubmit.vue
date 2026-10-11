@@ -24,23 +24,39 @@
     <template v-else>
       <!-- 作业切换条（v0.9.0）：钉在页面顶部，与题目列表分开 -->
       <div class="card switch-bar">
-        <label class="switch-label" for="submit-assignment-select">
+        <span class="switch-label">
           <AppIcon name="clipboard" :size="16" /> 正在交的作业
-        </label>
-        <div class="switch-select-wrap">
-          <select id="submit-assignment-select" v-model="assignmentId" class="switch-select" @change="onAssignmentChange">
-            <option value="">请选择一份作业…</option>
-            <!-- v0.13.9：正在看的这份若已全部交完，只留一个禁用项标明状态，不再能选 -->
-            <option v-if="currentFullySubmitted" :value="assignmentId" disabled>
-              {{ currentAssignment?.title }}（已全部提交）
-            </option>
-            <option v-for="a in switchableAssignments" :key="a.id" :value="a.id">
-              {{ a.title }}（{{ a.question_count }} 题{{ a.submitted_count ? ` · 已交 ${a.submitted_count} 题` : '' }}）{{ a.mode === 'offline' ? ' · 线下练习' : ' · 线上作业' }}
-            </option>
-          </select>
-          <AppIcon name="chevron-down" :size="16" class="switch-chevron" />
+        </span>
+        <!-- v0.13.10：换成自制下拉面板——原生 select 的展开列表是操作系统样式、
+             改不动、与全站设计对不齐；面板语言与发布页时间面板保持一致。
+             过滤口径不变（v0.13.9）：只列没交完的作业，正在看的已交完作业
+             只留一个禁用项标明状态 -->
+        <div class="switch-select-wrap" ref="switchWrapRef">
+          <button type="button" class="switch-select" :aria-expanded="switchOpen" aria-haspopup="listbox" @click="switchOpen = !switchOpen">
+            <span class="switch-select-text">{{ switchLabel }}</span>
+            <AppIcon name="chevron-down" :size="16" class="switch-chevron" :class="{ open: switchOpen }" />
+          </button>
+          <div v-if="switchOpen" class="switch-menu" role="listbox">
+            <button v-if="currentFullySubmitted" type="button" class="switch-option" disabled>
+              <span class="switch-option-main">
+                <span class="switch-option-title">{{ currentAssignment?.title }}</span>
+                <span class="switch-option-meta">已全部提交</span>
+              </span>
+            </button>
+            <button
+              v-for="a in switchableAssignments" :key="a.id" type="button" class="switch-option"
+              :class="{ active: a.id === assignmentId }" role="option" :aria-selected="a.id === assignmentId"
+              @click="chooseAssignment(a.id)"
+            >
+              <span class="switch-option-main">
+                <span class="switch-option-title">{{ a.title }}</span>
+                <span class="switch-option-meta">{{ a.question_count }} 题<template v-if="a.submitted_count"> · 已交 {{ a.submitted_count }} 题</template> · {{ a.mode === 'offline' ? '线下练习' : '线上作业' }}</span>
+              </span>
+              <AppIcon v-if="a.id === assignmentId" name="check" :size="15" class="switch-option-check" />
+            </button>
+            <p v-if="!switchableAssignments.length && !currentFullySubmitted" class="switch-menu-empty">能交的作业都交完啦，去作业列表看看成绩吧。</p>
+          </div>
         </div>
-        <span v-if="assignments.length && !switchableAssignments.length && !currentFullySubmitted" class="switch-done-hint">能交的作业都交完啦</span>
         <router-link to="/student/assignments" class="switch-all">全部作业 <AppIcon name="chevron-right" :size="13" /></router-link>
       </div>
 
@@ -254,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { Assignment, AssignmentDetail, Question, SubmissionResult, SubmissionSummary } from '../../api/types'
@@ -278,6 +294,34 @@ const currentFullySubmitted = computed(() => {
 const switchableAssignments = computed(() =>
   assignments.value.filter((a) => (a.submitted_count ?? 0) < a.question_count)
 )
+// v0.13.10：自制下拉面板的开合与选中（点面板外或按 Esc 收起）
+const switchOpen = ref(false)
+const switchWrapRef = ref<HTMLElement | null>(null)
+const switchLabel = computed(() => {
+  const cur = currentAssignment.value
+  if (!cur) return '请选择一份作业…'
+  return currentFullySubmitted.value ? `${cur.title}（已全部提交）` : cur.title
+})
+function chooseAssignment(id: number) {
+  switchOpen.value = false
+  if (id === assignmentId.value) return
+  assignmentId.value = id
+  void onAssignmentChange()
+}
+function onDocClick(e: MouseEvent) {
+  if (switchWrapRef.value && !switchWrapRef.value.contains(e.target as Node)) switchOpen.value = false
+}
+function onDocKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') switchOpen.value = false
+}
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onDocKey)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onDocKey)
+})
 const currentDetail = ref<AssignmentDetail | null>(null) // 当前所选作业详情（说明卡 + 题目来源）
 const questions = ref<Question[]>([])
 const doneQids = ref<Set<number>>(new Set())
@@ -671,18 +715,35 @@ onMounted(async () => {
   color: var(--text);
   white-space: nowrap;
 }
-/* v0.13.9：下拉换成与全站控件一致的自制外观（去系统默认箭头、自绘 chevron、
-   聚焦主色描边），选项文字过长省略号截断 */
-.switch-select-wrap { position: relative; flex: 1; min-width: 200px; display: flex; }
+/* v0.13.10：自制下拉面板（替代原生 select，展开列表也全站同款样式） */
+.switch-select-wrap { position: relative; flex: 1; min-width: 200px; }
 .switch-select {
-  flex: 1; width: 100%; appearance: none; -webkit-appearance: none;
-  padding: 9px 36px 9px 12px; border: 1.5px solid var(--border); border-radius: 10px;
-  background: #fff; font-size: 14px; color: var(--text); cursor: pointer;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+  background: #fff; font-size: 14px; color: var(--text); cursor: pointer; text-align: left;
 }
-.switch-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
-.switch-chevron { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-3); }
-.switch-done-hint { font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.switch-select:hover { border-color: #BFDBFE; }
+.switch-select:focus-visible { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
+.switch-select-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.switch-chevron { flex-shrink: 0; color: var(--text-3); transition: transform .15s ease; }
+.switch-chevron.open { transform: rotate(180deg); }
+.switch-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 70;
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-md); padding: 6px; max-height: 320px; overflow-y: auto;
+}
+.switch-option {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 9px 10px; border: none; background: transparent; border-radius: 8px; cursor: pointer;
+}
+.switch-option:hover:not(:disabled) { background: var(--primary-50); }
+.switch-option.active { background: var(--primary-50); }
+.switch-option:disabled { cursor: default; opacity: .55; }
+.switch-option-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.switch-option-title { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.switch-option-meta { font-size: 12px; color: var(--text-3); }
+.switch-option-check { flex-shrink: 0; color: var(--primary); }
+.switch-menu-empty { padding: 10px; font-size: 13px; color: var(--text-2); }
 .switch-all {
   display: inline-flex;
   align-items: center;
