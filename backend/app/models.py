@@ -283,6 +283,9 @@ class SubmissionReview(Base):
     实时批改入口会创建 pending 行；服务启动时也会将尚未审核、仍为最新作答且正确率
     低于阈值的历史提交补入队列。没有审核行的其他历史/种子提交仍视为 approved。"""
     __tablename__ = "submission_reviews"
+    __table_args__ = (
+        Index("ix_submission_reviews_status_submission_id", "status", "submission_id"),
+    )
 
     submission_id = Column(Integer, ForeignKey("submissions.id"), primary_key=True)
     status = Column(String(16), nullable=False, default="pending",
