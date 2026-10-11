@@ -92,6 +92,32 @@ def agent_reply_stream(db: Session, student: User,
                        safe_tools_only: bool = False):
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
     llm = _build_llm()
+    system = build_system_prompt(student.name, _context_summary(db, student))
+    if safe_tools_only:
+        system += (
+            "\n\n本轮是已完成照片批改后的讲解：批改记录已由照片流程保存。"
+            "不要调用诊断、提交或其他写入工具，也不要重复批改。"
+            "如果题目是数学或英语，可调用 find_my_related_mistake 只读查询历史同类错题；"
+            "除此之外直接讲解题目。"
+        )
+    messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
+    related_result: dict = {"mistake": None}
+    reply_parts: list[str] = []
+    tool_names: dict[int, str] = {}
+    reply = ""
+
+    def direct_photo_explanation() -> str:
+        """不依赖工具或历史消息，直接讲解本次识别出的题目和作答。"""
+        fallback_messages = [SystemMessage(content=system), HumanMessage(content=user_text)]
+        parts = [
+            text
+            for message_chunk in llm.stream(fallback_messages)
+            if (text := _message_chunk_text(message_chunk))
+        ]
+        reply = "".join(parts).strip()
+        if not reply:
+            raise ValueError("模型直接讲解返回了空回复")
+        return reply
 
     try:
         from langgraph.graph import START, StateGraph
@@ -117,18 +143,6 @@ def agent_reply_stream(db: Session, student: User,
         builder.add_edge("tools", "agent")
         graph = builder.compile()
 
-        system = build_system_prompt(student.name, _context_summary(db, student))
-        if safe_tools_only:
-            system += (
-                "\n\n本轮是已完成照片批改后的讲解：批改记录已由照片流程保存。"
-                "不要调用诊断、提交或其他写入工具，也不要重复批改。"
-                "如果题目是数学或英语，可调用 find_my_related_mistake 只读查询历史同类错题；"
-                "除此之外直接讲解题目。"
-            )
-        messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
-        reply_parts: list[str] = []
-        tool_names: dict[int, str] = {}
-
         for part in graph.stream(
             {"messages": messages},
             config={"recursion_limit": 15},
@@ -143,7 +157,9 @@ def agent_reply_stream(db: Session, student: User,
             text = _message_chunk_text(message_chunk)
             if text:
                 reply_parts.append(text)
-                yield text
+                # 图片讲解先缓冲 LangGraph 输出，避免工具失败后把半截答案留在聊天里。
+                if not safe_tools_only:
+                    yield text
             for call in getattr(message_chunk, "tool_call_chunks", None) or []:
                 name = call.get("name")
                 if name:
@@ -153,12 +169,28 @@ def agent_reply_stream(db: Session, student: User,
         reply = "".join(reply_parts).strip()
         if not reply:
             raise ValueError("模型返回了空回复")
-        names = list(dict.fromkeys(name for name in tool_names.values() if name))
-        return {
-            "reply": reply,
-            "tools_used": names,
-            "related_mistake": related_result.get("mistake"),
-        }
+
     except Exception:
-        logger.exception("Agent 流式调用失败")
-        raise
+        if not safe_tools_only:
+            logger.exception("Agent 流式调用失败")
+            raise
+
+        # 图片识别和批改结果已经包含在 user_text 中；历史错题查询是辅助能力，
+        # 不能让工具绑定、工具执行或旧聊天上下文阻断学生获得本题讲解。
+        logger.exception("照片讲解的 LangGraph 工具链失败，改用直接讲解")
+        reply_parts = []
+        try:
+            reply = direct_photo_explanation()
+        except Exception:
+            logger.exception("照片讲解的直接生成兜底也失败")
+            raise
+
+    if safe_tools_only:
+        # 等整段工具流程成功后再输出；出错时上面的直答兜底可以完整替代。
+        yield reply
+    names = list(dict.fromkeys(name for name in tool_names.values() if name))
+    return {
+        "reply": reply,
+        "tools_used": names,
+        "related_mistake": related_result.get("mistake"),
+    }
