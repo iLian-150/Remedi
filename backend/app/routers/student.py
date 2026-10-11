@@ -887,6 +887,9 @@ async def photo_review(
     file: UploadFile = File(...),
     question_id: Optional[int] = Form(default=None),
     question_context: str = Form(default=""),
+    save_to_chat: bool = Form(default=False),
+    chat_session_id: Optional[int] = Form(default=None),
+    chat_prompt: str = Form(default=""),
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
@@ -907,11 +910,37 @@ async def photo_review(
         if question.subject != "math":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "原图自动诊断目前仅支持数学题")
     context = question.stem if question else question_context
+
+    chat_session = None
+    if save_to_chat:
+        from ..services import chat_sessions as cs
+
+        cs.ensure_migrated(db, current)
+        if chat_session_id is not None:
+            chat_session = cs.get_own_session(db, current, chat_session_id)
+            if chat_session is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+        else:
+            chat_session = cs.get_or_create_current(db, current)
+        chat_user_text = "上传了一张作业照片。"
+        if chat_prompt.strip():
+            chat_user_text += f"\n补充说明：{chat_prompt.strip()[:2000]}"
+        cs.append_message(db, chat_session, "user", chat_user_text)
+
+    def save_chat_result(text: str) -> Optional[int]:
+        if chat_session is None:
+            return None
+        from ..services import chat_sessions as cs
+
+        cs.append_message(db, chat_session, "assistant", text)
+        return chat_session.id
+
     recognition = await run_in_threadpool(
         get_provider().transcribe_image, data, file.content_type, context, question is None
     )
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
     if recognition.get("needs_image_review") or confidence < 0.45:
+        save_chat_result("这张照片暂时无法可靠辨认，请拍清楚题目和作答后重试。")
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "照片暂时无法可靠辨认，没有生成错题记录。请拍清楚后重试。",
@@ -922,6 +951,7 @@ async def photo_review(
     has_work = bool(recognition.get("student_work_detected", bool(steps)))
     if not has_work:
         if not question_text:
+            save_chat_result("这张照片里没有识别到题目内容，请拍清楚题干后重试。")
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "没有识别到题目内容，请拍清楚题干后重试。",
@@ -944,16 +974,19 @@ async def photo_review(
         db.add(capture)
         db.commit()
         db.refresh(capture)
+        session_id = save_chat_result(f"已从照片中识别到题目：{question_text}")
         return {"mode": "answer", "question_text": question_text, "steps": [],
-                "capture_id": capture.id, "diagnosis": None}
+                "capture_id": capture.id, "diagnosis": None, "session_id": session_id}
 
     if not steps:
+        save_chat_result("照片里检测到作答，但步骤无法可靠辨认，请重拍后再试。")
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "照片里似乎有作答，但步骤无法辨认。请重拍，或手动整理步骤后再提交。",
         )
     if question is None:
         if not question_text:
+            save_chat_result("题目内容没有识别清楚，暂时无法核对作答，请重拍或补充题干。")
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "题目内容没有识别清楚，暂时无法核对作答。请重拍，或在聊天里补充题干。",
@@ -981,8 +1014,12 @@ async def photo_review(
     # v0.9.0：拍照批改同样先进教师审核队列，学生先看到待审核占位
     review_svc.create_pending_review(db, submission)
     diagnosis = present_for_student(submission, db)
+    session_id = save_chat_result(
+        f"已识别题目：{question_text}\n识别到 {len(steps)} 步作答，已提交老师审核。"
+    )
     return {"mode": "diagnosis", "question_text": question_text,
-            "steps": steps, "capture_id": None, "diagnosis": diagnosis}
+            "steps": steps, "capture_id": None, "diagnosis": diagnosis,
+            "session_id": session_id}
 
 
 @router.post("/photo-captures/{capture_id}/save", summary="将自主上传题目加入错题本")
@@ -1246,6 +1283,9 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
         HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
         for row in rows
     ]
+    if body.persist_user_message:
+        # 先提交用户消息；浏览器刷新或流中断时，至少保留本轮提问。
+        cs.append_message(db, session, "user", text)
 
     def event(name: str, payload: dict) -> str:
         return f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -1263,7 +1303,6 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
                 yield event("token", {"text": chunk})
 
             reply = result["reply"]
-            cs.append_message(db, session, "user", text)
             cs.append_message(db, session, "assistant", reply)
             yield event("done", {
                 "reply": reply,
@@ -1272,6 +1311,7 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
             })
         except Exception:
             logger.exception("学生学习助手流式回复中断")
+            cs.append_message(db, session, "assistant", "本次回复生成中断，请重新发送问题。")
             yield event("error", {"detail": "回复生成中断，请稍后重试。"})
 
     return StreamingResponse(

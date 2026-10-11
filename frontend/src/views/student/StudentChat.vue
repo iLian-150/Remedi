@@ -686,7 +686,7 @@ async function sendChat(raw?: string) {
   }
 }
 
-async function streamAssistantReply(wait: ChatMsg, prompt: string) {
+async function streamAssistantReply(wait: ChatMsg, prompt: string, persistUserMessage = true) {
   let firstCharacter = true
   wait.text = '正在生成回复…'
   wait.pending = true
@@ -698,7 +698,7 @@ async function streamAssistantReply(wait: ChatMsg, prompt: string) {
     }
     wait.text += character
     scrollToBottom()
-  })
+  }, persistUserMessage)
   wait.pending = false
   wait.text = result.reply
   if (result.session_id) student.setActiveSession(result.session_id)
@@ -731,7 +731,16 @@ async function onFileChange(e: Event) {
   try {
     // 只有从具体作业题目跳转过来时才自动关联题目，避免把自由上传的照片误绑到默认第一题。
     const explicitQuestionId = selectedQuestion.value?.id ?? null
-    const res = await student.reviewPhoto(file, explicitQuestionId)
+    const res = await student.reviewPhoto(
+      file,
+      explicitQuestionId,
+      '',
+      student.activeSessionId,
+      true,
+      prompt
+    )
+    if (res.session_id) student.setActiveSession(res.session_id)
+    await student.loadSessions(true)
     wait.pending = false
     wait.questionText = res.question_text
     wait.steps = [...res.steps]
@@ -742,7 +751,7 @@ async function onFileChange(e: Event) {
         `识别出的题目：${res.question_text.slice(0, 1300)}`,
         prompt ? `学生补充的问题：${prompt.slice(0, 300)}` : ''
       ].filter(Boolean).join('\n')
-      await streamAssistantReply(wait, agentPrompt)
+      await streamAssistantReply(wait, agentPrompt, false)
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
       // v0.9.0：新批改先过老师审核，pending 时不报对错结论
       wait.text = res.diagnosis.status === 'pending_review'
@@ -765,6 +774,7 @@ async function onFileChange(e: Event) {
       wait.text = '识别失败：' + (errDetail(err) || '请稍后重试。')
     }
     wait.pending = false
+    await student.loadSessions(true)
     console.error(err)
   } finally {
     chatSending.value = false
@@ -864,9 +874,12 @@ onMounted(async () => {
     pushMsg({ side: 'ai', kind: 'error', text: '学习简报加载失败，刷新页面可以重试。' })
     console.error(e)
   }
-  // 历史对话接在简报下方（v0.3.0：GET agent/history；v0.6.0 起为当前会话的消息）
+  // 按上次选中的会话读取历史，避免刷新后跳到别的会话。
+  await student.loadSessions()
   try {
-    const history = await student.fetchAgentHistory()
+    const history = student.activeSessionId == null
+      ? []
+      : await student.fetchSessionMessages(student.activeSessionId)
     history.forEach((h) =>
       pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content })
     )
@@ -876,7 +889,6 @@ onMounted(async () => {
   // 当前会话定位（v0.6.2）：会话状态归 store 与侧栏共用，loadSessions 首次会自动定位
   // 当前会话（最近更新的一条，与上面 fetchAgentHistory 返回当前会话的口径一致）；
   // appliedViewSeq 对齐当前值，避免把挂载前侧栏的查看请求误当成新切换
-  await student.loadSessions()
   appliedViewSeq = student.sessionView.seq
   loadingInit.value = false
   scrollToBottom()

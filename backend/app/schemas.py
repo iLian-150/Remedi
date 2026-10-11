@@ -357,6 +357,7 @@ class PhotoReviewOut(BaseModel):
     steps: List[str] = Field(default_factory=list)
     capture_id: Optional[int] = None
     diagnosis: Optional[DiagnosisOut] = None
+    session_id: Optional[int] = None  # 学习助手拍照记录所属会话
 
 
 class PhotoCaptureSaveIn(BaseModel):
@@ -577,6 +578,7 @@ class AgentChatIn(BaseModel):
     # 长度上限在接口层手动校验并返回 400（契约约定），故此处只做非空约束
     message: str = Field(min_length=1)
     session_id: Optional[int] = None  # v0.6.0 新增：指定写入的会话；不传 = 当前会话（没有则自动新建）
+    persist_user_message: bool = True  # 流式接口允许复用已保存的拍照消息，避免重复记一条
 
 
 class AgentChatOut(BaseModel):

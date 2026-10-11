@@ -532,7 +532,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 ### 3.15.1 POST /api/student/agent/chat/stream —— 学习助手流式对话
 
-权限、请求字段与 3.15 相同。响应为 `text/event-stream`，通过 SSE 事件逐块发送模型回复；前端将每个文本块按 Unicode 字符逐字呈现。
+权限、请求字段与 3.15 相同。请求可选 `persist_user_message`（默认 `true`）；用户消息会在开始生成前写入会话，避免刷新或中断时丢失提问。响应为 `text/event-stream`，通过 SSE 事件逐块发送模型回复；前端将每个文本块按 Unicode 字符逐字呈现。复用已保存的拍照消息时可传 `false`，避免重复保存内部提示词。
 
 ```text
 event: token
@@ -543,8 +543,8 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```
 
 - `token`：回复文本块；同一回复可能有多个事件。
-- `done`：完整回复、建议追问和会话 id。服务端在生成完成后将本轮问答写入会话。
-- `error`：流生成中断时发送 `{ "detail": "回复生成中断，请稍后重试。" }`；中断的本轮内容不会写入会话。
+- `done`：完整回复、建议追问和会话 id。服务端在生成完成后将助手回复写入会话；用户提问已在流开始前保存。
+- `error`：流生成中断时发送 `{ "detail": "回复生成中断，请稍后重试。" }`；已经保存的用户提问仍可在历史会话中找回。
 
 ### 3.16 GET /api/student/agent/history —— 我的对话历史（v0.3.0 新增）
 
@@ -776,7 +776,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 3.31 POST /api/student/photo-review —— 按图片作答情况答疑或诊断
 
-权限：学生。请求为 `multipart/form-data`，必填 `file`（jpg / png / webp，≤10MB），可选 `question_id`（学生已选定的作业数学题）。
+权限：学生。请求为 `multipart/form-data`，必填 `file`（jpg / png / webp，≤10MB），可选 `question_id`（学生已选定的作业数学题）。学习助手可额外传 `save_to_chat=true`、`chat_session_id` 和 `chat_prompt`；服务端会在开始识别前保存照片提问，并在识别结束或失败后保存文字结果。返回 `session_id` 供前端继续写入同一会话。照片原图仍按既有流程处理，不作为聊天历史附件恢复。
 
 无学生作答证据时返回 `mode="answer"`、识别题干和 `capture_id`；前端将题干交给学习助手解答，但此时不创建 `Submission` / `Error`，也不展示为错题。学生点「加入错题本」或在同一对话里明确要求收录后，调用 3.32。
 

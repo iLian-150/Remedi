@@ -28,6 +28,18 @@ import type {
   VerificationSubmitResult
 } from '../api/types'
 
+function activeSessionStorageKey(): string | null {
+  const userId = useAuthStore().user?.id
+  return userId == null ? null : `remedi_student_active_session_${userId}`
+}
+
+function persistActiveSessionId(id: number | null) {
+  const key = activeSessionStorageKey()
+  if (!key) return
+  if (id == null) localStorage.removeItem(key)
+  else localStorage.setItem(key, String(id))
+}
+
 export const useStudentStore = defineStore('student', {
   state: () => ({
     /** 作业列表页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
@@ -160,11 +172,23 @@ export const useStudentStore = defineStore('student', {
       })
       return data
     },
-    async reviewPhoto(file: File, questionId?: number | null, questionContext = ''): Promise<PhotoReviewResult> {
+    async reviewPhoto(
+      file: File,
+      questionId?: number | null,
+      questionContext = '',
+      sessionId?: number | null,
+      saveToChat = false,
+      chatPrompt = ''
+    ): Promise<PhotoReviewResult> {
       const form = new FormData()
       form.append('file', file)
       if (questionId) form.append('question_id', String(questionId))
       if (questionContext) form.append('question_context', questionContext)
+      if (saveToChat) {
+        form.append('save_to_chat', 'true')
+        if (sessionId) form.append('chat_session_id', String(sessionId))
+        if (chatPrompt) form.append('chat_prompt', chatPrompt)
+      }
       const { data } = await api.post<PhotoReviewResult>('/api/student/photo-review', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         // 视觉模型最多等待 60 秒；给网络和后端收尾留出余量，避免前端先超时。
@@ -204,7 +228,8 @@ export const useStudentStore = defineStore('student', {
     async agentChatStream(
       message: string,
       sessionId: number | null | undefined,
-      onCharacter: (character: string) => void
+      onCharacter: (character: string) => void,
+      persistUserMessage = true
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/stream' }), {
@@ -213,7 +238,11 @@ export const useStudentStore = defineStore('student', {
           'Content-Type': 'application/json',
           ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {})
         },
-        body: JSON.stringify({ message, session_id: sessionId ?? undefined })
+        body: JSON.stringify({
+          message,
+          session_id: sessionId ?? undefined,
+          persist_user_message: persistUserMessage
+        })
       })
 
       if (!response.ok) {
@@ -315,8 +344,14 @@ export const useStudentStore = defineStore('student', {
       try {
         this.sessions = await this.fetchSessions()
         this.sessionsLoaded = true
-        if (this.activeSessionId == null) {
-          this.activeSessionId = this.sessions[0]?.id ?? null
+        const activeExists = this.sessions.some((session) => session.id === this.activeSessionId)
+        if (this.activeSessionId == null || !activeExists) {
+          const key = activeSessionStorageKey()
+          const savedId = key ? Number(localStorage.getItem(key)) : NaN
+          this.activeSessionId = this.sessions.some((session) => session.id === savedId)
+            ? savedId
+            : this.sessions[0]?.id ?? null
+          persistActiveSessionId(this.activeSessionId)
         }
       } catch (e) {
         console.error(e)
@@ -326,6 +361,7 @@ export const useStudentStore = defineStore('student', {
     },
     setActiveSession(id: number | null) {
       this.activeSessionId = id
+      persistActiveSessionId(id)
     },
     /** 侧栏点「新对话」：新建会话、置顶高亮，并通知对话页切到空白新会话态。
      * v0.9.0 防重复：当前激活会话还是空会话（message_count=0）时不再新建，
@@ -334,11 +370,13 @@ export const useStudentStore = defineStore('student', {
       const active = this.sessions.find((x) => x.id === this.activeSessionId)
       if (active && active.message_count === 0) {
         this.sessionView = { id: active.id, fresh: true, seq: this.sessionView.seq + 1 }
+        persistActiveSessionId(active.id)
         return active
       }
       const s = await this.newAgentSession()
       this.sessions = [s, ...this.sessions.filter((x) => x.id !== s.id)]
       this.activeSessionId = s.id
+      persistActiveSessionId(s.id)
       this.sessionView = { id: s.id, fresh: true, seq: this.sessionView.seq + 1 }
       return s
     },
@@ -346,6 +384,7 @@ export const useStudentStore = defineStore('student', {
     selectSidebarSession(id: number) {
       if (id === this.activeSessionId) return
       this.activeSessionId = id
+      persistActiveSessionId(id)
       this.sessionView = { id, fresh: false, seq: this.sessionView.seq + 1 }
     },
     /** 侧栏删除会话：删的是当前会话时自动切到最新一条（都没有则空白态），并通知对话页 */
@@ -355,6 +394,7 @@ export const useStudentStore = defineStore('student', {
       this.sessions = this.sessions.filter((x) => x.id !== id)
       if (wasActive) {
         this.activeSessionId = this.sessions[0]?.id ?? null
+        persistActiveSessionId(this.activeSessionId)
         this.sessionView = {
           id: this.activeSessionId,
           fresh: false,
@@ -366,6 +406,7 @@ export const useStudentStore = defineStore('student', {
     clearSessionState() {
       this.sessions = []
       this.activeSessionId = null
+      persistActiveSessionId(null)
       this.sessionsLoading = false
       this.sessionsLoaded = false
       this.sessionView = { id: null, fresh: false, seq: 0 }

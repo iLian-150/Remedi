@@ -360,6 +360,7 @@ export interface PhotoReviewResult {
   steps: string[]
   capture_id: number | null
   diagnosis: SubmissionResult | null
+  session_id?: number | null
 }
 
 // ---------- 主页 Agent 对话（v0.3.0） ----------
