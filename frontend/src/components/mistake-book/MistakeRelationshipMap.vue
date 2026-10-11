@@ -21,7 +21,7 @@
                     <path v-for="(point, index) in activeTopic?.errorPoints" :key="`leaf-${point.key}`" class="leaf-line" :d="curve({ x: activeTopicPoint.x + (activeBranch.side === 'left' ? -74 : 74), y: activeTopicPoint.y }, { x: leafPoints[index].x + (activeBranch.side === 'left' ? 74 : -74), y: leafPoints[index].y }, activeBranch.side)" :stroke="activeBranch.color"/>
                   </template>
                 </svg>
-                <button class="mistake-map-root" type="button" :style="pointStyle(root)" aria-label="回到思维导图中心" @click="resetMap"><span>学习脉络</span><strong>我的错题</strong><small>{{ studentName || '学习档案' }} · {{ recordCount }} 条记录</small></button>
+                <button ref="mapRoot" class="mistake-map-root" type="button" :style="pointStyle(root)" aria-label="回到思维导图中心" @click="resetMap"><span>学习脉络</span><strong>我的错题</strong><small>{{ studentName || '学习档案' }} · {{ recordCount }} 条记录</small></button>
                 <button v-for="branch in branches" :key="branch.key" class="mistake-map-branch" :class="{ selected: branch.key === selectedSubjectKey }" type="button" :style="{ ...pointStyle(branch), '--accent': branch.color }" :aria-pressed="branch.key === selectedSubjectKey" @click="selectSubject(branch.key)"><span>{{ branch.label }}</span><small>{{ branch.topics.length }} 个知识点 · {{ branch.recordCount }} 条错题</small></button>
                 <template v-if="activeSubject">
                   <button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-map-topic-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(topicPoints[index]), '--accent': activeBranch?.color }" :aria-pressed="topic.key === selectedTopicKey" @click="selectTopic(topic.key)"><strong>{{ topic.label }}</strong><small>{{ topic.entries.length }} 条错题 · {{ topic.errorPoints.length }} 个错误点{{ topic.studied ? ' · 已学完' : '' }}</small></button>
@@ -91,6 +91,7 @@ const selectedSubjectKey = ref<string | null>(null)
 const selectedTopicKey = ref<string | null>(null)
 const selectedPointKey = ref<string | null>(null)
 const viewport = ref<HTMLElement | null>(null)
+const mapRoot = ref<HTMLElement | null>(null)
 const isPanning = ref(false)
 let panStart: { pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null = null
 
@@ -165,7 +166,7 @@ const orbitRings = computed(() => [{ rx: 112, ry: 86 }, { rx: radii.value.subjec
 
 watch(() => props.mode, (mode) => { zoom.value = mode === 'network' ? 0.85 : 1; resetMap() })
 watch(() => props.mistakes.length, () => { if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) resetMap() })
-watch(() => [props.mode, props.split, zoom.value, networkWidth.value, networkHeight.value, selectedPointKey.value], () => { void nextTick(centerNetwork) })
+watch(() => [props.mode, props.split, props.mistakes.length, zoom.value, networkWidth.value, networkHeight.value, selectedPointKey.value], () => { void nextTick(centerNetwork) })
 onMounted(() => { void nextTick(centerNetwork) })
 
 function subjectAngle(index: number, count: number) { if (count === 1) return -Math.PI * 0.36; if (count === 2) return index === 0 ? -Math.PI : 0; return -Math.PI / 2 + index * Math.PI * 2 / count }
@@ -203,10 +204,18 @@ function zoomBy(amount: number) { zoom.value = Math.min(1.4, Math.max(props.mode
 function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1; void nextTick(centerNetwork) }
 function centerNetwork() {
   if (!viewport.value) return
-  // 思维导图居中（v0.13.0 修复）：此前居中逻辑只处理 network，导图打开时停在
-  // 画布左上角、中心节点被推出右边缘；导图按 root 点居中，「回到中心」同样生效。
+  // 按根节点的实际屏幕位置居中，计入画布为拖拽预留的空白区域。
   if (props.mode === 'mindmap') {
-    viewport.value.scrollTo({ left: Math.max(0, root.value.x * zoom.value - viewport.value.clientWidth / 2), top: Math.max(0, root.value.y * zoom.value - viewport.value.clientHeight / 2), behavior: 'smooth' })
+    if (!mapRoot.value) return
+    const viewportRect = viewport.value.getBoundingClientRect()
+    const rootRect = mapRoot.value.getBoundingClientRect()
+    const viewportCenterX = viewportRect.left + viewport.value.clientLeft + viewport.value.clientWidth / 2
+    const viewportCenterY = viewportRect.top + viewport.value.clientTop + viewport.value.clientHeight / 2
+    viewport.value.scrollTo({
+      left: viewport.value.scrollLeft + rootRect.left + rootRect.width / 2 - viewportCenterX,
+      top: viewport.value.scrollTop + rootRect.top + rootRect.height / 2 - viewportCenterY,
+      behavior: 'smooth',
+    })
     return
   }
   const selectedIndex = activeTopic.value?.errorPoints.findIndex((item) => item.key === selectedPointKey.value) ?? -1
