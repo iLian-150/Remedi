@@ -226,9 +226,11 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
     if q.subject != "math":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题是作文题，请使用 /api/student/essays 提交")
-    # v0.13.1：提交锁定（每题一次）+ 延迟批改窗口（允许修改的作业截止前只收不批）
-    deferral_svc.assert_can_submit(db, current, q)
-    if deferral_svc.is_deferred_mode(db, q.assignment_id):
+    # v0.13.1：按请求接收时刻检查提交锁，并固定本次是否进入延迟批改窗口。
+    deferred_mode = deferral_svc.assert_can_submit(
+        db, current, q, received_at=datetime.now()
+    )
+    if deferred_mode:
         return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
     submission, steps, errors = diagnose_submission(db, current, q, data.steps)
     # 本次作答正确率或错因置信度低于 60% 时进入教师审核队列。
@@ -923,6 +925,7 @@ async def photo_review(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    received_at = datetime.now()
 
     question = None
     if question_id is not None:
@@ -1081,6 +1084,42 @@ async def photo_review(
         db.add(question)
         db.flush()
 
+    # 只有视觉模型确认图片里有作答后才应用提交锁；题目照片仍可用于自由提问。
+    # 截止前收下的作业先保存原图与识别步骤，截止后由统一批改任务重新诊断原图。
+    deferred_mode = deferral_svc.assert_can_submit(
+        db, current, question, received_at=received_at
+    )
+    if deferred_mode:
+        if stored_image_path is None:
+            os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+            stored_image_path = "{}_{}{}".format(
+                datetime.now().strftime("%Y%m%d%H%M%S"),
+                secrets.token_hex(8),
+                _PHOTO_TYPES[file.content_type],
+            )
+            with open(os.path.join(settings.UPLOAD_DIR, stored_image_path), "wb") as image_file:
+                image_file.write(data)
+        submission = deferral_svc.create_deferred(db, current, question, steps)
+        _save_submission_image_link(
+            db, submission, stored_image_path,
+            os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
+        )
+        related_mistake = find_related_mistake(
+            db, current.id, question.subject, question.knowledge_point,
+            exclude_assignment_id=question.assignment_id,
+        )
+        session_id = chat_session.id if chat_session is not None else None
+        return {
+            "mode": "diagnosis",
+            "question_text": question_text,
+            "steps": steps,
+            "capture_id": None,
+            "diagnosis": deferral_svc.deferred_out(submission),
+            "session_id": session_id,
+            "image_url": f"/api/uploads/{stored_image_path}",
+            "related_mistake": related_mistake,
+        }
+
     submission, _, _ = diagnose_visual_submission(db, current, question, visual_steps)
     if stored_image_path is None:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -1214,12 +1253,18 @@ async def photo_diagnose(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    received_at = datetime.now()
 
     question = db.query(Question).filter(Question.id == question_id).first()
     if question is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
     if question.subject != "math":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前原图诊断入口仅支持数学题")
+
+    # 在调用视觉模型前完成提交资格检查；后续使用同一接收时间决定延迟批改模式。
+    deferred_mode = deferral_svc.assert_can_submit(
+        db, current, question, received_at=received_at
+    )
 
     recognition = await run_in_threadpool(
         get_provider().diagnose_math_image,
@@ -1252,9 +1297,7 @@ async def photo_diagnose(
         image_file.write(data)
     image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
 
-    # v0.13.1：拍照批改同链——提交锁定 + 延迟批改窗口
-    deferral_svc.assert_can_submit(db, current, question)
-    if deferral_svc.is_deferred_mode(db, question.assignment_id):
+    if deferred_mode:
         submission = deferral_svc.create_deferred(db, current, question, steps)
         _save_submission_image_link(db, submission, image_path, image_name)
         out = deferral_svc.deferred_out(submission)

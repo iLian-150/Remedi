@@ -214,9 +214,10 @@
               <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming" v-html="renderAssistantMarkdown(msg.text)"></div>
               <div v-else class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
             </div>
-            <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-empty': !msg.mistakeSync.errorCount }">
-              <AppIcon :name="msg.mistakeSync.errorCount ? 'check' : 'help'" :size="15" />
-              <span v-if="msg.mistakeSync.errorCount">
+            <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-deferred': msg.mistakeSync.deferred, 'is-empty': !msg.mistakeSync.errorCount && !msg.mistakeSync.deferred }">
+              <AppIcon :name="msg.mistakeSync.deferred ? 'history' : msg.mistakeSync.errorCount ? 'check' : 'help'" :size="15" />
+              <span v-if="msg.mistakeSync.deferred">本次作答已保存，作业截止后统一批改</span>
+              <span v-else-if="msg.mistakeSync.errorCount">
                 已将 {{ msg.mistakeSync.errorCount }} 条诊断记录同步到错题本和订正区
                 <small v-if="msg.mistakeSync.pendingReview">低置信度判断已提交老师复核</small>
               </span>
@@ -482,7 +483,7 @@ interface ChatMsg {
   saved: boolean
   savingCapture: boolean
   relatedMistake: RelatedMistake | null
-  mistakeSync?: { errorCount: number; pendingReview: boolean } | null
+  mistakeSync?: { errorCount: number; pendingReview: boolean; deferred: boolean } | null
 }
 
 const messages = ref<ChatMsg[]>([])
@@ -962,17 +963,23 @@ async function sendPhotoReview(file: File, prompt: string) {
       }
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
       const pendingReview = res.diagnosis.status === 'pending_review'
+      const deferred = res.diagnosis.status === 'deferred'
       wait.mistakeSync = {
         errorCount: res.diagnosis.errors.length,
-        pendingReview
+        pendingReview,
+        deferred
       }
-      const diagnosisContext = pendingReview
+      const diagnosisContext = deferred
+        ? '这份作业处于截止前的延迟批改阶段，系统只保存了作答，尚未判定对错。不要声称学生做对或做错，也不要说已经加入错题本；仍请讲解题目思路并回答学生的问题。'
+        : pendingReview
         ? '识别出的错题已同步加入错题本和订正区，并提交老师复核；不要把错因说成最终结论，仍请独立解答题目并讲清思路。'
         : res.diagnosis.errors.length
           ? `系统已确认的错因：${res.diagnosis.errors.map((error) => `第${error.step_seq}步，${error.error_type}：${error.detail}`).join('；')}`
           : '系统批改结果为这道题没有发现错误。'
       const agentPrompt = [
-        '学生上传了数学作业照片并希望得到答疑。批改记录已经写入，不要再次批改或创建作答记录；请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点。',
+        deferred
+          ? '学生上传了数学作业照片并希望得到答疑。作答已保存，截止后才会批改。请回答问题并讲解题目正确思路，不要提前判断学生步骤对错，也不要重复提交作业。'
+          : '学生上传了数学作业照片并希望得到答疑。批改记录已经写入，不要再次批改或创建作答记录；请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点。',
         `识别出的题目：${res.question_text.slice(0, 800)}`,
         `识别出的学生步骤：${res.steps.slice(0, 12).map((step, index) => `${index + 1}. ${step}`).join('\n').slice(0, 650)}`,
         diagnosisContext,
@@ -1174,6 +1181,7 @@ onMounted(async () => {
 .ai-message-markdown :deep(a) { color: var(--primary); text-decoration: underline; }
 .photo-mistake-sync { display: flex; align-items: flex-start; gap: 7px; margin-top: 10px; border-radius: 8px; background: var(--green-bg); color: var(--green); padding: 9px 11px; font-size: 12px; line-height: 1.5; }
 .photo-mistake-sync.is-pending { background: var(--amber-bg); color: #92400E; }
+.photo-mistake-sync.is-deferred { background: var(--amber-bg); color: #92400E; }
 .photo-mistake-sync.is-empty { background: var(--surface-2, #f5f7fa); color: var(--text-2); }
 .photo-mistake-sync > span { display: flex; flex: 1; flex-direction: column; }
 .photo-mistake-sync small { margin-top: 2px; font-size: 11px; }

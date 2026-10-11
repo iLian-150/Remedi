@@ -58,26 +58,42 @@ def latest_submission(db: Session, student_id: int, question_id: int) -> Optiona
     )
 
 
-def assert_can_submit(db: Session, student: User, question: Question) -> None:
+def assert_can_submit(
+    db: Session,
+    student: User,
+    question: Question,
+    *,
+    received_at: Optional[datetime] = None,
+) -> bool:
     """提交锁定：已有生效提交且作业不允许（或已过可修改窗口）→ 拒绝再交。
 
-    放行情形：从未提交过；或作业开启允许修改且截止前最新提交还是延迟态；
-    或开启允许修改但没设截止（立即批改口径下继续放行）。截止后即使后台批改
-    尚未处理完 deferred 记录，也不能再接受修改。"""
+    返回值表示这次提交是否应进入截止前的延迟批改窗口。使用请求接收时间判定，
+    避免视觉识别或逐步诊断耗时跨过截止点后改变这次提交的处理方式。
+
+    allow_revision 且有截止时间的作业：截止前接收的首次提交进入 deferred；
+    只有最新提交仍为 deferred 时才允许在截止前继续修改。截止后拒绝首次提交
+    和修改。无截止时间的允许修改作业沿用立即批改口径。"""
+    now = received_at or datetime.now()
+    revision_allowed = allow_revision(db, question.assignment_id)
+    deadline = assignment_deadline(db, question.assignment_id)
+    deferred_window = bool(revision_allowed and deadline is not None and now < deadline)
     latest = latest_submission(db, student.id, question.id)
+
+    if revision_allowed and deadline is not None and now >= deadline:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "作业已过截止时间，不能继续修改；已提交内容会自动批改。"
+            if latest is not None and latest.status == DEFERRED
+            else "作业已过截止时间，不能再提交。",
+        )
+
     if latest is None:
-        return
+        return deferred_window
     if latest.status == DEFERRED:
-        if is_deferred_mode(db, question.assignment_id):
-            return  # 截止前修改：新的延迟提交会成为最新一份
-        deadline = assignment_deadline(db, question.assignment_id)
-        if deadline is not None and datetime.now() >= deadline:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "作业已过截止时间，不能继续修改；已提交内容会自动批改。",
-            )
-    if allow_revision(db, question.assignment_id) and assignment_deadline(db, question.assignment_id) is None:
-        return  # 无截止的允许修改作业：立即批改口径，继续放行
+        if deferred_window:
+            return True  # 截止前修改：新的延迟提交会成为最新一份
+    if revision_allowed and deadline is None:
+        return False  # 无截止的允许修改作业：立即批改口径，继续放行
     raise HTTPException(
         status.HTTP_400_BAD_REQUEST,
         "这道题已经提交过了，每道题只能提交一次。",
