@@ -1070,7 +1070,10 @@ async def photo_review(
         stored_image_path,
         os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
     )
-    review_svc.create_review_if_needed(db, submission)
+    review_svc.create_review_if_needed(
+        db, submission,
+        confidence_signals=review_svc.visual_confidence_signals(confidence, visual_steps),
+    )
     diagnosis = present_for_student(submission, db)
     # 学习助手随后会基于识别出的题目和步骤流式回答，避免在对话历史里
     # 先保存一条“等待审核”的占位回复，再额外显示批改结果卡片。
@@ -1227,7 +1230,10 @@ async def photo_diagnose(
         return out
     submission, _, _ = diagnose_visual_submission(db, current, question, visual_steps)
     _save_submission_image_link(db, submission, image_path, image_name)
-    review_svc.create_review_if_needed(db, submission)
+    review_svc.create_review_if_needed(
+        db, submission,
+        confidence_signals=review_svc.visual_confidence_signals(confidence, visual_steps),
+    )
     result = present_for_student(submission, db)
     result.update({
         "recognized_question_text": recognition.get("question_text", ""),

@@ -201,6 +201,10 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
     err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
     answer_steps = db.query(Step).filter(Step.submission_id == sub.id).all()
     correct_steps, total_steps = scoring_svc.step_counts(answer_steps)
+    review_reasons = review_svc.review_reasons(db, sub)
+    if not review_reasons:
+        # 当前待审记录没有低步骤率或低错因置信度时，来源是视觉模型判断置信度。
+        review_reasons = ["图片或步骤判断置信度低于 60%"]
     submission_image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
     image_url = f"/api/uploads/{submission_image.file_path}" if submission_image else None
     image_name = submission_image.file_name if submission_image else None
@@ -235,6 +239,7 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
         error_count=err_n,
         correct_steps=correct_steps,
         total_steps=total_steps,
+        review_reason="；".join(review_reasons),
         submitted_at=sub.submitted_at,
         image_url=image_url,
         image_name=image_name,

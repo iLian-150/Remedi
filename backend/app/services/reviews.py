@@ -3,6 +3,7 @@
 #
 # 学生的学习报告/画像可以选择排除 pending 记录；错题本与订正待办不排除。
 from datetime import datetime
+import math
 from typing import Iterable, List, Optional, Set
 
 from sqlalchemy.orm import Session
@@ -27,20 +28,39 @@ def create_pending_review(db: Session, submission: Submission) -> SubmissionRevi
     return row
 
 
-def needs_teacher_review(db: Session, submission: Submission) -> bool:
-    """本次作答正确率或错因置信度低于 60% 时送入教师队列。
+def visual_confidence_signals(image_confidence, visual_steps) -> List[float]:
+    """提取视觉模型的整图与逐步判断置信度，供审核阈值共用。"""
+    raw_values = [image_confidence]
+    for step in visual_steps or []:
+        if isinstance(step, dict) and str(step.get("text", "")).strip():
+            # 与 diagnose_visual_submission 一致：缺少步骤置信度时按 0.5 处理。
+            raw_values.append(step.get("confidence", 0.5))
 
-    正确率按有效作答步骤计算；错因置信度按错误记录计算。任一条件触发，
-    就审核整份提交。没有作答步骤和错误记录的提交不需要审核。
-    """
+    values = []
+    for raw in raw_values:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = 0.0
+        if not math.isfinite(value):
+            value = 0.0
+        values.append(max(0.0, min(1.0, value)))
+    return values
+
+
+def review_reasons(db: Session, submission: Submission,
+                   confidence_signals: Iterable[float] = ()) -> List[str]:
+    """返回触发教师复核的原因，统一步骤率、错因和视觉置信度口径。"""
+    reasons = []
     step_statuses = [row[0] for row in db.query(Step.status).filter(
         Step.submission_id == submission.id,
         Step.seq >= 1,
     ).all()]
     if step_statuses:
-        accuracy = sum(1 for value in step_statuses if value == "ok") / len(step_statuses)
+        correct = sum(1 for value in step_statuses if value == "ok")
+        accuracy = correct / len(step_statuses)
         if accuracy < REVIEW_THRESHOLD:
-            return True
+            reasons.append("作答步骤正确率低于 60%")
 
     confidences = [
         float(row[0])
@@ -48,12 +68,36 @@ def needs_teacher_review(db: Session, submission: Submission) -> bool:
         .filter(Error.submission_id == submission.id)
         .all()
     ]
-    return any(value < REVIEW_THRESHOLD for value in confidences)
+    if any(not math.isfinite(value) or value < REVIEW_THRESHOLD for value in confidences):
+        reasons.append("错因判断置信度低于 60%")
+
+    normalized_signals = []
+    for raw in confidence_signals:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = 0.0
+        if not math.isfinite(value):
+            value = 0.0
+        normalized_signals.append(max(0.0, min(1.0, value)))
+    if any(value < REVIEW_THRESHOLD for value in normalized_signals):
+        reasons.append("图片或步骤判断置信度低于 60%")
+    return reasons
 
 
-def create_review_if_needed(db: Session, submission: Submission) -> Optional[SubmissionReview]:
-    """按作答正确率和错因置信度决定是否建立待审核记录。"""
-    if not needs_teacher_review(db, submission):
+def needs_teacher_review(db: Session, submission: Submission,
+                         confidence_signals: Iterable[float] = ()) -> bool:
+    """本次作答步骤正确率、错因置信度或视觉判断置信度低于 60% 时送审。
+
+    正确率按有效作答步骤计算；视觉路径同时检查整图和每步判断置信度。
+    """
+    return bool(review_reasons(db, submission, confidence_signals))
+
+
+def create_review_if_needed(db: Session, submission: Submission,
+                            confidence_signals: Iterable[float] = ()) -> Optional[SubmissionReview]:
+    """按作答与视觉置信度决定是否建立待审核记录。"""
+    if not needs_teacher_review(db, submission, confidence_signals):
         return None
     return create_pending_review(db, submission)
 

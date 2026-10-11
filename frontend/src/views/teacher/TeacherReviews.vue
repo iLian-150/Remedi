@@ -58,6 +58,9 @@
                 <span v-if="g.errorItems" class="meta-bad">有问题 {{ g.errorItems }} 份</span>
                 <span v-if="g.total - g.errorItems" class="meta-good">全对 {{ g.total - g.errorItems }} 份</span>
               </span>
+              <span v-if="g.reviewReasons.length" class="assign-card-review-reasons">
+                复核原因：{{ g.reviewReasons.join('；') }}
+              </span>
               <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
             </span>
             <span class="assign-card-accuracy" :class="accuracyClass(g)">
@@ -342,6 +345,7 @@ interface AssignmentGroup {
   errorItems: number
   correctSteps: number
   totalAnswerSteps: number
+  reviewReasons: string[]
   questionIds: number[]
   questionStems: string[]
   latest: string
@@ -362,6 +366,7 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
         errorItems: 0,
         correctSteps: 0,
         totalAnswerSteps: 0,
+        reviewReasons: [],
         questionIds: [],
         questionStems: [],
         latest: '',
@@ -379,6 +384,9 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
     if (it.error_count) g.errorItems += 1
     g.correctSteps += it.correct_steps ?? 0
     g.totalAnswerSteps += it.total_steps ?? 0
+    for (const reason of (it.review_reason || '').split('；').filter(Boolean)) {
+      if (!g.reviewReasons.includes(reason)) g.reviewReasons.push(reason)
+    }
     if (!g.questionIds.includes(it.question_id)) {
       g.questionIds.push(it.question_id)
       if (it.question_stem.trim()) g.questionStems.push(it.question_stem.trim())
@@ -656,6 +664,7 @@ onUnmounted(() => {
 .assign-card-question > span { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .assign-card-question small { flex-shrink: 0; color: var(--text-3); font-size: 12px; }
 .assign-card-meta { font-size: 13px; color: var(--text-2); }
+.assign-card-review-reasons { color: #9A6700; font-size: 12px; line-height: 1.45; }
 .assign-card-time { font-size: 12px; color: var(--text-3); }
 .assign-card-accuracy { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 94px; padding: 9px 12px; border-radius: 12px; background: #F8FAFC; text-align: center; }
 .accuracy-label { font-size: 12px; font-weight: 700; color: var(--text-2); }

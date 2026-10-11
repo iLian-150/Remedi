@@ -273,6 +273,7 @@ export interface ReviewPendingItem {
   error_count: number
   correct_steps: number
   total_steps: number
+  review_reason?: string
   submitted_at: string
   image_url?: string | null
   image_name?: string | null

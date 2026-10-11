@@ -149,6 +149,7 @@ def grade_due(db: Session) -> int:
                 sub.status = SUPERSEDED
                 continue
             image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
+            confidence_signals = []
             if image is not None:
                 image_name = os.path.basename(image.file_path)
                 image_path = os.path.join(settings.UPLOAD_DIR, image_name)
@@ -181,12 +182,17 @@ def grade_due(db: Session) -> int:
                         "error_type": "无法解析",
                         "detail": "图片中未能确认学生作答，已提交教师查看原图复核。",
                     } for text in step_texts]
+                confidence_signals = review_svc.visual_confidence_signals(
+                    vision.get("confidence", 0.0), visual_steps
+                )
                 graded_sub, _, _ = diagnose_visual_submission(
                     db, student, question, visual_steps, reuse=sub
                 )
             else:
                 graded_sub, _, _ = diagnose_submission(db, student, question, step_texts, reuse=sub)
-            review_svc.create_review_if_needed(db, graded_sub)
+            review_svc.create_review_if_needed(
+                db, graded_sub, confidence_signals=confidence_signals
+            )
             graded += 1
         db.commit()
     return graded
