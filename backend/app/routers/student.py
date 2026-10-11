@@ -11,6 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -19,6 +20,8 @@ from ..config import settings
 from ..database import get_db
 from ..models import (
     Assignment,
+    AssignmentExt,
+    AssignmentSetting,
     ChatMessage,
     Correction,
     Error,
@@ -36,6 +39,7 @@ from ..models import (
     SubmissionImage,
     User,
     Verification,
+    Workbook,
 )
 from ..schemas import (
     AgentAssistantMessageIn,
@@ -135,29 +139,59 @@ def present_for_student(submission: Submission, db: Session) -> dict:
 
 @router.get("/assignments", summary="作业列表")
 def list_assignments(db: Session = Depends(get_db), current: User = Depends(require_student)):
-    items = (db.query(Assignment)
-             .filter((Assignment.created_by.is_(None)) | (~Assignment.created_by.in_(
-                 db.query(User.id).filter(User.role == "student")
-             )))
-             .order_by(Assignment.id).all())
+    visible_assignment = (
+        Assignment.created_by.is_(None)
+        | (~Assignment.created_by.in_(
+            db.query(User.id).filter(User.role == "student")
+        ))
+    )
+    assignment_rows = (
+        db.query(Assignment, AssignmentExt, AssignmentSetting, Workbook.title)
+        .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
+        .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
+        .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
+        .filter(visible_assignment)
+        .order_by(Assignment.id)
+        .all()
+    )
+    assignment_ids = [a.id for a, _, _, _ in assignment_rows]
+    question_stats = {}
+    if assignment_ids:
+        rows = (
+            db.query(
+                Question.assignment_id,
+                func.count(func.distinct(Question.id)),
+                func.count(func.distinct(Submission.question_id)),
+            )
+            .outerjoin(
+                Submission,
+                and_(
+                    Submission.question_id == Question.id,
+                    Submission.student_id == current.id,
+                ),
+            )
+            .filter(Question.assignment_id.in_(assignment_ids))
+            .group_by(Question.assignment_id)
+            .all()
+        )
+        question_stats = {
+            assignment_id: (question_count, submitted_count)
+            for assignment_id, question_count, submitted_count in rows
+        }
+
     result = []
-    for a in items:
-        qids = [row[0] for row in
-                db.query(Question.id).filter(Question.assignment_id == a.id).all()]
-        # v0.13.9：该学生在这份作业里已提交的题数（去重到题）——交作业页的
-        # 「正在交的作业」下拉据此把已全部交完的作业滤掉，不再列出来
-        submitted = (
-            db.query(Submission.question_id)
-            .filter(Submission.student_id == current.id,
-                    Submission.question_id.in_(qids))
-            .distinct().count()
-        ) if qids else 0
+    for a, ext, setting, workbook_title in assignment_rows:
+        question_count, submitted = question_stats.get(a.id, (0, 0))
         result.append({
             "id": a.id, "title": a.title, "description": a.description,
-            "question_count": len(qids), "submitted_count": submitted,
+            "question_count": question_count, "submitted_count": submitted,
             "created_at": a.created_at,
             # v0.5.0：发布模式与线下作业信息（mode/workbook_title/page_range/deadline）
-            **assignment_ext_fields(db, a.id),
+            "mode": (ext.mode or "online") if ext else "online",
+            "workbook_title": workbook_title if ext and ext.workbook_id else None,
+            "page_range": ext.page_range if ext else None,
+            "deadline": ext.deadline if ext else None,
+            "allow_revision": bool(setting.allow_revision) if setting else False,
         })
     return {"total": len(result), "items": result}
 
