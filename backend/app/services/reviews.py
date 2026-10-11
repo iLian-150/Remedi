@@ -6,6 +6,7 @@ from datetime import datetime
 import math
 from typing import Iterable, List, Optional, Set, Tuple
 
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Error, Notification, Question, Step, Submission, SubmissionReview
@@ -117,25 +118,25 @@ def assignment_accuracy_contexts(
     if not requested:
         return requested
 
-    student_ids = {student_id for student_id, _ in requested}
-    assignment_ids = {assignment_id for _, assignment_id in requested}
     latest_by_key_question = {}
-    candidate_rows = (
-        db.query(Submission, Question.assignment_id)
-        .join(Question, Question.id == Submission.question_id)
-        .filter(
-            Submission.student_id.in_(student_ids),
-            Question.assignment_id.in_(assignment_ids),
-            Submission.status == "graded",
+    requested_keys = list(requested)
+    # SQLite 默认绑定参数上限通常为 999；每个键有两个参数，按 400 对分块，
+    # 同时避免把“审核中的学生 × 作业”笛卡尔积全部读回内存。
+    for start in range(0, len(requested_keys), 400):
+        key_chunk = requested_keys[start:start + 400]
+        candidate_rows = (
+            db.query(Submission, Question.assignment_id)
+            .join(Question, Question.id == Submission.question_id)
+            .filter(
+                tuple_(Submission.student_id, Question.assignment_id).in_(key_chunk),
+                Submission.status == "graded",
+            )
+            .order_by(Submission.submitted_at.asc(), Submission.id.asc())
+            .all()
         )
-        .order_by(Submission.submitted_at.asc(), Submission.id.asc())
-        .all()
-    )
-    for submission, assignment_id in candidate_rows:
-        key = (submission.student_id, assignment_id)
-        if key not in requested:
-            continue
-        latest_by_key_question.setdefault(key, {})[submission.question_id] = submission
+        for submission, assignment_id in candidate_rows:
+            key = (submission.student_id, assignment_id)
+            latest_by_key_question.setdefault(key, {})[submission.question_id] = submission
 
     latest_submissions_by_key = {
         key: list(latest_by_key_question.get(key, {}).values())
