@@ -315,14 +315,8 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .remedi-mistake-book .mistake-board-toolbar { position: absolute; z-index: 10; top: 16px; right: 18px; }
 .remedi-mistake-book .mistake-notebook { height: 100%; min-height: 0; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: flex; max-width: 1240px; height: 100%; flex-direction: column; overflow: hidden; padding: 68px 42px 18px; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-header,
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-overview,
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-footer-note { flex: 0 0 auto; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-workspace { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-results-note { flex: 0 0 auto; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-empty { min-height: 0; flex: 1 1 auto; }
+.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: 1240px; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-color: var(--border) transparent; scrollbar-width: thin; padding: 68px 42px 18px; }
+.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-footer-note { margin-top: 12px; }
 .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { padding: 75px 28px 22px; }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
@@ -374,7 +368,7 @@ onMounted(() => void loadMistakes())
   .remedi-mistake-book .mistake-view-switch { max-width: calc(100vw - 72px); overflow-x: auto; }
   .remedi-mistake-book .mistake-view-switch button { min-width: auto; padding-inline: 9px; }
   .remedi-mistake-book .mistake-board-refresh { display: none; }
-  .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { padding: 72px 18px 22px; overflow-y: auto; }
+  .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { padding: 72px 18px 22px; }
   .remedi-mistake-book .mistake-notebook.is-split { display: flex; flex-direction: column; }
   .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 48%; padding: 70px 16px 16px; }
   .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant { flex: 1; }
