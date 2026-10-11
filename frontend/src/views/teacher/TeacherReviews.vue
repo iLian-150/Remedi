@@ -300,6 +300,8 @@ const approvingAll = ref(false)
 const correctingId = ref<number | null>(null)
 const error = ref('')
 const okMsg = ref('')
+let reviewRefreshTimer: number | undefined
+let reviewRefreshInFlight = false
 /** 每条错因一份纠错表单（type/note），按 error_id 索引 */
 const correctForms = reactive<Record<number, { type: string; note: string }>>({})
 
@@ -484,6 +486,34 @@ async function loadQueue(preselect?: number) {
   }
 }
 
+/** 学生可能在老师已打开审核页后才提交；定时刷新队列，保留当前窗口和选择。 */
+async function refreshQueueSilently() {
+  if (reviewRefreshInFlight || loading.value || document.visibilityState === 'hidden') return
+  reviewRefreshInFlight = true
+  const currentId = selectedId.value
+  try {
+    items.value = await teacher.fetchPendingReviews()
+    if (currentId && selectedId.value === currentId
+      && !items.value.some((item) => item.submission_id === currentId)) {
+      closeReviewModal()
+      okMsg.value = '审核队列已更新，当前作答已不在待审核列表中。'
+    }
+  } catch (e) {
+    // 后台刷新失败时保留当前队列；页面首次加载仍由 loadQueue 展示错误。
+    console.error('待审核队列自动刷新失败', e)
+  } finally {
+    reviewRefreshInFlight = false
+  }
+}
+
+function onReviewPageFocus() {
+  void refreshQueueSilently()
+}
+
+function onReviewPageVisibilityChange() {
+  if (document.visibilityState === 'visible') void refreshQueueSilently()
+}
+
 async function selectItem(submissionId: number) {
   selectedId.value = submissionId
   modalOpen.value = true
@@ -583,11 +613,19 @@ async function approveAll() {
 
 onMounted(() => {
   window.addEventListener('keydown', handleReviewModalKeydown)
+  window.addEventListener('focus', onReviewPageFocus)
+  document.addEventListener('visibilitychange', onReviewPageVisibilityChange)
+  reviewRefreshTimer = window.setInterval(() => void refreshQueueSilently(), 15000)
   const preset = Number(route.query.submission_id)
   void loadQueue(preset || undefined)
 })
 
-onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleReviewModalKeydown)
+  window.removeEventListener('focus', onReviewPageFocus)
+  document.removeEventListener('visibilitychange', onReviewPageVisibilityChange)
+  if (reviewRefreshTimer !== undefined) window.clearInterval(reviewRefreshTimer)
+})
 </script>
 
 <style scoped>
