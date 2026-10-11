@@ -313,7 +313,9 @@
 
           <!-- 用户消息 -->
           <div v-else-if="msg.side === 'user' && msg.kind === 'image'" class="user-image">
-            <img :src="msg.url" alt="作业照片" />
+            <button class="user-image-trigger" type="button" aria-label="放大作业照片" @click="openImagePreview(msg.url, '作业照片')">
+              <img :src="msg.url" alt="作业照片" />
+            </button>
           </div>
           <div v-else-if="msg.side === 'user'" class="bubble user-bubble">{{ msg.text }}</div>
         </div>
@@ -342,11 +344,9 @@
       <div class="chat-inner">
         <div class="composer-panel">
           <div v-if="selectedImage && selectedImageUrl" class="composer-image-preview">
-            <img :src="selectedImageUrl" :alt="selectedImage.name || '待发送图片'" />
-            <div class="composer-image-details">
-              <span>{{ selectedImage.name || '已选择图片' }}</span>
-              <small>点击发送后开始识别</small>
-            </div>
+            <button class="composer-image-open" type="button" aria-label="放大待发送图片" @click="openImagePreview(selectedImageUrl, selectedImage.name || '待发送图片')">
+              <img :src="selectedImageUrl" :alt="selectedImage.name || '待发送图片'" />
+            </button>
             <button class="composer-image-remove" type="button" aria-label="移除图片" title="移除图片" :disabled="chatSending" @click="clearSelectedImage">
               <AppIcon name="x" :size="15" />
             </button>
@@ -375,6 +375,12 @@
         </div>
       </div>
     </div>
+    </div>
+    <div v-if="imagePreview" class="image-lightbox" role="dialog" aria-modal="true" aria-label="图片预览" @click.self="closeImagePreview">
+      <button class="image-lightbox-close" type="button" aria-label="关闭图片预览" title="关闭" @click="closeImagePreview">
+        <AppIcon name="x" :size="21" />
+      </button>
+      <img :src="imagePreview.url" :alt="imagePreview.alt" />
     </div>
   </div>
 </template>
@@ -483,6 +489,7 @@ function questionStem(qid: number): string {
 const fileRef = ref<HTMLInputElement | null>(null)
 const selectedImage = ref<File | null>(null)
 const selectedImageUrl = ref('')
+const imagePreview = ref<{ url: string; alt: string } | null>(null)
 const imageObjectUrls = new Set<string>()
 const bodyRef = ref<HTMLElement | null>(null)
 const loadingInit = ref(true)
@@ -617,7 +624,20 @@ function clearSelectedImage() {
   selectedImageUrl.value = ''
 }
 
+function openImagePreview(url: string, alt: string) {
+  if (url) imagePreview.value = { url, alt }
+}
+
+function closeImagePreview() {
+  imagePreview.value = null
+}
+
+function onImagePreviewKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && imagePreview.value) closeImagePreview()
+}
+
 onUnmounted(() => {
+  window.removeEventListener('keydown', onImagePreviewKeydown)
   imageObjectUrls.forEach((url) => URL.revokeObjectURL(url))
   imageObjectUrls.clear()
 })
@@ -870,6 +890,7 @@ async function confirmTranscribe(msg: ChatMsg) {
 
 // ---------- 初始化 ----------
 onMounted(async () => {
+  window.addEventListener('keydown', onImagePreviewKeydown)
   try {
     const [list, subs] = await Promise.all([
       student.fetchAssignments(),
@@ -1022,7 +1043,8 @@ onMounted(async () => {
 .ai-bubble { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; align-items: center; gap: 8px; }
 .error-bubble { background: var(--red-bg); color: #991B1B; display: inline-flex; align-items: center; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
-.user-image img { max-width: 320px; max-height: 380px; border-radius: 12px; border: 1px solid var(--border); display: block; }
+.user-image-trigger { display: block; max-width: 320px; padding: 0; overflow: hidden; border: 0; border-radius: 12px; background: transparent; cursor: zoom-in; }
+.user-image img { display: block; max-width: 100%; max-height: 380px; border: 1px solid var(--border); border-radius: 12px; }
 
 .ai-card {
   background: var(--card); border: 1px solid var(--border); border-radius: 14px;
@@ -1161,14 +1183,15 @@ onMounted(async () => {
   border-color: rgba(29, 78, 216, 0.35);
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06), 0 0 0 3px rgba(29, 78, 216, 0.14);
 }
-.composer-image-preview { display: flex; align-items: center; gap: 11px; margin: 0 8px 11px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--gray-bg); }
-.composer-image-preview > img { width: 54px; height: 54px; flex: 0 0 auto; object-fit: cover; border-radius: 8px; background: #fff; }
-.composer-image-details { display: grid; min-width: 0; flex: 1; gap: 4px; }
-.composer-image-details span { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.composer-image-details small { color: var(--text-3); font-size: 11px; }
-.composer-image-remove { display: inline-flex; width: 30px; height: 30px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--text-2); cursor: pointer; }
+.composer-image-preview { position: relative; width: fit-content; max-width: min(220px, 100%); margin: 0 8px 11px; }
+.composer-image-open { display: block; max-width: 100%; max-height: 150px; padding: 3px; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: zoom-in; }
+.composer-image-open img { display: block; width: auto; height: auto; max-width: 210px; max-height: 142px; object-fit: contain; border-radius: 8px; }
+.composer-image-remove { position: absolute; top: 8px; right: 8px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: rgba(255, 255, 255, 0.96); color: var(--text-2); box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16); cursor: pointer; }
 .composer-image-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
 .composer-image-remove:disabled { opacity: 0.55; cursor: not-allowed; }
+.image-lightbox { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(15, 23, 42, 0.82); cursor: zoom-out; }
+.image-lightbox > img { display: block; max-width: min(92vw, 1200px); max-height: 90vh; object-fit: contain; border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4); cursor: default; }
+.image-lightbox-close { position: absolute; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50%; background: rgba(255, 255, 255, 0.95); color: #1f2937; cursor: pointer; }
 .chat-text-input { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none; font: inherit; font-size: 15px; line-height: 1.65; }
 .chat-text-input:focus { border: 0; outline: 0; box-shadow: none; }
 .chat-text-input-welcome { min-height: 54px; font-size: 16px; }
@@ -1194,7 +1217,7 @@ onMounted(async () => {
 @media (max-width: 960px) {
   .chat-layout { height: calc(100dvh - 72px); }
   .chat-status { display: none; }
-  .user-image img { max-width: 240px; }
+  .user-image-trigger { max-width: 240px; }
   .bubble { max-width: 88%; }
   .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 150px; }
   .chat-composer-welcome .chat-inner { padding: 0; }
