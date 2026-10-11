@@ -97,11 +97,11 @@
 
 .remedi-mistake-book /* ---------- 画布 ---------- */
 
-.mistake-map-viewport-frame {
+.remedi-mistake-book .mistake-map-viewport-frame {
   position: relative;
   width: 100%;
-  height: calc(100dvh - 88px);
-  min-height: 420px;
+  height: 100%;
+  min-height: 0;
 }
 
 .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book.mistake-map-viewport {
@@ -428,8 +428,8 @@
   }
 
   .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book.mistake-map-viewport-frame {
-    height: calc(100dvh - 124px);
-    min-height: 380px;
+    height: 100%;
+    min-height: 0;
   }
 
   .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book.mistake-map-viewport {
