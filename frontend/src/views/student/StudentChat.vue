@@ -211,7 +211,8 @@
           <div v-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
             <div class="ai-message-text">
               <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
-              <div class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
+              <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming">{{ msg.text }}</div>
+              <div v-else class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
             </div>
             <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-empty': !msg.mistakeSync.errorCount }">
               <AppIcon :name="msg.mistakeSync.errorCount ? 'check' : 'help'" :size="15" />
@@ -473,6 +474,7 @@ interface ChatMsg {
   confirmed: boolean
   submitting: boolean
   pending: boolean
+  streaming?: boolean
   result: SubmissionResult | null
   captureId: number | null
   retryPrompt?: string
@@ -554,6 +556,7 @@ function openRelatedMistake(mistake: RelatedMistake) {
 }
 const imageObjectUrls = new Set<string>()
 const bodyRef = ref<HTMLElement | null>(null)
+let scrollFrame: number | null = null
 const loadingInit = ref(true)
 const welcomeBriefing = computed(() => messages.value.find((msg) => msg.kind === 'briefing')?.briefing ?? null)
 const isWelcomeScreen = computed(
@@ -607,7 +610,9 @@ watch(hasConversation, (now, prev) => {
 const busy = computed(() => messages.value.some((m) => m.pending || m.submitting))
 
 function scrollToBottom() {
-  nextTick(() => {
+  if (scrollFrame !== null) return
+  scrollFrame = window.requestAnimationFrame(() => {
+    scrollFrame = null
     const el = bodyRef.value
     if (el) el.scrollTop = el.scrollHeight
   })
@@ -699,6 +704,7 @@ function onImagePreviewKeydown(event: KeyboardEvent) {
 }
 
 onUnmounted(() => {
+  if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame)
   window.removeEventListener('keydown', onImagePreviewKeydown)
   imageObjectUrls.forEach((url) => URL.revokeObjectURL(url))
   imageObjectUrls.clear()
@@ -856,24 +862,30 @@ async function streamAssistantReply(
   let firstText = true
   wait.text = '正在生成回复…'
   wait.pending = true
-  const result = await student.agentChatStream(prompt, student.activeSessionId, (text) => {
-    if (firstText) {
-      wait.text = ''
-      wait.pending = false
-      firstText = false
-    }
-    wait.text += text
-    scrollToBottom()
-  }, persistUserMessage, safeToolsOnly)
-  wait.pending = false
-  wait.text = result.reply
-  wait.relatedMistake = result.related_mistake ?? null
-  wait.retryPrompt = undefined
-  wait.retrySafeToolsOnly = undefined
-  if (result.session_id) student.setActiveSession(result.session_id)
-  suggestions.value = result.suggestions ?? []
-  // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
-  student.loadSessions(true)
+  wait.streaming = true
+  try {
+    const result = await student.agentChatStream(prompt, student.activeSessionId, (text) => {
+      if (firstText) {
+        wait.text = ''
+        wait.pending = false
+        firstText = false
+      }
+      wait.text += text
+      scrollToBottom()
+    }, persistUserMessage, safeToolsOnly)
+    wait.pending = false
+    wait.text = result.reply
+    wait.relatedMistake = result.related_mistake ?? null
+    wait.retryPrompt = undefined
+    wait.retrySafeToolsOnly = undefined
+    if (result.session_id) student.setActiveSession(result.session_id)
+    suggestions.value = result.suggestions ?? []
+    // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
+    student.loadSessions(true)
+  } finally {
+    wait.pending = false
+    wait.streaming = false
+  }
 }
 
 // ---------- 拍照批改 ----------
@@ -1139,6 +1151,7 @@ onMounted(async () => {
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
 .ai-message-text { display: flex; align-items: flex-start; gap: 8px; line-height: 1.75; }
 .ai-message-markdown { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.ai-message-streaming { white-space: pre-wrap; }
 .ai-message-markdown :deep(:first-child) { margin-top: 0; }
 .ai-message-markdown :deep(:last-child) { margin-bottom: 0; }
 .ai-message-markdown :deep(p) { margin: 0 0 0.75em; white-space: pre-wrap; }
