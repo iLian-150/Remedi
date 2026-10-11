@@ -66,11 +66,10 @@ def visual_confidence_signals(image_confidence, visual_steps) -> List[float]:
 
 def assignment_accuracy_context(
     db: Session, submission: Submission
-) -> Optional[Tuple[List[Submission], int, int, bool]]:
-    """返回同一学生、同一作业、同一学科各题最新提交的步骤正确率统计。
+) -> Optional[Tuple[List[Submission], int, int]]:
+    """返回同一学生、整份作业各题最新提交的步骤正确率统计。
 
-    complete 表示该作业该学科的每道题都已有批改完成的提交。审核阈值使用
-    已完成整份作业后的累计正确率，避免学生只做了一部分时过早触发作业级审核。
+    正确率只统计已有批改结果的作答步骤，未提交的题目不进入分母。
     """
     question = submission.question or db.query(Question).filter(
         Question.id == submission.question_id
@@ -80,7 +79,6 @@ def assignment_accuracy_context(
 
     question_ids = [row[0] for row in db.query(Question.id).filter(
         Question.assignment_id == question.assignment_id,
-        Question.subject == question.subject,
     ).all()]
     if not question_ids:
         return None
@@ -96,13 +94,12 @@ def assignment_accuracy_context(
         for qid in question_ids
         if qid in latest_by_question
     ]
-    complete = len(latest_submissions) == len(question_ids)
     submission_ids = [item.id for item in latest_submissions]
     statuses = db.query(Step.status).filter(
         Step.submission_id.in_(submission_ids), Step.seq >= 1
     ).all() if submission_ids else []
     correct = sum(1 for row in statuses if row[0] == "ok")
-    return latest_submissions, correct, len(statuses), complete
+    return latest_submissions, correct, len(statuses)
 
 
 def review_reasons(
@@ -110,7 +107,7 @@ def review_reasons(
     submission: Submission,
     confidence_signals: Iterable[float] = (),
     *,
-    assignment_context: Optional[Tuple[List[Submission], int, int, bool]] = None,
+    assignment_context: Optional[Tuple[List[Submission], int, int]] = None,
 ) -> List[str]:
     """返回触发教师复核的原因，统一步骤率、错因和视觉置信度口径。"""
     reasons = []
@@ -127,9 +124,8 @@ def review_reasons(
     if assignment_context is None:
         assignment_context = assignment_accuracy_context(db, submission)
     if assignment_context:
-        _, assignment_correct, assignment_total, assignment_complete = assignment_context
-        if (assignment_complete and assignment_total > 0
-                and assignment_correct / assignment_total < REVIEW_THRESHOLD):
+        _, assignment_correct, assignment_total = assignment_context
+        if assignment_total > 0 and assignment_correct / assignment_total < REVIEW_THRESHOLD:
             reasons.append("本次作业累计正确率低于 60%")
 
     confidences = [
@@ -157,10 +153,10 @@ def review_reasons(
 
 def needs_teacher_review(db: Session, submission: Submission,
                          confidence_signals: Iterable[float] = (), *,
-                         assignment_context: Optional[Tuple[List[Submission], int, int, bool]] = None) -> bool:
-    """单题正确率、完整作业累计正确率、错因置信度或视觉置信度低于 60% 时送审。
+                         assignment_context: Optional[Tuple[List[Submission], int, int]] = None) -> bool:
+    """单题正确率、作业已批改部分累计正确率、错因或视觉置信度低于 60% 时送审。
 
-    正确率按 seq >= 1 的作答步骤计算；作业累计率在同学科题目全部提交后计算。
+    正确率按 seq >= 1 的作答步骤计算；作业累计率跨学科统计已批改提交。
     视觉路径同时检查整图和每步判断置信度。
     """
     return bool(review_reasons(
@@ -178,9 +174,9 @@ def create_review_if_needed(db: Session, submission: Submission,
         return None
     submissions_to_review = [submission]
     if assignment_context:
-        latest_submissions, correct, total, complete = assignment_context
-        if complete and total > 0 and correct / total < REVIEW_THRESHOLD:
-            # 作业整体低于阈值时，把该学生本学科各题的最新提交一起送审，
+        latest_submissions, correct, total = assignment_context
+        if total > 0 and correct / total < REVIEW_THRESHOLD:
+            # 作业整体低于阈值时，把该学生整份作业已批改题目的最新提交一起送审，
             # 教师窗口能看到完整作业，卡片正确率也按整份作业计算。
             submissions_to_review = list(latest_submissions)
             if all(item.id != submission.id for item in submissions_to_review):

@@ -197,7 +197,7 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
 def _review_pending_item(
     sub: Submission,
     db: Session,
-    assignment_context: Optional[Tuple[List[Submission], int, int, bool]] = None,
+    assignment_context: Optional[Tuple[List[Submission], int, int]] = None,
 ) -> ReviewPendingItem:
     student = db.query(User).filter(User.id == sub.student_id).first()
     question = sub.question
@@ -269,7 +269,7 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
         if question is None:
             assignment_context = None
         else:
-            key = (sub.student_id, question.assignment_id, question.subject)
+            key = (sub.student_id, question.assignment_id)
             if key not in assignment_contexts:
                 assignment_contexts[key] = review_svc.assignment_accuracy_context(db, sub)
             assignment_context = assignment_contexts[key]
