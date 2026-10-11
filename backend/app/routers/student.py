@@ -76,6 +76,7 @@ from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services import scoring as scoring_svc
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
+from ..services.answer_check import student_visible_reference_answer
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
@@ -375,6 +376,12 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             question_subject=question.subject,
             question_order=question.order_num,
             question_stem=question.stem,
+            # This is this student's own review. Validate stored math answers, and
+            # derive a complete answer for solvable one-variable equations.
+            correct_answer=(
+                student_visible_reference_answer(question.stem, question.standard_answer)
+                if question.subject == "math" else question.standard_answer
+            ),
             knowledge_point=error.knowledge_point,
             error_type=error.error_type,
             is_stubborn=error.is_stubborn,

@@ -707,6 +707,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
     "question_subject": "math",
     "question_order": 2,
     "question_stem": "解方程：2x+3=7",
+    "correct_answer": "x=2",
     "knowledge_point": "一元一次方程",
     "error_type": "计算失误",
     "is_stubborn": false,
@@ -729,6 +730,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `category_studied` 是当前学生对该作业、该错误类别的学习标记；`archived_at` 非空表示这条错题已移出当前错题本。
 - `similar_occurrences` 只包含该学生在更早作业中同类别的错题；`latest_correction` 与 `verification_status` 是这条错题最近一次订正和二次验证状态，没有记录时为 `null`。
 - `submitted_at`（v0.9.0 新增，只加字段）：错题所属提交的提交时间（订正页日历按此打点）；自主收录条目无提交，取收录时间兜底。
+- `correct_answer`：该错题题目的参考答案，仅在本人提交后的错题复习接口中返回；数学一元方程优先从题干推导完整解集，其他数学答案仅在机械验算通过后返回；无法核验时为 `null`。自主收录条目为 `null`。
 - 列表也包含学生主动收录的题目，`source_kind="student_saved"`，带有 `capture_id` 与 `image_url`；这类条目不属于诊断错误，不计入学习报告或教师错误统计。
 - 错误类别分类规则与 Learning-Diagnosis-System 一致：结合学科、错因和知识点关键词归类；通用诊断类型优先按知识点归类，未命中规则时用规范化后的错因文本作为稳定类别键。
 

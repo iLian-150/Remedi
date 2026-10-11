@@ -272,6 +272,41 @@ def _sympy_check(stem: str, reference_answer: str) -> Optional[Dict]:
     return _check_expression_answer(stem, reference_answer)
 
 
+def student_visible_reference_answer(stem: str, reference_answer: Optional[str]) -> Optional[str]:
+    """Return a safe reference answer for a student's own mistake review.
+
+    For one-variable equations, derive the complete answer set from the stem so a
+    stale or incorrect stored answer cannot be shown to the student. For other
+    mechanically checkable math questions, return the stored answer only when
+    SymPy confirms it. Unsupported questions stay unset rather than exposing an
+    answer that could not be verified.
+    """
+    stem = (stem or "").strip()
+    if not stem:
+        return None
+
+    try:
+        stem_eq = extract_equation(stem)
+        if stem_eq is not None and stem_eq.kind == "eq":
+            symbols = sorted(stem_eq.expr.free_symbols, key=str)
+            if len(symbols) == 1:
+                roots = solve(stem_eq.expr.lhs - stem_eq.expr.rhs, symbols[0])
+                if (isinstance(roots, list) and roots
+                        and all(not root.free_symbols for root in roots)):
+                    return "、".join(f"{symbols[0]}={_fmt(root)}" for root in roots)
+    except Exception:
+        pass
+
+    answer = (reference_answer or "").strip()
+    if not answer:
+        return None
+    try:
+        checked = _sympy_check(stem, answer)
+    except Exception:
+        return None
+    return answer if checked and checked.get("status") == "ok" else None
+
+
 # ---------------------------------------------------------------- LLM 验算
 
 def _llm_check(stem: str, reference_answer: str,

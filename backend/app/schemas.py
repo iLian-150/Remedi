@@ -201,6 +201,7 @@ class StudentMistakeOut(BaseModel):
     question_subject: str
     question_order: int
     question_stem: str
+    correct_answer: Optional[str] = None
     knowledge_point: str
     error_type: str
     is_stubborn: bool

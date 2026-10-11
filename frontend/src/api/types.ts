@@ -87,6 +87,7 @@ export interface StudentMistake {
   question_subject: string
   question_order: number
   question_stem: string
+  correct_answer: string | null
   knowledge_point: string
   error_type: ErrorType | string
   is_stubborn: boolean

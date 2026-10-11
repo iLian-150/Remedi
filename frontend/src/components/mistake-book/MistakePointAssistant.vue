@@ -36,6 +36,7 @@
           <div class="mistake-reference-line"><span>题目</span><p>{{ mistake.question_stem || '题目内容暂未记录' }}</p></div>
           <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 <AppIcon name="arrow-right" :size="12"/></a>
           <div v-if="mistake.step_text" class="mistake-reference-line is-error"><span>错误作答</span><p>{{ mistake.step_text }}</p></div>
+          <div v-if="mistake.source_kind !== 'student_saved'" class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
           <div class="mistake-point-summary-markdown">{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</div>
           <div v-if="mistake.latest_correction?.content" class="mistake-reference-line correction" :class="mistake.latest_correction.is_correct === true ? 'is-correct' : mistake.latest_correction.is_correct === false ? 'is-error' : 'is-revision'"><span>{{ mistake.latest_correction.is_correct === true ? '正确写法' : mistake.latest_correction.is_correct === false ? '订正尝试' : '订正记录' }}</span><p>{{ mistake.latest_correction.content }}</p></div>
         </div>
