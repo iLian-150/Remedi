@@ -930,7 +930,8 @@ async function sendPhotoReview(file: File, prompt: string) {
     photoReviewSucceeded = true
     if (res.image_url) userImage.url = res.image_url
     if (res.session_id) student.setActiveSession(res.session_id)
-    await student.loadSessions(true)
+    // 更新左侧历史会话时不要阻塞讲解请求；照片识别已经保存完本轮会话消息。
+    void student.loadSessions(true)
     wait.pending = false
     wait.questionText = res.question_text
     wait.steps = [...res.steps]
