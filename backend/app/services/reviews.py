@@ -89,8 +89,13 @@ def assignment_accuracy_context(
     return latest_submissions, correct, len(statuses), complete
 
 
-def review_reasons(db: Session, submission: Submission,
-                   confidence_signals: Iterable[float] = ()) -> List[str]:
+def review_reasons(
+    db: Session,
+    submission: Submission,
+    confidence_signals: Iterable[float] = (),
+    *,
+    assignment_context: Optional[Tuple[List[Submission], int, int, bool]] = None,
+) -> List[str]:
     """返回触发教师复核的原因，统一步骤率、错因和视觉置信度口径。"""
     reasons = []
     step_statuses = [row[0] for row in db.query(Step.status).filter(
@@ -103,7 +108,8 @@ def review_reasons(db: Session, submission: Submission,
         if accuracy < REVIEW_THRESHOLD:
             reasons.append("作答步骤正确率低于 60%")
 
-    assignment_context = assignment_accuracy_context(db, submission)
+    if assignment_context is None:
+        assignment_context = assignment_accuracy_context(db, submission)
     if assignment_context:
         _, assignment_correct, assignment_total, assignment_complete = assignment_context
         if (assignment_complete and assignment_total > 0
@@ -134,23 +140,28 @@ def review_reasons(db: Session, submission: Submission,
 
 
 def needs_teacher_review(db: Session, submission: Submission,
-                         confidence_signals: Iterable[float] = ()) -> bool:
+                         confidence_signals: Iterable[float] = (), *,
+                         assignment_context: Optional[Tuple[List[Submission], int, int, bool]] = None) -> bool:
     """单题正确率、完整作业累计正确率、错因置信度或视觉置信度低于 60% 时送审。
 
     正确率按 seq >= 1 的作答步骤计算；作业累计率在同学科题目全部提交后计算。
     视觉路径同时检查整图和每步判断置信度。
     """
-    return bool(review_reasons(db, submission, confidence_signals))
+    return bool(review_reasons(
+        db, submission, confidence_signals, assignment_context=assignment_context
+    ))
 
 
 def create_review_if_needed(db: Session, submission: Submission,
                             confidence_signals: Iterable[float] = ()) -> Optional[SubmissionReview]:
     """按作答与视觉置信度决定是否建立待审核记录。"""
-    if not needs_teacher_review(db, submission, confidence_signals):
+    assignment_context = assignment_accuracy_context(db, submission)
+    if not needs_teacher_review(
+        db, submission, confidence_signals, assignment_context=assignment_context
+    ):
         return None
     row = create_pending_review(db, submission)
 
-    assignment_context = assignment_accuracy_context(db, submission)
     if assignment_context:
         latest_submissions, correct, total, complete = assignment_context
         if complete and total > 0 and correct / total < REVIEW_THRESHOLD:

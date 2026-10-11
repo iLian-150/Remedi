@@ -4,7 +4,7 @@ import logging
 import os
 import secrets
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -192,19 +192,26 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     return _teacher_error_item(err, db)
 
 
-# ---------- 提交审核（v0.9.0 新增）：AI 批改 → 教师审核 → 学生可见 ----------
+# ---------- 提交审核（v0.9.0 新增）：低置信判断供教师复核，诊断与订正可并行 ----------
 
-def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
+def _review_pending_item(
+    sub: Submission,
+    db: Session,
+    assignment_context: Optional[Tuple[List[Submission], int, int, bool]] = None,
+) -> ReviewPendingItem:
     student = db.query(User).filter(User.id == sub.student_id).first()
     question = sub.question
     assignment = question.assignment if question else None
     err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
     answer_steps = db.query(Step).filter(Step.submission_id == sub.id).all()
     correct_steps, total_steps = scoring_svc.step_counts(answer_steps)
-    assignment_context = review_svc.assignment_accuracy_context(db, sub)
+    if assignment_context is None:
+        assignment_context = review_svc.assignment_accuracy_context(db, sub)
     assignment_correct_steps = assignment_context[1] if assignment_context else 0
     assignment_total_steps = assignment_context[2] if assignment_context else 0
-    review_reasons = review_svc.review_reasons(db, sub)
+    review_reasons = review_svc.review_reasons(
+        db, sub, assignment_context=assignment_context
+    )
     if not review_reasons:
         # 当前待审记录没有低步骤率或低错因置信度时，来源是视觉模型判断置信度。
         review_reasons = ["图片或步骤判断置信度低于 60%"]
@@ -255,7 +262,18 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
 def reviews_pending(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """待审核提交列表（按提交时间正序）+ 总数，教师导航角标与待审核页共用。"""
     subs = review_svc.pending_reviews(db)
-    items = [_review_pending_item(s, db) for s in subs]
+    assignment_contexts = {}
+    items = []
+    for sub in subs:
+        question = sub.question
+        if question is None:
+            assignment_context = None
+        else:
+            key = (sub.student_id, question.assignment_id, question.subject)
+            if key not in assignment_contexts:
+                assignment_contexts[key] = review_svc.assignment_accuracy_context(db, sub)
+            assignment_context = assignment_contexts[key]
+        items.append(_review_pending_item(sub, db, assignment_context))
     return {"count": len(items), "items": items}
 
 
