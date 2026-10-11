@@ -19,8 +19,8 @@ from .tools import build_tools
 logger = logging.getLogger(__name__)
 
 
-def _build_llm():
-    """构造统一使用 Cloudflare Workers AI 的流式对话模型。"""
+def _build_llm(*, streaming: bool = True):
+    """构造统一使用 Cloudflare Workers AI 的对话模型。"""
     from langchain_openai import ChatOpenAI
 
     if settings.LLM_PROVIDER != "cloudflare":
@@ -34,7 +34,7 @@ def _build_llm():
         temperature=0.5,
         timeout=settings.LLM_TIMEOUT_SECONDS,
         max_retries=0,
-        streaming=True,
+        streaming=streaming,
     )
 
 
@@ -87,11 +87,28 @@ def _message_chunk_text(msg) -> str:
     return ""
 
 
+def _response_text(content) -> str:
+    """把 OpenAI 兼容接口的文本内容归一化；忽略非文本响应块。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return ""
+
+
 def agent_reply_stream(db: Session, student: User,
                        history: List[BaseMessage], user_text: str,
                        safe_tools_only: bool = False):
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
-    llm = _build_llm()
+    # Cloudflare 的流式接口曾返回整数类型的 delta.content，LangChain 无法构造
+    # AIMessageChunk。照片讲解本身会缓冲完整回复，因此使用非流式调用更合适。
+    llm = _build_llm(streaming=not safe_tools_only)
     system = build_system_prompt(student.name, _context_summary(db, student))
     if safe_tools_only:
         system += (
@@ -107,16 +124,13 @@ def agent_reply_stream(db: Session, student: User,
     reply = ""
 
     def direct_photo_explanation() -> str:
-        """不依赖工具或历史消息，直接讲解本次识别出的题目和作答。"""
-        fallback_messages = [SystemMessage(content=system), HumanMessage(content=user_text)]
-        parts = [
-            text
-            for message_chunk in llm.stream(fallback_messages)
-            if (text := _message_chunk_text(message_chunk))
-        ]
-        reply = "".join(parts).strip()
+        """不依赖 LangChain 流式解析、工具或历史消息，直接讲解本次题目。"""
+        from ..services.providers import get_provider
+
+        content = get_provider()._chat(system, user_text, temperature=0.5)
+        reply = _response_text(content).strip()
         if not reply:
-            raise ValueError("模型直接讲解返回了空回复")
+            raise ValueError("模型直接讲解未返回文本内容")
         return reply
 
     try:
@@ -177,12 +191,12 @@ def agent_reply_stream(db: Session, student: User,
 
         # 图片识别和批改结果已经包含在 user_text 中；历史错题查询是辅助能力，
         # 不能让工具绑定、工具执行或旧聊天上下文阻断学生获得本题讲解。
-        logger.exception("照片讲解的 LangGraph 工具链失败，改用直接讲解")
+        logger.exception("照片讲解的 LangGraph 工具链失败，改用非流式直接讲解")
         reply_parts = []
         try:
             reply = direct_photo_explanation()
         except Exception:
-            logger.exception("照片讲解的直接生成兜底也失败")
+            logger.exception("照片讲解的非流式直接生成兜底也失败")
             raise
 
     if safe_tools_only:
