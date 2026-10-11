@@ -945,6 +945,17 @@ function applyPhotoReviewResult(wait: ChatMsg, userImage: ChatMsg, res: PhotoRev
   }
 }
 
+function markPhotoReviewFailure(wait: ChatMsg, reason: unknown) {
+  wait.mistakeSync = {
+    errorCount: 0,
+    pendingReview: false,
+    deferred: false,
+    error: '自动批改暂未完成，错题尚未确认入库。可以重试作业识别。'
+  }
+  wait.retryDiagnosis = true
+  console.error(reason)
+}
+
 async function streamVisionReply(wait: ChatMsg, file: File, question: string): Promise<string> {
   let firstText = true
   wait.text = ''
@@ -989,25 +1000,19 @@ async function sendPhotoReview(file: File, prompt: string) {
     // 原图讲解与作业诊断并发：讲解请求直接携带图片，诊断请求独立保存错题/审核记录。
     const diagnosisTask = student.reviewPhoto(
       file, questionId, '', sessionId, true, prompt
-    )
+    ).then((result) => {
+      // 批改与视觉讲解并发；批改一完成就更新错题/审核状态，不等待讲解流结束。
+      applyPhotoReviewResult(wait, userImage, result)
+      void student.loadSessions(true)
+      return result
+    }).catch((reason: unknown) => {
+      markPhotoReviewFailure(wait, reason)
+      throw reason
+    })
     const visionTask = streamVisionReply(wait, file, visionQuestion)
     const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
 
-    let photoResult: PhotoReviewResult | null = null
-    if (diagnosisResult.status === 'fulfilled') {
-      photoResult = diagnosisResult.value
-      applyPhotoReviewResult(wait, userImage, photoResult)
-      void student.loadSessions(true)
-    } else {
-      wait.mistakeSync = {
-        errorCount: 0,
-        pendingReview: false,
-        deferred: false,
-        error: '自动批改暂未完成，错题尚未确认入库。可以重试作业识别。'
-      }
-      wait.retryDiagnosis = true
-      console.error(diagnosisResult.reason)
-    }
+    const photoResult = diagnosisResult.status === 'fulfilled' ? diagnosisResult.value : null
 
     if (visionResult.status === 'fulfilled') {
       wait.retryVision = false
@@ -1073,6 +1078,15 @@ async function retryExplanation(msg: ChatMsg) {
     try {
       const diagnosisTask = msg.retryDiagnosis
         ? student.reviewPhoto(photoRetry.file, photoRetry.questionId, '', photoRetry.sessionId, false, photoRetry.prompt)
+          .then((result) => {
+            applyPhotoReviewResult(msg, photoRetry.userImage, result)
+            void student.loadSessions(true)
+            return result
+          })
+          .catch((reason: unknown) => {
+            markPhotoReviewFailure(msg, reason)
+            throw reason
+          })
         : Promise.resolve(null)
       const visionTask = msg.retryVision
         ? streamVisionReply(msg, photoRetry.file, photoRetry.visionQuestion)
@@ -1082,17 +1096,6 @@ async function retryExplanation(msg: ChatMsg) {
       let retriedPhotoResult: PhotoReviewResult | null = null
       if (diagnosisResult.status === 'fulfilled' && diagnosisResult.value) {
         retriedPhotoResult = diagnosisResult.value
-        applyPhotoReviewResult(msg, photoRetry.userImage, retriedPhotoResult)
-        void student.loadSessions(true)
-      } else if (diagnosisResult.status === 'rejected') {
-        msg.retryDiagnosis = true
-        msg.mistakeSync = {
-          errorCount: 0,
-          pendingReview: false,
-          deferred: false,
-          error: '自动批改暂未完成，错题尚未确认入库。可以重试作业识别。'
-        }
-        console.error(diagnosisResult.reason)
       }
 
       if (visionResult.status === 'fulfilled' && visionResult.value) {
