@@ -228,7 +228,7 @@
             <button v-if="msg.relatedMistake" type="button" class="related-mistake-link" @click="openRelatedMistake(msg.relatedMistake)">
               回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
             </button>
-            <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
+            <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending || chatSending" @click="retryExplanation(msg)">
               {{ msg.pending ? '正在重试…' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
             </button>
             <div v-if="msg.captureId" class="photo-capture-action">
@@ -242,7 +242,7 @@
           <!-- AI 错误提示 -->
           <div v-else-if="msg.kind === 'error'" class="bubble error-bubble">
             <AppIcon name="alert" :size="16" /> {{ msg.text }}
-            <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
+            <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending || chatSending" @click="retryExplanation(msg)">
               {{ msg.pending ? '正在重试…' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
             </button>
             <div v-if="msg.captureId" class="photo-capture-action">
@@ -956,6 +956,17 @@ function markPhotoReviewFailure(wait: ChatMsg, reason: unknown) {
   console.error(reason)
 }
 
+function markVisionReplyFailure(wait: ChatMsg, reason: unknown, isRetry = false) {
+  const partial = wait.text.trim()
+  wait.text = partial
+    ? `${partial}\n\n视觉讲解中断了，可以${isRetry ? '再次' : ''}点击重试继续生成。`
+    : isRetry
+      ? '视觉模型暂时无法生成讲解，请重试。'
+      : '视觉模型暂时无法生成讲解，可以点击重试；作业诊断仍会单独处理。'
+  wait.retryVision = true
+  console.error(reason)
+}
+
 async function streamVisionReply(wait: ChatMsg, file: File, question: string): Promise<string> {
   let firstText = true
   wait.text = ''
@@ -1009,7 +1020,10 @@ async function sendPhotoReview(file: File, prompt: string) {
       markPhotoReviewFailure(wait, reason)
       throw reason
     })
-    const visionTask = streamVisionReply(wait, file, visionQuestion)
+    const visionTask = streamVisionReply(wait, file, visionQuestion).catch((reason: unknown) => {
+      markVisionReplyFailure(wait, reason)
+      throw reason
+    })
     const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
 
     const photoResult = diagnosisResult.status === 'fulfilled' ? diagnosisResult.value : null
@@ -1030,13 +1044,8 @@ async function sendPhotoReview(file: File, prompt: string) {
         wait.retrySave = true
         console.error(saveError)
       }
-    } else {
-      const partial = wait.text.trim()
-      wait.text = partial
-        ? `${partial}\n\n视觉讲解中断了，可以点击重试继续生成。`
-        : '视觉模型暂时无法生成讲解，可以点击重试；作业诊断仍会单独处理。'
-      wait.retryVision = true
-      console.error(visionResult.reason)
+    } else if (!wait.retryVision) {
+      markVisionReplyFailure(wait, visionResult.reason)
     }
 
     if (photoResult?.mode === 'answer' && photoResult.capture_id) {
@@ -1089,7 +1098,10 @@ async function retryExplanation(msg: ChatMsg) {
           })
         : Promise.resolve(null)
       const visionTask = msg.retryVision
-        ? streamVisionReply(msg, photoRetry.file, photoRetry.visionQuestion)
+        ? streamVisionReply(msg, photoRetry.file, photoRetry.visionQuestion).catch((reason: unknown) => {
+          markVisionReplyFailure(msg, reason, true)
+          throw reason
+        })
         : Promise.resolve(null)
       const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
 
@@ -1101,13 +1113,8 @@ async function retryExplanation(msg: ChatMsg) {
       if (visionResult.status === 'fulfilled' && visionResult.value) {
         msg.retryVision = false
         photoRetry.assistantText = visionResult.value
-      } else if (visionResult.status === 'rejected') {
-        msg.retryVision = true
-        const partial = msg.text.trim()
-        msg.text = partial
-          ? `${partial}\n\n视觉讲解中断了，可以再次重试。`
-          : '视觉模型暂时无法生成讲解，请重试。'
-        console.error(visionResult.reason)
+      } else if (visionResult.status === 'rejected' && !msg.retryVision) {
+        markVisionReplyFailure(msg, visionResult.reason, true)
       }
 
       if (photoRetry.assistantText && !photoRetry.assistantSaved) {
