@@ -176,7 +176,8 @@ async function confirmDelete() {
     window.dispatchEvent(new CustomEvent('assignments-changed'))
     setTimeout(() => (toast.value = ''), 4000)
   } catch (e) {
-    deleteError.value = '删除失败，请稍后重试。'
+    const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+    deleteError.value = typeof detail === 'string' ? `删除失败：${detail}` : '删除失败，请稍后重试。'
     console.error(e)
   } finally {
     deleting.value = false

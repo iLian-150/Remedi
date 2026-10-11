@@ -36,11 +36,13 @@ from ..models import (
     StudentMistakeArchive,
     StudentMistakeCategoryReview,
     StudentMistakeEvent,
+    StudentQuestionCapture,
     Submission,
     SubmissionImage,
     SubmissionReview,
     SubmissionScore,
     User,
+    Verification,
     Workbook,
 )
 from ..schemas import (
@@ -498,13 +500,14 @@ def list_teacher_assignments(db: Session = Depends(get_db),
 @router.delete("/assignments/{assignment_id}", summary="删除已发布作业")
 def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_teacher)):
-    """删除自己发布的一份作业（v0.3.0 新增）。事务内按外键依赖顺序级联删除：
+    """删除教师作业管理列表中的一份作业（v0.3.0 新增）。教师端列表包含学生自主上传题，
+    因此教师可删除任意列表可见的作业。事务内按外键依赖顺序级联删除：
     corrections → notifications（关联这些提交的）→ errors → steps → submissions
     → essays → questions → assignment，避免孤儿数据污染学生报告与班级统计。
-    非本人发布或不存在统一返回 404（不泄露他人作业是否存在）。"""
+    不存在返回 404。与错题关联的二次验证保留并解除来源关联；学生自主上传题留档保留并解除题目关联。"""
     assignment = (
         db.query(Assignment)
-        .filter(Assignment.id == assignment_id, Assignment.created_by == current.id)
+        .filter(Assignment.id == assignment_id)
         .first()
     )
     if not assignment:
@@ -522,6 +525,9 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                 db.query(ChatSessionMessageMistakeLink).filter(
                     ChatSessionMessageMistakeLink.error_id.in_(err_ids)
                 ).delete(synchronize_session=False)
+                db.query(Verification).filter(
+                    Verification.source_error_id.in_(err_ids)
+                ).update({Verification.source_error_id: None}, synchronize_session=False)
                 db.query(Correction).filter(Correction.error_id.in_(err_ids)) \
                     .delete(synchronize_session=False)
                 db.query(StudentMistakeArchive).filter(StudentMistakeArchive.error_id.in_(err_ids)) \
@@ -547,6 +553,10 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
             db.query(Submission).filter(Submission.id.in_(sub_ids)) \
                 .delete(synchronize_session=False)
         db.query(Essay).filter(Essay.question_id.in_(qids)).delete(synchronize_session=False)
+        # 学生上传题的原始留档独立于作业，保留图片与识别文本，只解除已删除题目的关联。
+        db.query(StudentQuestionCapture).filter(
+            StudentQuestionCapture.question_id.in_(qids)
+        ).update({StudentQuestionCapture.question_id: None}, synchronize_session=False)
         # 评分系统：题目分值占比行随题目一并清理
         db.query(QuestionWeight).filter(QuestionWeight.question_id.in_(qids)) \
             .delete(synchronize_session=False)
