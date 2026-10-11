@@ -79,23 +79,23 @@ def assignment_accuracy_context(
     if question is None:
         return None
 
-    question_ids = [row[0] for row in db.query(Question.id).filter(
-        Question.assignment_id == question.assignment_id,
-    ).all()]
-    if not question_ids:
-        return None
-
-    submissions = db.query(Submission).filter(
-        Submission.student_id == submission.student_id,
-        Submission.question_id.in_(question_ids),
-        Submission.status == "graded",
-    ).order_by(Submission.submitted_at.asc(), Submission.id.asc()).all()
+    submissions = (
+        db.query(Submission)
+        .join(Question, Question.id == Submission.question_id)
+        .filter(
+            Submission.student_id == submission.student_id,
+            Question.assignment_id == question.assignment_id,
+            Submission.status == "graded",
+        )
+        .order_by(
+            Question.id.asc(),
+            Submission.submitted_at.asc(),
+            Submission.id.asc(),
+        )
+        .all()
+    )
     latest_by_question = {item.question_id: item for item in submissions}
-    latest_submissions = [
-        latest_by_question[qid]
-        for qid in question_ids
-        if qid in latest_by_question
-    ]
+    latest_submissions = list(latest_by_question.values())
     submission_ids = [item.id for item in latest_submissions]
     statuses = db.query(Step.status).filter(
         Step.submission_id.in_(submission_ids),
