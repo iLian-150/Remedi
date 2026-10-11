@@ -299,7 +299,7 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
                 SubmissionImage.submission_id.in_(submission_ids)
             ).all()
         }
-    assignment_contexts = {}
+    assignment_contexts = review_svc.assignment_accuracy_contexts(db, subs)
     items = []
     for sub in subs:
         question = sub.question
@@ -307,9 +307,7 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             assignment_context = None
         else:
             key = (sub.student_id, question.assignment_id)
-            if key not in assignment_contexts:
-                assignment_contexts[key] = review_svc.assignment_accuracy_context(db, sub)
-            assignment_context = assignment_contexts[key]
+            assignment_context = assignment_contexts.get(key)
         preloaded = {
             "step_statuses": step_statuses_by_submission[sub.id],
             "error_confidences": error_confidences_by_submission[sub.id],

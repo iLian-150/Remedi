@@ -105,6 +105,71 @@ def assignment_accuracy_context(
     return latest_submissions, correct, len(statuses)
 
 
+def assignment_accuracy_contexts(
+    db: Session, submissions: Iterable[Submission]
+) -> dict[tuple[int, int], Optional[Tuple[List[Submission], int, int]]]:
+    """批量计算待审核列表中各学生、各作业的已批改步骤正确率。"""
+    requested = {}
+    for submission in submissions:
+        question = submission.question
+        if question is not None:
+            requested[(submission.student_id, question.assignment_id)] = None
+    if not requested:
+        return requested
+
+    student_ids = {student_id for student_id, _ in requested}
+    assignment_ids = {assignment_id for _, assignment_id in requested}
+    latest_by_key_question = {}
+    candidate_rows = (
+        db.query(Submission, Question.assignment_id)
+        .join(Question, Question.id == Submission.question_id)
+        .filter(
+            Submission.student_id.in_(student_ids),
+            Question.assignment_id.in_(assignment_ids),
+            Submission.status == "graded",
+        )
+        .order_by(Submission.submitted_at.asc(), Submission.id.asc())
+        .all()
+    )
+    for submission, assignment_id in candidate_rows:
+        key = (submission.student_id, assignment_id)
+        if key not in requested:
+            continue
+        latest_by_key_question.setdefault(key, {})[submission.question_id] = submission
+
+    latest_submissions_by_key = {
+        key: list(latest_by_key_question.get(key, {}).values())
+        for key in requested
+    }
+    latest_ids = {
+        submission.id
+        for rows in latest_submissions_by_key.values()
+        for submission in rows
+    }
+    statuses_by_submission = {}
+    if latest_ids:
+        for submission_id, status in db.query(
+            Step.submission_id, Step.status
+        ).filter(
+            Step.submission_id.in_(latest_ids),
+            Step.seq >= 1,
+            Step.status.in_(("ok", "error", "unparseable")),
+        ).all():
+            counts = statuses_by_submission.setdefault(submission_id, [0, 0])
+            counts[1] += 1
+            if status == "ok":
+                counts[0] += 1
+
+    for key, latest_submissions in latest_submissions_by_key.items():
+        correct = total = 0
+        for submission in latest_submissions:
+            submission_counts = statuses_by_submission.get(submission.id, (0, 0))
+            correct += submission_counts[0]
+            total += submission_counts[1]
+        requested[key] = (latest_submissions, correct, total)
+    return requested
+
+
 def review_reasons(
     db: Session,
     submission: Submission,
