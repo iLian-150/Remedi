@@ -1,9 +1,7 @@
-# 教师审核流（v0.9.0 新增）：AI 批改 → 教师审核通过 → 学生可见。
+# 教师复核流：低置信度 AI 错因同步进入教师队列，学生可立即查看并订正。
+# 分数和审核通过提醒仍等教师处理后放行。
 #
-# 可见性口径（全站学生侧统一走这里）：
-#   - submission_reviews 里有 status=pending 的行 → 待审核，学生看不到任何诊断细节
-#   - 有 approved 行，或压根没有审核行（历史/种子数据） → 学生可见
-# 教师端不受此口径影响，始终全量可见。
+# 学生的学习报告/画像可以选择排除 pending 记录；错题本与订正待办不排除。
 from datetime import datetime
 from typing import Iterable, List, Optional, Set
 
@@ -75,7 +73,7 @@ def review_status_map(db: Session, submission_ids: Iterable[int]) -> dict:
 
 
 def pending_submission_ids(db: Session, student_id: Optional[int] = None) -> Set[int]:
-    """全部（或某个学生的）待审核提交 id 集合，供学生侧各入口统一过滤。"""
+    """全部（或某个学生的）待审核提交 id 集合，供分数/统计等口径筛选。"""
     query = (
         db.query(SubmissionReview.submission_id)
         .filter(SubmissionReview.status == PENDING)
@@ -85,10 +83,6 @@ def pending_submission_ids(db: Session, student_id: Optional[int] = None) -> Set
             Submission, Submission.id == SubmissionReview.submission_id
         ).filter(Submission.student_id == student_id)
     return {row[0] for row in query.all()}
-
-
-def is_visible_to_student(db: Session, submission_id: int) -> bool:
-    return review_status(db, submission_id) != PENDING
 
 
 def visible_submissions(db: Session, submissions: List[Submission]) -> List[Submission]:

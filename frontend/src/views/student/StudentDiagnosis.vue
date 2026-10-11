@@ -19,7 +19,7 @@
         <label>选择一次提交</label>
         <select v-model="selectedSubmissionId" @change="loadMathDetail">
           <option v-for="s in submissions" :key="s.id" :value="s.id">
-            {{ s.question_stem }} · {{ s.review_status === 'pending' ? '待老师审核' : s.error_count ? `发现 ${s.error_count} 个问题` : '全部正确' }} · {{ fmtTime(s.submitted_at) }}
+            {{ s.question_stem }} · {{ s.review_status === 'pending' ? `老师复核中${s.error_count ? ` · 发现 ${s.error_count} 个问题` : ''}` : s.error_count ? `发现 ${s.error_count} 个问题` : '全部正确' }} · {{ fmtTime(s.submitted_at) }}
           </option>
         </select>
       </div>
@@ -27,18 +27,18 @@
 
     <div v-if="mathLoading" class="loading">加载批改结果中…</div>
 
-    <!-- v0.9.0：待老师审核——诊断还没放行，只显示状态卡 -->
+    <!-- 低置信度诊断已放行给学生查看，同时保留教师复核状态 -->
     <div v-if="mathDetail && mathDetail.status === 'pending_review'" class="card">
       <div class="review-pending-box">
         <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
         <div>
-          <p class="review-pending-title">这份作业已提交，正在等老师审核</p>
-          <p class="review-pending-sub">老师审核通过后你会收到提醒，到时再来这里看分步诊断；有错题也会自动进错题本。</p>
+          <p class="review-pending-title">错题已同步加入错题本和订正区</p>
+          <p class="review-pending-sub">老师正在复核这次低置信度判断；如需调整，错因会同步更新。成绩会在审核后显示。</p>
         </div>
       </div>
     </div>
 
-    <template v-if="mathDetail && mathDetail.status !== 'pending_review'">
+    <template v-if="mathDetail && (mathDetail.status !== 'pending_review' || mathDetail.steps.length || mathDetail.errors.length)">
       <!-- 成绩单（评分系统）：老师审核通过后才有分 -->
       <div class="card score-card" v-if="mathDetail.score">
         <h3>成绩单</h3>

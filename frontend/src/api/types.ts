@@ -88,6 +88,7 @@ export interface StudentMistake {
   question_subject: string
   question_order: number
   question_stem: string
+  review_status?: 'pending' | 'approved' // 低置信度错因会边进入订正流程边等待教师复核
   correct_answer: string | null
   solution_steps?: string[]
   knowledge_point: string
@@ -126,6 +127,7 @@ export interface StudentMistake {
 export interface RelatedMistake {
   id: number
   submission_id: number
+  review_status?: 'pending' | 'approved'
   question_id: number
   assignment_id: number
   assignment_title: string
@@ -152,15 +154,15 @@ export interface RelatedMistake {
 export interface SubmissionResult {
   submission_id: number
   question_id: number
-  // v0.9.0：新增 'pending_review'——已提交、等老师审核，steps/errors 为空
+  // pending_review 表示低置信度错因正在复核；步骤和错因仍会立即返回给学生
   // v0.13.1：新增 'deferred'——已提交、等截止后统一批改，steps/errors 为空
   status: 'submitted' | 'graded' | 'pending_review' | 'deferred'
   first_error_seq: number | null
   steps: StepDiagnosis[]
   errors: GradingError[]
   follow_up_question?: string | null // v0.4.0：启发式追问，无错时为 null
-  review_status?: 'pending' | 'approved' | 'deferred' // v0.9.0：教师审核状态；v0.13.1 加 deferred
-  // 评分系统：本题得分（最终分）与满分；待审核时为 null，分数跟诊断一起放行
+  review_status?: 'pending' | 'approved' | 'deferred' // 教师复核与订正流程并行；v0.13.1 加 deferred
+  // 本题得分（最终分）与满分；待审核时为 null，分数跟审核一起放行
   // assignment_* 是这份作业目前的累计得分与总分（成绩单展示用，可能缺失）
   score?: {
     score: number
@@ -178,7 +180,7 @@ export interface SubmissionSummary {
   status: string
   error_count: number
   submitted_at: string
-  review_status?: 'pending' | 'approved' // v0.9.0：教师审核状态（pending 时 error_count=0）
+  review_status?: 'pending' | 'approved' // pending 时仍返回已识别错误数
   score?: number | null // 评分系统：本题最终分（仅已通过时有值）
   max_score?: number | null // 评分系统：本题满分
 }
@@ -617,7 +619,8 @@ export const STEP_STATUS_TEXT: Record<StepStatus, string> = {
 
 export const SUBMISSION_STATUS_TEXT: Record<string, string> = {
   submitted: '已提交',
-  graded: '已批改'
+  graded: '已批改',
+  pending_review: '老师复核中'
 }
 
 export const ERROR_TYPES: ErrorType[] = ['计算失误', '概念混淆', '审题遗漏', '无法解析']

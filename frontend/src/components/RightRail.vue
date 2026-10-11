@@ -6,7 +6,7 @@
      - mode="corrections"（学生订正页，v0.9.1）：订正日历——按错题所属提交日期打点+计数；
        点选日期 → 写入 student store 的 correctionsDateFilter，订正页据此只看那天的错题；
        再次点同一天 = 取消筛选。数据走 store.fetchCorrectableMistakes 前端聚合，
-       与订正页同口径（仅诊断产生的错题；待审核错题在后端已滤除，自然不含）。
+       与订正页同口径（仅诊断产生的错题；待审核错题同步计入待订正）。
      - mode="timeline"（学生学习报告页：总览与科目详情，本次改造）：错题时间线——
        报告页右栏不再是信箱；面板默认收起，只露标题行（图标+「错题时间线」+条数+
        展开箭头），点开才展开纵向时间线（全局 .timeline 样式复用）；科目详情路由下
@@ -335,7 +335,7 @@ async function loadCorrectionMarks() {
 }
 
 /** 错题时间线数据：与订正日历共用 store.fetchCorrectableMistakes（只读复用，
- * 源头是 /student/mistakes 响应合并口径：仅诊断产生的错题，待审核已滤除） */
+ * 源头是 /student/mistakes 响应合并口径：仅诊断产生的错题，待审核记录也会同步展示） */
 async function loadTimeline() {
   tlLoading.value = true
   try {

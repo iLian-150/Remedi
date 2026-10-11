@@ -100,27 +100,19 @@ router = APIRouter(prefix="/api/student", tags=["student"])
 logger = logging.getLogger(__name__)
 
 
-# ---------- 教师审核可见性（v0.9.0）：学生侧统一出口 ----------
-# AI 批改完先过教师审核：pending 的提交对学生只返回占位（status=pending_review），
-# 不含 steps/errors 等任何诊断结论；无审核行的历史/种子提交视为 approved 全量可见。
+# ---------- 学生诊断出参 ----------
+# 低置信度诊断会同步进入教师审核队列，但错题和订正流程不等待审核；
+# 学生立即看到诊断并可订正，成绩仍等教师审核后放出。
 
 def present_for_student(submission: Submission, db: Session) -> dict:
-    """学生侧诊断出参（提交/详情/拍照批改共用）：待审核 → 占位；已通过 → 完整诊断。"""
-    if review_svc.review_status(db, submission.id) == review_svc.PENDING:
-        return {
-            "submission_id": submission.id,
-            "question_id": submission.question_id,
-            "status": "pending_review",
-            "first_error_seq": None,
-            "steps": [],
-            "errors": [],
-            "follow_up_question": None,
-            "review_status": "pending",
-            # 评分系统：分数跟诊断一起过审，待审核时不下发
-            "score": None,
-        }
+    """学生侧诊断出参：诊断立即可见；待审核时只暂缓下发成绩。"""
     out = present_diagnosis(submission, db)
-    out["review_status"] = "approved"
+    rstatus = review_svc.review_status(db, submission.id)
+    out["review_status"] = rstatus
+    if rstatus == review_svc.PENDING:
+        out["status"] = "pending_review"
+        out["score"] = None
+        return out
     # 评分系统：已通过才带本题得分（最终分/满分）+ 该作业累计；算不出时为 None
     vis = scoring_svc.visible_score(db, submission)
     if vis is not None and submission.question is not None:
@@ -249,9 +241,9 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     items = []
     for s in subs:
         rstatus = status_by_id.get(s.id, review_svc.APPROVED)
-        # v0.9.0：待审核的提交不向学生泄露错误数（诊断结论不可见）
-        err_n = 0 if rstatus == review_svc.PENDING else db.query(Error).filter(Error.submission_id == s.id).count()
-        # 评分系统：已通过的提交带最终分与本题满分；待审核不给分
+        # 错题同步进入错题本和订正区；低置信度提交即使待审核也显示错误数。
+        err_n = db.query(Error).filter(Error.submission_id == s.id).count()
+        # 评分系统：待审核不给分
         score = max_score = None
         if rstatus != review_svc.PENDING:
             vis = scoring_svc.visible_score(db, s)
@@ -338,11 +330,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         .order_by(Error.created_at.desc(), Error.id.desc())
         .all()
     )
-    # v0.9.0：待教师审核提交产生的错题先不进错题本（通过后自动出现）；
-    # 学生自助收录的 captures 不走批改管线，不受影响（下方单独拼装）。
-    pending_sub_ids = review_svc.pending_submission_ids(db, current.id)
-    if pending_sub_ids:
-        all_rows = [row for row in all_rows if row[1].id not in pending_sub_ids]
+    # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
     error_ids = [error.id for error, _, _, _, _ in all_rows]
     archived_at_by_error = {
         item.error_id: item.archived_at
@@ -385,6 +373,9 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         history_by_category.setdefault(key, []).append((error, submission, question, assignment))
 
     result = []
+    review_status_by_submission = review_svc.review_status_map(
+        db, [submission.id for _, submission, _, _, _ in rows]
+    )
     for error, submission, question, assignment, step in rows:
         category_key, category_label = _mistake_category(
             question.subject, error.error_type, error.knowledge_point
@@ -410,6 +401,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         result.append(StudentMistakeOut(
             id=error.id,
             submission_id=submission.id,
+            review_status=review_status_by_submission.get(submission.id, review_svc.APPROVED),
             question_id=question.id,
             assignment_id=assignment.id,
             assignment_title=assignment.title,
@@ -712,9 +704,6 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
     sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
     if not sub or sub.student_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能订正自己的错误")
-    # v0.9.0：所属提交还在等老师审核时，错题对学生不可见，自然也不能订正
-    if review_svc.review_status(db, sub.id) == review_svc.PENDING:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "老师审核通过后就可以订正这道题啦")
     is_correct, note = verify_correction(db, err, body.content.strip())
     c = Correction(error_id=err.id, student_id=current.id,
                    content=body.content.strip(), is_correct=is_correct, note=note)
@@ -771,18 +760,12 @@ def create_verification(body: VerificationCreate, db: Session = Depends(get_db),
         sub = db.query(Submission).filter(Submission.id == err.submission_id).first() if err else None
         if not err or not sub or sub.student_id != current.id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_error_id 不是你的错题记录")
-        # v0.9.0：待审核提交的错题对学生不可见，不能拿来发起验证
-        if review_svc.review_status(db, sub.id) == review_svc.PENDING:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "老师审核通过后就可以来验证啦")
     else:
-        pending_sub_ids = review_svc.pending_submission_ids(db, current.id)
         latest_query = (
             db.query(Error)
             .join(Submission, Error.submission_id == Submission.id)
             .filter(Submission.student_id == current.id, Error.knowledge_point == kp)
         )
-        if pending_sub_ids:
-            latest_query = latest_query.filter(~Error.submission_id.in_(pending_sub_ids))
         latest = latest_query.order_by(Error.created_at.desc(), Error.id.desc()).first()
         source_error_id = latest.id if latest else None
 

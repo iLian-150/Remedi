@@ -18,6 +18,7 @@
       >
         <span class="note-top">
           <ErrorTypeBadge :type="n.errorType" />
+          <span v-if="n.reviewStatus === 'pending'" class="note-review">老师复核中</span>
           <span v-if="n.isStubborn && !n.isFixed" class="note-stubborn">需要加固</span>
         </span>
         <span class="note-stem">{{ n.stem }}</span>
@@ -53,6 +54,7 @@ export interface CorrectionNote {
   stepText: string
   knowledgePoint: string
   errorType: string
+  reviewStatus?: 'pending' | 'approved'
   assignmentTitle: string
   dateLabel: string
   isFixed: boolean
@@ -183,6 +185,7 @@ function onNoteClick(n: CorrectionNote) {
 
 /* ---------- 贴面内容 ---------- */
 .note-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.note-review { border-radius: 999px; padding: 2px 7px; background: #FEF3C7; color: #92400E; font-size: 10px; font-weight: 700; }
 .note-stubborn {
   font-size: 11.5px; font-weight: 700; color: #92400e;
   background: rgba(217, 119, 6, 0.16); padding: 2px 8px; border-radius: 999px;

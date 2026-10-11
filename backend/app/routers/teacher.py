@@ -162,8 +162,7 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     err.teacher_note = body.teacher_note
     err.teacher_corrected = True
     # v0.3.0：纠错成功后给被纠错的学生写一条站内提醒（主流程：AI 初批 → 老师干预 → 学生收到提醒去订正）
-    # v0.9.0：所属提交还在待审核时不发这条提醒（诊断对学生尚不可见，
-    # 审核详情里改完再点「通过」时统一发 review_approved 提醒）
+    # 待审核期间先不额外发纠错提醒，避免重复打扰；教师通过时统一提醒学生查看更新后的诊断。
     sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
     if sub is not None and review_svc.review_status(db, sub.id) != review_svc.PENDING:
         question = db.query(Question).filter(Question.id == sub.question_id).first()

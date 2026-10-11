@@ -268,15 +268,15 @@
               <AppIcon name="check" :size="17" /> 批改结果
               <span class="badge badge-blue">{{ questionStem(msg.result.question_id) }}</span>
             </p>
-            <!-- v0.9.0：待老师审核——只报已提交状态，不展示任何诊断结论 -->
+            <!-- 低置信错因仍立即展示并进入订正流程，教师审核并行进行 -->
             <div v-if="msg.result.status === 'pending_review'" class="review-pending-box">
               <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
               <div>
-                <p class="review-pending-title">已提交，正在等老师审核</p>
-                <p class="review-pending-sub">老师审核通过后，批改结果会显示出来，有错题也会自动进错题本。</p>
+                <p class="review-pending-title">错题已同步加入错题本和订正区</p>
+                <p class="review-pending-sub">老师也会复核这次低置信度判断；如需调整，错因会同步更新。</p>
               </div>
             </div>
-            <template v-else>
+            <template v-if="msg.result.steps.length || msg.result.errors.length">
             <div
               v-for="st in msg.result.steps"
               :key="st.seq"
@@ -895,7 +895,7 @@ async function sendPhotoReview(file: File, prompt: string) {
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
       const pendingReview = res.diagnosis.status === 'pending_review'
       const diagnosisContext = pendingReview
-        ? '这次作答的批改结果正在等待老师审核，不要把任何自动判断说成最终结论；仍请独立解答题目并讲清思路。'
+        ? '识别出的错题已同步加入错题本和订正区，并提交老师复核；不要把错因说成最终结论，仍请独立解答题目并讲清思路。'
         : res.diagnosis.errors.length
           ? `系统已确认的错因：${res.diagnosis.errors.map((error) => `第${error.step_seq}步，${error.error_type}：${error.detail}`).join('；')}`
           : '系统批改结果为这道题没有发现错误。'

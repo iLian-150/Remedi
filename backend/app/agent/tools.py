@@ -99,7 +99,7 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
     @tool
     def get_my_briefing() -> str:
         """查询学生当前的待办情况：未完成的作业、还没订正的错题数、需要加固的知识点。当学生问"我还有什么没做""作业做完了吗"之类的问题时调用。"""
-        # v0.9.0：学生侧口径——待教师审核的批改结果不计入（与学生端页面一致）
+        # 成绩和学习报告仍等审核；错题订正待办由 briefing 同步统计 pending 错题。
         return briefing_to_text(student_briefing(db, student, visible_only=True))
 
     @tool
@@ -168,7 +168,8 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
         pending = review_svc.create_review_if_needed(db, submission) is not None
         if pending:
             summary = (
-                "这份作答已提交教师复核。只告知学生结果正在复核，不要透露诊断细节。"
+                "低置信度错题已同步加入错题本和订正流程，并提交教师复核；"
+                "请继续回答学生的问题，可以说明错因目前待老师复核，老师调整后记录会同步更新。"
             )
         elif errors:
             summary = "批改发现作答错误，错题已加入错题本并进入订正流程。"

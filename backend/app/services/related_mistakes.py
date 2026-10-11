@@ -16,7 +16,7 @@ from . import reviews as review_svc
 
 def find_related_mistake(db: Session, student_id: int, subject: str,
                          knowledge_point: str, *, exclude_assignment_id: int | None = None) -> dict | None:
-    """返回该学生最近一条已审核、未归档的同学科同知识点错题。"""
+    """返回该学生最近一条未归档的同学科同知识点错题（含待教师复核记录）。"""
     subject_key = (subject or "").strip().casefold()
     subject_key = {
         "数学": "math",
@@ -40,7 +40,6 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
     if exclude_assignment_id is not None:
         query = query.filter(Assignment.id != exclude_assignment_id)
 
-    pending_ids = review_svc.pending_submission_ids(db, student_id)
     archived_ids = {
         row[0]
         for row in db.query(StudentMistakeArchive.error_id)
@@ -49,7 +48,7 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
     }
 
     for error, submission, question, assignment, step in query.limit(300).all():
-        if submission.id in pending_ids or error.id in archived_ids:
+        if error.id in archived_ids:
             continue
         if "".join((error.knowledge_point or "").split()).casefold() != knowledge_key:
             continue
@@ -62,6 +61,7 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
         return {
             "id": error.id,
             "submission_id": submission.id,
+            "review_status": review_svc.review_status(db, submission.id),
             "question_id": question.id,
             "assignment_id": assignment.id,
             "assignment_title": assignment.title,
@@ -104,7 +104,7 @@ def find_related_mistake_for_error(db: Session, student_id: int, error_id: int) 
     archived = db.query(StudentMistakeArchive.id).filter_by(
         student_id=student_id, error_id=error.id
     ).first()
-    if archived or not review_svc.is_visible_to_student(db, submission.id):
+    if archived:
         return None
     correction = (
         db.query(Correction)
@@ -115,6 +115,7 @@ def find_related_mistake_for_error(db: Session, student_id: int, error_id: int) 
     return {
         "id": error.id,
         "submission_id": submission.id,
+        "review_status": review_svc.review_status(db, submission.id),
         "question_id": question.id,
         "assignment_id": assignment.id,
         "assignment_title": assignment.title,

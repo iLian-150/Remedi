@@ -91,8 +91,7 @@ def knowledge_point_ranking(db) -> List[Dict]:
 
 
 def _student_submissions(db, student: User, visible_only: bool):
-    """取学生的提交列表；visible_only=True 时滤掉待教师审核的提交
-    （v0.9.0 学生侧口径：pending 的批改结果学生还看不到，统计里也不算）。
+    """取学生提交列表；学生画像等审核敏感统计可选择只计已审核提交。
     教师端调用一律 visible_only=False，全量可见。"""
     submissions = (
         db.query(Submission).filter(Submission.student_id == student.id).all()
@@ -208,8 +207,8 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
     submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
-    # 「交过没交过」按全部提交算（含待审核的）：待审核只是诊断不可见，题已经交了，
-    # 不能在未完成作业里再出现一次；错误/待订正/最近动态则只算学生可见的提交。
+    # 「交过没交过」按全部提交算（含待审核的），不能在未完成作业里再出现一次；
+    # 学习报告摘要只算已审核诊断，但待订正数量单独纳入待审核错题。
     if visible_only:
         done_qids = {
             s.question_id
@@ -240,7 +239,7 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
                 **assignment_ext_fields(db, a.id),
             })
 
-    # 错误集合（待订正判定 + 薄弱点聚合共用）
+    # 已审核错误集合用于学习报告类统计；低置信度错题仍立即进入订正待办。
     errors = []
     if sub_ids:
         errors = (
@@ -250,14 +249,29 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
             .all()
         )
 
-    # 待订正：尚无一条 is_correct=True 订正的 error
+    correction_sub_ids = sub_ids
+    if visible_only:
+        correction_sub_ids = [
+            row[0] for row in db.query(Submission.id)
+            .filter(Submission.student_id == student.id).all()
+        ]
+    correction_errors = errors
+    if correction_sub_ids != sub_ids:
+        correction_errors = (
+            db.query(Error)
+            .filter(Error.submission_id.in_(correction_sub_ids))
+            .order_by(Error.created_at.desc())
+            .all()
+        ) if correction_sub_ids else []
+
+    # 待订正：尚无一条 is_correct=True 订正的 error；与老师复核并行统计。
     fixed_ids = {
         c.error_id
         for c in db.query(Correction).filter(
             Correction.student_id == student.id, Correction.is_correct.is_(True)
         ).all()
     }
-    pending_errors = [e for e in errors if e.id not in fixed_ids]
+    pending_errors = [e for e in correction_errors if e.id not in fixed_ids]
     pending_kps = sorted({e.knowledge_point for e in pending_errors})
 
     # 需要加固的知识点：顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点

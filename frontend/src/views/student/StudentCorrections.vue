@@ -8,8 +8,8 @@
      本地 fixedIds 仅表示已订正。
      v0.9.0 曾在页内加订正日历；v0.9.1 日历迁入右侧栏（右栏在订正页切换为
      「订正日历」模式），选中日期经 store.correctionsDateFilter 与本页共享：
-     本页顶部出现筛选状态条，「查看全部」清除；教师审核流下待审核的错题在
-     后端错题本接口已滤除，本页与右栏日历自然都看不到。
+     本页顶部出现筛选状态条，「查看全部」清除；低置信度错题会在教师复核同时
+     进入本页，并标记「老师复核中」。
      v0.9.3：选错题从下拉改成「便利贴墙」（CorrectionStickyWall）——一题一贴，
      点待订正的贴撕下后进入原修正工作区（三张卡与提交逻辑不变），返回后刚订正
      对的贴变已订正样式留在墙上；已订正的贴点开跳诊断详情。 -->
@@ -103,6 +103,7 @@
           <p style="margin-top: 10px">
             <ErrorTypeBadge :type="selectedError.error_type" />
             <span class="badge badge-blue">{{ selectedError.knowledge_point }}</span>
+            <span v-if="selectedError.review_status === 'pending'" class="badge badge-amber">老师复核中</span>
             <span v-if="fixedIds.has(selectedError.id)" class="badge badge-green">已订正</span>
             <span v-else-if="selectedError.is_stubborn" class="badge badge-amber">需要加固</span>
           </p>
@@ -228,6 +229,7 @@ const wallNotes = computed<CorrectionNote[]>(() =>
     stepText: item.step_text && item.step_text !== item.question_stem ? item.step_text : '',
     knowledgePoint: item.knowledge_point,
     errorType: item.error_type,
+    reviewStatus: item.review_status,
     assignmentTitle: item.assignment_title,
     dateLabel: dateLabelOf(item),
     isFixed: fixedIds.value.has(item.id),

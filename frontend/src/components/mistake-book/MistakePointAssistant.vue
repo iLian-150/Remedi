@@ -32,6 +32,7 @@
           <div class="mistake-point-summary-detail-head">
             <span>{{ mistake.source_kind === 'student_saved' ? '自主收录' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</span>
             <strong>{{ mistake.category_label || mistake.error_type }}</strong>
+            <span v-if="mistake.review_status === 'pending'" class="badge badge-amber">老师复核中</span>
           </div>
           <div class="mistake-reference-line"><span>题目</span><p>{{ mistake.question_stem || '题目内容暂未记录' }}</p></div>
           <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 <AppIcon name="arrow-right" :size="12"/></a>

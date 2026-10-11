@@ -110,9 +110,10 @@
             <div v-else-if="noteKind(currentQ) === 'pending'" class="review-pending-box board-note">
               <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
               <div>
-                <p class="review-pending-title">已提交，老师审核后你会收到诊断</p>
-                <p class="review-pending-sub">老师确认批改无误后，诊断和错题会自动出现在报告与错题本里。每道题只能提交一次。<template v-if="currentDetail?.allow_revision">如需修改，去页面底部的「修改作业」。</template></p>
+                <p class="review-pending-title">已提交，诊断和订正入口已同步生成</p>
+                <p class="review-pending-sub">错题已进入错题本和订正区，老师也在复核低置信度判断；成绩会在审核后显示。每道题只能提交一次。<template v-if="currentDetail?.allow_revision">如需修改，去页面底部的「修改作业」。</template></p>
               </div>
+              <router-link class="btn small secondary" to="/student/corrections">现在去订正</router-link>
             </div>
             <p v-else class="submit-ok-line board-note">
               <AppIcon name="check" :size="15" /> 已提交，批改结果已生成，去学习报告或错题本看看吧。

@@ -143,10 +143,9 @@ class DiagnosisOut(BaseModel):
     steps: List[StepOut]
     errors: List[ErrorOut]
     follow_up_question: Optional[str] = None   # v0.4.0：按主错因+知识点生成的启发式追问，无错时为 None
-    # v0.9.0 新增（只加字段）：教师审核状态。pending 时 status="pending_review"、
-    # steps/errors 为空（诊断结论对学生不可见）；approved = 老师已审核（或历史数据默认通过）
+    # 教师审核状态与错题流程并行：pending 时步骤与错误仍对学生可见，成绩暂缓下发。
     review_status: str = "approved"
-    # 评分系统新增（只加字段）：本题得分；待审核或无分时为 None（分数跟审核一起放行）
+    # 本题得分；待审核或无分时为 None（分数跟审核一起放行）
     score: Optional[DiagnosisScoreOut] = None
 
 
@@ -165,8 +164,7 @@ class SubmissionBrief(BaseModel):
     status: str
     error_count: int
     submitted_at: datetime
-    # v0.9.0 新增（只加字段）：教师审核状态 pending | approved（无审核行=历史数据=approved）；
-    # pending 时 error_count 固定为 0，不向学生泄露诊断结论
+    # 教师审核状态 pending | approved（无审核行=历史数据=approved）；错误数与审核并行显示
     review_status: str = "approved"
     # 评分系统新增（只加字段）：本题最终分与满分；仅审核通过后下发，待审核为 None
     score: Optional[float] = None
@@ -201,6 +199,7 @@ class StudentMistakeOut(BaseModel):
     question_subject: str
     question_order: int
     question_stem: str
+    review_status: Optional[str] = None
     correct_answer: Optional[str] = None
     solution_steps: List[str] = Field(default_factory=list)
     knowledge_point: str
@@ -228,6 +227,7 @@ class StudentMistakeOut(BaseModel):
 class RelatedMistakeOut(BaseModel):
     id: int
     submission_id: int
+    review_status: Optional[str] = None
     question_id: int
     assignment_id: int
     assignment_title: str

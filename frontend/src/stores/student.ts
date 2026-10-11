@@ -109,7 +109,7 @@ export const useStudentStore = defineStore('student', {
     /** 可订正错题（v0.9.1 抽到 store 供订正页与右栏订正日历共用）：
      * 合并未归档+已归档并按 id 去重，只留诊断产生的错题——自主收录题
      * （id<0 / source_kind=student_saved）没有 errors 记录，进不了订正判定。
-     * 教师审核可见性在后端错题本接口已收口（待审核不可见），这里自然不含。 */
+     * 低置信错题会立即进入错题本，并带有 review_status=pending 标记。 */
     async fetchCorrectableMistakes(): Promise<StudentMistake[]> {
       const [current, archived] = await Promise.all([
         this.fetchMyMistakes(false),

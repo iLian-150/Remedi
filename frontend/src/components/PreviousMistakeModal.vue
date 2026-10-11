@@ -9,6 +9,7 @@
       <div class="mistake-meta">
         <strong>{{ mistake.assignment_title }}</strong>
         <span>{{ mistake.knowledge_point }} · {{ formatDate(mistake.created_at) }}</span>
+        <span v-if="mistake.review_status === 'pending'" class="badge badge-amber">老师复核中</span>
       </div>
 
       <div class="mistake-columns">
@@ -118,6 +119,7 @@ function stepStatusLabel(status: string) {
 .mistake-close { width: 38px; height: 38px; border: 1px solid #e4ebe5; border-radius: 50%; background: white; color: #65736d; font-size: 25px; cursor: pointer; }
 .mistake-meta { flex: none; display: flex; justify-content: space-between; gap: 12px; padding: 12px 24px; color: #53635d; background: #eef5ef; font-size: 13px; }
 .mistake-meta span { color: #7b8983; }
+.mistake-meta .badge-amber { color: #92400e; }
 .mistake-columns { min-height: 0; overflow: auto; display: grid; grid-template-columns: 1fr 1.15fr; gap: 14px; padding: 14px; }
 .mistake-panel { min-width: 0; padding: 18px; border: 1px solid #e5ece6; border-radius: 15px; background: white; }
 .mistake-panel h3 { margin: 0 0 14px; color: #30443d; font-size: 18px; }

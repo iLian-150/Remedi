@@ -54,21 +54,21 @@
       </div>
     </div>
 
-    <!-- 诊断卡片（老师批改结果）；v0.9.0：待审核时只显示已提交状态卡 -->
+    <!-- 诊断即时展示；低置信度错因同时进入教师复核队列 -->
     <div v-if="phase === 'done' && result" class="pgf-card">
       <p class="pgf-card-title">
         <AppIcon :name="result.status === 'pending_review' ? 'history' : 'check'" :size="16" />
-        {{ result.status === 'pending_review' ? '已提交 · 待老师审核' : '老师批改结果' }}
+        {{ result.status === 'pending_review' ? '诊断已生成 · 老师复核中' : '老师批改结果' }}
         <span v-if="questionStem" class="badge badge-blue">{{ questionStem }}</span>
       </p>
       <div v-if="result.status === 'pending_review'" class="review-pending-box">
         <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
         <div>
-          <p class="review-pending-title">已提交，老师审核后你会收到诊断</p>
-          <p class="review-pending-sub">老师确认批改无误后，诊断和错题会自动出现在报告与错题本里。</p>
+          <p class="review-pending-title">错题已同步加入错题本和订正区</p>
+          <p class="review-pending-sub">老师也会复核这次低置信度判断；如需调整，错因会同步更新。</p>
         </div>
       </div>
-      <template v-else>
+      <template v-if="result.steps.length || result.errors.length">
       <p v-if="result.errors.length" class="pgf-auto-booked">发现 {{ result.errors.length }} 个错误点，已自动加入错题本。</p>
       <div
         v-for="st in result.steps"
