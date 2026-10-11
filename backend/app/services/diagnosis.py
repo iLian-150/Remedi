@@ -342,6 +342,79 @@ def diagnose_submission(db, student: User, question: Question,
     return submission, steps, errors
 
 
+def diagnose_visual_submission(db, student: User, question: Question,
+                               visual_steps: List[dict]) -> Tuple[Submission, List[Step], List[Error]]:
+    """持久化视觉模型直接给出的数学作答判断，不再二次解析识别文本。"""
+    submission = Submission(student_id=student.id, question_id=question.id, status="submitted")
+    db.add(submission)
+    db.flush()
+
+    stem_step = Step(submission_id=submission.id, seq=0, text=question.stem, status="stem")
+    db.add(stem_step)
+    steps: List[Step] = [stem_step]
+    errors: List[Error] = []
+    allowed_error_types = {"计算失误", "概念混淆", "审题遗漏", "无法解析"}
+
+    for seq, item in enumerate(visual_steps, start=1):
+        text = str(item.get("text", "")).strip()[:500]
+        if not text:
+            continue
+        result = str(item.get("result", "uncertain")).strip().lower()
+        confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
+        if result == "correct":
+            step = Step(submission_id=submission.id, seq=seq, text=text, status="ok")
+            db.add(step)
+            steps.append(step)
+            continue
+
+        uncertain = result != "incorrect"
+        if uncertain:
+            # 无法确认的步骤以低置信记录进入错题本，并同步进入教师复核队列。
+            confidence = min(confidence, 0.59)
+        error_type = str(item.get("error_type", "")).strip()
+        if error_type not in allowed_error_types:
+            error_type = "无法解析" if uncertain else "审题遗漏"
+        step = Step(
+            submission_id=submission.id,
+            seq=seq,
+            text=text,
+            status="unparseable" if uncertain else "error",
+        )
+        db.add(step)
+        db.flush()
+        error = Error(
+            submission_id=submission.id,
+            step_id=step.id,
+            knowledge_point=question.knowledge_point,
+            error_type=error_type,
+            confidence=confidence,
+            detail=(str(item.get("detail", "")).strip()[:1000]
+                    or ("视觉模型无法确认该步骤是否正确，建议教师复核。"
+                        if uncertain else "视觉模型判断该步骤有误。")),
+        )
+        db.add(error)
+        db.flush()
+        error.is_stubborn = check_stubborn(
+            db, student.id, question.knowledge_point, error.id
+        )
+        steps.append(step)
+        errors.append(error)
+
+    submission.status = "graded"
+    db.commit()
+    for step in steps:
+        db.refresh(step)
+    for error in errors:
+        db.refresh(error)
+    db.refresh(submission)
+    try:
+        from .scoring import persist_ai_score
+        persist_ai_score(db, submission, steps)
+    except Exception:
+        db.rollback()
+    return submission, steps, errors
+
+
 # ---------------------------------------------------------------- 订正判定
 
 def verify_correction(db, error: Error, content: str) -> Tuple[Optional[bool], str]:

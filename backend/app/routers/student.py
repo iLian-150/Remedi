@@ -80,7 +80,13 @@ from ..services import variant_gen
 from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services import scoring as scoring_svc
-from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
+from ..services.diagnosis import (
+    diagnose_submission,
+    diagnose_visual_submission,
+    present_diagnosis,
+    present_error,
+    verify_correction,
+)
 from ..services.answer_check import (
     student_visible_linear_error_detail,
     student_visible_reference_answer,
@@ -968,9 +974,13 @@ async def photo_review(
         return chat_session.id
 
     recognition = await run_in_threadpool(
-        get_provider().transcribe_image, data, file.content_type, context, question is None
+        get_provider().diagnose_math_image, data, file.content_type, context
     )
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
+    visual_steps = recognition.get("steps", [])
+    steps = [str(step.get("text", "")).strip() for step in visual_steps
+             if isinstance(step, dict) and str(step.get("text", "")).strip()]
+    has_work = bool(recognition.get("student_work_detected", bool(visual_steps)))
     if recognition.get("needs_image_review") or confidence < 0.45:
         save_chat_result("这张照片暂时无法可靠辨认，请拍清楚题目和作答后重试。")
         raise HTTPException(
@@ -979,8 +989,6 @@ async def photo_review(
         )
 
     question_text = str(recognition.get("question_text", "")).strip() or (question.stem if question else "")
-    steps = [str(step).strip() for step in recognition.get("steps", []) if str(step).strip()]
-    has_work = bool(recognition.get("student_work_detected", bool(steps)))
     if not has_work:
         if not question_text:
             save_chat_result("这张照片里没有识别到题目内容，请拍清楚题干后重试。")
@@ -1046,7 +1054,7 @@ async def photo_review(
         db.add(question)
         db.flush()
 
-    submission, _, _ = diagnose_submission(db, current, question, steps)
+    submission, _, _ = diagnose_visual_submission(db, current, question, visual_steps)
     if stored_image_path is None:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
         stored_image_path = "{}_{}{}".format(
@@ -1155,10 +1163,10 @@ async def photo_diagnose(
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
-    """将学生原图送入视觉 Provider，识别证据充分后复用 Remedi 数学分步诊断。
+    """将学生原图直接交给视觉模型逐步判对错，并将判断落入 Submission/Step/Error。
 
-    不清晰或没有学生作答时不创建 Submission/Error，避免把题目本身或识别噪声
-    写进错题本。手动转写/编辑入口仍由 /photo-transcribe + /submissions 提供。
+    图片无法辨认或没有学生作答时不创建 Submission/Error；手动转写/编辑入口仍由
+    /photo-transcribe + /submissions 提供。
     """
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
@@ -1175,19 +1183,21 @@ async def photo_diagnose(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前原图诊断入口仅支持数学题")
 
     recognition = await run_in_threadpool(
-        get_provider().transcribe_image,
+        get_provider().diagnose_math_image,
         data,
         file.content_type,
         question.stem,
     )
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
-    steps = [str(step).strip() for step in recognition.get("steps", []) if str(step).strip()]
+    visual_steps = recognition.get("steps", [])
+    steps = [str(step.get("text", "")).strip() for step in visual_steps
+             if isinstance(step, dict) and str(step.get("text", "")).strip()]
     if recognition.get("needs_image_review") or confidence < 0.45:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "这张照片暂时无法可靠辨认，没有生成错题记录。请拍清楚题目和作答过程后重试。",
         )
-    if not recognition.get("student_work_detected", bool(steps)) or not steps:
+    if not recognition.get("student_work_detected", bool(visual_steps)) or not visual_steps:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "照片中没有识别到学生作答，没有生成错题记录。请上传包含作答过程的照片。",
@@ -1215,7 +1225,7 @@ async def photo_diagnose(
             "recognition_confidence": confidence,
         })
         return out
-    submission, _, _ = diagnose_submission(db, current, question, steps)
+    submission, _, _ = diagnose_visual_submission(db, current, question, visual_steps)
     _save_submission_image_link(db, submission, image_path, image_name)
     review_svc.create_review_if_needed(db, submission)
     result = present_for_student(submission, db)

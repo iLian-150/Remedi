@@ -33,6 +33,11 @@ class LLMProvider(ABC):
                          question_context: str = "", question_only: bool = False) -> Dict:
         """读取作业原图，返回题干、步骤和视觉识别质量信息。"""
 
+    def diagnose_math_image(self, image_bytes: bytes, content_type: str,
+                            question_context: str = "") -> Dict:
+        """直接基于作业原图判断学生步骤对错，不依赖文本公式解析器。"""
+        raise RuntimeError("当前模型 Provider 不支持数学作业图片诊断")
+
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
         """模型 Provider 未实现出题时明确报错，不返回预置题目。"""
         raise RuntimeError("当前模型 Provider 不支持生成变式题")
@@ -335,6 +340,88 @@ class CloudflareProvider(DeepSeekProvider):
         except Exception as e:
             logger.exception("LLM transcribe_image 调用失败")
             raise RuntimeError("图片识别失败，请检查图片后重试") from e
+
+    def diagnose_math_image(self, image_bytes: bytes, content_type: str,
+                            question_context: str = "") -> Dict:
+        """让视觉模型直接阅读题目与作答，并逐步判断正误和错因。"""
+        from ..config import settings
+
+        try:
+            data_url = "data:{};base64,{}".format(
+                content_type or "image/jpeg",
+                base64.b64encode(image_bytes).decode("ascii"),
+            )
+            prompt = (
+                "请直接观察这张数学作业原图，同时理解题目、学生实际作答和图形信息，完成批改。"
+                f"已知题目参考：{question_context or '请从图片中理解题目'}。"
+                "请依据图像中的完整解题过程判断每一步是否正确，不要先把整张图片逐行转写后再用公式匹配来推断。"
+                "steps 只列学生本人写出的解题过程或答案，不要把印刷题干、参考答案、教师红笔勾叉当成学生步骤。"
+                "result 只能是 correct、incorrect、uncertain；判断不清时选 uncertain，并把 confidence 设为 0 到 0.59。"
+                "对 incorrect 步骤，error_type 只能是 计算失误、概念混淆、审题遗漏、无法解析，并用中文简要说明证据；"
+                "对 correct 步骤，error_type 和 detail 留空。逐步给出判断 confidence（0 到 1）。"
+                "若照片模糊、裁切，或题目/作答无法可靠辨认，needs_image_review=true；单纯错因把握低不代表图像模糊。"
+                "若只有题目而没有学生作答，student_work_detected=false 且 steps 为空。"
+                "confidence 表示图像中题目和作答的整体可辨认度，不表示错因把握。"
+                '只返回 JSON：{"question_text":"题目内容","student_work_detected":true,'
+                '"needs_image_review":false,"confidence":0.95,"steps":['
+                '{"text":"学生原步骤","result":"correct","confidence":0.95,"error_type":"","detail":""},'
+                '{"text":"学生错误步骤","result":"incorrect","confidence":0.82,"error_type":"计算失误","detail":"说明错误和判断依据"}]}。'
+            )
+            content = self._vision_text(
+                data_url,
+                "你是严谨的数学作业视觉诊断助手。直接分析图片证据，只返回 JSON，不要解释或 Markdown。",
+                prompt,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
+            )
+            data = self._extract_json(content)
+            raw_steps = data.get("steps", [])
+            if not isinstance(raw_steps, list):
+                raise ValueError("steps 必须是数组")
+
+            steps = []
+            for item in raw_steps:
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text", "")).strip()
+                if not text:
+                    continue
+                result = str(item.get("result", "uncertain")).strip().lower()
+                if result in {"正确", "对", "correct"}:
+                    result = "correct"
+                elif result in {"错误", "错", "incorrect", "wrong"}:
+                    result = "incorrect"
+                else:
+                    result = "uncertain"
+                try:
+                    step_confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
+                except (TypeError, ValueError):
+                    step_confidence = 0.5
+                error_type = str(item.get("error_type", "")).strip()
+                if error_type not in {"计算失误", "概念混淆", "审题遗漏", "无法解析"}:
+                    error_type = "无法解析" if result == "uncertain" else "审题遗漏"
+                steps.append({
+                    "text": text[:500],
+                    "result": result,
+                    "confidence": step_confidence,
+                    "error_type": error_type,
+                    "detail": str(item.get("detail", "")).strip()[:1000],
+                })
+
+            try:
+                image_confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+            except (TypeError, ValueError):
+                image_confidence = 0.0
+            question_text = str(data.get("question_text", "")).strip() or question_context
+            return {
+                "question_text": question_text[:12000],
+                "steps": steps,
+                "student_work_detected": bool(data.get("student_work_detected", bool(steps))),
+                "needs_image_review": bool(data.get("needs_image_review", not steps and not question_text)),
+                "confidence": image_confidence,
+            }
+        except Exception as e:
+            logger.exception("视觉模型数学作业诊断失败")
+            raise RuntimeError("图片诊断失败，请检查图片或稍后重试") from e
 
     def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:
         """视觉模型识别大题（v0.13.11）：共同题干 + 全部小题一次拆出。

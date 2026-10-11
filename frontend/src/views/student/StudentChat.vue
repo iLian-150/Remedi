@@ -213,6 +213,15 @@
               <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
               <div class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
             </div>
+            <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-empty': !msg.mistakeSync.errorCount }">
+              <AppIcon :name="msg.mistakeSync.errorCount ? 'check' : 'help'" :size="15" />
+              <span v-if="msg.mistakeSync.errorCount">
+                已将 {{ msg.mistakeSync.errorCount }} 条诊断记录同步到错题本和订正区
+                <small v-if="msg.mistakeSync.pendingReview">低置信度判断已提交老师复核</small>
+              </span>
+              <span v-else>本次没有发现错题，未加入错题本</span>
+              <router-link v-if="msg.mistakeSync.errorCount" to="/student/mistakes">查看错题本</router-link>
+            </div>
             <button v-if="msg.relatedMistake" type="button" class="related-mistake-link" @click="openRelatedMistake(msg.relatedMistake)">
               回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
             </button>
@@ -471,6 +480,7 @@ interface ChatMsg {
   saved: boolean
   savingCapture: boolean
   relatedMistake: RelatedMistake | null
+  mistakeSync?: { errorCount: number; pendingReview: boolean } | null
 }
 
 const messages = ref<ChatMsg[]>([])
@@ -499,7 +509,9 @@ function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
   }
   messages.value.push(msg)
   scrollToBottom()
-  return msg
+  // 返回数组中的响应式代理；返回原始对象会让异步流式文本更新绕过 Vue，
+  // 最终只在其他状态变化时整段刷新出来。
+  return messages.value[messages.value.length - 1]
 }
 
 // ---------- 题目选择（仅数学题可拍照批改） ----------
@@ -931,6 +943,10 @@ async function sendPhotoReview(file: File, prompt: string) {
       }
     } else if (res.mode === 'diagnosis' && res.diagnosis) {
       const pendingReview = res.diagnosis.status === 'pending_review'
+      wait.mistakeSync = {
+        errorCount: res.diagnosis.errors.length,
+        pendingReview
+      }
       const diagnosisContext = pendingReview
         ? '识别出的错题已同步加入错题本和订正区，并提交老师复核；不要把错因说成最终结论，仍请独立解答题目并讲清思路。'
         : res.diagnosis.errors.length
@@ -1135,6 +1151,13 @@ onMounted(async () => {
 .ai-message-markdown :deep(code) { border-radius: 4px; background: var(--surface-2, #f5f7fa); padding: 0.08em 0.25em; font-size: 0.92em; }
 .ai-message-markdown :deep(pre code) { background: transparent; padding: 0; }
 .ai-message-markdown :deep(a) { color: var(--primary); text-decoration: underline; }
+.photo-mistake-sync { display: flex; align-items: flex-start; gap: 7px; margin-top: 10px; border-radius: 8px; background: var(--green-bg); color: var(--green); padding: 9px 11px; font-size: 12px; line-height: 1.5; }
+.photo-mistake-sync.is-pending { background: var(--amber-bg); color: #92400E; }
+.photo-mistake-sync.is-empty { background: var(--surface-2, #f5f7fa); color: var(--text-2); }
+.photo-mistake-sync > span { display: flex; flex: 1; flex-direction: column; }
+.photo-mistake-sync small { margin-top: 2px; font-size: 11px; }
+.photo-mistake-sync a { flex: 0 0 auto; color: var(--primary); font-weight: 650; text-decoration: none; }
+.photo-mistake-sync a:hover { text-decoration: underline; }
 .related-mistake-link { display: inline-flex; align-items: center; gap: 3px; margin-top: 9px; padding: 0; border: 0; background: none; color: var(--primary); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
 .related-mistake-link:hover { text-decoration: underline; }
 
