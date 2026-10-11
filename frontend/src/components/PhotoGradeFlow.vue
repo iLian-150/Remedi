@@ -23,7 +23,7 @@
       <p class="pgf-card-title"><AppIcon name="book" :size="16" /> 先看题目讲解</p>
       <p class="pgf-answer-question">{{ questionText }}</p>
       <p class="pgf-answer-copy">{{ answerText }}</p>
-      <button class="btn small secondary" :disabled="savingCapture || savedCapture" @click="saveCapture">
+      <button class="btn small secondary" :disabled="busy || savingCapture || savedCapture || !answerText.trim()" @click="saveCapture">
         {{ savedCapture ? '已加入错题本' : savingCapture ? '正在收录…' : '加入错题本' }}
       </button>
     </div>
@@ -206,7 +206,8 @@ function stepIcon(s: StepStatus): IconName {
 
 function errDetail(e: unknown): string {
   const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-  return typeof d === 'string' ? d : ''
+  if (typeof d === 'string') return d
+  return e instanceof Error ? e.message : ''
 }
 
 async function onFileChange(e: Event) {
@@ -233,10 +234,13 @@ async function onFileChange(e: Event) {
     steps.value = [...res.steps]
     if (res.mode === 'answer') {
       captureId.value = res.capture_id
-      const answer = await student.agentChat(
-        `学生上传的是只有题目、没有作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。\n识别出的题目：${res.question_text.slice(0, 1600)}`
+      phase.value = 'answered'
+      answerText.value = ''
+      await student.agentChatStream(
+        `学生上传的是只有题目、没有作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。\n识别出的题目：${res.question_text.slice(0, 1600)}`,
+        student.activeSessionId,
+        (character) => { answerText.value += character }
       )
-      answerText.value = answer.reply
       phase.value = 'answered'
       return
     }
@@ -257,7 +261,8 @@ async function onFileChange(e: Event) {
   } catch (err) {
     if (captureId.value) {
       phase.value = 'answered'
-      answerText.value = `题目已经识别为「${questionText.value}」，但暂时无法生成讲解。你可以先把题目加入错题本。`
+      answerText.value = ''
+      errorText.value = '题目已识别，但模型暂时无法生成讲解：' + (errDetail(err) || '请稍后重试。')
     } else {
       phase.value = 'idle'
       errorText.value = '识别失败：' + (errDetail(err) || '请稍后重试。')

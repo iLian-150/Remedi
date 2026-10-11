@@ -36,7 +36,6 @@ from ..models import (
 )
 from ..schemas import (
     AgentChatIn,
-    AgentChatOut,
     AgentHistoryItem,
     AssignmentScoreItem,
     ChatSessionOut,
@@ -1210,48 +1209,9 @@ def agent_delete_session(session_id: int, db: Session = Depends(get_db),
     return {"deleted": True}
 
 
-@router.post("/agent/chat", response_model=AgentChatOut, summary="与学习助手对话")
-def agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
-               current: User = Depends(require_student)):
-    """学生主页自由对话（v0.6.0 会话制）：解析目标会话（body.session_id 指定 /
-    缺省取当前会话，没有则自动新建）→ 只取该会话最近 20 条组上下文 → 跑 Agent 图
-    （或规则兜底）→ 两条消息写入该会话 → 返回回复 + 建议追问。会话间上下文隔离。
-    LLM 异常在 Agent 层已降级，不会 500。"""
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    from ..agent.graph import agent_reply_full
-    from ..agent.suggestions import student_suggestions
-    from ..services import chat_sessions as cs
-
-    text = body.message.strip()
-    if not text:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息不能为空")
-    if len(text) > _AGENT_MSG_MAX:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
-
-    cs.ensure_migrated(db, current)
-    if body.session_id is not None:
-        session = cs.get_own_session(db, current, body.session_id)
-        if session is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
-    else:
-        session = cs.get_or_create_current(db, current)
-
-    rows = cs.session_messages(db, session, limit=_AGENT_HISTORY_WINDOW)
-    history = [
-        HumanMessage(content=r.content) if r.role == "user" else AIMessage(content=r.content)
-        for r in rows
-    ]
-    result = agent_reply_full(db, current, history, text)
-    reply = result["reply"]
-
-    cs.append_message(db, session, "user", text)
-    cs.append_message(db, session, "assistant", reply)
-    return {
-        "reply": reply,
-        "suggestions": student_suggestions(text, result.get("tools_used")),
-        "session_id": session.id,
-    }
+@router.post("/agent/chat", summary="已停用：请使用学习助手流式接口")
+def agent_chat_legacy(current: User = Depends(require_student)):
+    raise HTTPException(status.HTTP_410_GONE, "此接口已停用，请改用 /api/student/agent/chat/stream")
 
 
 @router.post("/agent/chat/stream", summary="与学习助手流式对话")
@@ -1311,7 +1271,6 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
             })
         except Exception:
             logger.exception("学生学习助手流式回复中断")
-            cs.append_message(db, session, "assistant", "本次回复生成中断，请重新发送问题。")
             yield event("error", {"detail": "回复生成中断，请稍后重试。"})
 
     return StreamingResponse(

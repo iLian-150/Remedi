@@ -163,12 +163,14 @@ async function sendQuestion() {
   sending.value = true
   summaryCollapsed.value = true
   try {
-    const result = await student.agentChat(context)
-    messages.value[messages.value.length - 1].content = result.reply
-  } catch {
+    const assistantMessage = messages.value[messages.value.length - 1]
+    await student.agentChatStream(context, student.activeSessionId, (character) => {
+      assistantMessage.content += character
+    })
+  } catch (err) {
     messages.value.pop()
     question.value = text
-    error.value = '暂时无法回答，请确认学习助手服务可用后重试。'
+    error.value = err instanceof Error ? err.message : '暂时无法回答，请稍后重试。'
   } finally {
     sending.value = false
   }

@@ -813,8 +813,9 @@ async function sendPhotoReview(file: File, prompt: string) {
     }
   } catch (err) {
     if (wait.captureId) {
-      wait.kind = 'text'
-      wait.text = `题目已经识别为「${wait.questionText}」，但暂时无法生成讲解。你可以稍后追问，或先把题目加入错题本。`
+      wait.kind = 'error'
+      wait.captureId = null
+      wait.text = '题目已识别，但模型暂时无法生成讲解：' + (errDetail(err) || '请稍后重试。')
     } else {
       wait.kind = 'error'
       wait.text = '识别失败：' + (errDetail(err) || '请稍后重试。')

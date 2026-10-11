@@ -138,7 +138,8 @@ function scrollToBottom() {
 
 function errDetail(e: unknown): string {
   const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-  return typeof d === 'string' ? d : ''
+  if (typeof d === 'string') return d
+  return e instanceof Error ? e.message : ''
 }
 
 function showToast(text: string) {
@@ -162,8 +163,17 @@ async function sendText(raw: string) {
   const wait = pushMsg('ai', '正在查询…', true)
   sending.value = true
   try {
-    const res = await teacher.agentChat(text, teacher.activeSessionId)
-    wait.text = res.reply
+    wait.text = ''
+    let receivedCharacter = false
+    const res = await teacher.agentChatStream(text, teacher.activeSessionId, (character) => {
+      if (!receivedCharacter) {
+        wait.text = ''
+        wait.pending = false
+        receivedCharacter = true
+      }
+      wait.text += character
+      scrollToBottom()
+    })
     if (res.session_id) teacher.setActiveSession(res.session_id)
     suggestions.value = res.suggestions ?? []
     // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排

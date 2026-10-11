@@ -1,11 +1,7 @@
 # LLM Provider 抽象层。
 #   - LLMProvider：抽象类，定义 classify_error / score_essay / generate_feedback
-#   - MockProvider：确定性返回，无需 key，保证全流程可跑（默认）
-#   - DeepSeekProvider：调 DeepSeek Chat Completions；未配置 DEEPSEEK_API_KEY
-#     或请求异常时自动降级为 Mock，保证流程不中断
-#   - CloudflareProvider：调 Cloudflare Workers AI（OpenAI 兼容接口，免费额度
-#     10,000 Neurons/天）；继承 DeepSeekProvider 的调用与降级逻辑
-# 切换：环境变量 LLM_PROVIDER=mock|deepseek|cloudflare（默认 mock）
+#   - CloudflareProvider：统一调用 Cloudflare Workers AI；未配置凭证或调用失败时明确报错，
+#     不返回 Mock 模拟结果。
 import base64
 import json
 import logging
@@ -38,16 +34,8 @@ class LLMProvider(ABC):
         """读取作业原图，返回题干、步骤和视觉识别质量信息。"""
 
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
-        """兜底出题（v0.4.0）：变式题服务在知识点无参数模板时调用。
-        返回 {prompt, standard_steps, answer}（此处不验算，由 variant_gen 用
-        sympy 复核：通过 → 严格模式，未通过 → 练习模式）。
-        默认实现返回一道预置同类题，保证 mock 模式全流程可跑；
-        真实 Provider 覆写为调模型生成。"""
-        return {
-            "prompt": "解方程：3x+5=20",
-            "standard_steps": ["3x+5=20", "3x=20-5", "3x=15", "x=5"],
-            "answer": "x=5",
-        }
+        """模型 Provider 未实现出题时明确报错，不返回预置题目。"""
+        raise RuntimeError("当前模型 Provider 不支持生成变式题")
 
     def guess_knowledge_point(self, question_stem: str) -> str:
         """按题干猜知识点名（v0.13.0）：发布页知识点栏「AI 识别」的兜底实现。
@@ -75,29 +63,17 @@ class LLMProvider(ABC):
                                     hint: str = "") -> List[Dict]:
         """从练习册页面图里提取题目草稿（v0.13.0）：返回 [{prompt, knowledge_point}]。
 
-        默认实现（Mock 与无视觉能力的 Provider 共用）返回带「示例草稿」前缀的
-        预置题，保证无模型时全流程可跑、且一眼可辨不是真识别；
-        CloudflareProvider 覆写为视觉模型逐页拆题。
+        未实现视觉识别的 Provider 明确报错；CloudflareProvider 由视觉模型逐页拆题。
         契约：返回值永远只是草稿——发布前必须由教师在题目卡里检查修改。"""
-        return [
-            {"prompt": "（示例草稿）解方程：2x+3=7", "knowledge_point": "一元一次方程"},
-            {"prompt": "（示例草稿）计算：√12+√27", "knowledge_point": "二次根式的加减"},
-        ]
+        raise RuntimeError("当前模型 Provider 不支持练习册页面识别")
 
     def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:
         """拍照识别大题（v0.13.11）：一张图 → {stem, sub_questions:[{question_text, steps}]}。
 
-        默认实现（Mock 与无视觉能力的 Provider 共用）返回罐头大题（深拷贝）；
-        CloudflareProvider 覆写为视觉模型一次拆出共同题干与全部小题——
+        未实现视觉识别的 Provider 明确报错；CloudflareProvider 由视觉模型一次拆出共同题干与全部小题——
         识别入口在大题层级，不再逐个小题拍照。与单题转写同一契约：
         返回值永远只是草稿，教师检查修改后才发布。"""
-        return {
-            "stem": MOCK_GROUP_TRANSCRIPTION["stem"],
-            "sub_questions": [
-                {"question_text": s["question_text"], "steps": list(s["steps"])}
-                for s in MOCK_GROUP_TRANSCRIPTION["sub_questions"]
-            ],
-        }
+        raise RuntimeError("当前模型 Provider 不支持大题图片识别")
 
 
 # ---------------------------------------------------------------- Mock（确定性）
@@ -289,7 +265,7 @@ class MockProvider(LLMProvider):
 # ---------------------------------------------------------------- DeepSeek
 
 class DeepSeekProvider(LLMProvider):
-    """调 DeepSeek Chat Completions。构造时无 key 直接抛错，由工厂降级为 Mock。"""
+    """调 OpenAI 兼容 Chat Completions。CloudflareProvider 复用此请求实现。"""
 
     def __init__(self, api_key: str, base_url: str, model: str):
         if not api_key:
@@ -297,10 +273,11 @@ class DeepSeekProvider(LLMProvider):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self._mock = MockProvider()  # 异常时的兜底
 
     def _chat(self, system: str, user: str, temperature: float = 0.2) -> str:
         import requests
+        from ..config import settings
+
         resp = requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
@@ -312,7 +289,7 @@ class DeepSeekProvider(LLMProvider):
                     {"role": "user", "content": user},
                 ],
             },
-            timeout=30,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
@@ -341,8 +318,8 @@ class DeepSeekProvider(LLMProvider):
             data["confidence"] = max(0.0, min(1.0, float(data.get("confidence", 0.5))))
             return data
         except Exception as e:
-            logger.warning("LLM classify_error 失败，降级为规则结果: %s", e)
-            return dict(rule_result)
+            logger.exception("LLM classify_error 调用失败")
+            raise RuntimeError("错因分类模型调用失败，请稍后重试") from e
 
     def score_essay(self, *, text, prompt=None) -> Dict:
         try:
@@ -365,8 +342,8 @@ class DeepSeekProvider(LLMProvider):
                 "overall": data.get("overall", ""),
             }
         except Exception as e:
-            logger.warning("LLM score_essay 失败，降级为 Mock: %s", e)
-            return self._mock.score_essay(text=text, prompt=prompt)
+            logger.exception("LLM score_essay 调用失败")
+            raise RuntimeError("作文评分模型调用失败，请稍后重试") from e
 
     def generate_feedback(self, *, student_name, summary) -> str:
         try:
@@ -375,14 +352,12 @@ class DeepSeekProvider(LLMProvider):
                 f"学生：{student_name}\n学习画像：{json.dumps(summary, ensure_ascii=False, default=str)}",
             ).strip()
         except Exception as e:
-            logger.warning("LLM generate_feedback 失败，降级为 Mock: %s", e)
-            return self._mock.generate_feedback(student_name=student_name, summary=summary)
+            logger.exception("LLM generate_feedback 调用失败")
+            raise RuntimeError("学习建议模型调用失败，请稍后重试") from e
 
     def transcribe_image(self, image_bytes: bytes, content_type: str,
                          question_context: str = "", question_only: bool = False) -> Dict:
-        # DeepSeek 文本接口无视觉能力，直接用 Mock 转写兜底，保证流程不中断
-        logger.info("DeepSeek 无视觉能力，拍照转写降级为 Mock 转写结果")
-        return self._mock.transcribe_image(image_bytes, content_type, question_context, question_only)
+        raise RuntimeError("当前模型不支持图片识别")
 
     def guess_knowledge_point(self, question_stem: str) -> str:
         """文本模型判断知识点名；答非所问/异常时退回基类关键词启发式（v0.13.0）。"""
@@ -397,11 +372,12 @@ class DeepSeekProvider(LLMProvider):
             if 0 < len(name) <= 24:
                 return name
         except Exception as e:
-            logger.warning("知识点识别失败，退回关键词启发式: %s", e)
-        return super().guess_knowledge_point(question_stem)
+            logger.exception("知识点识别调用失败")
+            raise RuntimeError("知识点识别模型调用失败，请稍后重试") from e
+        raise RuntimeError("模型未返回有效的知识点名称，请稍后重试")
 
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
-        """调模型为无模板的知识点生成同类题；异常/结构不合法时降级为预置题。"""
+        """调模型为无模板的知识点生成同类题；异常或结构不合法时明确报错。"""
         try:
             out = self._chat(
                 "你是数学出题助手。只返回 JSON，不要解释。",
@@ -422,8 +398,8 @@ class DeepSeekProvider(LLMProvider):
                 "answer": str(data.get("answer", "")).strip(),
             }
         except Exception as e:
-            logger.warning("LLM generate_variant_question 失败，降级为预置题: %s", e)
-            return super().generate_variant_question(knowledge_point=knowledge_point)
+            logger.exception("LLM generate_variant_question 调用失败")
+            raise RuntimeError("变式题生成失败，请稍后重试") from e
 
 
 # ---------------------------------------------------------------- Cloudflare Workers AI
@@ -434,7 +410,7 @@ class CloudflareProvider(DeepSeekProvider):
     base_url 形如 https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1，
     其 /chat/completions 与 DeepSeek 的请求/响应结构一致，直接复用父类逻辑。
     默认模型 @cf/qwen/qwen3.8-27b（质量更高；单价约为旧 30b-a3b 的 9 倍，免费额度内约数十次对话/天）。
-    未配置 account_id / token 时构造抛错，由工厂降级为 Mock。
+    未配置 account_id / token 时构造抛错；模型不可用时明确报错，不生成模拟内容。
     """
 
     def __init__(self, account_id: str, api_token: str, model: str,
@@ -502,7 +478,9 @@ class CloudflareProvider(DeepSeekProvider):
     def transcribe_image(self, image_bytes: bytes, content_type: str,
                          question_context: str = "", question_only: bool = False) -> Dict:
         """视觉模型直接读取作答原图，并报告识别把握和作答证据。
-        解析失败/请求异常时降级为 Mock 转写（沿用全站降级风格，流程不中断）。"""
+        解析失败或请求异常时明确报错，不返回模拟转写。"""
+        from ..config import settings
+
         try:
             data_url = "data:{};base64,{}".format(
                 content_type or "image/jpeg",
@@ -524,7 +502,7 @@ class CloudflareProvider(DeepSeekProvider):
                 data_url,
                 "你是作业照片理解助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
                 prompt,
-                timeout=60,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
             )
             data = self._extract_json(content)
             steps = [str(s).strip() for s in data.get("steps", []) if str(s).strip()]
@@ -541,16 +519,17 @@ class CloudflareProvider(DeepSeekProvider):
                 "confidence": confidence,
             }
         except Exception as e:
-            logger.warning("LLM transcribe_image 失败，降级为 Mock 转写: %s", e)
-            return self._mock.transcribe_image(image_bytes, content_type, question_context, question_only)
+            logger.exception("LLM transcribe_image 调用失败")
+            raise RuntimeError("图片识别失败，请检查图片后重试") from e
 
     def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:
         """视觉模型识别大题（v0.13.11）：共同题干 + 全部小题一次拆出。
 
         照片通常是大题原题（可能带印刷/手写解题过程）：stem 放共同材料，
         每道小题的题干放 question_text；照片里有该小题的解题过程才填 steps，
-        没有就留空数组（教师后续可补标准步骤）。解析失败/请求异常时降级为
-        Mock 罐头大题（沿用全站降级风格，流程不中断）。"""
+        没有就留空数组（教师后续可补标准步骤）。解析失败或请求异常时明确报错。"""
+        from ..config import settings
+
         try:
             data_url = "data:{};base64,{}".format(
                 content_type or "image/jpeg",
@@ -569,7 +548,7 @@ class CloudflareProvider(DeepSeekProvider):
                 data_url,
                 "你是作业照片理解助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
                 prompt,
-                timeout=90,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
             )
             data = self._extract_json(content)
             stem = str(data.get("stem", "")).strip()
@@ -586,8 +565,8 @@ class CloudflareProvider(DeepSeekProvider):
                 raise ValueError("大题识别结果为空")
             return {"stem": stem, "sub_questions": subs}
         except Exception as e:
-            logger.warning("LLM transcribe_group_image 失败，降级为 Mock 大题: %s", e)
-            return self._mock.transcribe_group_image(image_bytes, content_type)
+            logger.exception("LLM transcribe_group_image 调用失败")
+            raise RuntimeError("大题图片识别失败，请稍后重试") from e
 
 
     def extract_questions_from_page(self, image_bytes: bytes, content_type: str,
@@ -595,8 +574,9 @@ class CloudflareProvider(DeepSeekProvider):
         """视觉模型逐页拆题（v0.13.0）：一页练习册图 → 多道题目草稿。
 
         与 transcribe_image 的区别：那是单题+学生作答的转写；这里只要题干，
-        一页多题全部提取、按页面顺序返回。异常时降级为基类示例草稿并记日志
-        （与全站降级风格一致，草稿带前缀不会被误认为真识别）。"""
+        一页多题全部提取、按页面顺序返回。异常或无效结果时明确报错。"""
+        from ..config import settings
+
         try:
             data_url = "data:{};base64,{}".format(
                 content_type or "image/jpeg",
@@ -615,7 +595,7 @@ class CloudflareProvider(DeepSeekProvider):
                 data_url,
                 "你是练习册题目提取助手。只返回 JSON，不要解释、不要 Markdown 代码块。",
                 prompt,
-                timeout=90,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
             )
             data = self._extract_json(content)
             out: List[Dict] = []
@@ -631,8 +611,8 @@ class CloudflareProvider(DeepSeekProvider):
                     out.append({"prompt": item.strip(), "knowledge_point": ""})
             return out
         except Exception as e:
-            logger.warning("LLM 页面提题失败，降级为示例草稿: %s", e)
-            return super().extract_questions_from_page(image_bytes, content_type, hint)
+            logger.exception("LLM 页面提题调用失败")
+            raise RuntimeError("练习册页面识别失败，请稍后重试") from e
 
 
 # ---------------------------------------------------------------- 工厂
@@ -641,37 +621,20 @@ _provider = None
 
 
 def get_provider() -> LLMProvider:
-    """按 LLM_PROVIDER 选择实现；deepseek/cloudflare 未配置凭证时自动降级 mock。"""
+    """只返回 Cloudflare Provider；配置或服务异常时抛错，不自动切换到模拟实现。"""
     global _provider
     if _provider is not None:
         return _provider
     from ..config import settings
-    if settings.LLM_PROVIDER == "deepseek":
-        try:
-            _provider = DeepSeekProvider(
-                api_key=settings.DEEPSEEK_API_KEY,
-                base_url=settings.DEEPSEEK_BASE_URL,
-                model=settings.DEEPSEEK_MODEL,
-            )
-            logger.info("LLM Provider: deepseek (%s)", settings.DEEPSEEK_MODEL)
-        except Exception as e:
-            logger.warning("DeepSeek 初始化失败（%s），自动降级为 Mock", e)
-            _provider = MockProvider()
-    elif settings.LLM_PROVIDER == "cloudflare":
-        try:
-            _provider = CloudflareProvider(
-                account_id=settings.CLOUDFLARE_ACCOUNT_ID,
-                api_token=settings.CLOUDFLARE_API_TOKEN,
-                model=settings.CLOUDFLARE_MODEL,
-                vision_model=settings.CLOUDFLARE_VISION_MODEL,
-            )
-            logger.info("LLM Provider: cloudflare (%s)", settings.CLOUDFLARE_MODEL)
-        except Exception as e:
-            logger.warning("Cloudflare 初始化失败（%s），自动降级为 Mock", e)
-            _provider = MockProvider()
-    else:
-        _provider = MockProvider()
-        logger.info("LLM Provider: mock")
+    if settings.LLM_PROVIDER != "cloudflare":
+        raise RuntimeError("LLM_PROVIDER 必须设为 cloudflare，当前不提供 Mock 或其他模型")
+    _provider = CloudflareProvider(
+        account_id=settings.CLOUDFLARE_ACCOUNT_ID,
+        api_token=settings.CLOUDFLARE_API_TOKEN,
+        model=settings.CLOUDFLARE_MODEL,
+        vision_model=settings.CLOUDFLARE_VISION_MODEL,
+    )
+    logger.info("LLM Provider: cloudflare (%s)", settings.CLOUDFLARE_MODEL)
     return _provider
 
 

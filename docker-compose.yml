@@ -14,15 +14,13 @@ services:
       - DATABASE_URL=sqlite:////data/remedi.db
       - UPLOAD_DIR=/data/uploads
       - CORS_ORIGINS=*
-      # LLM：默认 mock（无需 key 跑全流程）
-      # DeepSeek：改 LLM_PROVIDER=deepseek 并填写 DEEPSEEK_API_KEY
-      # Cloudflare Workers AI（免费 10,000 Neurons/天）：改 LLM_PROVIDER=cloudflare
-      #   并填写 CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN
-      - LLM_PROVIDER=mock
-      # - DEEPSEEK_API_KEY=sk-xxx
-      # - CLOUDFLARE_ACCOUNT_ID=
-      # - CLOUDFLARE_API_TOKEN=
-      # - CLOUDFLARE_MODEL=@cf/qwen/qwen3-30b-a3b-fp8
+      # 所有 AI 提问固定使用 Cloudflare；凭证通过服务器本地 override 或宿主环境变量提供。
+      - LLM_PROVIDER=cloudflare
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-120}
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+      - CLOUDFLARE_MODEL=${CLOUDFLARE_MODEL:-@cf/qwen/qwen3-30b-a3b-fp8}
+      - CLOUDFLARE_VISION_MODEL=${CLOUDFLARE_VISION_MODEL:-@cf/qwen/qwen3.8-27b}
     restart: unless-stopped
 
   web:

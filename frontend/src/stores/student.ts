@@ -191,8 +191,8 @@ export const useStudentStore = defineStore('student', {
       }
       const { data } = await api.post<PhotoReviewResult>('/api/student/photo-review', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        // 视觉模型最多等待 60 秒；给网络和后端收尾留出余量，避免前端先超时。
-        timeout: 90000
+        // 视觉模型等待上限 120 秒，与后端统一配置保持一致。
+        timeout: 120000
       })
       return data
     },
@@ -218,13 +218,6 @@ export const useStudentStore = defineStore('student', {
     },
     // 3.15 与学习助手对话（v0.3.0，LangGraph Agent；v0.6.0 会话制：可指定 session_id，
     // 响应含建议追问 suggestions 与实际写入的 session_id）
-    async agentChat(message: string, sessionId?: number | null): Promise<AgentChatResult> {
-      const { data } = await api.post<AgentChatResult>('/api/student/agent/chat', {
-        message,
-        session_id: sessionId ?? undefined
-      })
-      return data
-    },
     async agentChatStream(
       message: string,
       sessionId: number | null | undefined,

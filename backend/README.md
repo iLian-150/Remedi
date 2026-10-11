@@ -68,10 +68,12 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./remedi.db` | 数据库连接串；切 PG 改为 `postgresql+psycopg2://…` |
-| `LLM_PROVIDER` | `mock` | `mock`（确定性，无需 key）\| `deepseek` |
-| `DEEPSEEK_API_KEY` | 空 | 未配置时 DeepSeek 自动降级为 Mock |
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | — |
-| `DEEPSEEK_MODEL` | `deepseek-chat` | — |
+| `LLM_PROVIDER` | `cloudflare` | 当前固定使用 Cloudflare Workers AI；其他值会明确报错，不自动切 Mock |
+| `CLOUDFLARE_ACCOUNT_ID` | 空 | Cloudflare 账号 ID；必填 |
+| `CLOUDFLARE_API_TOKEN` | 空 | Workers AI API Token；必填 |
+| `CLOUDFLARE_MODEL` | `@cf/qwen/qwen3-30b-a3b-fp8` | 文本问答模型 |
+| `CLOUDFLARE_VISION_MODEL` | `@cf/qwen/qwen3.8-27b` | 图片识别模型 |
+| `LLM_TIMEOUT_SECONDS` | `120` | 对话模型等待上限（秒） |
 | `STUBBORN_WINDOW_DAYS` | `30` | 顽固误区判定窗口（天） |
 | `CORS_ORIGINS` | `*` | 允许的前端来源，逗号分隔 |
 
@@ -91,7 +93,7 @@ backend/
 │   ├── services/
 │   │   ├── mathparse.py   # sympy 安全解析（parse_expr 白名单）
 │   │   ├── diagnosis.py   # 分步诊断、等价性判定、误区模式库、顽固判定、订正判定
-│   │   ├── providers.py   # LLMProvider 抽象 + Mock + DeepSeek（含降级）
+│   │   ├── providers.py   # Cloudflare Workers AI Provider；失败明确报错
 │   │   ├── essays.py      # 作文评分落库
 │   │   └── stats.py       # TopN / 知识点排行 / 学生画像
 │   └── routers/
@@ -112,7 +114,7 @@ backend/
 - 找到**第一个**不等价步骤即停止（后续记 skipped），做错因分类。
 - 解析失败的步骤记 `无法解析`（置信度 0.3），流程继续、基准不变。
 
-**错因分类**（先规则后模型）：误区模式库（(a±b)² 漏交叉项 / 移项不变号 / 分配律漏乘）命中→概念混淆（0.85）；数字微调 ±1/±2/±3 后等价→计算失误（0.7）；兜底→审题遗漏（0.5）。之后调 `LLMProvider.classify_error` 复核（Mock 原样返回）。
+**错因分类**（先规则后模型）：误区模式库（(a±b)² 漏交叉项 / 移项不变号 / 分配律漏乘）命中→概念混淆（0.85）；数字微调 ±1/±2/±3 后等价→计算失误（0.7）；兜底→审题遗漏（0.5）。之后由 Cloudflare Workers AI 复核；模型不可用时只保留本地规则判断，不拼接模拟回复。
 
 **顽固误区**：同学生同知识点过去 N 天（默认 30）内已有错误 → `is_stubborn=true`。
 
@@ -125,5 +127,5 @@ backend/
 3. **算术偏差检测只试 ±1/±2/±3 的数字微调**，复杂口算错误（如 7×8=54）识别不到。
 4. **隐式乘法与符号**：`2x` 可解析；但 `xy` 会被当作单个变量名；中文注释会被剥离，残留中文则整步记无法解析。
 5. **订正判定**只验证"订正内容与出错前一步等价"，不检查订正是否真正修复了错误类型。
-6. **Mock 作文评分是启发式**（词数/连接词/简单正则语法检查），不是真正的语言模型评分；切 `LLM_PROVIDER=deepseek` 可获得真实评分。
+6. 当前部署不启用 Mock 作文评分；作文评分使用 Cloudflare Workers AI，调用失败会返回模型错误。
 7. **SQLite 并发写入能力弱**，仅适合 MVP 演示；生产切 PostgreSQL（表结构已兼容，改 `DATABASE_URL` 即可）。

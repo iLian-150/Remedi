@@ -458,7 +458,7 @@ export interface ChatSession {
   message_count: number
 }
 
-// POST /api/{role}/agent/chat 响应：回复 + 建议追问 + 实际写入的会话
+// SSE done 事件数据：回复 + 建议追问 + 实际写入的会话
 export interface AgentChatResult {
   reply: string
   suggestions: string[]

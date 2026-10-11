@@ -2,6 +2,7 @@
 // 路径与字段严格对齐 docs/api-contract.md v0.1.0
 import { defineStore } from 'pinia'
 import api from '../api/client'
+import { useAuthStore } from './auth'
 import type {
   AgentChatResult,
   AgentHistoryItem,
@@ -134,12 +135,77 @@ export const useTeacherStore = defineStore('teacher', {
     },
     // 4.12 与班级数据助理对话（v0.5.0，LangGraph 教师 Agent；v0.6.0 会话制：可指定
     // session_id，响应含建议追问 suggestions 与实际写入的 session_id）
-    async agentChat(message: string, sessionId?: number | null): Promise<AgentChatResult> {
-      const { data } = await api.post<AgentChatResult>('/api/teacher/agent/chat', {
-        message,
-        session_id: sessionId ?? undefined
+    async agentChatStream(
+      message: string,
+      sessionId: number | null | undefined,
+      onCharacter: (character: string) => void
+    ): Promise<AgentChatResult> {
+      const auth = useAuthStore()
+      const response = await fetch(api.getUri({ url: '/api/teacher/agent/chat/stream' }), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {})
+        },
+        body: JSON.stringify({ message, session_id: sessionId ?? undefined })
       })
-      return data
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: unknown } | null
+        if (response.status === 401) {
+          auth.logout()
+          if (window.location.pathname !== '/') window.location.href = '/'
+        }
+        const detail = typeof payload?.detail === 'string' ? payload.detail : ''
+        throw new Error(detail || `教师助手请求失败（HTTP ${response.status}）`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('浏览器无法读取教师助手的流式回复。')
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let result: AgentChatResult | null = null
+      const consumeEvent = async (block: string) => {
+        let eventName = ''
+        const dataLines: string[] = []
+        for (const line of block.split('\n')) {
+          if (!line || line.startsWith(':')) continue
+          const separator = line.indexOf(':')
+          const field = separator < 0 ? line : line.slice(0, separator)
+          let value = separator < 0 ? '' : line.slice(separator + 1)
+          if (value.startsWith(' ')) value = value.slice(1)
+          if (field === 'event') eventName = value
+          else if (field === 'data') dataLines.push(value)
+        }
+        if (!dataLines.length) return
+        const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
+        if (eventName === 'token') {
+          const text = typeof payload.text === 'string' ? payload.text : ''
+          for (const character of Array.from(text)) {
+            onCharacter(character)
+            await new Promise((resolve) => window.setTimeout(resolve, 18))
+          }
+        } else if (eventName === 'done') {
+          result = payload as unknown as AgentChatResult
+        } else if (eventName === 'error') {
+          throw new Error(typeof payload.detail === 'string' ? payload.detail : '回复生成中断，请稍后重试。')
+        }
+      }
+
+      while (true) {
+        const { value, done } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        let boundary = buffer.indexOf('\n\n')
+        while (boundary >= 0) {
+          await consumeEvent(buffer.slice(0, boundary))
+          buffer = buffer.slice(boundary + 2)
+          boundary = buffer.indexOf('\n\n')
+        }
+        if (done) break
+      }
+      if (buffer.trim()) await consumeEvent(buffer)
+      if (!result) throw new Error('教师助手的流式回复没有正常结束，请重试。')
+      return result
     },
     // 4.13 教师对话历史（v0.5.0；v0.6.0 起返回当前会话最近 50 条）
     async fetchAgentHistory(): Promise<AgentHistoryItem[]> {

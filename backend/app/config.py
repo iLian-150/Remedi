@@ -14,20 +14,21 @@ class Settings:
     # 切 PostgreSQL 时改为 postgresql+psycopg2://user:pass@host/db 即可，代码零改动。
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./remedi.db")
 
-    # LLM Provider：mock（默认，确定性，无需 key）| deepseek | cloudflare
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "mock").strip().lower()
+    # 所有模型问答统一走 Cloudflare Workers AI；服务不可用时明确报错，不返回模拟答案。
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "cloudflare").strip().lower()
+    LLM_TIMEOUT_SECONDS: int = _get_int("LLM_TIMEOUT_SECONDS", 120)
 
-    # DeepSeek 配置。未配置 DEEPSEEK_API_KEY 时 DeepSeekProvider 自动降级为 Mock。
+    # 保留 DeepSeek 环境变量用于迁移兼容；当前应用只启用 Cloudflare Provider。
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
     # Cloudflare Workers AI 配置（OpenAI 兼容接口）。
-    # 未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN 时自动降级为 Mock。
+    # 未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN 时请求明确失败，不使用 Mock。
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     CLOUDFLARE_API_TOKEN: str = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
-    CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3.8-27b").strip()
-    # 视觉（拍照转写）模型。仅 CloudflareProvider 使用；其余 Provider 降级为 Mock 转写。
+    CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
+    # 视觉（拍照转写）模型；结构化图片识别仍由该视觉模型处理。
     CLOUDFLARE_VISION_MODEL: str = os.getenv(
         "CLOUDFLARE_VISION_MODEL", "@cf/qwen/qwen3.8-27b").strip()
 

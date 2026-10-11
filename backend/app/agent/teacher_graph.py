@@ -1,6 +1,5 @@
 # 教师 Agent 图组装：与学生端 graph.py 同一套结构（agent 节点 + ToolNode + 条件边），
-# LLM 构造与文本规整直接复用学生端实现，保证两条路（cloudflare / deepseek）配置一致。
-# LLM_PROVIDER=mock、无凭证、或图调用任何异常 → 降级 teacher_mock 规则回复，接口永不 500。
+# LLM 构造与文本规整直接复用学生端实现；调用失败时明确报错，不生成模拟回复。
 import logging
 from typing import List
 
@@ -10,8 +9,7 @@ from sqlalchemy.orm import Session
 from ..models import User
 from ..services.stats import knowledge_point_ranking
 from ..services.teacher_stats import class_overview, uncorrected_overview
-from .graph import _build_llm, _message_text
-from .teacher_mock import teacher_mock_reply
+from .graph import _build_llm, _message_chunk_text
 from .teacher_prompts import build_teacher_system_prompt
 from .teacher_tools import build_teacher_tools
 
@@ -37,56 +35,63 @@ def _teacher_context_summary(db: Session) -> str:
         return ""
 
 
-def teacher_agent_reply_full(db: Session, teacher: User,
-                             history: List[BaseMessage], user_text: str) -> dict:
-    """教师 Agent 回复入口（带元信息）：优先跑 LangGraph 图；不可用/异常时降级规则回复。
-    返回 {"reply": 回复文本, "tools_used": 本轮真实调用的工具名列表（降级时为空）}。"""
+def teacher_agent_reply_stream(db: Session, teacher: User,
+                               history: List[BaseMessage], user_text: str):
+    """逐块输出教师 Agent 回复；迭代结束时返回全文和实际调用的工具名。"""
+    llm = _build_llm()
+    from typing import Annotated, TypedDict
+
+    from langgraph.graph import START, StateGraph
+    from langgraph.graph.message import add_messages
+    from langgraph.prebuilt import ToolNode, tools_condition
+
+    class AgentState(TypedDict):
+        messages: Annotated[list, add_messages]
+
+    tools = build_teacher_tools(db, teacher)
+    llm_with_tools = llm.bind_tools(tools)
+
+    def call_model(state: AgentState):
+        return {"messages": [llm_with_tools.invoke(state["messages"])]}
+
+    builder = StateGraph(AgentState)
+    builder.add_node("agent", call_model)
+    builder.add_node("tools", ToolNode(tools))
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "agent")
+    graph = builder.compile()
+
+    system = build_teacher_system_prompt(teacher.name, _teacher_context_summary(db))
+    messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
+    reply_parts: list[str] = []
+    tool_names: dict[int, str] = {}
     try:
-        llm = _build_llm()
-    except Exception as e:
-        logger.warning("教师 Agent LLM 构造失败，降级为规则回复: %s", e)
-        return {"reply": teacher_mock_reply(db, teacher, user_text), "tools_used": []}
-    if llm is None:
-        return {"reply": teacher_mock_reply(db, teacher, user_text), "tools_used": []}
-    try:
-        from typing import Annotated, TypedDict
+        for part in graph.stream(
+            {"messages": messages},
+            config={"recursion_limit": 15},
+            stream_mode="messages",
+            version="v2",
+        ):
+            if part.get("type") != "messages":
+                continue
+            message_chunk, metadata = part["data"]
+            if metadata.get("langgraph_node") != "agent":
+                continue
+            text = _message_chunk_text(message_chunk)
+            if text:
+                reply_parts.append(text)
+                yield text
+            for call in getattr(message_chunk, "tool_call_chunks", None) or []:
+                name = call.get("name")
+                if name:
+                    index = call.get("index", len(tool_names))
+                    tool_names[index] = tool_names.get(index, "") + name
 
-        from langgraph.graph import START, StateGraph
-        from langgraph.graph.message import add_messages
-        from langgraph.prebuilt import ToolNode, tools_condition
-
-        class AgentState(TypedDict):
-            messages: Annotated[list, add_messages]
-
-        tools = build_teacher_tools(db, teacher)
-        llm_with_tools = llm.bind_tools(tools)
-
-        def call_model(state: AgentState):
-            return {"messages": [llm_with_tools.invoke(state["messages"])]}
-
-        builder = StateGraph(AgentState)
-        builder.add_node("agent", call_model)
-        builder.add_node("tools", ToolNode(tools))
-        builder.add_edge(START, "agent")
-        builder.add_conditional_edges("agent", tools_condition)
-        builder.add_edge("tools", "agent")
-        graph = builder.compile()
-
-        system = build_teacher_system_prompt(teacher.name, _teacher_context_summary(db))
-        messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
-        result = graph.invoke({"messages": messages}, config={"recursion_limit": 15})
-        reply = _message_text(result["messages"][-1])
+        reply = "".join(reply_parts).strip()
         if not reply:
             raise ValueError("模型返回了空回复")
-        from .graph import _tools_used
-
-        return {"reply": reply, "tools_used": _tools_used(result["messages"])}
-    except Exception as e:
-        logger.warning("教师 Agent 图调用失败，降级为规则回复: %s", e)
-        return {"reply": teacher_mock_reply(db, teacher, user_text), "tools_used": []}
-
-
-def teacher_agent_reply(db: Session, teacher: User,
-                        history: List[BaseMessage], user_text: str) -> str:
-    """兼容旧签名的纯文本入口（v0.6.0 起内部走 teacher_agent_reply_full）。"""
-    return teacher_agent_reply_full(db, teacher, history, user_text)["reply"]
+        return {"reply": reply, "tools_used": list(dict.fromkeys(n for n in tool_names.values() if n))}
+    except Exception:
+        logger.exception("教师 Agent 流式调用失败")
+        raise

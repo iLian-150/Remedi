@@ -168,17 +168,12 @@ def generate_variant(knowledge_point: str, seed: Optional[int] = None) -> Dict:
                 variant["mode"] = "strict"
                 return variant
         # 模板构造即正确，8 次复核全失败属异常情况，落到 Provider 兜底
-    return _provider_fallback(knowledge_point, rng)
+    return _provider_fallback(knowledge_point)
 
 
-def _provider_fallback(knowledge_point: str, rng: random.Random) -> Dict:
-    """无模板知识点：调 Provider 生成同类题；验算通过 → strict，否则 practice。
-    Provider 完全不可用时退回一元一次方程模板题（practice），保证流程可跑。"""
-    candidate = None
-    try:
-        candidate = get_provider().generate_variant_question(knowledge_point=knowledge_point)
-    except Exception:
-        candidate = None
+def _provider_fallback(knowledge_point: str) -> Dict:
+    """无模板知识点：必须由模型生成题目；模型不可用时明确失败，不返回预置题。"""
+    candidate = get_provider().generate_variant_question(knowledge_point=knowledge_point)
     if candidate and candidate.get("prompt") and candidate.get("standard_steps"):
         variant = {
             "prompt": str(candidate["prompt"]),
@@ -189,9 +184,7 @@ def _provider_fallback(knowledge_point: str, rng: random.Random) -> Dict:
         ok = verify_chain(variant["prompt"], variant["standard_steps"], variant["answer"])
         variant["mode"] = "strict" if ok else "practice"
         return variant
-    variant = _tpl_linear(rng, knowledge_point)
-    variant["mode"] = "practice"
-    return variant
+    raise RuntimeError("模型没有生成有效的变式题，请稍后重试")
 
 
 # ---------------------------------------------------------------- 判定

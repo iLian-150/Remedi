@@ -18,12 +18,13 @@ from sympy import Poly, simplify, solve
 
 from .diagnosis import equivalent
 from .mathparse import clean_text, extract_equation, parse_step
+from ..config import settings
 from .providers import get_provider
 
 logger = logging.getLogger(__name__)
 
 _UNKNOWN_DETAIL = "这类题暂时无法自动验算，请老师留意核对"
-_LLM_TIMEOUT_SECONDS = 12
+_LLM_TIMEOUT_SECONDS = settings.LLM_TIMEOUT_SECONDS
 
 # 答案文本里的中文连接/引导词（在 clean_text 之前处理：它不认中文）
 _ANSWER_SPLIT_RE = re.compile(r"[,，;；、]")

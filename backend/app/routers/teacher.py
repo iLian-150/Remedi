@@ -1,10 +1,13 @@
 # /api/teacher/* 教师端
+import json
+import logging
 import os
 import secrets
 from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -37,7 +40,6 @@ from ..models import (
 )
 from ..schemas import (
     AgentChatIn,
-    AgentChatOut,
     AgentHistoryItem,
     ChatSessionOut,
     ClassRepairRateOut,
@@ -82,6 +84,7 @@ from ..services.stats import (
 from ..services.teacher_stats import students_not_fully_submitted
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
+logger = logging.getLogger(__name__)
 
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")
 
@@ -748,17 +751,19 @@ def teacher_agent_delete_session(session_id: int, db: Session = Depends(get_db),
     return {"deleted": True}
 
 
-@router.post("/agent/chat", response_model=AgentChatOut, summary="与班级数据助理对话")
-def teacher_agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
-                       current: User = Depends(require_teacher)):
-    """教师端自由对话（v0.6.0 会话制）：解析目标会话（body.session_id 指定 /
-    缺省取当前会话，没有则自动新建）→ 只取该会话最近 20 条组上下文 → 跑教师
-    Agent 图（或规则兜底）→ 两条消息写入该会话 → 返回回复 + 建议追问。
-    会话间上下文隔离；LLM 异常已在 Agent 层降级，不会 500。"""
+@router.post("/agent/chat", summary="已停用：请使用班级数据助理流式接口")
+def teacher_agent_chat_legacy(current: User = Depends(require_teacher)):
+    raise HTTPException(status.HTTP_410_GONE, "此接口已停用，请改用 /api/teacher/agent/chat/stream")
+
+
+@router.post("/agent/chat/stream", summary="与班级数据助理流式对话")
+def teacher_agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
+                              current: User = Depends(require_teacher)):
+    """以 SSE 逐块返回教师助手回复；模型失败时发送错误事件，不生成模拟答案。"""
     from langchain_core.messages import AIMessage, HumanMessage
 
     from ..agent.suggestions import teacher_suggestions
-    from ..agent.teacher_graph import teacher_agent_reply_full
+    from ..agent.teacher_graph import teacher_agent_reply_stream
     from ..services import chat_sessions as cs
 
     text = body.message.strip()
@@ -777,19 +782,47 @@ def teacher_agent_chat(body: AgentChatIn, db: Session = Depends(get_db),
 
     rows = cs.session_messages(db, session, limit=_AGENT_HISTORY_WINDOW)
     history = [
-        HumanMessage(content=r.content) if r.role == "user" else AIMessage(content=r.content)
-        for r in rows
+        HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
+        for row in rows
     ]
-    result = teacher_agent_reply_full(db, current, history, text)
-    reply = result["reply"]
+    if body.persist_user_message:
+        cs.append_message(db, session, "user", text)
 
-    cs.append_message(db, session, "user", text)
-    cs.append_message(db, session, "assistant", reply)
-    return {
-        "reply": reply,
-        "suggestions": teacher_suggestions(text, result.get("tools_used")),
-        "session_id": session.id,
-    }
+    def event(name: str, payload: dict) -> str:
+        return f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    def stream_events():
+        yield ": connected\n\n"
+        reply_stream = teacher_agent_reply_stream(db, current, history, text)
+        try:
+            while True:
+                try:
+                    chunk = next(reply_stream)
+                except StopIteration as stopped:
+                    result = stopped.value
+                    break
+                yield event("token", {"text": chunk})
+
+            reply = result["reply"]
+            cs.append_message(db, session, "assistant", reply)
+            yield event("done", {
+                "reply": reply,
+                "suggestions": teacher_suggestions(text, result.get("tools_used")),
+                "session_id": session.id,
+            })
+        except Exception:
+            logger.exception("教师班级数据助理流式回复中断")
+            yield event("error", {"detail": "模型暂时无法回复，请稍后重试。"})
+
+    return StreamingResponse(
+        stream_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/agent/history", response_model=List[AgentHistoryItem], summary="教师对话历史")
