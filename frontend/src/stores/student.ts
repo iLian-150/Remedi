@@ -281,7 +281,8 @@ export const useStudentStore = defineStore('student', {
         typingTask = (async () => {
           while (queueOffset < characterQueue.length) {
             onText(characterQueue[queueOffset++])
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 12))
+            // 20ms 约为常见 60Hz 屏幕一帧稍长，避免浏览器合并绘制让逐字效果看起来像整段出现。
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 20))
           }
         })().finally(() => {
           typingTask = null
