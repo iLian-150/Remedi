@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 from datetime import datetime
+from time import perf_counter
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -914,6 +915,7 @@ async def photo_review(
     current: User = Depends(require_student),
 ):
     """没有学生作答时只进入问答，并暂存图片供学生之后主动收录；有作答时复用数学诊断。"""
+    request_started_at = perf_counter()
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
     data = await file.read()
@@ -973,6 +975,7 @@ async def photo_review(
         cs.append_message(db, chat_session, "assistant", text)
         return chat_session.id
 
+    vision_started_at = perf_counter()
     try:
         recognition = await run_in_threadpool(
             get_provider().diagnose_math_image, data, file.content_type, context
@@ -988,6 +991,8 @@ async def photo_review(
             status.HTTP_502_BAD_GATEWAY,
             failure_message,
         ) from exc
+    vision_elapsed = perf_counter() - vision_started_at
+    logger.info("照片视觉识别完成（耗时 %.2f 秒）", vision_elapsed)
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
     visual_steps = recognition.get("steps", [])
     steps = [str(step.get("text", "")).strip() for step in visual_steps
@@ -1036,6 +1041,10 @@ async def photo_review(
             exclude_assignment_id=question.assignment_id if question else None,
         )
         session_id = save_chat_result(f"已从照片中识别到题目：{question_text}")
+        logger.info(
+            "照片处理阶段完成（mode=answer，视觉识别 %.2f 秒，接口总耗时 %.2f 秒）",
+            vision_elapsed, perf_counter() - request_started_at,
+        )
         return {"mode": "answer", "question_text": question_text, "steps": [],
                 "capture_id": capture.id, "diagnosis": None, "session_id": session_id,
                 "image_url": image_url, "related_mistake": related_mistake}
@@ -1100,6 +1109,10 @@ async def photo_review(
     # 学习助手随后会基于识别出的题目和步骤流式回答，避免在对话历史里
     # 先保存一条“等待审核”的占位回复，再额外显示批改结果卡片。
     session_id = chat_session.id if chat_session is not None else None
+    logger.info(
+        "照片处理阶段完成（mode=diagnosis，视觉识别 %.2f 秒，接口总耗时 %.2f 秒）",
+        vision_elapsed, perf_counter() - request_started_at,
+    )
     return {"mode": "diagnosis", "question_text": question_text,
             "steps": steps, "capture_id": None, "diagnosis": diagnosis,
             "session_id": session_id,

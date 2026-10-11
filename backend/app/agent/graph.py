@@ -208,6 +208,8 @@ def agent_reply_stream(db: Session, student: User,
             builder.add_edge("agent", END)
         graph = builder.compile()
 
+        stream_started_at = perf_counter()
+        first_text_logged = False
         for part in graph.stream(
             {"messages": messages},
             config={"recursion_limit": 15},
@@ -221,6 +223,12 @@ def agent_reply_stream(db: Session, student: User,
                 continue
             text = _message_chunk_text(message_chunk)
             if text:
+                if safe_tools_only and not first_text_logged:
+                    first_text_logged = True
+                    logger.info(
+                        "照片讲解首字延迟（%.2f 秒）",
+                        perf_counter() - stream_started_at,
+                    )
                 reply_parts.append(text)
                 yield text
             for call in getattr(message_chunk, "tool_call_chunks", None) or []:
@@ -232,6 +240,11 @@ def agent_reply_stream(db: Session, student: User,
         reply = "".join(reply_parts).strip()
         if not reply:
             raise ValueError("模型返回了空回复")
+        if safe_tools_only:
+            logger.info(
+                "照片讲解流完成（总耗时 %.2f 秒，输出字符数 %d）",
+                perf_counter() - stream_started_at, len(reply),
+            )
 
     except Exception:
         if not safe_tools_only:
