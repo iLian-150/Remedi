@@ -28,7 +28,39 @@ def _build_llm(*, streaming: bool = True):
         raise RuntimeError("提问模型必须配置为 Cloudflare Workers AI")
     if not settings.CLOUDFLARE_ACCOUNT_ID or not settings.CLOUDFLARE_API_TOKEN:
         raise RuntimeError("Cloudflare 模型凭证未配置")
-    return ChatOpenAI(
+
+    class TextSafeChatOpenAI(ChatOpenAI):
+        """修正 Cloudflare 偶发返回的非文本 content，保留其余流式字段。"""
+
+        def _convert_chunk_to_generation_chunk(
+            self, chunk, default_chunk_class, base_generation_info
+        ):
+            choices = chunk.get("choices") or chunk.get("chunk", {}).get("choices", [])
+            if choices:
+                delta = choices[0].get("delta")
+                content = delta.get("content") if isinstance(delta, dict) else None
+                if content is not None and not isinstance(content, (str, list)):
+                    safe_chunk = dict(chunk)
+                    safe_choices = [dict(choice) for choice in choices]
+                    safe_delta = dict(delta)
+                    safe_delta["content"] = ""
+                    safe_choices[0]["delta"] = safe_delta
+                    if chunk.get("choices"):
+                        safe_chunk["choices"] = safe_choices
+                    else:
+                        nested = dict(chunk.get("chunk", {}))
+                        nested["choices"] = safe_choices
+                        safe_chunk["chunk"] = nested
+                    chunk = safe_chunk
+                    logger.debug(
+                        "忽略 Cloudflare 流式响应中的非文本 content（%s）",
+                        type(content).__name__,
+                    )
+            return super()._convert_chunk_to_generation_chunk(
+                chunk, default_chunk_class, base_generation_info
+            )
+
+    return TextSafeChatOpenAI(
         base_url=f"https://api.cloudflare.com/client/v4/accounts/{settings.CLOUDFLARE_ACCOUNT_ID}/ai/v1",
         api_key=settings.CLOUDFLARE_API_TOKEN,
         model=settings.CLOUDFLARE_MODEL,
@@ -107,9 +139,8 @@ def agent_reply_stream(db: Session, student: User,
                        history: List[BaseMessage], user_text: str,
                        safe_tools_only: bool = False):
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
-    # Cloudflare 的流式接口曾返回整数类型的 delta.content，LangChain 无法构造
-    # AIMessageChunk。照片讲解使用非流式调用，避免同一故障再次中断。
-    llm = _build_llm(streaming=not safe_tools_only)
+    # 流式响应中的非文本 content 会在模型适配层被过滤；回复可以边生成边发送。
+    llm = _build_llm(streaming=True)
     if safe_tools_only:
         # 照片讲解只依赖本轮已经识别和批改的内容。历史会话与学生近况不参与
         # 当前题目推理，省掉额外上下文，并避免重复上传造成的长历史拖慢模型。
@@ -186,9 +217,7 @@ def agent_reply_stream(db: Session, student: User,
             text = _message_chunk_text(message_chunk)
             if text:
                 reply_parts.append(text)
-                # 图片讲解先缓冲 LangGraph 输出，避免工具失败后把半截答案留在聊天里。
-                if not safe_tools_only:
-                    yield text
+                yield text
             for call in getattr(message_chunk, "tool_call_chunks", None) or []:
                 name = call.get("name")
                 if name:
@@ -207,18 +236,25 @@ def agent_reply_stream(db: Session, student: User,
         # 图片识别和批改结果已经包含在 user_text 中；历史错题查询是辅助能力，
         # 不能让工具绑定、工具执行或旧聊天上下文阻断学生获得本题讲解。
         logger.exception("照片讲解的 LangGraph 工具链失败，改用非流式直接讲解")
-        reply_parts = []
         try:
             fallback_started_at = perf_counter()
-            reply = direct_photo_explanation()
+            fallback_reply = direct_photo_explanation()
             logger.info("照片讲解直接兜底完成（耗时 %.2f 秒）", perf_counter() - fallback_started_at)
+            streamed_reply = "".join(reply_parts).strip()
+            if streamed_reply and fallback_reply.startswith(streamed_reply):
+                remainder = fallback_reply[len(streamed_reply):]
+            elif streamed_reply:
+                remainder = "\n\n补充讲解：\n" + fallback_reply
+            else:
+                remainder = fallback_reply
+            if remainder:
+                yield remainder
+                reply_parts.append(remainder)
+            reply = "".join(reply_parts).strip()
         except Exception:
             logger.exception("照片讲解的非流式直接生成兜底也失败")
             raise
 
-    if safe_tools_only:
-        # 等整段工具流程成功后再输出；出错时上面的直答兜底可以完整替代。
-        yield reply
     names = list(dict.fromkeys(name for name in tool_names.values() if name))
     return {
         "reply": reply,
