@@ -610,6 +610,12 @@ class AgentChatIn(BaseModel):
     related_mistake_error_id: Optional[int] = None  # 照片识别阶段查到的历史错题，避免讲解时再走工具轮次
 
 
+class AgentAssistantMessageIn(BaseModel):
+    """保存直接视觉问答生成的助手回复；用户图片消息已由拍照接口保存。"""
+    content: str = Field(min_length=1, max_length=20000)
+    related_mistake_error_id: Optional[int] = None
+
+
 class AgentHistoryItem(BaseModel):
     role: str                     # user | assistant
     content: str

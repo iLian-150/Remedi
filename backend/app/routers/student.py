@@ -38,6 +38,7 @@ from ..models import (
     Verification,
 )
 from ..schemas import (
+    AgentAssistantMessageIn,
     AgentChatIn,
     AgentHistoryItem,
     AssignmentScoreItem,
@@ -1043,7 +1044,9 @@ async def photo_review(
             question.knowledge_point if question else recognized_knowledge_point,
             exclude_assignment_id=question.assignment_id if question else None,
         )
-        session_id = save_chat_result(f"已从照片中识别到题目：{question_text}")
+        # 当前问答已由独立的视觉流式接口直接基于原图生成；这里只保存用户图片，
+        # 避免先写入「识别到题目」占位助手消息，再重复保存最终讲解。
+        session_id = chat_session.id if chat_session is not None else None
         logger.info(
             "照片处理阶段完成（mode=answer，视觉识别 %.2f 秒，接口总耗时 %.2f 秒）",
             vision_elapsed, perf_counter() - request_started_at,
@@ -1378,6 +1381,34 @@ def agent_session_messages(session_id: int, db: Session = Depends(get_db),
     ]
 
 
+@router.post("/agent/sessions/{session_id}/assistant-message",
+             summary="保存视觉模型生成的助手回复")
+def agent_append_assistant_message(
+    session_id: int,
+    body: AgentAssistantMessageIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """图片问答与作业批改并发完成后，按顺序将助手回复写入对应会话。"""
+    from ..services import chat_sessions as cs
+
+    cs.ensure_migrated(db, current)
+    session = cs.get_own_session(db, current, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "助手回复不能为空")
+    message = cs.append_message(db, session, "assistant", content)
+    if body.related_mistake_error_id is not None:
+        related = find_related_mistake_for_error(
+            db, current.id, body.related_mistake_error_id
+        )
+        if related:
+            cs.link_related_mistake(db, message, body.related_mistake_error_id)
+    return {"id": message.id, "role": message.role, "content": message.content}
+
+
 @router.delete("/agent/sessions/{session_id}", summary="删除一条对话会话（v0.6.0 新增）")
 def agent_delete_session(session_id: int, db: Session = Depends(get_db),
                          current: User = Depends(require_student)):
@@ -1393,6 +1424,58 @@ def agent_delete_session(session_id: int, db: Session = Depends(get_db),
 @router.post("/agent/chat", summary="已停用：请使用学习助手流式接口")
 def agent_chat_legacy(current: User = Depends(require_student)):
     raise HTTPException(status.HTTP_410_GONE, "此接口已停用，请改用 /api/student/agent/chat/stream")
+
+
+@router.post("/agent/chat/vision/stream", summary="将图片直接交给视觉模型并流式讲解")
+async def agent_vision_chat_stream(
+    file: UploadFile = File(...),
+    question: str = Form(default=""),
+    current: User = Depends(require_student),
+):
+    """原图直接进入视觉模型，返回 SSE 文本块；不先 OCR 再交给文本模型。"""
+    if file.content_type not in _PHOTO_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
+    if len(image_bytes) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    if len(question.strip()) > _AGENT_MSG_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "问题有点长，单条最多 2000 字")
+    content_type = file.content_type or "image/jpeg"
+    student_id = current.id
+
+    def event(name: str, payload: dict) -> str:
+        return f"event: {name}\ndata: {json.dumps(jsonable_encoder(payload), ensure_ascii=False)}\n\n"
+
+    def stream_events():
+        yield ": connected\n\n"
+        reply_parts = []
+        try:
+            for chunk in get_provider().stream_image_answer(
+                image_bytes, content_type, question
+            ):
+                if not chunk:
+                    continue
+                reply_parts.append(chunk)
+                yield event("token", {"text": chunk})
+            reply = "".join(reply_parts).strip()
+            if not reply:
+                raise ValueError("视觉模型没有返回讲解内容")
+            yield event("done", {"reply": reply})
+        except Exception:
+            logger.exception("学生图片视觉讲解流中断（student_id=%s）", student_id)
+            yield event("error", {"detail": "视觉模型暂时无法完成讲解，请稍后重试。"})
+
+    return StreamingResponse(
+        stream_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/agent/chat/stream", summary="与学习助手流式对话")

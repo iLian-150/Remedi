@@ -214,12 +214,13 @@
               <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming" v-html="renderAssistantMarkdown(msg.text)"></div>
               <div v-else class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
             </div>
-            <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-deferred': msg.mistakeSync.deferred, 'is-empty': !msg.mistakeSync.errorCount && !msg.mistakeSync.deferred }">
-              <AppIcon :name="msg.mistakeSync.deferred ? 'history' : msg.mistakeSync.errorCount ? 'check' : 'help'" :size="15" />
-              <span v-if="msg.mistakeSync.deferred">本次作答已保存，作业截止后统一批改</span>
+            <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-deferred': msg.mistakeSync.deferred, 'is-empty': !msg.mistakeSync.errorCount && !msg.mistakeSync.deferred, 'is-error': Boolean(msg.mistakeSync.error) }">
+              <AppIcon :name="msg.mistakeSync.error ? 'alert' : msg.mistakeSync.deferred ? 'history' : msg.mistakeSync.errorCount ? 'check' : 'help'" :size="15" />
+              <span v-if="msg.mistakeSync.error" class="mistake-sync-error">{{ msg.mistakeSync.error }}</span>
+              <span v-else-if="msg.mistakeSync.deferred">本次作答已保存，作业截止后统一批改</span>
               <span v-else-if="msg.mistakeSync.errorCount">
                 已将 {{ msg.mistakeSync.errorCount }} 条诊断记录同步到错题本和订正区
-                <small v-if="msg.mistakeSync.pendingReview">低置信度判断已提交老师复核</small>
+                <small v-if="msg.mistakeSync.pendingReview">本题已提交老师复核</small>
               </span>
               <span v-else>本次没有发现错题，未加入错题本</span>
               <router-link v-if="msg.mistakeSync.errorCount" to="/student/mistakes">查看错题本</router-link>
@@ -227,8 +228,8 @@
             <button v-if="msg.relatedMistake" type="button" class="related-mistake-link" @click="openRelatedMistake(msg.relatedMistake)">
               回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
             </button>
-            <button v-if="msg.retryPrompt" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
-              {{ msg.pending ? '正在重新生成…' : '重试讲解' }}
+            <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
+              {{ msg.pending ? '正在重试…' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
             </button>
             <div v-if="msg.captureId" class="photo-capture-action">
               <span v-if="msg.saved">已加入错题本</span>
@@ -241,8 +242,8 @@
           <!-- AI 错误提示 -->
           <div v-else-if="msg.kind === 'error'" class="bubble error-bubble">
             <AppIcon name="alert" :size="16" /> {{ msg.text }}
-            <button v-if="msg.retryPrompt" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
-              {{ msg.pending ? '正在重新生成…' : '重试讲解' }}
+            <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending" @click="retryExplanation(msg)">
+              {{ msg.pending ? '正在重试…' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
             </button>
             <div v-if="msg.captureId" class="photo-capture-action">
               <span v-if="msg.saved">已加入错题本</span>
@@ -430,6 +431,7 @@ import type {
   AgentHistoryItem,
   Assignment,
   PendingAssignment,
+  PhotoReviewResult,
   Question,
   RelatedMistake,
   StepStatus,
@@ -480,13 +482,27 @@ interface ChatMsg {
   captureId: number | null
   retryPrompt?: string
   retrySafeToolsOnly?: boolean
+  retryVision?: boolean
+  retryDiagnosis?: boolean
+  retrySave?: boolean
   saved: boolean
   savingCapture: boolean
   relatedMistake: RelatedMistake | null
-  mistakeSync?: { errorCount: number; pendingReview: boolean; deferred: boolean } | null
+  mistakeSync?: { errorCount: number; pendingReview: boolean; deferred: boolean; error?: string } | null
 }
 
 const messages = ref<ChatMsg[]>([])
+type PendingPhotoRetry = {
+  file: File
+  prompt: string
+  visionQuestion: string
+  questionId: number | null
+  sessionId: number
+  userImage: ChatMsg
+  assistantSaved: boolean
+  assistantText?: string
+}
+const pendingPhotoRetries = new Map<number, PendingPhotoRetry>()
 let seq = 0
 function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
   const msg: ChatMsg = {
@@ -909,116 +925,233 @@ async function onFileChange(e: Event) {
   selectedImageUrl.value = createImageUrl(file)
 }
 
+function applyPhotoReviewResult(wait: ChatMsg, userImage: ChatMsg, res: PhotoReviewResult) {
+  if (res.image_url) userImage.url = res.image_url
+  if (res.session_id) student.setActiveSession(res.session_id)
+  wait.questionText = res.question_text
+  wait.steps = [...res.steps]
+  wait.relatedMistake = res.related_mistake ?? null
+  wait.retryDiagnosis = false
+
+  if (res.mode === 'answer') {
+    wait.captureId = res.capture_id
+    wait.mistakeSync = null
+  } else if (res.mode === 'diagnosis' && res.diagnosis) {
+    wait.mistakeSync = {
+      errorCount: res.diagnosis.errors.length,
+      pendingReview: res.diagnosis.status === 'pending_review',
+      deferred: res.diagnosis.status === 'deferred'
+    }
+  }
+}
+
+async function streamVisionReply(wait: ChatMsg, file: File, question: string): Promise<string> {
+  let firstText = true
+  wait.text = ''
+  wait.pending = true
+  wait.streaming = true
+  try {
+    const reply = await student.agentVisionChatStream(file, question, (text) => {
+      if (firstText) {
+        wait.text = ''
+        wait.pending = false
+        firstText = false
+      }
+      wait.text += text
+      scrollToBottom()
+    })
+    wait.text = reply
+    return reply
+  } finally {
+    wait.pending = false
+    wait.streaming = false
+  }
+}
+
 async function sendPhotoReview(file: File, prompt: string) {
   suggestions.value = []
   const userImage = pushMsg({ side: 'user', kind: 'image', text: prompt, fileName: file.name, url: createImageUrl(file) })
-  const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别题目和作答情况…', pending: true })
+  const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在分析原图并检查作答…', pending: true })
   chatSending.value = true
-  let photoReviewSucceeded = false
-  let explanationPrompt: string | null = null
   try {
     await student.ensureActiveChatSession()
-    // 只有从具体作业题目跳转过来时才自动关联题目，避免把自由上传的照片误绑到默认第一题。
-    const explicitQuestionId = selectedQuestion.value?.id ?? null
-    const res = await student.reviewPhoto(
-      file,
-      explicitQuestionId,
-      '',
-      student.activeSessionId,
-      true,
-      prompt
+    const sessionId = student.activeSessionId
+    if (!sessionId) throw new Error('当前对话暂不可用，请新建对话后重试。')
+    const questionId = selectedQuestion.value?.id ?? null
+    const questionContext = selectedQuestion.value?.stem ?? ''
+    const visionQuestion = [
+      prompt,
+      questionContext ? `当前作业题干参考：${questionContext}` : ''
+    ].filter(Boolean).join('\n').slice(0, 2000)
+    const retry: PendingPhotoRetry = { file, prompt, visionQuestion, questionId, sessionId, userImage, assistantSaved: false }
+    pendingPhotoRetries.set(wait.id, retry)
+
+    // 原图讲解与作业诊断并发：讲解请求直接携带图片，诊断请求独立保存错题/审核记录。
+    const diagnosisTask = student.reviewPhoto(
+      file, questionId, '', sessionId, true, prompt
     )
-    photoReviewSucceeded = true
-    if (res.image_url) userImage.url = res.image_url
-    if (res.session_id) student.setActiveSession(res.session_id)
-    // 更新左侧历史会话时不要阻塞讲解请求；照片识别已经保存完本轮会话消息。
-    void student.loadSessions(true)
-    wait.pending = false
-    wait.questionText = res.question_text
-    wait.steps = [...res.steps]
-    wait.relatedMistake = res.related_mistake ?? null
-    const relatedContext = res.related_mistake
-      ? `已查到历史同类错题：知识点「${res.related_mistake.knowledge_point}」，错因「${res.related_mistake.error_type}」。讲解时可结合提醒学生回看，但以当前题目为准。`
-      : '没有查到历史同类错题，不要声称学生以前做错过。'
-    if (res.mode === 'answer') {
-      wait.captureId = res.capture_id
+    const visionTask = streamVisionReply(wait, file, visionQuestion)
+    const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
+
+    let photoResult: PhotoReviewResult | null = null
+    if (diagnosisResult.status === 'fulfilled') {
+      photoResult = diagnosisResult.value
+      applyPhotoReviewResult(wait, userImage, photoResult)
+      void student.loadSessions(true)
+    } else {
+      wait.mistakeSync = {
+        errorCount: 0,
+        pendingReview: false,
+        deferred: false,
+        error: '自动批改暂未完成，错题尚未确认入库。可以重试作业识别。'
+      }
+      wait.retryDiagnosis = true
+      console.error(diagnosisResult.reason)
+    }
+
+    if (visionResult.status === 'fulfilled') {
+      wait.retryVision = false
+      retry.assistantText = visionResult.value
+      try {
+        await student.appendAgentAssistantMessage(
+          sessionId,
+          visionResult.value,
+          photoResult?.related_mistake?.id
+        )
+        retry.assistantSaved = true
+        void student.loadSessions(true)
+      } catch (saveError) {
+        wait.text += '\n\n这次讲解已显示，但暂时没能保存到历史对话。'
+        wait.retrySave = true
+        console.error(saveError)
+      }
+    } else {
+      const partial = wait.text.trim()
+      wait.text = partial
+        ? `${partial}\n\n视觉讲解中断了，可以点击重试继续生成。`
+        : '视觉模型暂时无法生成讲解，可以点击重试；作业诊断仍会单独处理。'
+      wait.retryVision = true
+      console.error(visionResult.reason)
+    }
+
+    if (photoResult?.mode === 'answer' && photoResult.capture_id) {
       const saveQuestion = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(prompt) && /错题本|错题/.test(prompt)
-      const agentPrompt = [
-        '学生上传的是只有题目、没有学生作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。',
-        `识别出的题目：${res.question_text.slice(0, 1300)}`,
-        relatedContext,
-        prompt ? `学生补充的问题：${prompt.slice(0, 300)}` : ''
-      ].filter(Boolean).join('\n')
-      explanationPrompt = agentPrompt
-      await streamAssistantReply(wait, agentPrompt, false, true, res.related_mistake?.id)
-      if (saveQuestion && wait.captureId) {
+      if (saveQuestion) {
         try {
-          await student.savePhotoCapture(wait.captureId, wait.text)
+          await student.savePhotoCapture(photoResult.capture_id, wait.text)
           wait.saved = true
-          await student.loadSessions(true)
+          void student.loadSessions(true)
         } catch (saveError) {
           wait.text += '\n题目已经解答，但加入错题本失败，请稍后点下方按钮重试。'
           console.error(saveError)
         }
       }
-    } else if (res.mode === 'diagnosis' && res.diagnosis) {
-      const pendingReview = res.diagnosis.status === 'pending_review'
-      const deferred = res.diagnosis.status === 'deferred'
-      wait.mistakeSync = {
-        errorCount: res.diagnosis.errors.length,
-        pendingReview,
-        deferred
-      }
-      const diagnosisContext = deferred
-        ? '这份作业处于截止前的延迟批改阶段，系统只保存了作答，尚未判定对错。不要声称学生做对或做错，也不要说已经加入错题本；仍请讲解题目思路并回答学生的问题。'
-        : pendingReview
-        ? '识别出的错题已同步加入错题本和订正区，并提交老师复核；不要把错因说成最终结论，仍请独立解答题目并讲清思路。'
-        : res.diagnosis.errors.length
-          ? `系统已确认的错因：${res.diagnosis.errors.map((error) => `第${error.step_seq}步，${error.error_type}：${error.detail}`).join('；')}`
-          : '系统批改结果为这道题没有发现错误。'
-      const agentPrompt = [
-        deferred
-          ? '学生上传了数学作业照片并希望得到答疑。作答已保存，截止后才会批改。请回答问题并讲解题目正确思路，不要提前判断学生步骤对错，也不要重复提交作业。'
-          : '学生上传了数学作业照片并希望得到答疑。批改记录已经写入，不要再次批改或创建作答记录；请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点。',
-        `识别出的题目：${res.question_text.slice(0, 800)}`,
-        `识别出的学生步骤：${res.steps.slice(0, 12).map((step, index) => `${index + 1}. ${step}`).join('\n').slice(0, 650)}`,
-        diagnosisContext,
-        relatedContext,
-        prompt ? `学生补充的问题：${prompt.slice(0, 250)}` : ''
-      ].filter(Boolean).join('\n').slice(0, 1950)
-      explanationPrompt = agentPrompt
-      await streamAssistantReply(wait, agentPrompt, false, true, res.related_mistake?.id)
-    } else {
-      wait.kind = 'transcribe'
-      wait.text = ''
-      wait.questionId = explicitQuestionId
+    }
+
+    if (!wait.retryVision && !wait.retryDiagnosis && !wait.retrySave && retry.assistantSaved) {
+      pendingPhotoRetries.delete(wait.id)
     }
   } catch (err) {
-    if (wait.captureId) {
-      wait.kind = 'text'
-      wait.text = '题目已识别，但模型暂时无法生成讲解：' + (errDetail(err) || '请稍后重试。')
-    } else if (photoReviewSucceeded) {
-      wait.kind = 'text'
-      wait.text = '作业已处理，但暂时无法生成题目讲解：' + (errDetail(err) || '请稍后重试。')
-    } else {
-      wait.kind = 'error'
-      wait.text = '识别失败：' + (errDetail(err) || '请稍后重试。')
-    }
-    if (photoReviewSucceeded && explanationPrompt) {
-      wait.retryPrompt = explanationPrompt
-      wait.retrySafeToolsOnly = true
-    }
-    wait.pending = false
-    await student.loadSessions(true)
+    wait.kind = pendingPhotoRetries.has(wait.id) ? 'text' : 'error'
+    wait.text = '图片已发送，但当前无法完成视觉讲解：' + (errDetail(err) || '请稍后重试。')
+    wait.retryVision = pendingPhotoRetries.has(wait.id)
     console.error(err)
   } finally {
+    wait.pending = false
+    wait.streaming = false
     chatSending.value = false
+    scrollToBottom()
   }
-  scrollToBottom()
 }
 
 async function retryExplanation(msg: ChatMsg) {
-  if (!msg.retryPrompt || chatSending.value) return
+  if (chatSending.value) return
+  const photoRetry = pendingPhotoRetries.get(msg.id)
+  if (photoRetry && (msg.retryVision || msg.retryDiagnosis || msg.retrySave)) {
+    chatSending.value = true
+    msg.pending = true
+    try {
+      const diagnosisTask = msg.retryDiagnosis
+        ? student.reviewPhoto(photoRetry.file, photoRetry.questionId, '', photoRetry.sessionId, false, photoRetry.prompt)
+        : Promise.resolve(null)
+      const visionTask = msg.retryVision
+        ? streamVisionReply(msg, photoRetry.file, photoRetry.visionQuestion)
+        : Promise.resolve(null)
+      const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
+
+      let retriedPhotoResult: PhotoReviewResult | null = null
+      if (diagnosisResult.status === 'fulfilled' && diagnosisResult.value) {
+        retriedPhotoResult = diagnosisResult.value
+        applyPhotoReviewResult(msg, photoRetry.userImage, retriedPhotoResult)
+        void student.loadSessions(true)
+      } else if (diagnosisResult.status === 'rejected') {
+        msg.retryDiagnosis = true
+        msg.mistakeSync = {
+          errorCount: 0,
+          pendingReview: false,
+          deferred: false,
+          error: '自动批改暂未完成，错题尚未确认入库。可以重试作业识别。'
+        }
+        console.error(diagnosisResult.reason)
+      }
+
+      if (visionResult.status === 'fulfilled' && visionResult.value) {
+        msg.retryVision = false
+        photoRetry.assistantText = visionResult.value
+      } else if (visionResult.status === 'rejected') {
+        msg.retryVision = true
+        const partial = msg.text.trim()
+        msg.text = partial
+          ? `${partial}\n\n视觉讲解中断了，可以再次重试。`
+          : '视觉模型暂时无法生成讲解，请重试。'
+        console.error(visionResult.reason)
+      }
+
+      if (photoRetry.assistantText && !photoRetry.assistantSaved) {
+        try {
+          await student.appendAgentAssistantMessage(
+            photoRetry.sessionId,
+            photoRetry.assistantText,
+            msg.relatedMistake?.id
+          )
+          photoRetry.assistantSaved = true
+          msg.retrySave = false
+          void student.loadSessions(true)
+        } catch (saveError) {
+          msg.retrySave = true
+          console.error(saveError)
+        }
+      }
+
+      if (retriedPhotoResult?.mode === 'answer' && retriedPhotoResult.capture_id && photoRetry.assistantText) {
+        const saveQuestion = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(photoRetry.prompt) && /错题本|错题/.test(photoRetry.prompt)
+        if (saveQuestion) {
+          try {
+            await student.savePhotoCapture(retriedPhotoResult.capture_id, photoRetry.assistantText)
+            msg.saved = true
+            void student.loadSessions(true)
+          } catch (saveError) {
+            console.error(saveError)
+          }
+        }
+      }
+
+      if (!msg.retryVision && !msg.retryDiagnosis && !msg.retrySave && photoRetry.assistantSaved) {
+        pendingPhotoRetries.delete(msg.id)
+      }
+    } catch (err) {
+      msg.text += `\n\n重试失败：${errDetail(err) || '请稍后重试。'}`
+      console.error(err)
+    } finally {
+      msg.pending = false
+      msg.streaming = false
+      chatSending.value = false
+      scrollToBottom()
+    }
+    return
+  }
+
+  if (!msg.retryPrompt) return
   const prompt = msg.retryPrompt
   const safeToolsOnly = msg.retrySafeToolsOnly ?? true
   chatSending.value = true
@@ -1037,7 +1170,6 @@ async function retryExplanation(msg: ChatMsg) {
     scrollToBottom()
   }
 }
-
 async function savePhotoQuestion(msg: ChatMsg) {
   if (!msg.captureId || msg.saved || msg.savingCapture) return
   msg.savingCapture = true
@@ -1182,6 +1314,7 @@ onMounted(async () => {
 .photo-mistake-sync { display: flex; align-items: flex-start; gap: 7px; margin-top: 10px; border-radius: 8px; background: var(--green-bg); color: var(--green); padding: 9px 11px; font-size: 12px; line-height: 1.5; }
 .photo-mistake-sync.is-pending { background: var(--amber-bg); color: #92400E; }
 .photo-mistake-sync.is-deferred { background: var(--amber-bg); color: #92400E; }
+.photo-mistake-sync.is-error { background: #FEF2F2; color: #B91C1C; }
 .photo-mistake-sync.is-empty { background: var(--surface-2, #f5f7fa); color: var(--text-2); }
 .photo-mistake-sync > span { display: flex; flex: 1; flex-direction: column; }
 .photo-mistake-sync small { margin-top: 2px; font-size: 11px; }

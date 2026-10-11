@@ -214,6 +214,122 @@ export const useStudentStore = defineStore('student', {
         explanation
       })
     },
+    async agentVisionChatStream(
+      file: File,
+      question: string,
+      onText: (text: string) => void
+    ): Promise<string> {
+      const auth = useAuthStore()
+      const form = new FormData()
+      form.append('file', file)
+      form.append('question', question)
+      const response = await fetch(api.getUri({ url: '/api/student/agent/chat/vision/stream' }), {
+        method: 'POST',
+        headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+        body: form
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: unknown } | null
+        if (response.status === 401) {
+          auth.logout()
+          if (window.location.pathname !== '/') window.location.href = '/'
+        }
+        const detail = typeof payload?.detail === 'string' ? payload.detail : ''
+        throw new Error(detail || `图片讲解请求失败（HTTP ${response.status}）`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('浏览器无法读取图片讲解流。')
+      const decoder = new TextDecoder()
+      const characters: string[] = []
+      let offset = 0
+      let typingTask: Promise<void> | null = null
+      let buffer = ''
+      let reply = ''
+      let streamError = ''
+
+      const startTypewriter = () => {
+        if (typingTask || offset >= characters.length) return
+        typingTask = (async () => {
+          while (offset < characters.length) {
+            onText(characters[offset++])
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 20))
+          }
+        })().finally(() => {
+          typingTask = null
+          characters.splice(0, offset)
+          offset = 0
+          if (characters.length) startTypewriter()
+        })
+      }
+
+      const waitForTypewriter = async () => {
+        while (typingTask) await typingTask
+        if (characters.length) {
+          startTypewriter()
+          await waitForTypewriter()
+        }
+      }
+
+      const consumeEvent = (block: string) => {
+        let eventName = ''
+        const dataLines: string[] = []
+        for (const line of block.split('\n')) {
+          if (!line || line.startsWith(':')) continue
+          const separator = line.indexOf(':')
+          const field = separator < 0 ? line : line.slice(0, separator)
+          let value = separator < 0 ? '' : line.slice(separator + 1)
+          if (value.startsWith(' ')) value = value.slice(1)
+          if (field === 'event') eventName = value
+          else if (field === 'data') dataLines.push(value)
+        }
+        if (!dataLines.length) return
+        const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
+        if (eventName === 'token') {
+          const text = typeof payload.text === 'string' ? payload.text : ''
+          if (text) {
+            characters.push(...Array.from(text))
+            startTypewriter()
+          }
+        } else if (eventName === 'done') {
+          reply = typeof payload.reply === 'string' ? payload.reply : ''
+        } else if (eventName === 'error') {
+          streamError = typeof payload.detail === 'string' ? payload.detail : '图片讲解中断，请稍后重试。'
+        }
+      }
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read()
+          buffer += decoder.decode(value, { stream: !done })
+          let boundary = buffer.indexOf('\n\n')
+          while (boundary >= 0) {
+            consumeEvent(buffer.slice(0, boundary))
+            buffer = buffer.slice(boundary + 2)
+            boundary = buffer.indexOf('\n\n')
+          }
+          if (done) break
+        }
+        if (buffer.trim()) consumeEvent(buffer)
+      } catch (error) {
+        await waitForTypewriter()
+        throw error
+      }
+      await waitForTypewriter()
+      if (streamError) throw new Error(streamError)
+      if (!reply) throw new Error('视觉模型没有正常结束图片讲解，请重试。')
+      return reply
+    },
+    async appendAgentAssistantMessage(
+      sessionId: number,
+      content: string,
+      relatedMistakeErrorId?: number | null
+    ): Promise<void> {
+      await api.post(`/api/student/agent/sessions/${sessionId}/assistant-message`, {
+        content,
+        related_mistake_error_id: relatedMistakeErrorId ?? undefined
+      })
+    },
     // 3.13 学习报告（v0.2.1）：按科目聚合 + 知识点状态
     async fetchReport(): Promise<SubjectReport[]> {
       const { data } = await api.get<SubjectReport[]>('/api/student/report')

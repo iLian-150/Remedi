@@ -53,6 +53,11 @@ class LLMProvider(ABC):
         """直接基于作业原图判断学生步骤对错，不依赖文本公式解析器。"""
         raise RuntimeError("当前模型 Provider 不支持数学作业图片诊断")
 
+    def stream_image_answer(self, image_bytes: bytes, content_type: str,
+                            question: str = ""):
+        """将原图直接交给视觉模型回答；不经过 OCR 或文本模型二次解题。"""
+        raise RuntimeError("当前模型 Provider 不支持图片问答")
+
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
         """模型 Provider 未实现出题时明确报错，不返回预置题目。"""
         raise RuntimeError("当前模型 Provider 不支持生成变式题")
@@ -308,6 +313,84 @@ class CloudflareProvider(DeepSeekProvider):
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
+
+    def stream_image_answer(self, image_bytes: bytes, content_type: str,
+                            question: str = ""):
+        """用视觉模型直接看原图并流式讲解，输出模型真实产生的文本块。"""
+        import requests
+        from ..config import settings
+
+        data_url = "data:{};base64,{}".format(
+            content_type or "image/jpeg",
+            base64.b64encode(image_bytes).decode("ascii"),
+        )
+        prompt = (
+            "请直接观察用户上传的原图，理解其中的题目、图表、公式以及可见的学生作答，"
+            "然后用中文回答用户的问题并清楚讲解思路。不要依赖 OCR 转写，不要声称看到了图中不存在的内容。"
+            "如果图片里有学生作答，请结合笔迹说明可确认的关键步骤；如果只有题目，就完整解题。"
+            "用户的问题：{}".format(question.strip() or "请讲解图片中的题目。")
+        )
+
+        # Moondream 的任务式接口暂不提供 OpenAI SSE；仍让视觉模型直接看图，
+        # 前端会逐字呈现返回文本，其他视觉模型使用原生流式接口。
+        if "moondream" in self.vision_model:
+            yield self._vision_text(
+                data_url,
+                "你是认真、耐心的学习辅导老师。",
+                prompt,
+                timeout=settings.LLM_TIMEOUT_SECONDS,
+            )
+            return
+
+        response = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={
+                "model": self.vision_model,
+                "temperature": 0.3,
+                "max_tokens": 4096,
+                "stream": True,
+                "messages": [
+                    {"role": "system", "content": "你是认真、耐心的中文学习辅导老师。直接依据图片回答，讲解准确、分步清楚。"},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": data_url}},
+                        ],
+                    },
+                ],
+            },
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            stream=True,
+        )
+        try:
+            response.raise_for_status()
+            for raw_line in response.iter_lines(chunk_size=1):
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8", errors="replace") if isinstance(raw_line, bytes) else raw_line
+                if not line.startswith("data:"):
+                    continue
+                payload_text = line[5:].strip()
+                if not payload_text or payload_text == "[DONE]":
+                    continue
+                payload = json.loads(payload_text)
+                choices = payload.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content")
+                if isinstance(content, str) and content:
+                    yield content
+                elif isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text = str(block.get("text", ""))
+                            if text:
+                                yield text
+        finally:
+            response.close()
 
     def transcribe_image(self, image_bytes: bytes, content_type: str,
                          question_context: str = "", question_only: bool = False) -> Dict:
