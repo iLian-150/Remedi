@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import secrets
+from bisect import bisect_right
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
@@ -10,7 +11,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_teacher
@@ -95,6 +96,75 @@ router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 logger = logging.getLogger(__name__)
 
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")
+
+
+def _legacy_review_images(
+    db: Session,
+    submissions: List[Submission],
+    images_by_submission: dict,
+) -> dict:
+    """批量回查旧版自主上传记录在聊天消息中保存的原图。"""
+    candidates = [
+        (sub.id, sub.student_id, sub.submitted_at)
+        for sub in submissions
+        if sub.id not in images_by_submission
+        and sub.question is not None
+        and sub.question.assignment is not None
+        and sub.question.assignment.title.startswith("自主上传题目")
+    ]
+    if not candidates:
+        return {}
+
+    resolved_images = {}
+    for start in range(0, len(candidates), 150):
+        chunk = candidates[start:start + 150]
+        matching_windows = or_(*[
+            and_(
+                ChatSession.user_id == student_id,
+                ChatSessionMessage.role == "user",
+                ChatSessionMessage.created_at <= submitted_at,
+                ChatSessionMessage.created_at >= submitted_at - timedelta(minutes=15),
+            )
+            for _, student_id, submitted_at in chunk
+        ])
+        rows = (
+            db.query(
+                ChatSession.user_id,
+                ChatSessionMessage.created_at,
+                ChatSessionMessageImage,
+            )
+            .join(ChatSessionMessage, ChatSessionMessage.session_id == ChatSession.id)
+            .join(
+                ChatSessionMessageImage,
+                ChatSessionMessageImage.message_id == ChatSessionMessage.id,
+            )
+            .filter(matching_windows)
+            .order_by(
+                ChatSession.user_id.asc(),
+                ChatSessionMessage.created_at.asc(),
+                ChatSessionMessage.id.asc(),
+            )
+            .all()
+        )
+        messages_by_student = defaultdict(list)
+        for student_id, created_at, image in rows:
+            messages_by_student[student_id].append((created_at, image))
+        timestamps_by_student = {
+            student_id: [created_at for created_at, _ in messages]
+            for student_id, messages in messages_by_student.items()
+        }
+
+        for submission_id, student_id, submitted_at in chunk:
+            messages = messages_by_student.get(student_id, [])
+            index = bisect_right(
+                timestamps_by_student.get(student_id, []), submitted_at
+            ) - 1
+            if index < 0:
+                continue
+            created_at, image = messages[index]
+            if created_at >= submitted_at - timedelta(minutes=15):
+                resolved_images[submission_id] = image
+    return resolved_images
 
 
 def _teacher_error_item(
@@ -361,6 +431,7 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
                 SubmissionImage.submission_id.in_(submission_ids)
             ).all()
         }
+    legacy_images_by_submission = _legacy_review_images(db, subs, images_by_submission)
     assignment_contexts = review_svc.assignment_accuracy_contexts(db, subs)
     items = []
     for sub in subs:
@@ -374,7 +445,10 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             "step_statuses": step_statuses_by_submission[sub.id],
             "error_confidences": error_confidences_by_submission[sub.id],
             "error_count": len(error_confidences_by_submission[sub.id]),
-            "submission_image": images_by_submission.get(sub.id),
+            "submission_image": (
+                images_by_submission.get(sub.id)
+                or legacy_images_by_submission.get(sub.id)
+            ),
         }
         items.append(_review_pending_item(sub, db, assignment_context, preloaded))
     return {"count": len(items), "items": items}
