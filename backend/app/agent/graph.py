@@ -5,6 +5,7 @@
 #
 # LLM 走 Cloudflare Workers AI；配置缺失或调用失败时明确报错，不生成模拟回复。
 import logging
+from time import perf_counter
 from typing import Annotated, List, TypedDict
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -107,17 +108,23 @@ def agent_reply_stream(db: Session, student: User,
                        safe_tools_only: bool = False):
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
     # Cloudflare 的流式接口曾返回整数类型的 delta.content，LangChain 无法构造
-    # AIMessageChunk。照片讲解本身会缓冲完整回复，因此使用非流式调用更合适。
+    # AIMessageChunk。照片讲解使用非流式调用，避免同一故障再次中断。
     llm = _build_llm(streaming=not safe_tools_only)
-    system = build_system_prompt(student.name, _context_summary(db, student))
     if safe_tools_only:
-        system += (
-            "\n\n本轮是已完成照片批改后的讲解：批改记录已由照片流程保存。"
-            "不要调用诊断、提交或其他写入工具，也不要重复批改。"
-            "如果题目是数学或英语，可调用 find_my_related_mistake 只读查询历史同类错题；"
-            "除此之外直接讲解题目。"
+        # 照片讲解只依赖本轮已经识别和批改的内容。历史会话与学生近况不参与
+        # 当前题目推理，省掉额外上下文，并避免重复上传造成的长历史拖慢模型。
+        system = (
+            "你是 Remedi 学习辅导老师。学生照片中的题目和作答已经识别，批改记录已经保存。"
+            "只处理当前消息里的题目：先讲正确思路，再结合已识别的学生步骤说明关键对错；"
+            "如果没有学生步骤，就只讲题。不要重复批改或调用任何写入工具。"
+            "数学或英语题在知识点明确时，调用 find_my_related_mistake 一次查询历史同类错题；"
+            "其他学科直接讲解。若系统给出错因待复核，不要把它说成最终结论。"
+            "回答简洁、分步骤，避免冗长铺垫。"
         )
-    messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
+        messages = [SystemMessage(content=system), HumanMessage(content=user_text)]
+    else:
+        system = build_system_prompt(student.name, _context_summary(db, student))
+        messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
     related_result: dict = {"mistake": None}
     reply_parts: list[str] = []
     tool_names: dict[int, str] = {}
@@ -147,7 +154,15 @@ def agent_reply_stream(db: Session, student: User,
         llm_with_tools = llm.bind_tools(tools)
 
         def call_model(state: AgentState):
-            return {"messages": [llm_with_tools.invoke(state["messages"])]}
+            started_at = perf_counter()
+            response = llm_with_tools.invoke(state["messages"])
+            if safe_tools_only:
+                logger.info(
+                    "照片讲解模型轮次完成（耗时 %.2f 秒，工具调用数 %d）",
+                    perf_counter() - started_at,
+                    len(getattr(response, "tool_calls", None) or []),
+                )
+            return {"messages": [response]}
 
         builder = StateGraph(AgentState)
         builder.add_node("agent", call_model)
@@ -194,7 +209,9 @@ def agent_reply_stream(db: Session, student: User,
         logger.exception("照片讲解的 LangGraph 工具链失败，改用非流式直接讲解")
         reply_parts = []
         try:
+            fallback_started_at = perf_counter()
             reply = direct_photo_explanation()
+            logger.info("照片讲解直接兜底完成（耗时 %.2f 秒）", perf_counter() - fallback_started_at)
         except Exception:
             logger.exception("照片讲解的非流式直接生成兜底也失败")
             raise

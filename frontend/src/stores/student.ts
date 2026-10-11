@@ -236,7 +236,7 @@ export const useStudentStore = defineStore('student', {
     async agentChatStream(
       message: string,
       sessionId: number | null | undefined,
-      onCharacter: (character: string) => void,
+      onText: (text: string) => void,
       persistUserMessage = true,
       safeToolsOnly = false
     ): Promise<AgentChatResult> {
@@ -287,11 +287,7 @@ export const useStudentStore = defineStore('student', {
         const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
         if (eventName === 'token') {
           const text = typeof payload.text === 'string' ? payload.text : ''
-          for (const character of Array.from(text)) {
-            onCharacter(character)
-            // 控制展示节奏，让较大的网络数据块也逐字呈现。
-            await new Promise((resolve) => window.setTimeout(resolve, 18))
-          }
+          if (text) onText(text)
         } else if (eventName === 'done') {
           result = payload as unknown as AgentChatResult
         } else if (eventName === 'error') {

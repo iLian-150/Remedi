@@ -829,16 +829,16 @@ async function streamAssistantReply(
   persistUserMessage = true,
   safeToolsOnly = false
 ) {
-  let firstCharacter = true
+  let firstText = true
   wait.text = '正在生成回复…'
   wait.pending = true
-  const result = await student.agentChatStream(prompt, student.activeSessionId, (character) => {
-    if (firstCharacter) {
+  const result = await student.agentChatStream(prompt, student.activeSessionId, (text) => {
+    if (firstText) {
       wait.text = ''
       wait.pending = false
-      firstCharacter = false
+      firstText = false
     }
-    wait.text += character
+    wait.text += text
     scrollToBottom()
   }, persistUserMessage, safeToolsOnly)
   wait.pending = false
