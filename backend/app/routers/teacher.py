@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import secrets
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
@@ -198,24 +199,39 @@ def _review_pending_item(
     sub: Submission,
     db: Session,
     assignment_context: Optional[Tuple[List[Submission], int, int]] = None,
+    preloaded: Optional[dict] = None,
 ) -> ReviewPendingItem:
-    student = db.query(User).filter(User.id == sub.student_id).first()
+    preloaded = preloaded or {}
+    student = sub.student
     question = sub.question
     assignment = question.assignment if question else None
-    err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
-    answer_steps = db.query(Step).filter(Step.submission_id == sub.id).all()
-    correct_steps, total_steps = scoring_svc.step_counts(answer_steps)
+    err_n = preloaded.get("error_count")
+    if err_n is None:
+        err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
+    step_statuses = preloaded.get("step_statuses")
+    if step_statuses is None:
+        answer_steps = db.query(Step).filter(Step.submission_id == sub.id).all()
+        correct_steps, total_steps = scoring_svc.step_counts(answer_steps)
+    else:
+        correct_steps = sum(1 for value in step_statuses if value == "ok")
+        total_steps = len(step_statuses)
     if assignment_context is None:
         assignment_context = review_svc.assignment_accuracy_context(db, sub)
     assignment_correct_steps = assignment_context[1] if assignment_context else 0
     assignment_total_steps = assignment_context[2] if assignment_context else 0
     review_reasons = review_svc.review_reasons(
-        db, sub, assignment_context=assignment_context
+        db,
+        sub,
+        assignment_context=assignment_context,
+        step_statuses=step_statuses,
+        error_confidences=preloaded.get("error_confidences"),
     )
     if not review_reasons:
         # 当前待审记录没有低步骤率或低错因置信度时，来源是视觉模型判断置信度。
         review_reasons = ["图片或步骤判断置信度低于 60%"]
-    submission_image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
+    submission_image = preloaded.get("submission_image")
+    if submission_image is None and "submission_image" not in preloaded:
+        submission_image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
     image_url = f"/api/uploads/{submission_image.file_path}" if submission_image else None
     image_name = submission_image.file_name if submission_image else None
     # 兼容关联表新增之前的自主上传记录：当时原图只挂在学生对话消息上，
@@ -262,6 +278,27 @@ def _review_pending_item(
 def reviews_pending(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """待审核提交列表（按提交时间正序）+ 总数，教师导航角标与待审核页共用。"""
     subs = review_svc.pending_reviews(db)
+    submission_ids = [sub.id for sub in subs]
+    step_statuses_by_submission = defaultdict(list)
+    error_confidences_by_submission = defaultdict(list)
+    images_by_submission = {}
+    if submission_ids:
+        for submission_id, step_status in db.query(Step.submission_id, Step.status).filter(
+            Step.submission_id.in_(submission_ids),
+            Step.seq >= 1,
+            Step.status.in_(("ok", "error", "unparseable")),
+        ).all():
+            step_statuses_by_submission[submission_id].append(step_status)
+        for submission_id, confidence in db.query(Error.submission_id, Error.confidence).filter(
+            Error.submission_id.in_(submission_ids)
+        ).all():
+            error_confidences_by_submission[submission_id].append(float(confidence))
+        images_by_submission = {
+            image.submission_id: image
+            for image in db.query(SubmissionImage).filter(
+                SubmissionImage.submission_id.in_(submission_ids)
+            ).all()
+        }
     assignment_contexts = {}
     items = []
     for sub in subs:
@@ -273,7 +310,13 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             if key not in assignment_contexts:
                 assignment_contexts[key] = review_svc.assignment_accuracy_context(db, sub)
             assignment_context = assignment_contexts[key]
-        items.append(_review_pending_item(sub, db, assignment_context))
+        preloaded = {
+            "step_statuses": step_statuses_by_submission[sub.id],
+            "error_confidences": error_confidences_by_submission[sub.id],
+            "error_count": len(error_confidences_by_submission[sub.id]),
+            "submission_image": images_by_submission.get(sub.id),
+        }
+        items.append(_review_pending_item(sub, db, assignment_context, preloaded))
     return {"count": len(items), "items": items}
 
 

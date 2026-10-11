@@ -6,7 +6,7 @@ from datetime import datetime
 import math
 from typing import Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..models import Error, Notification, Question, Step, Submission, SubmissionReview
 
@@ -111,14 +111,19 @@ def review_reasons(
     confidence_signals: Iterable[float] = (),
     *,
     assignment_context: Optional[Tuple[List[Submission], int, int]] = None,
+    step_statuses: Optional[Iterable[str]] = None,
+    error_confidences: Optional[Iterable[float]] = None,
 ) -> List[str]:
     """返回触发教师复核的原因，统一步骤率、错因和视觉置信度口径。"""
     reasons = []
-    step_statuses = [row[0] for row in db.query(Step.status).filter(
-        Step.submission_id == submission.id,
-        Step.seq >= 1,
-        Step.status.in_(("ok", "error", "unparseable")),
-    ).all()]
+    if step_statuses is None:
+        step_statuses = [row[0] for row in db.query(Step.status).filter(
+            Step.submission_id == submission.id,
+            Step.seq >= 1,
+            Step.status.in_(("ok", "error", "unparseable")),
+        ).all()]
+    else:
+        step_statuses = list(step_statuses)
     if step_statuses:
         correct = sum(1 for value in step_statuses if value == "ok")
         accuracy = correct / len(step_statuses)
@@ -132,12 +137,14 @@ def review_reasons(
         if assignment_total > 0 and assignment_correct / assignment_total < REVIEW_THRESHOLD:
             reasons.append("本次作业正确率低于 60%")
 
-    confidences = [
-        float(row[0])
-        for row in db.query(Error.confidence)
-        .filter(Error.submission_id == submission.id)
-        .all()
-    ]
+    confidences = error_confidences
+    if confidences is None:
+        confidences = [
+            float(row[0])
+            for row in db.query(Error.confidence)
+            .filter(Error.submission_id == submission.id)
+            .all()
+        ]
     if any(not math.isfinite(value) or value < REVIEW_THRESHOLD for value in confidences):
         reasons.append("错因判断置信度低于 60%")
 
@@ -337,6 +344,10 @@ def pending_reviews(db: Session) -> List[Submission]:
         return []
     subs = (
         db.query(Submission)
+        .options(
+            joinedload(Submission.student),
+            joinedload(Submission.question).joinedload(Question.assignment),
+        )
         .filter(Submission.id.in_(pending_ids))
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
