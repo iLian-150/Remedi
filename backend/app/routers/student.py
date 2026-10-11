@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_student
@@ -281,23 +281,44 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     if question_id:
         query = query.filter(Submission.question_id == question_id)
     total = query.count()
-    subs = query.order_by(Submission.submitted_at.desc()).offset(offset).limit(limit).all()
+    subs = query.options(joinedload(Submission.question)).order_by(
+        Submission.submitted_at.desc()
+    ).offset(offset).limit(limit).all()
     status_by_id = review_svc.review_status_map(db, [s.id for s in subs])
+    submission_ids = [s.id for s in subs]
+    error_counts = dict(
+        db.query(Error.submission_id, func.count(Error.id))
+        .filter(Error.submission_id.in_(submission_ids))
+        .group_by(Error.submission_id)
+        .all()
+    ) if submission_ids else {}
+    question_text_by_id = {
+        s.id: (
+            s.question.stem if s.question else "",
+            s.question.knowledge_point if s.question else "",
+        )
+        for s in subs
+    }
+    visible_subs = [
+        s for s in subs
+        if status_by_id.get(s.id, review_svc.APPROVED) != review_svc.PENDING
+    ]
+    scores_by_id = scoring_svc.visible_scores(db, visible_subs)
     items = []
     for s in subs:
         rstatus = status_by_id.get(s.id, review_svc.APPROVED)
         # 错题同步进入错题本和订正区；低置信度提交即使待审核也显示错误数。
-        err_n = db.query(Error).filter(Error.submission_id == s.id).count()
+        err_n = error_counts.get(s.id, 0)
         # 评分系统：待审核不给分
         score = max_score = None
         if rstatus != review_svc.PENDING:
-            vis = scoring_svc.visible_score(db, s)
+            vis = scores_by_id.get(s.id)
             if vis:
                 score, max_score = vis["score"], vis["max_score"]
         items.append(SubmissionBrief(
             id=s.id, question_id=s.question_id,
-            question_stem=s.question.stem if s.question else "",
-            knowledge_point=s.question.knowledge_point if s.question else "",
+            question_stem=question_text_by_id[s.id][0],
+            knowledge_point=question_text_by_id[s.id][1],
             status=s.status, error_count=err_n, submitted_at=s.submitted_at,
             review_status=rstatus,
             score=score, max_score=max_score,

@@ -15,6 +15,7 @@
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -181,6 +182,77 @@ def visible_score(db: Session, submission: Submission) -> Optional[Dict]:
     row = ensure_score(db, submission)
     score = row.final_score if row.final_score is not None else row.ai_score
     return {"score": float(score), "max_score": question_max_score(db, question)}
+
+
+def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict]:
+    """批量读取一页已审核提交的可见成绩，缺失的历史成绩按旧逻辑补算。"""
+    question_data = {
+        submission.id: (
+            submission.question.id,
+            submission.question.assignment_id,
+        )
+        for submission in submissions
+        if submission.question is not None
+    }
+    valid = [submission for submission in submissions if submission.id in question_data]
+    if not valid:
+        return {}
+
+    submission_ids = [submission.id for submission in valid]
+    question_ids = {question_data[submission.id][0] for submission in valid}
+    assignment_ids = {question_data[submission.id][1] for submission in valid}
+    score_values = {
+        row.submission_id: (
+            float(row.final_score) if row.final_score is not None else float(row.ai_score)
+        )
+        for row in db.query(SubmissionScore).filter(
+            SubmissionScore.submission_id.in_(submission_ids)
+        ).all()
+    }
+
+    # 正常的新提交都有分数行；旧数据缺分时仍走 visible_score 的补算/落库路径。
+    missing = [submission for submission in valid if submission.id not in score_values]
+    fallback_scores = {
+        submission.id: score
+        for submission in missing
+        if (score := visible_score(db, submission)) is not None
+    }
+
+    total_scores = {
+        row.assignment_id: float(row.total_score) if row.total_score else DEFAULT_TOTAL
+        for row in db.query(AssignmentScoring).filter(
+            AssignmentScoring.assignment_id.in_(assignment_ids)
+        ).all()
+    }
+    weights = {
+        row.question_id: float(row.weight_pct)
+        for row in db.query(QuestionWeight).filter(
+            QuestionWeight.question_id.in_(question_ids)
+        ).all()
+    }
+    question_counts = dict(
+        db.query(Question.assignment_id, func.count(Question.id))
+        .filter(Question.assignment_id.in_(assignment_ids))
+        .group_by(Question.assignment_id)
+        .all()
+    )
+
+    result = dict(fallback_scores)
+    for submission in valid:
+        score = score_values.get(submission.id)
+        if score is None:
+            continue
+        question_id, assignment_id = question_data[submission.id]
+        question_count = question_counts.get(assignment_id, 0)
+        weight_pct = weights.get(
+            question_id, 100.0 / question_count if question_count else 100.0
+        )
+        max_score = round(
+            total_scores.get(assignment_id, DEFAULT_TOTAL) * weight_pct / 100.0,
+            1,
+        )
+        result[submission.id] = {"score": score, "max_score": max_score}
+    return result
 
 
 def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dict:
