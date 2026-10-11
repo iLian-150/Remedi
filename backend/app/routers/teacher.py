@@ -199,6 +199,8 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
     question = sub.question
     assignment = question.assignment if question else None
     err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
+    answer_steps = db.query(Step).filter(Step.submission_id == sub.id).all()
+    correct_steps, total_steps = scoring_svc.step_counts(answer_steps)
     submission_image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
     image_url = f"/api/uploads/{submission_image.file_path}" if submission_image else None
     image_name = submission_image.file_name if submission_image else None
@@ -231,6 +233,8 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
         subject=question.subject if question else "",
         knowledge_point=question.knowledge_point if question else "",
         error_count=err_n,
+        correct_steps=correct_steps,
+        total_steps=total_steps,
         submitted_at=sub.submitted_at,
         image_url=image_url,
         image_name=image_name,

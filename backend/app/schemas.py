@@ -734,6 +734,8 @@ class ReviewPendingItem(BaseModel):
     subject: str
     knowledge_point: str
     error_count: int            # 该提交的 AI 诊断错误数（教师端可见）
+    correct_steps: int = 0      # 评分口径：正确的学生作答步骤数
+    total_steps: int = 0        # 评分口径：学生作答步骤总数
     submitted_at: datetime
     image_url: Optional[str] = None  # 学生上传的作答原图（如有）
     image_name: Optional[str] = None  # 原图文件名

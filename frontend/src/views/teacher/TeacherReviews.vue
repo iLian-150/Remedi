@@ -45,14 +45,29 @@
             <span v-else class="assign-card-thumb-empty">暂无作业图片</span>
           </span>
           <span class="assign-card-main">
-            <span class="assign-card-title">{{ g.title }}</span>
-            <span class="assign-card-meta">
-              <span class="tnum">{{ g.students.length }}</span> 名学生 ·
-              待审核 <span class="tnum">{{ g.total }}</span> 份 ·
-              <span v-if="g.errorItems" class="meta-bad">有问题 {{ g.errorItems }} 份</span>
-              <span v-if="g.total - g.errorItems" class="meta-good">全对 {{ g.total - g.errorItems }} 份</span>
+            <span class="assign-card-text">
+              <span class="assign-card-title">{{ g.title }}</span>
+              <span class="assign-card-question">
+                <b>题目</b>
+                <span>{{ g.questionStems[0] || '暂无题目文本' }}</span>
+                <small v-if="g.questionIds.length > 1">另有 {{ g.questionIds.length - 1 }} 道题</small>
+              </span>
+              <span class="assign-card-meta">
+                <span class="tnum">{{ g.students.length }}</span> 名学生 ·
+                待审核 <span class="tnum">{{ g.total }}</span> 份 ·
+                <span v-if="g.errorItems" class="meta-bad">有问题 {{ g.errorItems }} 份</span>
+                <span v-if="g.total - g.errorItems" class="meta-good">全对 {{ g.total - g.errorItems }} 份</span>
+              </span>
+              <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
             </span>
-            <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
+            <span class="assign-card-accuracy" :class="accuracyClass(g)">
+              <span class="accuracy-label">待审步骤正确率</span>
+              <strong>{{ accuracyPercent(g) ?? '—' }}<small v-if="accuracyPercent(g) !== null">%</small></strong>
+              <span class="accuracy-steps" v-if="g.totalAnswerSteps">
+                {{ g.correctSteps }} / {{ g.totalAnswerSteps }} 步正确
+              </span>
+              <span class="accuracy-steps" v-else>暂无有效作答步骤</span>
+            </span>
           </span>
           <AppIcon name="chevron-right" :size="18" class="queue-row-arrow" />
         </button>
@@ -323,6 +338,10 @@ interface AssignmentGroup {
   students: StudentGroup[]
   total: number
   errorItems: number
+  correctSteps: number
+  totalAnswerSteps: number
+  questionIds: number[]
+  questionStems: string[]
   latest: string
   imageUrl: string | null
 }
@@ -339,6 +358,10 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
         students: [],
         total: 0,
         errorItems: 0,
+        correctSteps: 0,
+        totalAnswerSteps: 0,
+        questionIds: [],
+        questionStems: [],
         latest: '',
         imageUrl: null
       }
@@ -352,11 +375,31 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
     sg.items.push(it)
     g.total += 1
     if (it.error_count) g.errorItems += 1
+    g.correctSteps += it.correct_steps ?? 0
+    g.totalAnswerSteps += it.total_steps ?? 0
+    if (!g.questionIds.includes(it.question_id)) {
+      g.questionIds.push(it.question_id)
+      if (it.question_stem.trim()) g.questionStems.push(it.question_stem.trim())
+    }
     if (it.submitted_at > g.latest) g.latest = it.submitted_at
-    if (it.image_url) g.imageUrl = it.image_url
+    if (!g.imageUrl && it.image_url) g.imageUrl = it.image_url
   }
   return [...map.values()]
 })
+
+function accuracyPercent(group: AssignmentGroup): number | null {
+  return group.totalAnswerSteps > 0
+    ? Math.round(group.correctSteps / group.totalAnswerSteps * 100)
+    : null
+}
+
+function accuracyClass(group: AssignmentGroup): string {
+  const rate = accuracyPercent(group)
+  if (rate === null) return 'accuracy-no-data'
+  if (rate < 60) return 'accuracy-low'
+  if (rate < 80) return 'accuracy-mid'
+  return 'accuracy-high'
+}
 
 /** 当前审核窗口对应的作业 id（字符串键，与分组口径一致） */
 const viewAssignmentId = ref<string | null>(null)
@@ -554,27 +597,57 @@ onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown
 /* 一级：作业卡列表 */
 .assign-list { display: flex; flex-direction: column; gap: 10px; }
 .assign-card {
-  display: flex; align-items: center; gap: 12px; text-align: left; width: 100%;
-  padding: 16px 18px; cursor: pointer; font-family: inherit; margin-bottom: 0;
+  display: grid; grid-template-columns: minmax(140px, 19%) minmax(0, 1fr) auto;
+  align-items: center; gap: 18px; text-align: left; width: 100%;
+  padding: 14px 18px; cursor: pointer; font-family: inherit; margin-bottom: 0;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .assign-card:hover { border-color: #C9D6F2; }
 .assign-card-thumb {
-  width: 32%; max-width: 400px; min-width: 200px; height: 116px; flex: 0 0 32%;
+  width: 100%; height: 126px;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
   border: 1px solid var(--border); border-radius: 10px; background: #F8FAFC;
 }
 .assign-card-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .assign-card-thumb-empty { color: var(--text-3); font-size: 13px; }
-.assign-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.assign-card-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 148px; align-items: center; gap: 18px; }
+.assign-card-text { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .assign-card-title { font-size: 16px; font-weight: 700; }
+.assign-card-question { display: flex; align-items: baseline; gap: 7px; min-width: 0; color: var(--text-2); font-size: 14px; line-height: 1.55; }
+.assign-card-question b { flex-shrink: 0; color: var(--text); }
+.assign-card-question > span { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.assign-card-question small { flex-shrink: 0; color: var(--text-3); font-size: 12px; }
 .assign-card-meta { font-size: 13px; color: var(--text-2); }
 .assign-card-time { font-size: 12px; color: var(--text-3); }
+.assign-card-accuracy { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 94px; padding: 9px 12px; border-radius: 12px; background: #F8FAFC; text-align: center; }
+.accuracy-label { font-size: 12px; font-weight: 700; color: var(--text-2); }
+.assign-card-accuracy strong { margin-top: 1px; font-size: 34px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.assign-card-accuracy strong small { margin-left: 1px; font-size: 17px; }
+.accuracy-steps { margin-top: 4px; color: var(--text-3); font-size: 11px; line-height: 1.35; }
+.accuracy-low { background: #FFF1F0; color: #C2413A; }
+.accuracy-mid { background: #FFF7E6; color: #B7791F; }
+.accuracy-high { background: #ECFDF3; color: #16804A; }
+.accuracy-no-data { background: #F3F4F6; color: #64748B; }
 .meta-bad { color: #B91C1C; font-weight: 600; }
 .meta-good { color: #15803D; font-weight: 600; }
 @media (max-width: 760px) {
-  .assign-card { flex-wrap: wrap; }
-  .assign-card-thumb { width: 100%; max-width: none; min-width: 0; flex-basis: 100%; height: 180px; }
+  .assign-card { grid-template-columns: 112px minmax(0, 1fr) auto; gap: 12px; padding: 12px; }
+  .assign-card-thumb { height: 112px; }
+  .assign-card-main { grid-template-columns: minmax(0, 1fr) 104px; gap: 10px; }
+  .assign-card-accuracy { min-height: 84px; padding: 7px; }
+  .assign-card-accuracy strong { font-size: 28px; }
+}
+@media (max-width: 520px) {
+  .assign-card { grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 10px; }
+  .assign-card-thumb { height: 96px; }
+  .assign-card-main { grid-template-columns: minmax(0, 1fr) 82px; gap: 8px; }
+  .assign-card-question { font-size: 12px; }
+  .assign-card-meta { font-size: 11px; }
+  .assign-card-accuracy { min-height: 76px; padding: 5px; }
+  .accuracy-label { font-size: 10px; }
+  .assign-card-accuracy strong { font-size: 24px; }
+  .accuracy-steps { font-size: 9px; }
+  .queue-row-arrow { display: none; }
 }
 .student-avatar {
   width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;

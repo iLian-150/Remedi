@@ -271,6 +271,8 @@ export interface ReviewPendingItem {
   subject: string
   knowledge_point: string
   error_count: number
+  correct_steps: number
+  total_steps: number
   submitted_at: string
   image_url?: string | null
   image_name?: string | null

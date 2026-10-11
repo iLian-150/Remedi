@@ -1108,13 +1108,15 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
   "subject": "math",
   "knowledge_point": "一元一次方程",
   "error_count": 1,
+  "correct_steps": 2,
+  "total_steps": 3,
   "submitted_at": "2026-10-08T01:00:00",
   "image_url": "/api/uploads/20261012090000_ab12cd34.jpg",
   "image_name": "作业原图.jpg"
 }
 ```
 
-`image_url` 为学生上传的作答原图地址，`image_name` 为原图文件名；文本作答或没有可用图片时均为 `null`。待审核作业卡据此显示缩略图，点击提交后在原题与解题过程窗口中显示原图。
+`correct_steps` / `total_steps` 为评分口径中的正确作答步骤数 / 作答步骤总数；教师端可按步骤数加权汇总展示待审步骤正确率。`image_url` 为学生上传的作答原图地址，`image_name` 为原图文件名；文本作答或没有可用图片时均为 `null`。待审核作业卡据此显示缩略图，点击提交后在原题与解题过程窗口中显示原图。
 
 ### 4.24 GET /api/teacher/reviews/{submission_id} —— 审核详情（v0.9.0 新增）
 
