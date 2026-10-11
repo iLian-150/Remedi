@@ -37,6 +37,8 @@ export const useStudentStore = defineStore('student', {
     /** 提醒未读数（v0.8.2）：单一事实来源——App.vue 路由变化时刷新、RightRail 读写后回写，
      *  右栏收起态的提醒 FAB 角标直接读这里，不再靠 RightRail 的 emit 传递 */
     unreadCount: 0,
+    /** 错题本里尚未学会的错误类别数；由错题复习侧栏按实际记录刷新。 */
+    mistakeReviewCount: 0,
     /** 会话区状态（v0.6.2）：左侧栏会话导航与对话页共用同一份 */
     sessions: [] as ChatSession[],
     activeSessionId: null as number | null,

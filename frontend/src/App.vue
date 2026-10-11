@@ -1,6 +1,7 @@
 <!-- 全局布局（v0.2.0 侧栏外壳；v0.3.0 升三栏；v0.3.1 右栏按页面分工；v0.4.0 品牌 Logo + 导航图标动效）：
      左侧导航 / 中间内容 / 右侧栏。右栏内容随当前页变：
-       - 学生主页等普通页 → 只放便利贴提醒（mode=notes）
+     - 学生错题本 → 错题复习清单（mode=mistakes）；学习报告 → 错题时间线（mode=timeline）
+     - 学生其他普通页 → 只放便利贴提醒（mode=notes）
        - 学生/教师作业列表页 → 只放日历（mode=calendar，与列表筛选联动）
        - 教师其他页面 → 不挂右栏
      右栏可收起：收起后内容区右上角出现场景专属悬浮按钮（notes=信封形 notes-fab + 未读角标，
@@ -100,25 +101,25 @@
       :aria-hidden="!railOpen"
     >
       <RightRail
-        :mode="railMode === 'calendar' ? 'calendar' : railMode === 'corrections' ? 'corrections' : railMode === 'timeline' ? 'timeline' : 'notes'"
+        :mode="railMode === 'mistakes' ? 'mistakes' : railMode === 'calendar' ? 'calendar' : railMode === 'corrections' ? 'corrections' : railMode === 'timeline' ? 'timeline' : 'notes'"
         @close="setRail(false)"
       />
     </aside>
 
-    <!-- 右栏收起态入口（v0.8.2）：两场景各有专属按钮与类名，不再共用一个按钮换图标。
-         提醒场景=信封形 notes-fab（未读角标读 student store，有未读时轻晃）；
+    <!-- 右栏收起态入口（v0.8.2）：按当前场景显示对应入口图标与角标。
+         普通提醒场景=信封；错题本场景=错题复习（角标显示待复习类别数）；
          日历场景=日历形 cal-fab（中性色、无角标；v0.9.1 起订正日历场景共用此按钮）；
          错题时间线场景（报告页）同走 cal-fab 中性样式，图标换 history 与信箱区分。
          层级见 style.css 的 z-index 梳理注释。 -->
     <button
-      v-if="railMode === 'notes' && !railOpen"
+      v-if="(railMode === 'notes' || railMode === 'mistakes') && !railOpen"
       class="notes-fab"
-      :class="{ 'has-unread': student.unreadCount > 0 }"
-      title="打开提醒"
+      :class="{ 'has-unread': railFabCount > 0 }"
+      :title="railMode === 'mistakes' ? '打开错题复习' : '打开提醒'"
       @click="setRail(true)"
     >
-      <AppIcon name="mail" :size="20" />
-      <span v-if="student.unreadCount > 0" :key="student.unreadCount" class="notes-badge">{{ student.unreadCount }}</span>
+      <AppIcon :name="railMode === 'mistakes' ? 'book' : 'mail'" :size="20" />
+      <span v-if="railFabCount > 0" :key="`${railMode}-${railFabCount}`" class="notes-badge">{{ railFabCount }}</span>
     </button>
     <button
       v-else-if="(railMode === 'calendar' || railMode === 'corrections') && !railOpen"
@@ -226,15 +227,15 @@ const navItems = computed<NavItem[]>(() => {
 const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------
-// 学生：作业列表页放作业日历；订正页放订正日历（v0.9.1）；学习报告页（总览与
-// 科目详情）放错题时间线（本次改造，不再是信箱）；其余页面（含主页对话页）
-// 只放便利贴提醒。教师：仅作业管理页放日历；其余页面不挂右栏（教师无通知）。
-type RailScene = 'notes' | 'calendar' | 'corrections' | 'timeline'
+// 学生：错题本放复习清单；作业列表页放作业日历；订正页放订正日历；报告页放错题时间线；
+// 其余页面显示老师提醒。教师仅作业管理页放日历。
+type RailScene = 'notes' | 'mistakes' | 'calendar' | 'corrections' | 'timeline'
 type RailMode = RailScene | 'none'
 const railMode = computed<RailMode>(() => {
   if (auth.role === 'teacher') {
     return route.path === '/teacher/assignments' ? 'calendar' : 'none'
   }
+  if (route.path === '/student/mistakes') return 'mistakes'
   if (route.path === '/student/assignments') return 'calendar'
   if (route.path === '/student/corrections') return 'corrections'
   if (route.path === '/student/report' || route.path.startsWith('/student/report/')) return 'timeline'
@@ -246,10 +247,12 @@ const railMode = computed<RailMode>(() => {
 // 首次默认展开（窄屏默认收起）。旧的单键 remedi-rail-open 自 v0.8.2 起不再读写。
 const RAIL_KEYS = {
   notes: 'remedi-rail-open-notes',
+  mistakes: 'remedi-rail-open-mistakes',
   calendar: 'remedi-rail-open-calendar',
   corrections: 'remedi-rail-open-corrections',
   timeline: 'remedi-rail-open-timeline'
 } as const
+const railFabCount = computed(() => railMode.value === 'mistakes' ? student.mistakeReviewCount : student.unreadCount)
 function railDefaultOpen(): boolean {
   return window.innerWidth >= 1200
 }
@@ -302,6 +305,7 @@ function logout() {
   railOpen.value = railDefaultOpen()
   try {
     localStorage.removeItem(RAIL_KEYS.notes)
+    localStorage.removeItem(RAIL_KEYS.mistakes)
     localStorage.removeItem(RAIL_KEYS.calendar)
     localStorage.removeItem(RAIL_KEYS.corrections)
     localStorage.removeItem(RAIL_KEYS.timeline)
@@ -309,6 +313,7 @@ function logout() {
     /* 忽略清理失败 */
   }
   student.resetUnread()
+  student.mistakeReviewCount = 0
   // v0.9.0：待审核角标一并清掉，避免换人登录后残留上一位老师的数字
   teacher.pendingReviews = []
   teacher.pendingReviewCount = 0

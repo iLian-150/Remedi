@@ -1,5 +1,6 @@
 <!-- 右侧栏（v0.3.0 首版：便利贴 + 日历 + 当天详情；v0.3.1 改为按页面分工）：
-     - mode="notes"（学生端除作业列表/订正页外的所有页面，含主页对话页）：只显示便利贴提醒区。
+     - mode="notes"（学生普通页，含主页对话页）：显示老师的便利贴提醒。
+     - mode="mistakes"（学生错题本）：显示尚未学会的错误类别与复习入口。
      - mode="calendar"（学生/教师作业列表页）：只显示作业日历；点选日期 → 写入对应 store 的
        assignmentDateFilter，作业列表页据此筛选 + 显示当天进度；再次点同一天 = 取消筛选。
      - mode="corrections"（学生订正页，v0.9.1）：订正日历——按错题所属提交日期打点+计数；
@@ -12,14 +13,14 @@
        按 question_subject 只显示本科目；点条目跳 /student/diagnosis?submission_id=。
        数据同走 store.fetchCorrectableMistakes（源头是 /student/mistakes 响应，
        只读复用，不新造接口）。
-     收起/展开由 App.vue 控制（收起态 FAB 图标随场景变：notes=邮件、calendar/corrections=日历）。
+     收起/展开由 App.vue 控制（收起态 FAB 图标随场景变：notes=邮件、mistakes=错题本、calendar/corrections=日历）。
      通知唯一来源：教师在教师端一键纠错 → 后端落库 → 这里 GET 拉取展示，学生端不本地伪造。 -->
 <template>
   <div class="rail-inner">
     <div class="rail-head">
       <span class="rail-title">
-        <AppIcon :name="mode === 'notes' ? 'megaphone' : mode === 'timeline' ? 'history' : 'calendar'" :size="17" />
-        {{ mode === 'notes' ? '提醒' : mode === 'corrections' ? '订正日历' : mode === 'timeline' ? '错题时间线' : '日历' }}
+        <AppIcon :name="mode === 'notes' ? 'megaphone' : mode === 'mistakes' ? 'book' : mode === 'timeline' ? 'history' : 'calendar'" :size="17" />
+        {{ mode === 'notes' ? '提醒' : mode === 'mistakes' ? '错题复习' : mode === 'corrections' ? '订正日历' : mode === 'timeline' ? '错题时间线' : '日历' }}
       </span>
       <button class="icon-btn" title="收起右侧栏" @click="$emit('close')">
         <AppIcon name="chevron-right" :size="17" />
@@ -54,6 +55,42 @@
         </div>
       </div>
       <p v-else class="hint" style="margin-bottom: 6px">暂无新提醒</p>
+    </template>
+
+    <!-- 错题本专属复习清单：待复习数按尚未学会的错误类别计算。 -->
+    <template v-else-if="mode === 'mistakes'">
+      <div class="review-overview">
+        <span class="review-overview-icon"><AppIcon name="history" :size="17" /></span>
+        <div><strong>{{ reviewCategories.length ? `还有 ${reviewCategories.length} 类待巩固` : '复习进度' }}</strong><span>已学会 {{ reviewStudiedCount }} / {{ reviewTotalCount }} 类错误</span></div>
+      </div>
+      <div class="rail-sec-head review-sec-head">
+        <h3>优先复习</h3>
+        <span v-if="reviewCategories.length" class="badge badge-blue">{{ reviewCategories.length }} 类待学</span>
+      </div>
+      <div v-if="reviewLoading" class="loading" style="padding: 18px 0">正在整理待复习错题…</div>
+      <div v-else-if="reviewError" class="review-empty" role="alert">
+        <strong>待复习内容加载失败</strong>
+        <p>暂时无法读取错题本，请重试。</p>
+        <button type="button" @click="loadMistakeReview">重新加载</button>
+      </div>
+      <div v-else-if="reviewCategories.length" class="review-list">
+        <article v-for="item in reviewCategories.slice(0, 5)" :key="item.key" class="review-card">
+          <div class="review-card-heading">
+            <span class="review-subject">{{ reviewSubjectName(item.subject) }}</span>
+            <span class="review-error-count">{{ item.items.length }} 道相关错题</span>
+          </div>
+          <h4>{{ item.knowledgePoint || item.categoryLabel }}</h4>
+          <p class="review-card-meta">{{ item.assignmentTitle }} · {{ item.categoryLabel }}</p>
+          <button type="button" class="review-start" @click="beginReview(item.mistakeId)">开始复习<AppIcon name="arrow-right" :size="13" /></button>
+        </article>
+        <button type="button" class="review-all-link" @click="router.push('/student/mistakes')">查看错题本<AppIcon name="arrow-right" :size="12" /></button>
+      </div>
+      <div v-else class="review-empty">
+        <span class="review-empty-icon"><AppIcon name="check" :size="19" /></span>
+        <strong>{{ reviewRaw.length ? '目前没有待巩固类别' : '错题本还没有记录' }}</strong>
+        <p>{{ reviewRaw.length ? '所有错误类别都已标记学会，继续保持。' : '完成作业诊断后，错题和复习进度会显示在这里。' }}</p>
+        <button type="button" @click="router.push('/student/mistakes')">查看错题本<AppIcon name="arrow-right" :size="12" /></button>
+      </div>
     </template>
 
     <!-- 错题时间线（仅学习报告页）：默认收起只露标题行，点开才展开纵向时间线 -->
@@ -114,15 +151,15 @@ import AssignmentCalendar from './AssignmentCalendar.vue'
 import ErrorTypeBadge from './ErrorTypeBadge.vue'
 
 const props = defineProps<{
-  /** notes：只显示便利贴提醒；calendar：作业日历（与作业列表筛选联动）；
+  /** notes：便利贴提醒；mistakes：错题本待复习清单；calendar：作业日历（与作业列表筛选联动）；
    * corrections：订正日历（v0.9.1，与订正页筛选联动）；
    * timeline：错题时间线（学习报告页，默认收起，点开才展开） */
-  mode: 'notes' | 'calendar' | 'corrections' | 'timeline'
+  mode: 'notes' | 'mistakes' | 'calendar' | 'corrections' | 'timeline'
 }>()
 
 // v0.8.2：未读数改由 student store 持有（fetchNotifications / markNotificationsRead 内部回写），
 // 本组件不再 emit unread-change；FAB 角标与本栏的未读徽标读同一份 store 状态。
-defineEmits<{
+const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
@@ -168,7 +205,59 @@ const tlRaw = ref<StudentMistake[]>([])
 const tlLoading = ref(false)
 const tlExpanded = ref(false)
 
-const TL_SUBJECT_TEXT: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学' }
+interface ReviewCategory {
+  key: string
+  subject: string
+  categoryLabel: string
+  knowledgePoint: string
+  assignmentTitle: string
+  mistakeId: number
+  items: StudentMistake[]
+  priority: number
+  createdAt: string
+  studied: boolean
+}
+const reviewRaw = ref<StudentMistake[]>([])
+const reviewLoading = ref(false)
+const reviewError = ref(false)
+const reviewTotalCount = computed(() => new Set(reviewRaw.value.filter((item) => item.source_kind !== 'student_saved').map((item) => `${item.assignment_id}:${item.category_key}`)).size)
+const reviewCategories = computed<ReviewCategory[]>(() => {
+  const groups = new Map<string, ReviewCategory>()
+  for (const item of reviewRaw.value) {
+    if (item.source_kind === 'student_saved') continue
+    const key = `${item.assignment_id}:${item.category_key}`
+    const existing = groups.get(key)
+    if (existing) {
+      existing.items.push(item)
+      existing.studied = existing.studied && item.category_studied
+      existing.priority += item.similar_occurrences.length + Number(item.is_stubborn)
+      if (item.created_at < existing.createdAt) existing.createdAt = item.created_at
+      continue
+    }
+    groups.set(key, {
+      key,
+      subject: item.question_subject,
+      categoryLabel: item.category_label || item.error_type,
+      knowledgePoint: item.knowledge_point,
+      assignmentTitle: item.assignment_title,
+      mistakeId: item.id,
+      items: [item],
+      priority: item.similar_occurrences.length + Number(item.is_stubborn),
+      createdAt: item.created_at,
+      studied: item.category_studied
+    })
+  }
+  return Array.from(groups.values())
+    .filter((item) => !item.studied)
+    .sort((left, right) => right.priority - left.priority || left.createdAt.localeCompare(right.createdAt))
+})
+const reviewStudiedCount = computed(() => reviewTotalCount.value - reviewCategories.value.length)
+
+const TL_SUBJECT_TEXT: Record<string, string> = {
+  math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学',
+  chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治',
+  computer_science: '信息科技'
+}
 /** 科目详情路由带 subject 参数时只看该科目；总览页为空 = 全部 */
 const tlSubject = computed(() =>
   typeof route.params.subject === 'string' ? route.params.subject : ''
@@ -258,10 +347,41 @@ async function loadTimeline() {
   }
 }
 
+function reviewSubjectName(value: string) {
+  return TL_SUBJECT_TEXT[value] ?? (value || '其他学科')
+}
+
+async function loadMistakeReview() {
+  reviewLoading.value = true
+  reviewError.value = false
+  try {
+    reviewRaw.value = await student.fetchMyMistakes(false)
+    student.mistakeReviewCount = reviewCategories.value.length
+  } catch (e) {
+    reviewRaw.value = []
+    student.mistakeReviewCount = 0
+    reviewError.value = true
+    console.error(e)
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
+function beginReview(mistakeId: number) {
+  emit('close')
+  void router.push({ path: '/student/mistakes', query: { review: String(mistakeId) } })
+}
+
+function onMistakeReviewChanged() {
+  if (props.mode === 'mistakes') void loadMistakeReview()
+}
+
 async function loadForMode() {
   if (!auth.user) return
   if (props.mode === 'notes') {
     if (isStudent.value) await loadNotes()
+  } else if (props.mode === 'mistakes') {
+    await loadMistakeReview()
   } else if (props.mode === 'corrections') {
     await loadCorrectionMarks()
   } else if (props.mode === 'timeline') {
@@ -282,8 +402,12 @@ function onAssignmentsChanged() {
 onMounted(() => {
   void loadForMode()
   window.addEventListener('assignments-changed', onAssignmentsChanged)
+  window.addEventListener('mistake-review-changed', onMistakeReviewChanged)
 })
-onUnmounted(() => window.removeEventListener('assignments-changed', onAssignmentsChanged))
+onUnmounted(() => {
+  window.removeEventListener('assignments-changed', onAssignmentsChanged)
+  window.removeEventListener('mistake-review-changed', onMistakeReviewChanged)
+})
 
 function gotoSubmission(id: number) {
   router.push(`/student/diagnosis?submission_id=${id}`)
@@ -342,6 +466,39 @@ async function markAllRead() {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .tl-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+
+/* ---------- 错题本复习清单 ---------- */
+.review-overview {
+  display: flex; align-items: center; gap: 10px; padding: 12px;
+  border: 1px solid #DBEAFE; border-radius: 12px; background: linear-gradient(135deg, #EFF6FF, #F8FAFF);
+}
+.review-overview-icon, .review-empty-icon {
+  width: 34px; height: 34px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px; background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+}
+.review-overview strong, .review-overview span { display: block; }
+.review-overview strong { font-size: 13.5px; }
+.review-overview div > span { margin-top: 3px; color: var(--text-3); font-size: 11.5px; line-height: 1.4; }
+.review-sec-head { margin: 17px 0 10px; }
+.review-list { display: flex; flex-direction: column; gap: 10px; }
+.review-card { padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: #fff; box-shadow: 0 2px 6px rgba(15, 23, 42, .04); }
+.review-card-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.review-subject { padding: 3px 7px; border-radius: 6px; background: var(--primary-50); color: var(--primary); font-size: 11.5px; font-weight: 700; }
+.review-error-count { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.review-card h4 { margin-top: 9px; font-size: 14px; line-height: 1.4; }
+.review-card-meta { margin-top: 4px; color: var(--text-3); font-size: 11.5px; line-height: 1.45; }
+.review-start, .review-empty button, .review-all-link {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font-family: var(--font); font-weight: 600;
+}
+.review-start { width: 100%; margin-top: 11px; padding: 8px 10px; border: 1px solid #DBEAFE; border-radius: 8px; background: var(--primary-50); color: var(--primary); font-size: 12px; }
+.review-start:hover { border-color: var(--primary); background: #E5EEFF; }
+.review-all-link { width: 100%; padding: 7px; border: 0; background: transparent; color: var(--primary); font-size: 12px; }
+.review-all-link:hover { text-decoration: underline; }
+.review-empty { display: flex; flex-direction: column; align-items: center; padding: 24px 12px; text-align: center; }
+.review-empty-icon { margin-bottom: 10px; color: #0F9F7A; background: #EAFBF4; }
+.review-empty strong { font-size: 13.5px; }
+.review-empty p { margin-top: 5px; color: var(--text-3); font-size: 12px; line-height: 1.55; }
+.review-empty button { margin-top: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) {
   .tl-chevron { transition: none; }
 }

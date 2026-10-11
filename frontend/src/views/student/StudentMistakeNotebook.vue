@@ -90,8 +90,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type { StudentMistake } from '../../api/types'
@@ -109,10 +109,12 @@ interface MistakeCategory { key: string; label: string; items: StudentMistake[];
 interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean }
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const student = useStudentStore()
 const allMistakes = ref<StudentMistake[]>([])
 const loading = ref(false)
+const mistakesLoaded = ref(false)
 const loadError = ref('')
 const actionError = ref('')
 const view = ref<NotebookView>('notebook')
@@ -219,7 +221,9 @@ async function loadMistakes() {
   actionError.value = ''
   try {
     allMistakes.value = await student.fetchMyMistakes(false)
+    mistakesLoaded.value = true
     if (selectedMistake.value) selectedMistake.value = allMistakes.value.find((item) => item.id === selectedMistake.value?.id) || null
+    openRequestedReview()
   } catch (reason) {
     loadError.value = '错题本加载失败，请确认后端已启动。'
     console.error(reason)
@@ -236,6 +240,7 @@ async function toggleCategoryByPayload(payload: { assignment_id: number; categor
     await student.setMistakeCategoryStudied(payload)
     allMistakes.value = allMistakes.value.map((item) => item.assignment_id === payload.assignment_id && item.category_key === payload.category_key ? { ...item, category_studied: payload.studied } : item)
     if (selectedMistake.value?.assignment_id === payload.assignment_id && selectedMistake.value.category_key === payload.category_key) selectedMistake.value = { ...selectedMistake.value, category_studied: payload.studied }
+    window.dispatchEvent(new Event('mistake-review-changed'))
   } catch {
     actionError.value = '学习状态保存失败，请稍后重试。'
   } finally { workingKey.value = '' }
@@ -256,6 +261,7 @@ async function archiveAssignment(assignment: AssignmentGroup) {
     removedAssignment.value = { id: assignment.id, title: assignment.title, ids: assignment.items.map((item) => item.id) }
     closeAssistant()
     await loadMistakes()
+    window.dispatchEvent(new Event('mistake-review-changed'))
   } catch { actionError.value = '整份作业移出失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
@@ -270,6 +276,7 @@ async function archiveSaved(mistake: StudentMistake) {
     await student.setMistakeArchived(mistake.id, true)
     closeAssistant()
     await loadMistakes()
+    window.dispatchEvent(new Event('mistake-review-changed'))
   } catch { actionError.value = '移出错题本失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
@@ -282,9 +289,23 @@ async function restoreAssignment() {
     await student.setMistakeAssignmentArchived(removed.id, false, removed.ids)
     removedAssignment.value = null
     await loadMistakes()
+    window.dispatchEvent(new Event('mistake-review-changed'))
   } catch { actionError.value = '恢复作业失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
+
+function openRequestedReview() {
+  if (!mistakesLoaded.value || typeof route.query.review !== 'string') return
+  const requestedId = Number(route.query.review)
+  if (!Number.isInteger(requestedId) || requestedId <= 0) return
+  const mistake = allMistakes.value.find((item) => item.id === requestedId)
+  if (mistake) openAssistant(mistake)
+  const query = { ...route.query }
+  delete query.review
+  void router.replace({ path: route.path, query })
+}
+
+watch(() => route.query.review, openRequestedReview)
 
 onMounted(() => void loadMistakes())
 </script>
