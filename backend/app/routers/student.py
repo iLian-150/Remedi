@@ -76,7 +76,11 @@ from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services import scoring as scoring_svc
 from ..services.diagnosis import diagnose_submission, present_diagnosis, present_error, verify_correction
-from ..services.answer_check import student_visible_reference_answer
+from ..services.answer_check import (
+    student_visible_linear_error_detail,
+    student_visible_reference_answer,
+    student_visible_solution_steps,
+)
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
@@ -366,6 +370,10 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             })
         correction = correction_by_error.get(error.id)
         verification = verification_by_error.get(error.id)
+        correct_answer = (
+            student_visible_reference_answer(question.stem, question.standard_answer)
+            if question.subject == "math" else question.standard_answer
+        )
         result.append(StudentMistakeOut(
             id=error.id,
             submission_id=submission.id,
@@ -378,14 +386,19 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             question_stem=question.stem,
             # This is this student's own review. Validate stored math answers, and
             # derive a complete answer for solvable one-variable equations.
-            correct_answer=(
-                student_visible_reference_answer(question.stem, question.standard_answer)
-                if question.subject == "math" else question.standard_answer
+            correct_answer=correct_answer,
+            solution_steps=(
+                student_visible_solution_steps(question.stem)
+                if question.subject == "math" and correct_answer else []
             ),
             knowledge_point=error.knowledge_point,
             error_type=error.error_type,
             is_stubborn=error.is_stubborn,
-            detail=error.detail,
+            detail=(
+                student_visible_linear_error_detail(
+                    question.stem, step.text if step else None, step.seq if step else None
+                ) or error.detail
+            ),
             step_seq=step.seq if step else None,
             step_text=step.text if step else None,
             created_at=error.created_at,

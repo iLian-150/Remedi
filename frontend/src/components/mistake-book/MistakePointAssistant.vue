@@ -37,7 +37,11 @@
           <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 <AppIcon name="arrow-right" :size="12"/></a>
           <div v-if="mistake.step_text" class="mistake-reference-line is-error"><span>错误作答</span><p>{{ mistake.step_text }}</p></div>
           <div v-if="mistake.source_kind !== 'student_saved'" class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
-          <div class="mistake-point-summary-markdown">{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</div>
+          <div class="mistake-point-reason"><strong>{{ mistake.source_kind === 'student_saved' ? '复习提示' : '错因分析' }}</strong><p>{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</p></div>
+          <section v-if="mistake.solution_steps?.length" class="mistake-solution" aria-label="解题过程">
+            <strong>解题过程</strong>
+            <ol><li v-for="(step, index) in mistake.solution_steps" :key="`${index}-${step}`"><span>{{ index + 1 }}</span><p>{{ step }}</p></li></ol>
+          </section>
           <div v-if="mistake.latest_correction?.content" class="mistake-reference-line correction" :class="mistake.latest_correction.is_correct === true ? 'is-correct' : mistake.latest_correction.is_correct === false ? 'is-error' : 'is-revision'"><span>{{ mistake.latest_correction.is_correct === true ? '正确写法' : mistake.latest_correction.is_correct === false ? '订正尝试' : '订正记录' }}</span><p>{{ mistake.latest_correction.content }}</p></div>
         </div>
         <small>{{ mistake.source_kind === 'student_saved' ? '由你主动加入错题本' : `来自 ${mistake.assignment_title}` }}</small>
@@ -174,8 +178,14 @@ async function sendQuestion() {
 .mistake-reference-line.is-revision p { color: #92400E; }
 .mistake-point-summary-detail-head span { color: var(--text-3); }
 .mistake-point-summary-detail-head strong { color: var(--green); }
-.mistake-point-summary-markdown { margin-top: 10px; color: var(--text-2); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
-.mistake-point-summary-markdown p { margin: 0; }
+.mistake-point-reason { margin-top: 10px; padding: 10px 12px; border: 1px solid #DBEAFE; border-radius: 9px; background: #F8FAFF; }
+.mistake-point-reason strong, .mistake-solution > strong { color: var(--primary); font-size: 12px; }
+.mistake-point-reason p { margin: 4px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+.mistake-solution { margin-top: 10px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); }
+.mistake-solution ol { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.mistake-solution li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }
+.mistake-solution li > span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-50); font-size: 11px; font-weight: 700; }
+.mistake-solution li p { margin: 1px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .mistake-capture-image-link { display: inline-flex; align-items: center; gap: 3px; margin: 6px 0 10px; color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
 .mistake-point-transcript { overflow-y: auto; }
 .mistake-point-message p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }

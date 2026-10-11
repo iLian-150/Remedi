@@ -307,6 +307,144 @@ def student_visible_reference_answer(stem: str, reference_answer: Optional[str])
     return answer if checked and checked.get("status") == "ok" else None
 
 
+def _student_linear_equation(stem: str):
+    """Return verified symbolic data for a one-variable linear equation."""
+    stem = (stem or "").strip()
+    if not stem:
+        return None
+    try:
+        parsed = extract_equation(stem)
+        if parsed is None or parsed.kind != "eq":
+            return None
+        symbols = sorted(parsed.expr.free_symbols, key=str)
+        if len(symbols) != 1:
+            return None
+        symbol = symbols[0]
+        left = Poly(parsed.expr.lhs, symbol)
+        right = Poly(parsed.expr.rhs, symbol)
+        if left.degree() > 1 or right.degree() > 1:
+            return None
+        left_coefficient = simplify(left.coeff_monomial(symbol))
+        left_constant = simplify(left.coeff_monomial(1))
+        right_coefficient = simplify(right.coeff_monomial(symbol))
+        right_constant = simplify(right.coeff_monomial(1))
+        coefficient = simplify(left_coefficient - right_coefficient)
+        constant = simplify(right_constant - left_constant)
+        if coefficient == 0:
+            return None
+        answer = simplify(constant / coefficient)
+        if answer.free_symbols or answer.is_number is not True or answer.is_real is False:
+            return None
+        return (parsed.expr, symbol, left_coefficient, left_constant,
+                right_coefficient, right_constant, coefficient, constant, answer)
+    except Exception:
+        return None
+
+
+def _linear_term(coefficient, symbol) -> str:
+    coefficient = simplify(coefficient)
+    if coefficient == 1:
+        return str(symbol)
+    if coefficient == -1:
+        return f"-{symbol}"
+    return f"{_fmt(coefficient)}{symbol}"
+
+
+def _linear_terms_difference(left_coefficient, right_coefficient, symbol) -> str:
+    terms = []
+    for coefficient in (left_coefficient, -right_coefficient):
+        coefficient = simplify(coefficient)
+        if coefficient == 0:
+            continue
+        negative = coefficient.is_negative is True
+        magnitude = simplify(-coefficient if negative else coefficient)
+        term = _linear_term(magnitude, symbol)
+        if not terms:
+            terms.append(f"-{term}" if negative else term)
+        else:
+            terms.append(f" - {term}" if negative else f" + {term}")
+    return "".join(terms) or "0"
+
+
+def _subtract_text(left, right) -> str:
+    right = simplify(right)
+    if right == 0:
+        return _fmt(left)
+    if right.is_negative is True:
+        return f"{_fmt(left)} + {_fmt(-right)}"
+    return f"{_fmt(left)} - {_fmt(right)}"
+
+
+def student_visible_solution_steps(stem: str) -> List[str]:
+    """Build a checked, student-facing solution for supported linear equations."""
+    data = _student_linear_equation(stem)
+    if data is None:
+        return []
+    equation, symbol, left_a, left_b, right_a, right_b, coefficient, constant, answer = data
+    steps: List[str] = []
+
+    if right_a == 0 and left_b != 0:
+        operation = "加上" if left_b.is_negative is True else "减去"
+        amount = _fmt(-left_b if left_b.is_negative is True else left_b)
+        steps.append(
+            f"两边同时{operation} {amount}：{_linear_term(left_a, symbol)} = "
+            f"{_subtract_text(right_b, left_b)}"
+        )
+    elif right_a != 0 or left_b != 0:
+        steps.append(
+            "移项并合并同类项："
+            f"{_linear_terms_difference(left_a, right_a, symbol)} = "
+            f"{_subtract_text(right_b, left_b)}"
+        )
+    else:
+        steps.append(f"整理方程：{_linear_term(coefficient, symbol)} = {_fmt(constant)}")
+
+    if coefficient != 1 and coefficient != -1:
+        steps.append(f"化简：{_linear_term(coefficient, symbol)} = {_fmt(constant)}")
+        steps.append(
+            f"两边同时除以 {_fmt(coefficient)}：{symbol} = {_fmt(answer)}"
+        )
+    else:
+        steps.append(f"化简得：{symbol} = {_fmt(answer)}")
+
+    left_value = simplify(equation.lhs.subs(symbol, answer))
+    right_value = simplify(equation.rhs.subs(symbol, answer))
+    if not left_value.free_symbols and not right_value.free_symbols:
+        steps.append(
+            f"验算：代入 {symbol}={_fmt(answer)} 后，左边={_fmt(left_value)}、"
+            f"右边={_fmt(right_value)}，等式成立。"
+        )
+    return steps
+
+
+def student_visible_linear_error_detail(stem: str, step_text: Optional[str],
+                                        step_seq: Optional[int]) -> Optional[str]:
+    """Explain a bare numeric first answer by checking it in the original equation."""
+    if step_seq != 1 or not (step_text or "").strip():
+        return None
+    data = _student_linear_equation(stem)
+    if data is None:
+        return None
+    try:
+        student_step = parse_step(step_text)
+        if student_step.kind != "expr" or student_step.expr.free_symbols:
+            return None
+        attempted = simplify(student_step.expr)
+        if attempted.is_number is not True or simplify(attempted - data[-1]) == 0:
+            return None
+        equation, symbol = data[0], data[1]
+        left_value = simplify(equation.lhs.subs(symbol, attempted))
+        right_value = simplify(equation.rhs.subs(symbol, attempted))
+        if left_value.free_symbols or right_value.free_symbols:
+            return None
+        return (
+            f"把 {symbol}={_fmt(attempted)} 代回原方程，左边算得 {_fmt(left_value)}、"
+            f"右边是 {_fmt(right_value)}，左右不相等。先按下面的步骤求出 {symbol}，再验算。"
+        )
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------- LLM 验算
 
 def _llm_check(stem: str, reference_answer: str,
