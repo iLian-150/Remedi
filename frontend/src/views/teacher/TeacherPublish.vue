@@ -22,7 +22,14 @@
       </div>
     </div>
 
-    <div v-if="error" class="error-msg">{{ error }}</div>
+    <!-- v0.13.11：红色警示改顶部悬浮 toast——不再占位把表单往下推，
+         出现 5 秒后自动消失（计时逻辑在 script 的 watch(error)） -->
+    <transition name="toast-fade">
+      <div v-if="error" class="error-toast" role="alert">
+        <AppIcon name="alert" :size="16" />
+        <span>{{ error }}</span>
+      </div>
+    </transition>
     <div v-if="ok" class="ok-msg">发布成功，正在跳转到作业列表…</div>
 
     <!-- 第一级：选择发布方式（v0.12.0 两级化：点卡进入第二级表单，不再同页堆叠） -->
@@ -260,11 +267,11 @@
     <!-- v0.13.9：空态——还没加任何题目时先做选择：小题是独立的一道题，
          大题是一段共同题干下面挂几道小题 -->
     <div v-if="!questions.length && !groups.length" class="card q-empty">
-      <h3 style="margin-bottom: 6px">添加题目</h3>
-      <p class="card-sub">这次作业还没有题目。添加小题，就是一道独立的题；添加大题，是先写一段共同题干，再在下面挂几道小题。</p>
+      <h3 style="margin-bottom: 12px">添加题目</h3>
       <div class="q-add-row">
         <button type="button" class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
         <button type="button" class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
+        <button type="button" class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
       </div>
     </div>
 
@@ -362,6 +369,9 @@
       <div class="q-head">
         <h3 style="margin-bottom: 0">大题 {{ gi + 1 }} · 数学</h3>
         <div class="q-actions">
+          <button type="button" class="btn small secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto(g)">
+            <AppIcon name="camera" :size="15" /> {{ groupRecognizing && groupPhotoTarget === g ? '识别中…' : '拍照识别大题' }}
+          </button>
           <button type="button" class="btn small danger" @click="groups.splice(gi, 1)">删除大题</button>
         </div>
       </div>
@@ -373,9 +383,8 @@
         <div class="q-head">
           <h4 style="margin: 0">小题（{{ si + 1 }}）</h4>
           <div class="q-actions">
-            <button type="button" class="btn small secondary inline-icon" :disabled="sub.recognizing" @click="pickPhoto(sub)">
-              <AppIcon name="camera" :size="15" /> {{ sub.recognizing ? '识别中…' : '拍照识别题目' }}
-            </button>
+            <!-- v0.13.11：小题卡不再单独拍照识别——识别入口在大题层级
+                 （大题卡头的「拍照识别大题」一次拆出题干与全部小题） -->
             <button type="button" class="btn small danger" :disabled="g.subs.length === 1" @click="g.subs.splice(si, 1)">删除小题</button>
           </div>
         </div>
@@ -461,6 +470,7 @@
     </div>
 
     <input ref="photoRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhotoChange" />
+    <input ref="groupPhotoRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onGroupPhotoChange" />
     <!-- 分值占比合计（评分系统）：只统计会真正发布的题（题干或知识点已填）；
          v0.13.9：一道题都还没加时不显示这条，避免空着就报「还差 100%」 -->
     <div v-if="questions.length || groups.length" class="card weight-bar">
@@ -476,6 +486,7 @@
     <div class="toolbar publish-actions">
       <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
       <button class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
+      <button class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
       <span class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
       <button class="btn" :disabled="submitting || checkingAll" @click="submit">
@@ -487,7 +498,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
@@ -647,6 +658,13 @@ const submitting = ref(false)
 const checkingAll = ref(false)  // 发布前批量验算进行中（v0.9.3）
 const error = ref('')
 const ok = ref(false)
+
+// v0.13.11：红色警示是顶部悬浮 toast，出现 5 秒后自动消失；连续报错重新计时
+let errorTimer: ReturnType<typeof setTimeout> | undefined
+watch(error, (v) => {
+  if (errorTimer) clearTimeout(errorTimer)
+  if (v) errorTimer = setTimeout(() => { error.value = '' }, 5000)
+})
 
 function errMsg(e: unknown, fallback: string): string {
   const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -998,6 +1016,70 @@ async function onPhotoChange(e: Event) {
   }
 }
 
+// ---------- v0.13.11：拍照识别大题（识别入口在大题层级，不再逐个小题拍） ----------
+// 一次识别拆出共同题干 + 全部小题（照片里有解题过程才带每道小题的步骤），
+// 填进目标大题（工具栏/空态入口 = 新建一个大题；大题卡头入口 = 替换本大题，
+// 已有内容时先确认）。填完与拍照追加同口径：自动均分一次，并逐小题 AI 猜知识点。
+const groupPhotoRef = ref<HTMLInputElement | null>(null)
+const groupPhotoTarget = ref<GroupForm | null>(null)
+const groupRecognizing = ref(false)
+
+function pickGroupPhoto(g?: GroupForm) {
+  if (g) {
+    const hasContent = g.stem.trim() || g.subs.some((s) => s.prompt.trim() || s.standard_steps_text.trim())
+    if (hasContent && !window.confirm('将用识别结果替换这个大题的题干与全部小题，继续？')) return
+    groupPhotoTarget.value = g
+  } else {
+    groupPhotoTarget.value = null
+  }
+  groupPhotoRef.value?.click()
+}
+
+async function onGroupPhotoChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    error.value = '大题照片格式不对，请上传 jpg / png / webp 格式的图片。'
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    error.value = '大题照片太大了（超过 10MB），请压缩后再试。'
+    return
+  }
+  groupRecognizing.value = true
+  error.value = ''
+  try {
+    const res = await teacher.recognizeGroupPhoto(file)
+    const subs = (res.sub_questions ?? []).map((s) => {
+      const sf = blankQuestion()
+      sf.prompt = s.question_text ?? ''
+      sf.standard_steps_text = (s.steps ?? []).join('\n')
+      sf.recognized = true
+      return sf
+    })
+    let g = groupPhotoTarget.value
+    if (!g) {
+      g = { stem: '', subs: [] }
+      groups.value.push(g)
+    }
+    g.stem = res.stem ?? ''
+    g.subs = subs.length ? subs : [blankQuestion()]
+    distributeEvenly()
+    const gi = groups.value.indexOf(g)
+    g.subs.forEach((sf, si) => {
+      if (sf.prompt.trim() && !sf.knowledge_point) void guessKp(sf, `大题 ${gi + 1} 小题（${si + 1}）`)
+    })
+  } catch (err: unknown) {
+    error.value = '大题识别失败：' + errMsg(err, '请换一张更清晰的照片重试。')
+    console.error(err)
+  } finally {
+    groupRecognizing.value = false
+    groupPhotoTarget.value = null
+  }
+}
+
 async function submit() {
   error.value = ''
   if (!title.value.trim()) {
@@ -1164,6 +1246,17 @@ onMounted(async () => {
 .choose-grid { max-width: none; margin: 0; }
 .choose-grid .mode-card { padding: 26px 24px; gap: 8px; }
 .mode-enter { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13.5px; font-weight: 700; color: var(--primary); }
+/* v0.13.11：红色警示悬浮 toast（固定在视口顶部居中，盖在内容之上，不占位） */
+.error-toast {
+  position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+  z-index: 200; display: flex; align-items: center; gap: 8px;
+  max-width: min(92vw, 560px); padding: 11px 16px; border-radius: 12px;
+  background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA;
+  box-shadow: var(--shadow-md); font-size: 14px; font-weight: 600; line-height: 1.5;
+}
+.error-toast svg { flex-shrink: 0; }
+.toast-fade-enter-active, .toast-fade-leave-active { transition: opacity .25s ease, transform .25s ease; }
+.toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translate(-50%, -8px); }
 .choose-hint { text-align: left; color: var(--text-3); font-size: 13px; margin-top: 16px; }
 .page-head.publish-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ph-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
