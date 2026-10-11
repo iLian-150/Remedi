@@ -404,7 +404,7 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
 
 function accuracyPercent(group: AssignmentGroup): number | null {
   return group.totalAnswerSteps > 0
-    ? Math.round(group.correctSteps / group.totalAnswerSteps * 100)
+    ? Math.round(group.correctSteps / group.totalAnswerSteps * 1000) / 10
     : null
 }
 
