@@ -10,6 +10,7 @@ import type {
   GradingError,
   KnowledgePointStat,
   PageResult,
+  PhotoGroupTranscribeResult,
   PhotoTranscribeResult,
   ReviewDetail,
   ReviewPendingItem,
@@ -118,6 +119,15 @@ export const useTeacherStore = defineStore('teacher', {
       const form = new FormData()
       form.append('file', file)
       const { data } = await api.post<PhotoTranscribeResult>('/api/teacher/photo-recognize', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      return data
+    },
+    // 拍照识别大题（v0.13.11）：一张图拆出共同题干 + 全部小题
+    async recognizeGroupPhoto(file: File): Promise<PhotoGroupTranscribeResult> {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post<PhotoGroupTranscribeResult>('/api/teacher/photo-recognize-group', form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       return data
