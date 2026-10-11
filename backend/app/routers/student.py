@@ -1004,6 +1004,17 @@ def _save_submission_image_link(db: Session, submission: Submission,
     db.commit()
 
 
+def _has_recognized_student_work(recognition: dict, step_texts: List[str]) -> bool:
+    """模型返回了作答步骤时，以步骤内容作为有作答的可靠证据。
+
+    视觉模型偶尔会同时给出非空 steps 和 student_work_detected=false；
+    不能让矛盾的标记把已识别出的学生作答误分流成纯题目问答。
+    """
+    if any(text.strip() for text in step_texts):
+        return True
+    return recognition.get("student_work_detected") is True
+
+
 @router.post("/photo-review", response_model=PhotoReviewOut, summary="识别题目图片并按作答情况分流")
 async def photo_review(
     file: UploadFile = File(...),
@@ -1092,7 +1103,7 @@ async def photo_review(
     visual_steps = recognition.get("steps", [])
     steps = [str(step.get("text", "")).strip() for step in visual_steps
              if isinstance(step, dict) and str(step.get("text", "")).strip()]
-    has_work = bool(recognition.get("student_work_detected", bool(visual_steps)))
+    has_work = _has_recognized_student_work(recognition, steps)
     if recognition.get("needs_image_review") or confidence < 0.45:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1371,7 +1382,7 @@ async def photo_diagnose(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "这张照片暂时无法可靠辨认，没有生成错题记录。请拍清楚题目和作答过程后重试。",
         )
-    if not recognition.get("student_work_detected", bool(visual_steps)) or not visual_steps:
+    if not _has_recognized_student_work(recognition, steps) or not visual_steps:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "照片中没有识别到学生作答，没有生成错题记录。请上传包含作答过程的照片。",
