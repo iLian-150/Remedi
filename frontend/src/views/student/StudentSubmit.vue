@@ -27,12 +27,20 @@
         <label class="switch-label" for="submit-assignment-select">
           <AppIcon name="clipboard" :size="16" /> 正在交的作业
         </label>
-        <select id="submit-assignment-select" v-model="assignmentId" class="switch-select" @change="onAssignmentChange">
-          <option value="">请选择一份作业…</option>
-          <option v-for="a in assignments" :key="a.id" :value="a.id">
-            {{ a.title }}（{{ a.question_count }} 题）{{ a.mode === 'offline' ? ' · 线下练习' : ' · 线上作业' }}
-          </option>
-        </select>
+        <div class="switch-select-wrap">
+          <select id="submit-assignment-select" v-model="assignmentId" class="switch-select" @change="onAssignmentChange">
+            <option value="">请选择一份作业…</option>
+            <!-- v0.13.9：正在看的这份若已全部交完，只留一个禁用项标明状态，不再能选 -->
+            <option v-if="currentFullySubmitted" :value="assignmentId" disabled>
+              {{ currentAssignment?.title }}（已全部提交）
+            </option>
+            <option v-for="a in switchableAssignments" :key="a.id" :value="a.id">
+              {{ a.title }}（{{ a.question_count }} 题{{ a.submitted_count ? ` · 已交 ${a.submitted_count} 题` : '' }}）{{ a.mode === 'offline' ? ' · 线下练习' : ' · 线上作业' }}
+            </option>
+          </select>
+          <AppIcon name="chevron-down" :size="16" class="switch-chevron" />
+        </div>
+        <span v-if="assignments.length && !switchableAssignments.length && !currentFullySubmitted" class="switch-done-hint">能交的作业都交完啦</span>
         <router-link to="/student/assignments" class="switch-all">全部作业 <AppIcon name="chevron-right" :size="13" /></router-link>
       </div>
 
@@ -259,6 +267,17 @@ const router = useRouter()
 
 const assignments = ref<Assignment[]>([])
 const assignmentId = ref<number | ''>('')
+// v0.13.9：「正在交的作业」下拉只列还没交完的——全部题目都已提交的作业
+// 不再出现在选项里（后端在作业列表里带了 submitted_count）；选项里顺带
+// 标出已交进度，省得点进去才知道还剩几题
+const currentAssignment = computed(() => assignments.value.find((a) => a.id === assignmentId.value) ?? null)
+const currentFullySubmitted = computed(() => {
+  const cur = currentAssignment.value
+  return !!cur && cur.question_count > 0 && (cur.submitted_count ?? 0) >= cur.question_count
+})
+const switchableAssignments = computed(() =>
+  assignments.value.filter((a) => (a.submitted_count ?? 0) < a.question_count)
+)
 const currentDetail = ref<AssignmentDetail | null>(null) // 当前所选作业详情（说明卡 + 题目来源）
 const questions = ref<Question[]>([])
 const doneQids = ref<Set<number>>(new Set())
@@ -652,7 +671,18 @@ onMounted(async () => {
   color: var(--text);
   white-space: nowrap;
 }
-.switch-select { flex: 1; min-width: 200px; width: auto; }
+/* v0.13.9：下拉换成与全站控件一致的自制外观（去系统默认箭头、自绘 chevron、
+   聚焦主色描边），选项文字过长省略号截断 */
+.switch-select-wrap { position: relative; flex: 1; min-width: 200px; display: flex; }
+.switch-select {
+  flex: 1; width: 100%; appearance: none; -webkit-appearance: none;
+  padding: 9px 36px 9px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+  background: #fff; font-size: 14px; color: var(--text); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.switch-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
+.switch-chevron { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-3); }
+.switch-done-hint { font-size: 13px; color: var(--text-2); white-space: nowrap; }
 .switch-all {
   display: inline-flex;
   align-items: center;
