@@ -79,8 +79,9 @@
         <div class="card">
           <h3>题目回顾</h3>
           <!-- v0.13.9：原来这里只有出错的一步、看不到原题——改成完整回顾：
-               原来的题目 → 我当时的作答（错步在原步骤里原地标出）→ 解析 →
-               正确答案与标准解题过程，看全了再动手订正 -->
+               原来的题目 → 我当时的作答（错步在原步骤里原地标出）→ 解析。
+               v0.13.10：正确答案与标准解题过程不在订正前直接给出（用户口径），
+               先自己想、自己改，判定结果会告诉你对不对 -->
           <div class="review-block">
             <span class="review-label">原来的题目</span>
             <p class="review-stem">{{ selectedError.question_stem || '题目内容暂未记录' }}</p>
@@ -105,19 +106,6 @@
             <span v-if="fixedIds.has(selectedError.id)" class="badge badge-green">已订正</span>
             <span v-else-if="selectedError.is_stubborn" class="badge badge-amber">需要加固</span>
           </p>
-          <div v-if="selectedError.correct_answer" class="review-block" style="margin-top: 14px; margin-bottom: 0">
-            <span class="review-label">正确答案</span>
-            <p class="review-answer">{{ selectedError.correct_answer }}</p>
-          </div>
-          <div v-if="selectedError.solution_steps?.length" class="review-block" style="margin-bottom: 0">
-            <span class="review-label">标准解题过程</span>
-            <ol class="orig-steps">
-              <li v-for="(s, i) in selectedError.solution_steps" :key="i">
-                <span class="orig-seq">{{ i + 1 }}</span>
-                <span class="orig-text">{{ s }}</span>
-              </li>
-            </ol>
-          </div>
         </div>
 
         <div class="card">
@@ -460,7 +448,6 @@ function toGradingError(item: StudentMistake): GradingError {
 .review-label { display: block; font-size: 12px; font-weight: 700; color: var(--text-3); letter-spacing: .4px; margin-bottom: 5px; }
 .review-stem { font-size: 16px; font-weight: 600; line-height: 1.65; }
 .review-img-link { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--primary); font-weight: 600; }
-.review-answer { font-size: 15px; font-weight: 600; color: #15803D; }
 .orig-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .orig-steps li { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px; border-radius: 9px; background: var(--bg); font-size: 14px; }
 .orig-steps li.is-error { background: #FEF2F2; box-shadow: inset 0 0 0 1.5px #DC2626; }
