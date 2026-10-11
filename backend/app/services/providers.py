@@ -12,6 +12,21 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _as_bool(value, default: bool = False) -> bool:
+    """将视觉模型 JSON 的布尔字段归一化，避免 bool("false") 被误判为 True。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on", "是", "有"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off", "否", "没有", ""}:
+            return False
+    return default
+
+
 class LLMProvider(ABC):
     @abstractmethod
     def classify_error(self, *, question_stem: str, knowledge_point: str,
@@ -333,8 +348,12 @@ class CloudflareProvider(DeepSeekProvider):
             return {
                 "question_text": question_text,
                 "steps": steps,
-                "student_work_detected": bool(data.get("student_work_detected", bool(steps))),
-                "needs_image_review": bool(data.get("needs_image_review", not steps)),
+                "student_work_detected": _as_bool(
+                    data.get("student_work_detected"), default=bool(steps)
+                ),
+                "needs_image_review": _as_bool(
+                    data.get("needs_image_review"), default=not steps
+                ),
                 "confidence": confidence,
             }
         except Exception as e:
@@ -415,8 +434,12 @@ class CloudflareProvider(DeepSeekProvider):
             return {
                 "question_text": question_text[:12000],
                 "steps": steps,
-                "student_work_detected": bool(data.get("student_work_detected", bool(steps))),
-                "needs_image_review": bool(data.get("needs_image_review", not steps and not question_text)),
+                "student_work_detected": _as_bool(
+                    data.get("student_work_detected"), default=bool(steps)
+                ),
+                "needs_image_review": _as_bool(
+                    data.get("needs_image_review"), default=not steps and not question_text
+                ),
                 "confidence": image_confidence,
             }
         except Exception as e:
