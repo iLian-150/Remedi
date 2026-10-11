@@ -10,23 +10,24 @@ def _students(db) -> List[User]:
     return db.query(User).filter(User.role == "student").order_by(User.id).all()
 
 
-def _submitted_qids(db, student_id: int, qids: List[int]) -> set:
-    """该生在给定题目集合里已提交的题目 id（数学提交 + 作文提交，与简报口径一致）。"""
-    if not qids:
-        return set()
-    done = {
-        s.question_id
-        for s in db.query(Submission).filter(
-            Submission.student_id == student_id, Submission.question_id.in_(qids)
-        ).all()
-    }
-    done |= {
-        e.question_id
-        for e in db.query(Essay).filter(
-            Essay.student_id == student_id, Essay.question_id.in_(qids)
-        ).all()
-    }
-    return done
+def _submitted_qids_by_student(db, student_ids: List[int], qids: List[int]) -> Dict[int, set]:
+    """批量返回学生在题目集合中的已提交题目，与单学生口径保持一致。"""
+    done_by_student = {student_id: set() for student_id in student_ids}
+    if not student_ids or not qids:
+        return done_by_student
+    for student_id, question_id in db.query(
+        Submission.student_id, Submission.question_id
+    ).join(User, User.id == Submission.student_id).filter(
+        User.role == "student", Submission.question_id.in_(qids)
+    ).all():
+        done_by_student[student_id].add(question_id)
+    for student_id, question_id in db.query(
+        Essay.student_id, Essay.question_id
+    ).join(User, User.id == Essay.student_id).filter(
+        User.role == "student", Essay.question_id.in_(qids)
+    ).all():
+        done_by_student[student_id].add(question_id)
+    return done_by_student
 
 
 def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
@@ -34,20 +35,28 @@ def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
     qids = [q.id for q in db.query(Question).filter(Question.assignment_id == assignment.id).all()]
     if not qids:
         return []
-    missing = []
-    for st in _students(db):
-        if _submitted_qids(db, st.id, qids) != set(qids):
-            missing.append(st)
-    return missing
+    students = _students(db)
+    done_by_student = _submitted_qids_by_student(
+        db, [student.id for student in students], qids
+    )
+    question_ids = set(qids)
+    return [
+        student for student in students
+        if done_by_student.get(student.id, set()) != question_ids
+    ]
 
 
 def assignment_status(db, assignment: Assignment) -> Dict:
     """一份作业的提交情况：全部完成 / 部分完成 / 完全没交，三组学生名单。"""
     questions = db.query(Question).filter(Question.assignment_id == assignment.id).all()
     qids = [q.id for q in questions]
+    students = _students(db)
+    done_by_student = _submitted_qids_by_student(
+        db, [student.id for student in students], qids
+    )
     done_all, partial, none = [], [], []
-    for st in _students(db):
-        done = _submitted_qids(db, st.id, qids)
+    for st in students:
+        done = done_by_student.get(st.id, set())
         if qids and done == set(qids):
             done_all.append(st.name)
         elif done:

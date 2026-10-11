@@ -359,18 +359,30 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
 
 def list_students(db) -> List[Dict]:
     students = db.query(User).filter(User.role == "student").order_by(User.id).all()
-    items = []
-    for st in students:
-        submission_count = db.query(Submission).filter(Submission.student_id == st.id).count()
-        error_count = (
-            db.query(Error).join(Submission, Error.submission_id == Submission.id)
-            .filter(Submission.student_id == st.id).count()
-        )
-        items.append({
-            "id": st.id, "name": st.name, "student_no": st.student_no,
-            "submission_count": submission_count, "error_count": error_count,
-        })
-    return items
+    if not students:
+        return []
+    submission_counts = dict(
+        db.query(Submission.student_id, func.count(Submission.id))
+        .join(User, User.id == Submission.student_id)
+        .filter(User.role == "student")
+        .group_by(Submission.student_id)
+        .all()
+    )
+    error_counts = dict(
+        db.query(Submission.student_id, func.count(Error.id))
+        .join(Error, Error.submission_id == Submission.id)
+        .join(User, User.id == Submission.student_id)
+        .filter(User.role == "student")
+        .group_by(Submission.student_id)
+        .all()
+    )
+    return [{
+        "id": st.id,
+        "name": st.name,
+        "student_no": st.student_no,
+        "submission_count": submission_counts.get(st.id, 0),
+        "error_count": error_counts.get(st.id, 0),
+    } for st in students]
 
 
 # ---------------------------------------------------------------- 学习报告（v0.2.1 新增）
