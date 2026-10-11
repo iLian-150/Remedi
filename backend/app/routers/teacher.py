@@ -529,6 +529,48 @@ def list_teacher_assignments(db: Session = Depends(get_db),
     return {"total": len(items), "items": items}
 
 
+def _delete_unreferenced_submission_images(db: Session, file_paths: set[str]) -> None:
+    """删除作业移除后不再被任何功能引用的提交原图。"""
+    upload_dir = os.path.realpath(settings.UPLOAD_DIR)
+    for stored_path in file_paths:
+        absolute_path = os.path.realpath(
+            stored_path if os.path.isabs(stored_path)
+            else os.path.join(upload_dir, stored_path)
+        )
+        try:
+            try:
+                inside_upload_dir = os.path.commonpath(
+                    (upload_dir, absolute_path)
+                ) == upload_dir
+            except ValueError:
+                inside_upload_dir = False
+            if absolute_path == upload_dir or not inside_upload_dir:
+                continue
+            still_referenced = (
+                db.query(SubmissionImage.submission_id)
+                .filter(SubmissionImage.file_path == stored_path).first()
+                or db.query(ChatSessionMessageImage.message_id)
+                .filter(ChatSessionMessageImage.file_path == stored_path).first()
+                or db.query(StudentQuestionCapture.id)
+                .filter(StudentQuestionCapture.image_path == stored_path).first()
+                or db.query(Workbook.id)
+                .filter(Workbook.file_path == stored_path).first()
+            )
+            if still_referenced:
+                continue
+            os.remove(absolute_path)
+        except FileNotFoundError:
+            continue
+        except Exception:
+            # 作业删除已提交；清理失败只保留孤立文件，不应把成功删除显示成失败。
+            db.rollback()
+            logger.warning(
+                "作业删除后清理提交图片失败（file_path=%s）",
+                stored_path,
+                exc_info=True,
+            )
+
+
 @router.delete("/assignments/{assignment_id}", summary="删除已发布作业")
 def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_teacher)):
@@ -545,11 +587,18 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     qids = [q.id for q in db.query(Question).filter(Question.assignment_id == assignment.id).all()]
+    submission_image_paths: set[str] = set()
     if qids:
         sub_ids = [
             s.id for s in db.query(Submission).filter(Submission.question_id.in_(qids)).all()
         ]
         if sub_ids:
+            submission_image_paths = {
+                row[0]
+                for row in db.query(SubmissionImage.file_path)
+                .filter(SubmissionImage.submission_id.in_(sub_ids)).all()
+                if row[0]
+            }
             err_ids = [
                 e.id for e in db.query(Error).filter(Error.submission_id.in_(sub_ids)).all()
             ]
@@ -614,6 +663,7 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
         .delete(synchronize_session=False)
     db.delete(assignment)
     db.commit()
+    _delete_unreferenced_submission_images(db, submission_image_paths)
     return {"deleted": True}
 
 

@@ -11,7 +11,7 @@
   <div class="page">
     <div class="page-head">
       <h2>待审核</h2>
-      <p class="page-sub">整份作业已批改题目的累计正确率低于 60% 时会进入复核；单题正确率或错因置信度低于 60% 也会即时进入。点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
+      <p class="page-sub">同一学生本次作业已批改题目的正确率低于 60% 时会进入复核；单题正确率或错因置信度低于 60% 也会即时进入。点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -64,7 +64,7 @@
               <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
             </span>
             <span class="assign-card-accuracy" :class="accuracyClass(g)">
-              <span class="accuracy-label">待审核学生累计正确率</span>
+              <span class="accuracy-label">待审核学生本次作业正确率</span>
               <strong>{{ accuracyPercent(g) ?? '—' }}<small v-if="accuracyPercent(g) !== null">%</small></strong>
               <span class="accuracy-steps" v-if="g.totalAnswerSteps">
                 {{ g.correctSteps }} / {{ g.totalAnswerSteps }} 步正确
@@ -160,7 +160,7 @@
                 <section class="review-modal-panel review-homework-accuracy" :class="itemAccuracyClass(currentReviewItem)">
                   <div class="review-homework-accuracy-main">
                     <div>
-                      <strong>该生本作业累计正确率</strong>
+                      <strong>该生本次作业正确率</strong>
                       <span v-if="currentReviewItem?.assignment_total_steps">
                         {{ currentReviewItem.assignment_correct_steps }} / {{ currentReviewItem.assignment_total_steps }} 步正确
                       </span>

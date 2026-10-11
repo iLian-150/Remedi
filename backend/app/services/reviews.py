@@ -126,7 +126,7 @@ def review_reasons(
     if assignment_context:
         _, assignment_correct, assignment_total = assignment_context
         if assignment_total > 0 and assignment_correct / assignment_total < REVIEW_THRESHOLD:
-            reasons.append("本次作业累计正确率低于 60%")
+            reasons.append("本次作业正确率低于 60%")
 
     confidences = [
         float(row[0])
@@ -154,7 +154,7 @@ def review_reasons(
 def needs_teacher_review(db: Session, submission: Submission,
                          confidence_signals: Iterable[float] = (), *,
                          assignment_context: Optional[Tuple[List[Submission], int, int]] = None) -> bool:
-    """单题正确率、作业已批改部分累计正确率、错因或视觉置信度低于 60% 时送审。
+    """单题正确率、本次作业已批改部分正确率、错因或视觉置信度低于 60% 时送审。
 
     正确率按 seq >= 1 的作答步骤计算；作业累计率跨学科统计已批改提交。
     视觉路径同时检查整图和每步判断置信度。
