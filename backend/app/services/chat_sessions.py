@@ -16,6 +16,7 @@ from ..models import (
     ChatMessage,
     ChatSession,
     ChatSessionMessage,
+    ChatSessionMessageImage,
     ChatSessionMessageMistakeLink,
     User,
 )
@@ -153,6 +154,27 @@ def append_message(db: Session, session: ChatSession, role: str, content: str) -
     return msg
 
 
+def attach_image(db: Session, message: ChatSessionMessage,
+                 file_path: str, file_name: str) -> None:
+    """将已保存的图片路径关联到会话消息。"""
+    db.merge(ChatSessionMessageImage(
+        message_id=message.id,
+        file_path=file_path,
+        file_name=file_name[:255],
+    ))
+    db.commit()
+
+
+def image_for_message(db: Session, message: ChatSessionMessage) -> Optional[dict]:
+    image = db.query(ChatSessionMessageImage).filter_by(message_id=message.id).first()
+    if image is None:
+        return None
+    return {
+        "image_url": f"/api/uploads/{image.file_path}",
+        "image_name": image.file_name,
+    }
+
+
 def link_related_mistake(db: Session, message: ChatSessionMessage,
                          error_id: Optional[int]) -> None:
     """将一条助手回复与其历史错题入口关联，支持会话恢复。"""
@@ -185,6 +207,9 @@ def delete_session(db: Session, user: User, session_id: int) -> bool:
     message_ids = [row[0] for row in db.query(ChatSessionMessage.id)
                    .filter(ChatSessionMessage.session_id == session.id).all()]
     if message_ids:
+        db.query(ChatSessionMessageImage).filter(
+            ChatSessionMessageImage.message_id.in_(message_ids)
+        ).delete(synchronize_session=False)
         db.query(ChatSessionMessageMistakeLink).filter(
             ChatSessionMessageMistakeLink.message_id.in_(message_ids)
         ).delete(synchronize_session=False)

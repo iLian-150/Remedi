@@ -932,6 +932,8 @@ async def photo_review(
     context = question.stem if question else question_context
 
     chat_session = None
+    stored_image_path = None
+    image_url = None
     if save_to_chat:
         from ..services import chat_sessions as cs
 
@@ -942,10 +944,26 @@ async def photo_review(
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
         else:
             chat_session = cs.get_or_create_current(db, current)
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        filename = "{}_{}{}".format(
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            secrets.token_hex(8),
+            _PHOTO_TYPES[file.content_type],
+        )
+        stored_image_path = filename
+        image_url = f"/api/uploads/{filename}"
+        with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as image_file:
+            image_file.write(data)
         chat_user_text = "上传了一张作业照片。"
         if chat_prompt.strip():
             chat_user_text += f"\n补充说明：{chat_prompt.strip()[:2000]}"
-        cs.append_message(db, chat_session, "user", chat_user_text)
+        chat_user_message = cs.append_message(db, chat_session, "user", chat_user_text)
+        cs.attach_image(
+            db,
+            chat_user_message,
+            stored_image_path,
+            os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
+        )
 
     def save_chat_result(text: str) -> Optional[int]:
         if chat_session is None:
@@ -977,13 +995,16 @@ async def photo_review(
                 "没有识别到题目内容，请拍清楚题干后重试。",
             )
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-        filename = "{}_{}{}".format(
-            datetime.now().strftime("%Y%m%d%H%M%S"),
-            secrets.token_hex(4),
-            _PHOTO_TYPES[file.content_type],
-        )
-        with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as image_file:
-            image_file.write(data)
+        filename = stored_image_path
+        if filename is None:
+            filename = "{}_{}{}".format(
+                datetime.now().strftime("%Y%m%d%H%M%S"),
+                secrets.token_hex(8),
+                _PHOTO_TYPES[file.content_type],
+            )
+            with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as image_file:
+                image_file.write(data)
+            image_url = f"/api/uploads/{filename}"
         capture = StudentQuestionCapture(
             student_id=current.id,
             question_id=question.id if question else None,
@@ -996,7 +1017,8 @@ async def photo_review(
         db.refresh(capture)
         session_id = save_chat_result(f"已从照片中识别到题目：{question_text}")
         return {"mode": "answer", "question_text": question_text, "steps": [],
-                "capture_id": capture.id, "diagnosis": None, "session_id": session_id}
+                "capture_id": capture.id, "diagnosis": None, "session_id": session_id,
+                "image_url": image_url}
 
     if not steps:
         save_chat_result("照片里检测到作答，但步骤无法可靠辨认，请重拍后再试。")
@@ -1038,7 +1060,7 @@ async def photo_review(
     session_id = chat_session.id if chat_session is not None else None
     return {"mode": "diagnosis", "question_text": question_text,
             "steps": steps, "capture_id": None, "diagnosis": diagnosis,
-            "session_id": session_id}
+            "session_id": session_id, "image_url": image_url}
 
 
 @router.post("/photo-captures/{capture_id}/save", summary="将自主上传题目加入错题本")
@@ -1233,7 +1255,8 @@ def agent_session_messages(session_id: int, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
     return [
         {"role": m.role, "content": m.content, "created_at": m.created_at,
-         "related_mistake": cs.related_mistake_for_message(db, current, m)}
+         "related_mistake": cs.related_mistake_for_message(db, current, m),
+         **(cs.image_for_message(db, m) or {})}
         for m in cs.session_messages(db, session)
     ]
 
@@ -1340,7 +1363,8 @@ def agent_history(db: Session = Depends(get_db), current: User = Depends(require
         return []
     return [
         {"role": m.role, "content": m.content, "created_at": m.created_at,
-         "related_mistake": cs.related_mistake_for_message(db, current, m)}
+         "related_mistake": cs.related_mistake_for_message(db, current, m),
+         **(cs.image_for_message(db, m) or {})}
         for m in cs.session_messages(db, session, limit=_AGENT_HISTORY_RETURN)
     ]
 

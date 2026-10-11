@@ -167,6 +167,15 @@ class ChatSessionMessage(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class ChatSessionMessageImage(Base):
+    """聊天用户消息关联的服务器图片；文件本体保存在 UPLOAD_DIR。"""
+    __tablename__ = "chat_session_message_images"
+
+    message_id = Column(Integer, ForeignKey("chat_session_messages.id"), primary_key=True)
+    file_path = Column(String(512), nullable=False)
+    file_name = Column(String(255), nullable=False)
+
+
 class ChatSessionMessageMistakeLink(Base):
     """持久化助手回复关联的历史错题入口，便于重开会话后继续查看。"""
     __tablename__ = "chat_session_message_mistake_links"

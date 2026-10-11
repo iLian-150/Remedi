@@ -611,6 +611,8 @@ class AgentHistoryItem(BaseModel):
     content: str
     created_at: datetime
     related_mistake: Optional[RelatedMistakeOut] = None
+    image_url: Optional[str] = None
+    image_name: Optional[str] = None
 
 
 class ChatSessionOut(BaseModel):

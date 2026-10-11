@@ -386,6 +386,7 @@ export interface PhotoReviewResult {
   capture_id: number | null
   diagnosis: SubmissionResult | null
   session_id?: number | null
+  image_url?: string | null
 }
 
 // ---------- 主页 Agent 对话（v0.3.0） ----------
@@ -395,6 +396,8 @@ export interface AgentHistoryItem {
   content: string
   created_at: string
   related_mistake?: RelatedMistake | null
+  image_url?: string | null
+  image_name?: string | null
 }
 
 // ---------- 站内提醒（v0.3.0） ----------

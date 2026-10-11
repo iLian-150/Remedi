@@ -403,6 +403,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type {
+  AgentHistoryItem,
   Assignment,
   PendingAssignment,
   Question,
@@ -705,6 +706,27 @@ async function prependBriefing() {
 // 简报卡始终保留置顶，会话消息接在简报下方（与原 switchSession 行为一致）。
 // fresh=true 表示刚新建的空会话；id=null 表示会话已删光；两者都回到「只剩简报卡」的欢迎态。
 let appliedViewSeq = 0
+function restoreHistoryMessage(h: AgentHistoryItem) {
+  if (h.role === 'user' && h.image_url) {
+    const text = h.content
+      .replace(/^上传了一张作业照片。?\s*/, '')
+      .replace(/^补充说明：/, '')
+    pushMsg({
+      side: 'user',
+      kind: 'image',
+      text,
+      fileName: h.image_name || '作业照片',
+      url: h.image_url
+    })
+    return
+  }
+  pushMsg({
+    side: h.role === 'user' ? 'user' : 'ai',
+    kind: 'text',
+    text: h.content,
+    relatedMistake: h.related_mistake ?? null
+  })
+}
 watch(
   () => student.sessionView.seq,
   async (seqVal) => {
@@ -719,10 +741,7 @@ watch(
     if (!view.fresh && view.id != null) {
       try {
         const rows = await student.fetchSessionMessages(view.id)
-        rows.forEach((h) =>
-          pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content,
-            relatedMistake: h.related_mistake ?? null })
-        )
+        rows.forEach(restoreHistoryMessage)
       } catch (e) {
         pushMsg({ side: 'ai', kind: 'error', text: '打开这条对话失败：' + (errDetail(e) || '请稍后重试。') })
         console.error(e)
@@ -832,7 +851,7 @@ async function onFileChange(e: Event) {
 
 async function sendPhotoReview(file: File, prompt: string) {
   suggestions.value = []
-  pushMsg({ side: 'user', kind: 'image', text: prompt, fileName: file.name, url: createImageUrl(file) })
+  const userImage = pushMsg({ side: 'user', kind: 'image', text: prompt, fileName: file.name, url: createImageUrl(file) })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在识别题目和作答情况…', pending: true })
   chatSending.value = true
   let photoReviewSucceeded = false
@@ -848,6 +867,7 @@ async function sendPhotoReview(file: File, prompt: string) {
       prompt
     )
     photoReviewSucceeded = true
+    if (res.image_url) userImage.url = res.image_url
     if (res.session_id) student.setActiveSession(res.session_id)
     await student.loadSessions(true)
     wait.pending = false
@@ -1013,10 +1033,7 @@ onMounted(async () => {
     const history = student.activeSessionId == null
       ? []
       : await student.fetchSessionMessages(student.activeSessionId)
-    history.forEach((h) =>
-      pushMsg({ side: h.role === 'user' ? 'user' : 'ai', kind: 'text', text: h.content,
-        relatedMistake: h.related_mistake ?? null })
-    )
+    history.forEach(restoreHistoryMessage)
   } catch (e) {
     console.error(e)
   }
@@ -1112,10 +1129,10 @@ onMounted(async () => {
 .ai-bubble { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; }
 .error-bubble { background: var(--red-bg); color: #991B1B; display: inline-flex; align-items: center; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
-.user-image-card { display: grid; width: fit-content; max-width: min(440px, 82vw); gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 16px 16px 4px 16px; background: #F3F4F0; }
+.user-image-card { display: grid; width: fit-content; max-width: min(340px, 78vw); gap: 9px; padding: 10px; border: 1px solid var(--border); border-radius: 16px 16px 4px 16px; background: #F3F4F0; }
 .user-image-prompt { margin: 0 2px 2px; color: var(--text); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .user-image-trigger { display: flex; width: fit-content; max-width: 100%; justify-content: center; margin: 0 auto; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: zoom-in; }
-.user-image img { display: block; width: auto; height: auto; max-width: 100%; max-height: 340px; object-fit: contain; }
+.user-image img { display: block; width: auto; height: auto; max-width: 100%; max-height: 220px; object-fit: contain; }
 .user-image-caption { display: block; max-width: 100%; padding: 0 2px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; cursor: zoom-in; }
 
 .ai-card {
@@ -1289,8 +1306,8 @@ onMounted(async () => {
 @media (max-width: 960px) {
   .chat-layout { height: calc(100dvh - 72px); }
   .chat-status { display: none; }
-  .user-image-card { max-width: min(360px, 82vw); }
-  .user-image img { max-height: 280px; }
+  .user-image-card { max-width: min(320px, 82vw); }
+  .user-image img { max-height: 220px; }
   .bubble { max-width: 88%; }
   .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 150px; }
   .chat-composer-welcome .chat-inner { padding: 0; }
