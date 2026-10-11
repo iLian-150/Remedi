@@ -6,7 +6,7 @@
 #     - 分值占比：question_weights.weight_pct，无配置行 = 100 / 该作业题数（均分）
 #   得分率 = 正确步骤数 / 作答步骤总数
 #     - 只数学生作答步（seq ≥ 1，不含 seq=0 题干）
-#     - status=ok 计正确；error / unparseable（不可解析按错计）/ skipped 都不计
+#     - ok 计正确；error / unparseable 计入作答步但不计正确；skipped 不参与统计
 #     - 全部步骤都对 → 得分率 1.0；没有有效作答步骤 → 得分率 0
 #   AI 初评分 = round(题目满分 × 得分率, 1)
 #
@@ -87,8 +87,11 @@ def set_assignment_scoring(db: Session, assignment_id: int,
 # ---------------------------------------------------------------- AI 初评分
 
 def step_counts(steps: List[Step]) -> Tuple[int, int]:
-    """(正确步数, 作答步总数)：只数 seq ≥ 1 的学生作答步，ok 才算正确。"""
-    answer_steps = [s for s in steps if s.seq >= 1]
+    """(正确步数, 已判定作答步总数)：不把首个错误后跳过的步骤算成错题。"""
+    answer_steps = [
+        s for s in steps
+        if s.seq >= 1 and s.status in {"ok", "error", "unparseable"}
+    ]
     ok = sum(1 for s in answer_steps if s.status == "ok")
     return ok, len(answer_steps)
 

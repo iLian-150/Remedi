@@ -69,7 +69,8 @@ def assignment_accuracy_context(
 ) -> Optional[Tuple[List[Submission], int, int]]:
     """返回同一学生、整份作业各题最新提交的步骤正确率统计。
 
-    正确率只统计已有批改结果的作答步骤，未提交的题目不进入分母。
+    正确率只统计已判定（正确、错误或无法解析）的作答步骤；跳过步骤和未提交题目
+    不进入分母。
     """
     question = submission.question or db.query(Question).filter(
         Question.id == submission.question_id
@@ -96,7 +97,9 @@ def assignment_accuracy_context(
     ]
     submission_ids = [item.id for item in latest_submissions]
     statuses = db.query(Step.status).filter(
-        Step.submission_id.in_(submission_ids), Step.seq >= 1
+        Step.submission_id.in_(submission_ids),
+        Step.seq >= 1,
+        Step.status.in_(("ok", "error", "unparseable")),
     ).all() if submission_ids else []
     correct = sum(1 for row in statuses if row[0] == "ok")
     return latest_submissions, correct, len(statuses)
@@ -114,6 +117,7 @@ def review_reasons(
     step_statuses = [row[0] for row in db.query(Step.status).filter(
         Step.submission_id == submission.id,
         Step.seq >= 1,
+        Step.status.in_(("ok", "error", "unparseable")),
     ).all()]
     if step_statuses:
         correct = sum(1 for value in step_statuses if value == "ok")
@@ -156,7 +160,7 @@ def needs_teacher_review(db: Session, submission: Submission,
                          assignment_context: Optional[Tuple[List[Submission], int, int]] = None) -> bool:
     """单题正确率、本次作业已批改部分正确率、错因或视觉置信度低于 60% 时送审。
 
-    正确率按 seq >= 1 的作答步骤计算；作业累计率跨学科统计已批改提交。
+    正确率按 seq >= 1 且已判定的作答步骤计算；作业累计率跨学科统计已批改提交。
     视觉路径同时检查整图和每步判断置信度。
     """
     return bool(review_reasons(
