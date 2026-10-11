@@ -735,6 +735,7 @@ class ReviewPendingItem(BaseModel):
     error_count: int            # 该提交的 AI 诊断错误数（教师端可见）
     submitted_at: datetime
     image_url: Optional[str] = None  # 学生上传的作答原图（如有）
+    image_name: Optional[str] = None  # 原图文件名
 
 
 class ReviewPendingOut(BaseModel):

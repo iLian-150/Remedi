@@ -199,6 +199,7 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
     err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
     submission_image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
     image_url = f"/api/uploads/{submission_image.file_path}" if submission_image else None
+    image_name = submission_image.file_name if submission_image else None
     # 兼容关联表新增之前的自主上传记录：当时原图只挂在学生对话消息上，
     # 用该学生提交前 15 分钟内最近一张图片补出缩略图。
     if image_url is None and assignment and assignment.title.startswith("自主上传题目"):
@@ -217,6 +218,7 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
         )
         if legacy_image:
             image_url = f"/api/uploads/{legacy_image.file_path}"
+            image_name = legacy_image.file_name
     return ReviewPendingItem(
         submission_id=sub.id,
         student=UserOut.model_validate(student),
@@ -229,6 +231,7 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
         error_count=err_n,
         submitted_at=sub.submitted_at,
         image_url=image_url,
+        image_name=image_name,
     )
 
 

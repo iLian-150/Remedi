@@ -135,130 +135,161 @@
             </div>
           </div>
 
-          <!-- 右列：答题情况 -->
-          <div class="review-detail">
-            <div v-if="detailLoading" class="card"><div class="loading">加载诊断中…</div></div>
-            <template v-else-if="detail">
-              <div class="card">
-                <h3>答题情况</h3>
-                <p style="font-size: 14px">
-                  题目：<strong>{{ detail.question.stem }}</strong>
-                  · 提交时间：{{ fmtTime(detail.submitted_at) }}
-                </p>
-              </div>
-
-              <div class="card process-card" v-if="detail.process_check?.suspicious">
-                <h3 class="process-title">
-                  <AppIcon name="alert" :size="17" class="process-icon" />
-                  过程提示
-                </h3>
-                <p class="card-sub">供审核参考：该生最终答案正确，但作答过程存在下列情况。</p>
-                <ul class="process-signals">
-                  <li v-for="s in detail.process_check.signals" :key="s.code">{{ s.text }}</li>
-                </ul>
-                <p class="hint" v-if="detail.process_check.final_answer || detail.process_check.reference_answer">
-                  学生最终答案：{{ detail.process_check.final_answer ?? '—' }}
-                  · 参考答案：{{ detail.process_check.reference_answer ?? '—' }}
-                </p>
-              </div>
-
-              <div class="card">
-                <h3>分步诊断</h3>
-                <div class="review-steps">
-                  <div
-                    v-for="st in detail.diagnosis.steps"
-                    :key="st.seq"
-                    class="review-step"
-                    :class="{ 'is-error': st.status === 'error', 'is-correct': st.status === 'ok' }"
-                  >
-                    <div class="review-step-title">{{ st.seq === 0 ? '题干' : `步骤 ${st.seq}` }} · {{ STEP_STATUS_TEXT[st.status] }}</div>
-                    <p>{{ st.text }}</p>
-                  </div>
+          <!-- 选择提交后，以原题与解题过程弹窗集中复核。 -->
+          <div v-if="modalOpen" class="review-modal-mask" @click.self="closeReviewModal">
+            <section class="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
+              <header class="review-modal-header">
+                <div class="review-modal-brand">
+                  <span class="review-modal-mark"><BrandLogo :size="23" /></span>
+                  <strong>Remedi</strong>
+                  <span id="review-modal-title" class="review-modal-title">原题与解题过程</span>
+                  <span v-if="detail" class="review-modal-meta">
+                    {{ detail.student.name }} · {{ fmtTime(detail.submitted_at) }}
+                  </span>
                 </div>
-                <p v-if="!detail.diagnosis.errors.length" class="ok-line">这份作答全部正确，通过后学生会看到鼓励反馈。</p>
-              </div>
+                <button type="button" class="review-modal-close" aria-label="关闭" @click="closeReviewModal">×</button>
+              </header>
 
-              <div class="card" v-if="detail.diagnosis.errors.length">
-                <h3>错因复核</h3>
-                <p class="card-sub">分类不对的先在这里改，改完点下方「通过」就是改后通过（纠错会照常回标入库；待审核期间不会提前通知学生）。</p>
-                <div v-for="e in detail.diagnosis.errors" :key="e.id" class="review-error">
-                  <p>
-                    <ErrorTypeBadge :type="e.error_type" />
-                    <span class="badge badge-blue">{{ e.knowledge_point }}</span>
-                    <span class="conf-text tnum">置信度 {{ Math.round(e.confidence * 100) }}%</span>
-                    <span v-if="e.is_stubborn" class="badge badge-red">顽固误区</span>
-                    <span v-if="e.teacher_corrected" class="badge badge-gray">已纠错</span>
-                  </p>
-                  <p class="detail-text">{{ e.detail }}</p>
-                  <p v-if="e.step_text" class="detail-text">出错步骤：{{ e.step_text }}</p>
-                  <div class="correct-row">
-                    <select v-model="correctForms[e.id].type">
-                      <option value="">改错因…</option>
-                      <option v-for="t in ERROR_TYPES" :key="t" :value="t">{{ t }}</option>
-                    </select>
-                    <input v-model="correctForms[e.id].note" type="text" placeholder="备注（可选）" />
-                    <button
-                      class="btn small secondary"
-                      :disabled="!correctForms[e.id].type || correctingId === e.id"
-                      @click="saveCorrection(e.id)"
+              <div v-if="detailLoading" class="review-modal-loading">
+                <span class="loading">加载诊断中…</span>
+              </div>
+              <div v-else-if="detail" class="review-modal-body">
+                <div class="review-modal-left">
+                  <section class="review-modal-panel">
+                    <div class="review-panel-heading">
+                      <h3>上传的原图</h3>
+                      <span>{{ currentReviewItem?.image_name || '作业原图' }}</span>
+                    </div>
+                    <a
+                      v-if="currentReviewItem?.image_url"
+                      class="review-original-image-link"
+                      :href="imageSrc(currentReviewItem.image_url)"
+                      target="_blank"
+                      rel="noopener noreferrer"
                     >
-                      {{ correctingId === e.id ? '保存中…' : '保存纠错' }}
-                    </button>
-                  </div>
-                </div>
-              </div>
+                      <img :src="imageSrc(currentReviewItem.image_url)" :alt="currentReviewItem.image_name || '学生作答原图'" />
+                    </a>
+                    <div v-else class="review-image-empty">当前提交没有可显示的作答原图。</div>
+                  </section>
 
-              <div class="card" v-if="detail.score">
-                <h3>AI 评分</h3>
-                <p class="score-line">
-                  本题满分 <b class="tnum">{{ fmtScore(detail.score.question_max) }}</b> 分 ·
-                  AI 评分 <b class="tnum">{{ detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : '—' }}</b> 分
-                  <span class="hint">（按步骤对错折算：步骤对了 {{ detail.score.ok_steps }}/{{ detail.score.total_steps }} 步）</span>
-                </p>
-                <p v-if="detail.score.final_score !== null" class="score-line" style="margin-top: 6px">
-                  最终分 <b class="tnum">{{ fmtScore(detail.score.final_score) }}</b> 分（已落定）
-                </p>
-                <p v-else class="hint" style="margin-top: 6px">觉得 AI 分不准，可以在下方通过时改分；不改就按 AI 评分给学生。</p>
-              </div>
+                  <section class="review-modal-panel">
+                    <div class="review-panel-heading">
+                      <h3>图片中的文字</h3>
+                      <span>识别题目，供审核对照</span>
+                    </div>
+                    <div class="review-question-text">{{ detail.question.stem }}</div>
+                  </section>
+                </div>
 
-              <div class="card approve-bar">
-                <!-- v0.13.12：最终分改成正式的分值编辑器——大号数字输入（带「分」
-                     后缀）、满分参照、快捷钮（用 AI 评分 / 满分）；文本输入避免
-                     type=number 的 v-model 自动转数字坑 -->
-                <div v-if="detail.review_status === 'pending' && detail.score" class="score-editor">
-                  <div class="score-editor-row">
-                    <label for="final-score-input">最终分</label>
-                    <span class="score-input-wrap" :class="{ changed: scoreChanged }">
-                      <input
-                        id="final-score-input"
-                        v-model="finalScoreInput"
-                        type="text"
-                        inputmode="decimal"
-                        :placeholder="detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : 'AI 分'"
-                      />
-                      <span class="score-suffix">分</span>
-                    </span>
-                    <span class="score-max">/ 本题满分 {{ fmtScore(detail.score.question_max) }} 分</span>
-                  </div>
-                  <div class="score-editor-row sub">
-                    <span class="hint">留空 = 用 AI 评分；填了就按这个分落定，学生看到的是最终分。</span>
-                    <span class="score-quick">
-                      <button type="button" class="chip-btn" :disabled="!scoreChanged" @click="finalScoreInput = ''">用 AI 评分</button>
-                      <button type="button" class="chip-btn" @click="finalScoreInput = fmtScore(detail.score.question_max)">给满分</button>
-                    </span>
-                  </div>
-                </div>
-                <div class="approve-actions">
-                  <p class="hint" style="margin: 0">通过后，学生会立刻收到一条提醒，并能看到这份诊断与错题。</p>
-                  <button class="btn" :disabled="approving" @click="approveSelected">
-                    {{ approving ? '通过中…' : '通过审核' }}
-                  </button>
+                <div class="review-modal-right">
+                  <section class="review-modal-panel">
+                    <div class="review-panel-heading">
+                      <h3>解题过程</h3>
+                      <span>{{ reviewAnswerSteps.length }} 步</span>
+                    </div>
+                    <div v-if="detail.process_check?.suspicious" class="review-process-note">
+                      <strong>过程提示</strong>
+                      <p v-for="s in detail.process_check.signals" :key="s.code">{{ s.text }}</p>
+                      <small v-if="detail.process_check.final_answer || detail.process_check.reference_answer">
+                        学生答案：{{ detail.process_check.final_answer ?? '—' }} · 参考答案：{{ detail.process_check.reference_answer ?? '—' }}
+                      </small>
+                    </div>
+                    <div class="review-solution-steps">
+                      <article
+                        v-for="st in reviewAnswerSteps"
+                        :key="st.seq"
+                        class="review-solution-step"
+                        :class="{ 'is-error': st.status === 'error', 'is-correct': st.status === 'ok' }"
+                      >
+                        <div class="review-solution-step-head">
+                          <strong>第 {{ st.seq }} 步</strong>
+                          <span>{{ STEP_STATUS_TEXT[st.status] }}</span>
+                        </div>
+                        <p>{{ st.text }}</p>
+                      </article>
+                      <p v-if="!reviewAnswerSteps.length" class="review-empty-note">这份提交没有可展示的分步作答。</p>
+                    </div>
+                    <p v-if="!detail.diagnosis.errors.length" class="ok-line">这份作答全部正确，通过后学生会看到鼓励反馈。</p>
+                  </section>
+
+                  <section v-if="detail.diagnosis.errors.length" class="review-modal-panel">
+                    <div class="review-panel-heading">
+                      <h3>需要修改的地方</h3>
+                      <span>{{ detail.diagnosis.errors.length }} 处</span>
+                    </div>
+                    <p class="review-panel-note">分类不对的先在这里修改；保存后再通过，学生收到的是修正后的诊断。</p>
+                    <div v-for="e in detail.diagnosis.errors" :key="e.id" class="review-error">
+                      <div class="review-error-head">
+                        <span>第 {{ e.step_seq ?? '—' }} 步</span>
+                        <ErrorTypeBadge :type="e.error_type" />
+                        <span class="conf-text tnum">置信度 {{ Math.round(e.confidence * 100) }}%</span>
+                      </div>
+                      <p class="detail-text">{{ e.detail }}</p>
+                      <p v-if="e.step_text" class="review-error-step">作答：{{ e.step_text }}</p>
+                      <div class="correct-row">
+                        <select v-model="correctForms[e.id].type">
+                          <option value="">改错因…</option>
+                          <option v-for="t in ERROR_TYPES" :key="t" :value="t">{{ t }}</option>
+                        </select>
+                        <input v-model="correctForms[e.id].note" type="text" placeholder="备注（可选）" />
+                        <button
+                          class="btn small secondary"
+                          :disabled="!correctForms[e.id].type || correctingId === e.id"
+                          @click="saveCorrection(e.id)"
+                        >
+                          {{ correctingId === e.id ? '保存中…' : '保存纠错' }}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section v-if="detail.score" class="review-modal-panel review-score-panel">
+                    <h3>AI 评分</h3>
+                    <p class="score-line">
+                      本题满分 <b class="tnum">{{ fmtScore(detail.score.question_max) }}</b> 分 ·
+                      AI 评分 <b class="tnum">{{ detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : '—' }}</b> 分
+                      <span class="hint">（步骤对了 {{ detail.score.ok_steps }}/{{ detail.score.total_steps }} 步）</span>
+                    </p>
+                    <p v-if="detail.score.final_score !== null" class="score-line">最终分 {{ fmtScore(detail.score.final_score) }} 分（已落定）</p>
+                  </section>
+
+                  <section class="review-modal-panel approve-bar">
+                    <div v-if="detail.review_status === 'pending' && detail.score" class="score-editor">
+                      <div class="score-editor-row">
+                        <label for="final-score-input">最终分</label>
+                        <span class="score-input-wrap" :class="{ changed: scoreChanged }">
+                          <input
+                            id="final-score-input"
+                            v-model="finalScoreInput"
+                            type="text"
+                            inputmode="decimal"
+                            :placeholder="detail.score.ai_score !== null ? fmtScore(detail.score.ai_score) : 'AI 分'"
+                          />
+                          <span class="score-suffix">分</span>
+                        </span>
+                        <span class="score-max">/ 本题满分 {{ fmtScore(detail.score.question_max) }} 分</span>
+                      </div>
+                      <div class="score-editor-row sub">
+                        <span class="hint">留空 = 用 AI 评分；填入数值则按该分数通过。</span>
+                        <span class="score-quick">
+                          <button type="button" class="chip-btn" :disabled="!scoreChanged" @click="finalScoreInput = ''">用 AI 评分</button>
+                          <button type="button" class="chip-btn" @click="finalScoreInput = fmtScore(detail.score.question_max)">给满分</button>
+                        </span>
+                      </div>
+                    </div>
+                    <div class="approve-actions">
+                      <p class="hint" style="margin: 0">通过后，学生会收到提醒并能查看诊断与错题。</p>
+                      <button class="btn" :disabled="approving" @click="approveSelected">
+                        {{ approving ? '通过中…' : '通过审核' }}
+                      </button>
+                    </div>
+                  </section>
                 </div>
               </div>
-            </template>
-            <div v-else class="card">
-              <div class="empty">从左边选一位学生，右边会显示他的答题情况。</div>
-            </div>
+              <div v-else class="review-modal-loading">
+                <span class="error-msg">{{ error || '审核详情暂时无法加载。' }}</span>
+              </div>
+            </section>
           </div>
         </div>
       </template>
@@ -267,13 +298,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { ReviewDetail, ReviewPendingItem } from '../../api/types'
 import { ERROR_TYPES, STEP_STATUS_TEXT } from '../../api/types'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import BrandLogo from '../../components/BrandLogo.vue'
 
 const teacher = useTeacherStore()
 const route = useRoute()
@@ -281,6 +313,7 @@ const route = useRoute()
 const items = ref<ReviewPendingItem[]>([])
 const selectedId = ref<number | null>(null)
 const detail = ref<ReviewDetail | null>(null)
+const modalOpen = ref(false)
 const loading = ref(false)
 const detailLoading = ref(false)
 const approving = ref(false)
@@ -376,6 +409,20 @@ const currentStudentItems = computed(() => currentStudentGroup.value?.items ?? [
 const currentStudentErrorItems = computed(() =>
   currentStudentItems.value.filter((i) => i.error_count).length
 )
+const currentReviewItem = computed(() =>
+  items.value.find((i) => i.submission_id === selectedId.value) ?? null
+)
+const reviewAnswerSteps = computed(() =>
+  detail.value?.diagnosis.steps.filter((step) => step.status !== 'stem') ?? []
+)
+
+function closeReviewModal() {
+  modalOpen.value = false
+}
+
+function handleReviewModalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && modalOpen.value) closeReviewModal()
+}
 
 function enterAssignment(g: AssignmentGroup) {
   viewAssignmentId.value = String(g.id)
@@ -387,6 +434,7 @@ function enterAssignment(g: AssignmentGroup) {
 }
 
 function backToAssignments() {
+  closeReviewModal()
   viewAssignmentId.value = null
   selectedStudentId.value = null
   selectedId.value = null
@@ -443,8 +491,10 @@ async function loadQueue(preselect?: number) {
 
 async function selectItem(submissionId: number) {
   selectedId.value = submissionId
+  modalOpen.value = true
   detailLoading.value = true
   detail.value = null
+  error.value = ''
   finalScoreInput.value = ''
   try {
     const d = await teacher.fetchReviewDetail(submissionId)
@@ -524,6 +574,7 @@ async function approveAll() {
   try {
     const n = await teacher.approveAllReviews()
     items.value = []
+    closeReviewModal()
     detail.value = null
     selectedId.value = null
     okMsg.value = `已全部通过 ${n} 份，学生们都会收到提醒。`
@@ -536,9 +587,12 @@ async function approveAll() {
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', handleReviewModalKeydown)
   const preset = Number(route.query.submission_id)
   void loadQueue(preset || undefined)
 })
+
+onUnmounted(() => window.removeEventListener('keydown', handleReviewModalKeydown))
 </script>
 
 <style scoped>
@@ -616,15 +670,82 @@ onMounted(() => {
 .queue-row-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
 .queue-row-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
 .queue-row-arrow { color: var(--text-3); flex-shrink: 0; }
-.review-detail > .card:last-child { margin-bottom: 0; }
-.review-steps { display: flex; flex-direction: column; }
-.review-step { padding: 10px 0; border-bottom: 1px solid #F1F3F6; }
-.review-step:first-child { padding-top: 2px; }
-.review-step:last-child { border-bottom: 0; padding-bottom: 2px; }
-.review-step-title { margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--text-3); }
-.review-step.is-error .review-step-title { color: #991B1B; }
-.review-step.is-correct .review-step-title { color: #065F46; }
-.review-step p { margin: 0; font-size: 15px; }
+/* 详情弹窗：原图与识别文本在左，诊断过程、错因和审核操作在右。 */
+.review-modal-mask {
+  position: fixed; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(20, 31, 28, 0.68);
+  backdrop-filter: blur(2px);
+}
+.review-modal {
+  display: flex; flex-direction: column; width: min(1600px, 96vw); height: min(92vh, 1100px);
+  overflow: hidden; border: 1px solid #E5EBE6; border-radius: 18px; background: #F7F9F7;
+  box-shadow: 0 24px 90px rgba(10, 24, 18, 0.28);
+}
+.review-modal-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex: 0 0 66px; padding: 0 24px; border-bottom: 1px solid #E8EDE8; background: #fff;
+}
+.review-modal-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.review-modal-mark {
+  width: 42px; height: 42px; flex: 0 0 42px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; background: var(--primary);
+}
+.review-modal-brand > strong { font-size: 18px; }
+.review-modal-title { margin-left: 8px; color: var(--text-3); font-size: 14px; white-space: nowrap; }
+.review-modal-meta { margin-left: 8px; color: var(--text-3); font-size: 13px; white-space: nowrap; }
+.review-modal-close {
+  width: 42px; height: 42px; flex: 0 0 42px; border: 1px solid #E4EAE5; border-radius: 50%;
+  background: #fff; color: #718078; font-size: 26px; line-height: 1; cursor: pointer;
+}
+.review-modal-close:hover { border-color: var(--primary); color: var(--primary); }
+.review-modal-body {
+  display: grid; grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr); gap: 16px;
+  min-height: 0; flex: 1; padding: 16px; overflow: hidden;
+}
+.review-modal-left, .review-modal-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow: auto; }
+.review-modal-panel {
+  flex: 0 0 auto; padding: 17px 18px; border: 1px solid #E4EAE5; border-radius: 16px;
+  background: #fff; box-shadow: 0 1px 3px rgba(18, 35, 25, 0.035);
+}
+.review-panel-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.review-panel-heading h3, .review-modal-panel > h3 { margin: 0; font-size: 20px; }
+.review-panel-heading > span { max-width: 55%; color: var(--text-3); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+.review-original-image-link {
+  display: flex; align-items: center; justify-content: center; min-height: 190px; max-height: 43vh;
+  overflow: hidden; border-radius: 10px; background: #F7F8F7;
+}
+.review-original-image-link img { display: block; width: 100%; height: 100%; max-height: 43vh; object-fit: contain; }
+.review-image-empty {
+  display: grid; place-items: center; min-height: 190px; padding: 16px; border-radius: 10px;
+  background: #F7F8F7; color: var(--text-3); text-align: center;
+}
+.review-question-text { padding: 15px 16px; border: 1px solid #E6ECE7; border-radius: 12px; background: #FAFBFA; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.85; }
+.review-process-note { margin-bottom: 12px; padding: 12px 14px; border-left: 4px solid #D97706; border-radius: 8px; background: #FFFBEB; color: #854D0E; }
+.review-process-note p { margin: 4px 0; }
+.review-process-note small { display: block; margin-top: 7px; color: var(--text-2); }
+.review-solution-steps { display: flex; flex-direction: column; gap: 9px; }
+.review-solution-step { padding: 12px 14px; border: 1px solid #E7EAED; border-left: 4px solid #D1D5DB; border-radius: 10px; background: #fff; }
+.review-solution-step.is-error { border-left-color: #DC6B63; background: #FFFAF9; }
+.review-solution-step.is-correct { border-left-color: #67A77A; }
+.review-solution-step-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--text-3); font-size: 13px; }
+.review-solution-step.is-error .review-solution-step-head { color: #B42318; }
+.review-solution-step.is-correct .review-solution-step-head { color: #187247; }
+.review-solution-step p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.review-empty-note, .review-panel-note { color: var(--text-3); font-size: 13px; }
+.review-panel-note { margin: -3px 0 8px; }
+.review-modal-loading { display: grid; place-items: center; flex: 1; min-height: 200px; padding: 24px; }
+.review-modal .review-error { padding: 14px 0; border-bottom: 1px solid #EDF0ED; }
+.review-modal .review-error:last-child { border-bottom: 0; padding-bottom: 0; }
+.review-error-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; color: var(--text-2); font-size: 13px; }
+.conf-text { margin-left: auto; color: var(--text-3); }
+.review-error-step { color: var(--text-3); font-size: 13px; }
+.review-score-panel > h3 { margin-bottom: 9px; }
+.review-modal .approve-bar { position: sticky; bottom: 0; box-shadow: 0 -8px 20px rgba(255, 255, 255, 0.85); }
+.review-modal .approve-actions { padding-top: 2px; }
+.review-modal .correct-row select, .review-modal .correct-row input { min-height: 38px; }
+.review-modal .score-editor { background: #FAFBFA; }
 .detail-text { margin-top: 8px; font-size: 14px; color: var(--text-2); }
 .review-error { padding: 12px 0; border-bottom: 1px solid #F1F3F6; }
 .review-error:last-child { border-bottom: none; padding-bottom: 2px; }
@@ -670,4 +791,24 @@ onMounted(() => {
 .process-icon { color: var(--amber, #D97706); flex-shrink: 0; }
 .process-signals { margin: 6px 0 8px; padding-left: 20px; font-size: 14px; color: var(--text-2); }
 .process-signals li { margin: 3px 0; }
+@media (max-width: 900px) {
+  .review-modal-mask { padding: 10px; }
+  .review-modal { width: 100%; height: 96vh; border-radius: 13px; }
+  .review-modal-body { grid-template-columns: 1fr; overflow: auto; }
+  .review-modal-left, .review-modal-right { overflow: visible; }
+  .review-original-image-link, .review-original-image-link img { max-height: 38vh; }
+}
+@media (max-width: 560px) {
+  .review-modal-header { flex-basis: 58px; padding: 0 12px; }
+  .review-modal-brand { gap: 8px; }
+  .review-modal-mark { width: 36px; height: 36px; flex-basis: 36px; }
+  .review-modal-brand > strong { font-size: 16px; }
+  .review-modal-title { margin-left: 0; font-size: 12px; }
+  .review-modal-meta { display: none; }
+  .review-modal-body { padding: 10px; gap: 10px; }
+  .review-modal-panel { padding: 13px; }
+  .review-panel-heading h3, .review-modal-panel > h3 { font-size: 17px; }
+  .review-modal .approve-actions { align-items: stretch; }
+  .review-modal .approve-actions .btn { width: 100%; }
+}
 </style>

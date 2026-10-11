@@ -273,6 +273,7 @@ export interface ReviewPendingItem {
   error_count: number
   submitted_at: string
   image_url?: string | null
+  image_name?: string | null
 }
 
 // 评分系统：审核详情里的评分信息（满分/AI 分/最终分/步骤对了几步）
