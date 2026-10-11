@@ -185,6 +185,65 @@ def create_review_if_needed(db: Session, submission: Submission,
     return rows_by_id[submission.id]
 
 
+def backfill_missing_review_records(db: Session) -> int:
+    """把尚无审核行、且仍是该生该作业最新作答的待审核提交补入队列。
+
+    正常提交会实时创建审核行；此补偿处理覆盖审核规则上线前已提交、后来才纳入
+    当前作业的数据。按可从数据库恢复的作答率、作业累计率和错因置信度判断；
+    已有 approved 行不回退，旧作答若已被新作答替代也不补审。
+    """
+    candidates = (
+        db.query(Submission)
+        .outerjoin(SubmissionReview, SubmissionReview.submission_id == Submission.id)
+        .filter(
+            SubmissionReview.submission_id.is_(None),
+            Submission.status == "graded",
+        )
+        .order_by(Submission.submitted_at.asc(), Submission.id.asc())
+        .all()
+    )
+    contexts = {}
+    submissions_to_review = {}
+    for submission in candidates:
+        question = submission.question
+        if question is None:
+            continue
+        key = (submission.student_id, question.assignment_id)
+        if key not in contexts:
+            contexts[key] = assignment_accuracy_context(db, submission)
+        context = contexts[key]
+        if not context:
+            continue
+
+        latest_submissions, correct, total = context
+        latest_ids = {item.id for item in latest_submissions}
+        if submission.id not in latest_ids:
+            continue
+        if not review_reasons(db, submission, assignment_context=context):
+            continue
+
+        targets = (
+            latest_submissions
+            if total > 0 and correct / total < REVIEW_THRESHOLD
+            else [submission]
+        )
+        submissions_to_review.update({item.id: item for item in targets})
+
+    if not submissions_to_review:
+        return 0
+    existing_ids = {
+        row[0]
+        for row in db.query(SubmissionReview.submission_id)
+        .filter(SubmissionReview.submission_id.in_(submissions_to_review))
+        .all()
+    }
+    rows = create_pending_reviews(db, submissions_to_review.values())
+    return sum(
+        1 for submission_id, row in rows.items()
+        if submission_id not in existing_ids and row.status == PENDING
+    )
+
+
 def review_status(db: Session, submission_id: int) -> str:
     """单条提交的审核状态：无审核行 = approved（历史/种子数据口径）。"""
     row = db.query(SubmissionReview).filter(

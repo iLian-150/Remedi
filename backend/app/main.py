@@ -1,5 +1,6 @@
 # Remedi MVP 后端入口。
 import asyncio
+import logging
 import os
 
 from fastapi import FastAPI
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import SessionLocal, init_db
 from .services import deferral as deferral_svc
+from .services import reviews as review_svc
 from .routers import auth as auth_router
 from .routers import health as health_router
 from .routers import student as student_router
@@ -41,11 +43,22 @@ app.include_router(teacher_router.router)
 # 拍照上传的图片以静态文件方式回读（前端转写卡片预览用）
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 app.mount("/api/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+logger = logging.getLogger(__name__)
 
 
 @app.on_event("startup")
 def _startup():
     init_db()
+    db = SessionLocal()
+    try:
+        repaired = review_svc.backfill_missing_review_records(db)
+        if repaired:
+            logger.info("已补齐 %d 条历史待审核记录", repaired)
+    except Exception:
+        db.rollback()
+        logger.exception("补齐历史低正确率作业审核记录失败")
+    finally:
+        db.close()
 
 
 async def _deferred_grading_loop() -> None:

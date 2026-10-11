@@ -270,8 +270,8 @@ class StudentQuestionCapture(Base):
 class SubmissionReview(Base):
     """提交审核状态（v0.9.0 新增表）。
     待审核期间，学生仍可查看诊断、错题并开始订正；审核状态控制成绩放行和通过提醒。
-    只有经实时批改入口（提交/拍照批改）产生的新提交才建行，status=pending；
-    历史/种子提交没有审核行，一律视为 approved，演示数据不受影响。"""
+    实时批改入口会创建 pending 行；服务启动时也会将尚未审核、仍为最新作答且正确率
+    低于阈值的历史提交补入队列。没有审核行的其他历史/种子提交仍视为 approved。"""
     __tablename__ = "submission_reviews"
 
     submission_id = Column(Integer, ForeignKey("submissions.id"), primary_key=True)
