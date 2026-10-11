@@ -223,20 +223,50 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
         ).all()
     }
 
-    # 未完成作业：至少有一道题该生还没提交过
+    # 未完成作业：批量读取作业、题目数与扩展信息，避免按作业逐条查库。
+    # 与学生作业列表保持相同可见范围：学生自主上传题目只归上传者练习，不进入班级作业简报。
+    visible_assignment = (
+        Assignment.created_by.is_(None)
+        | (~Assignment.created_by.in_(
+            db.query(User.id).filter(User.role == "student")
+        ))
+    )
+    assignment_rows = (
+        db.query(Assignment, AssignmentExt, AssignmentSetting, Workbook.title)
+        .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
+        .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
+        .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
+        .filter(visible_assignment)
+        .order_by(Assignment.id)
+        .all()
+    )
+    question_ids_by_assignment: Dict[int, List[int]] = {}
+    question_rows = (
+        db.query(Question.assignment_id, Question.id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .filter(visible_assignment)
+        .order_by(Question.assignment_id, Question.id)
+        .all()
+    )
+    for assignment_id, question_id in question_rows:
+        question_ids_by_assignment.setdefault(assignment_id, []).append(question_id)
+
     pending_assignments = []
-    for a in db.query(Assignment).order_by(Assignment.id).all():
-        questions = db.query(Question).filter(Question.assignment_id == a.id).all()
-        remaining = sum(1 for q in questions if q.id not in done_qids)
-        if questions and remaining > 0:
+    for a, ext, setting, workbook_title in assignment_rows:
+        question_ids = question_ids_by_assignment.get(a.id, [])
+        remaining = sum(1 for question_id in question_ids if question_id not in done_qids)
+        if question_ids and remaining > 0:
             pending_assignments.append({
                 "id": a.id,
                 "title": a.title,
-                "question_count": len(questions),
+                "question_count": len(question_ids),
                 "remaining_count": remaining,
                 "created_at": a.created_at,
-                # v0.5.0：线下作业在简报里同样带模式/练习册/页码/截止字段
-                **assignment_ext_fields(db, a.id),
+                "mode": (ext.mode or "online") if ext else "online",
+                "workbook_title": workbook_title if ext and ext.workbook_id else None,
+                "page_range": ext.page_range if ext else None,
+                "deadline": ext.deadline if ext else None,
+                "allow_revision": bool(setting.allow_revision) if setting else False,
             })
 
     # 已审核错误集合用于学习报告类统计；低置信度错题仍立即进入订正待办。
