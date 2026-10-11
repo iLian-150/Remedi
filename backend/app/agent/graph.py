@@ -148,7 +148,6 @@ def agent_reply_stream(db: Session, student: User,
             "你是 Remedi 学习辅导老师。学生照片中的题目和作答已经识别，批改记录已经保存。"
             "只处理当前消息里的题目：先讲正确思路，再结合已识别的学生步骤说明关键对错；"
             "如果没有学生步骤，就只讲题。不要重复批改或调用任何写入工具。"
-            "数学或英语题在知识点明确时，调用 find_my_related_mistake 一次查询历史同类错题；"
             "其他学科直接讲解。若系统给出错因待复核，不要把它说成最终结论。"
             "回答简洁、分步骤，避免冗长铺垫。"
         )
@@ -172,17 +171,20 @@ def agent_reply_stream(db: Session, student: User,
         return reply
 
     try:
-        from langgraph.graph import START, StateGraph
+        from langgraph.graph import END, START, StateGraph
         from langgraph.graph.message import add_messages
         from langgraph.prebuilt import ToolNode, tools_condition
 
         class AgentState(TypedDict):
             messages: Annotated[list, add_messages]
 
-        tools, related_result = build_tools(db, student)
         if safe_tools_only:
-            tools = [tool for tool in tools if tool.name == "find_my_related_mistake"]
-        llm_with_tools = llm.bind_tools(tools)
+            # photo-review 已查好历史错题；直接生成讲解，省去模型选择只读工具的额外轮次。
+            tools = []
+            llm_with_tools = llm
+        else:
+            tools, related_result = build_tools(db, student)
+            llm_with_tools = llm.bind_tools(tools)
 
         def call_model(state: AgentState):
             started_at = perf_counter()
@@ -197,10 +199,13 @@ def agent_reply_stream(db: Session, student: User,
 
         builder = StateGraph(AgentState)
         builder.add_node("agent", call_model)
-        builder.add_node("tools", ToolNode(tools))
         builder.add_edge(START, "agent")
-        builder.add_conditional_edges("agent", tools_condition)
-        builder.add_edge("tools", "agent")
+        if tools:
+            builder.add_node("tools", ToolNode(tools))
+            builder.add_conditional_edges("agent", tools_condition)
+            builder.add_edge("tools", "agent")
+        else:
+            builder.add_edge("agent", END)
         graph = builder.compile()
 
         for part in graph.stream(

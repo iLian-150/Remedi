@@ -92,7 +92,7 @@ from ..services.answer_check import (
     student_visible_reference_answer,
     student_visible_solution_steps,
 )
-from ..services.related_mistakes import find_related_mistake
+from ..services.related_mistakes import find_related_mistake, find_related_mistake_for_error
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
@@ -1001,6 +1001,7 @@ async def photo_review(
         )
 
     question_text = str(recognition.get("question_text", "")).strip() or (question.stem if question else "")
+    recognized_knowledge_point = str(recognition.get("knowledge_point", "")).strip()[:64]
     if not has_work:
         if not question_text:
             save_chat_result("这张照片里没有识别到题目内容，请拍清楚题干后重试。")
@@ -1029,10 +1030,15 @@ async def photo_review(
         db.add(capture)
         db.commit()
         db.refresh(capture)
+        related_mistake = find_related_mistake(
+            db, current.id, question.subject if question else "math",
+            question.knowledge_point if question else recognized_knowledge_point,
+            exclude_assignment_id=question.assignment_id if question else None,
+        )
         session_id = save_chat_result(f"已从照片中识别到题目：{question_text}")
         return {"mode": "answer", "question_text": question_text, "steps": [],
                 "capture_id": capture.id, "diagnosis": None, "session_id": session_id,
-                "image_url": image_url}
+                "image_url": image_url, "related_mistake": related_mistake}
 
     if not steps:
         save_chat_result("照片里检测到作答，但步骤无法可靠辨认，请重拍后再试。")
@@ -1059,7 +1065,7 @@ async def photo_review(
         question = Question(
             assignment_id=assignment.id,
             subject="math",
-            knowledge_point="自主上传题",
+            knowledge_point=recognized_knowledge_point or "自主上传题",
             stem=question_text,
             order_num=1,
         )
@@ -1086,6 +1092,10 @@ async def photo_review(
         db, submission,
         confidence_signals=review_svc.visual_confidence_signals(confidence, visual_steps),
     )
+    related_mistake = find_related_mistake(
+        db, current.id, question.subject, question.knowledge_point,
+        exclude_assignment_id=question.assignment_id,
+    )
     diagnosis = present_for_student(submission, db)
     # 学习助手随后会基于识别出的题目和步骤流式回答，避免在对话历史里
     # 先保存一条“等待审核”的占位回复，再额外显示批改结果卡片。
@@ -1093,7 +1103,8 @@ async def photo_review(
     return {"mode": "diagnosis", "question_text": question_text,
             "steps": steps, "capture_id": None, "diagnosis": diagnosis,
             "session_id": session_id,
-            "image_url": f"/api/uploads/{stored_image_path}"}
+            "image_url": f"/api/uploads/{stored_image_path}",
+            "related_mistake": related_mistake}
 
 
 @router.post("/photo-captures/{capture_id}/save", summary="将自主上传题目加入错题本")
@@ -1361,6 +1372,13 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
         # 先提交用户消息；浏览器刷新或流中断时，至少保留本轮提问。
         cs.append_message(db, session, "user", text)
 
+    preloaded_related_mistake = None
+    if body.safe_tools_only and body.related_mistake_error_id is not None:
+        # 重新校验当前学生与错题的归属，不能通过客户端传入的 ID 读取他人记录。
+        preloaded_related_mistake = find_related_mistake_for_error(
+            db, current.id, body.related_mistake_error_id
+        )
+
     def event(name: str, payload: dict) -> str:
         return f"event: {name}\ndata: {json.dumps(jsonable_encoder(payload), ensure_ascii=False)}\n\n"
 
@@ -1416,7 +1434,7 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
 
             reply = result["reply"]
             assistant_message = cs.append_message(db, session, "assistant", reply)
-            related_mistake = result.get("related_mistake")
+            related_mistake = result.get("related_mistake") or preloaded_related_mistake
             if related_mistake:
                 cs.link_related_mistake(db, assistant_message, related_mistake.get("id"))
             yield event("done", {

@@ -381,8 +381,9 @@ class CloudflareProvider(DeepSeekProvider):
                 "若照片模糊、裁切，或题目/作答无法可靠辨认，needs_image_review=true；单纯错因把握低不代表图像模糊。"
                 "若只有题目而没有学生作答，student_work_detected=false 且 steps 为空。"
                 "confidence 表示图像中题目和作答的整体可辨认度，不表示错因把握。"
+                "knowledge_point 填一个简短、具体的数学知识点名称；若题目无法确定则留空。"
                 '只返回 JSON：{"question_text":"题目内容","student_work_detected":true,'
-                '"needs_image_review":false,"confidence":0.95,"steps":['
+                '"knowledge_point":"一元一次方程","needs_image_review":false,"confidence":0.95,"steps":['
                 '{"text":"学生原步骤","result":"correct","confidence":0.95,"error_type":"","detail":""},'
                 '{"text":"学生错误步骤","result":"incorrect","confidence":0.82,"error_type":"计算失误","detail":"说明错误和判断依据"}]}。'
             )
@@ -431,8 +432,10 @@ class CloudflareProvider(DeepSeekProvider):
             except (TypeError, ValueError):
                 image_confidence = 0.0
             question_text = str(data.get("question_text", "")).strip() or question_context
+            knowledge_point = str(data.get("knowledge_point", "")).strip()[:64]
             return {
                 "question_text": question_text[:12000],
+                "knowledge_point": knowledge_point,
                 "steps": steps,
                 "student_work_detected": _as_bool(
                     data.get("student_work_detected"), default=bool(steps)

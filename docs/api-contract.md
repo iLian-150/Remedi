@@ -508,7 +508,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 ### 3.15.1 POST /api/student/agent/chat/stream —— 学习助手流式对话
 
-权限：学生。请求 `{ "message": "我哪个知识点最需要加固？", "session_id": 3 }`；`message` 必填且最长 2000 字，`session_id` 选填。另可传 `persist_user_message`（默认 `true`）；用户消息会在开始生成前写入会话，避免刷新或中断时丢失提问。响应为 `text/event-stream`，通过 SSE 事件发送 Cloudflare 模型的流式回复；前端将每个文本块按 Unicode 字符逐字呈现。复用已保存的拍照消息时可传 `false`，避免重复保存内部提示词。模型调用失败会发 `error` 事件，不返回模拟内容。
+权限：学生。请求 `{ "message": "我哪个知识点最需要加固？", "session_id": 3 }`；`message` 必填且最长 2000 字，`session_id` 选填。另可传 `persist_user_message`（默认 `true`）；用户消息会在开始生成前写入会话，避免刷新或中断时丢失提问。照片讲解可传 `safe_tools_only=true`，此模式直接生成回复；若图片识别阶段已查到历史同类错题，可传 `related_mistake_error_id`，服务端会再次校验错题归属并关联到助手回复，避免生成过程中再走一次工具调用。响应为 `text/event-stream`，通过 SSE 事件发送 Cloudflare 模型的流式回复；前端将每个文本块按 Unicode 字符逐字呈现。复用已保存的拍照消息时可传 `false`，避免重复保存内部提示词。模型调用失败会发 `error` 事件，不返回模拟内容。
 
 ```text
 event: token
@@ -753,13 +753,13 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 3.31 POST /api/student/photo-review —— 按图片作答情况答疑或诊断
 
-权限：学生。请求为 `multipart/form-data`，必填 `file`（jpg / png / webp，≤10MB），可选 `question_id`（学生已选定的作业数学题）。学习助手可额外传 `save_to_chat=true`、`chat_session_id` 和 `chat_prompt`；服务端会在开始识别前保存照片提问，并在识别结束或失败后保存文字结果。返回 `session_id` 供前端继续写入同一会话。视觉模型调用失败时返回 `502`；若照片已附加到会话，也会保存可恢复识别的提示。照片原图仍按既有流程处理，不作为聊天历史附件恢复。
+权限：学生。请求为 `multipart/form-data`，必填 `file`（jpg / png / webp，≤10MB），可选 `question_id`（学生已选定的作业数学题）。学习助手可额外传 `save_to_chat=true`、`chat_session_id` 和 `chat_prompt`；服务端会在开始识别前保存照片提问，并在识别结束或失败后保存文字结果。返回 `session_id` 供前端继续写入同一会话。视觉模型调用失败时返回 `502`；若照片已附加到会话，也会保存可恢复识别的提示。照片原图仍按既有流程处理，不作为聊天历史附件恢复。视觉模型同时识别知识点，服务端在讲解模型调用前查询历史同类错题并返回 `related_mistake`，讲解回复可直接关联该错题。
 
 无学生作答证据时返回 `mode="answer"`、识别题干和 `capture_id`；前端将题干交给学习助手解答，但此时不创建 `Submission` / `Error`，也不展示为错题。学生点「加入错题本」或在同一对话里明确要求收录后，调用 3.32。
 
 检测到学生作答时，若传入 `question_id`，直接复用 3.3 数学诊断；自由上传则创建只归属该学生的题目记录并诊断。确有错误时自动写入错题/订正数据；任一错因置信率低于 60% 时整份提交进入教师审核，同时立即向学生开放错题和订正流程，分数仍等审核后显示；全对时不创建错题。视觉识别置信率低于 0.45 或有作答但无法辨认步骤时返回 `422`，不产生诊断记录。
 
-响应 `200`：`{"mode":"answer|diagnosis","question_text":"…","steps":[],"capture_id":1,"diagnosis":null}`。`mode=diagnosis` 时 `diagnosis` 为 3.3 响应体，`capture_id` 为 `null`。
+响应 `200`：`{"mode":"answer|diagnosis","question_text":"…","steps":[],"capture_id":1,"diagnosis":null,"related_mistake":null}`。`mode=diagnosis` 时 `diagnosis` 为 3.3 响应体，`capture_id` 为 `null`；`related_mistake` 是历史同类错题对象或 `null`。
 
 ### 3.32 POST /api/student/photo-captures/{capture_id}/save —— 主动收录题目
 

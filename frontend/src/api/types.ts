@@ -396,6 +396,7 @@ export interface PhotoReviewResult {
   diagnosis: SubmissionResult | null
   session_id?: number | null
   image_url?: string | null
+  related_mistake?: RelatedMistake | null
 }
 
 // ---------- 主页 Agent 对话（v0.3.0） ----------

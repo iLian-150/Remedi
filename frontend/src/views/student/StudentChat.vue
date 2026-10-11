@@ -857,7 +857,8 @@ async function streamAssistantReply(
   wait: ChatMsg,
   prompt: string,
   persistUserMessage = true,
-  safeToolsOnly = false
+  safeToolsOnly = false,
+  relatedMistakeErrorId?: number | null
 ) {
   let firstText = true
   wait.text = '正在生成回复…'
@@ -872,7 +873,7 @@ async function streamAssistantReply(
       }
       wait.text += text
       scrollToBottom()
-    }, persistUserMessage, safeToolsOnly)
+    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId)
     wait.pending = false
     wait.text = result.reply
     wait.relatedMistake = result.related_mistake ?? null
@@ -933,16 +934,21 @@ async function sendPhotoReview(file: File, prompt: string) {
     wait.pending = false
     wait.questionText = res.question_text
     wait.steps = [...res.steps]
+    wait.relatedMistake = res.related_mistake ?? null
+    const relatedContext = res.related_mistake
+      ? `已查到历史同类错题：知识点「${res.related_mistake.knowledge_point}」，错因「${res.related_mistake.error_type}」。讲解时可结合提醒学生回看，但以当前题目为准。`
+      : '没有查到历史同类错题，不要声称学生以前做错过。'
     if (res.mode === 'answer') {
       wait.captureId = res.capture_id
       const saveQuestion = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(prompt) && /错题本|错题/.test(prompt)
       const agentPrompt = [
-        '学生上传的是只有题目、没有学生作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录；如果是数学或英语题，识别出知识点后可用只读工具查询是否有历史同类错题。',
+        '学生上传的是只有题目、没有学生作答的图片。请先回答题目并讲清思路，不要判断学生做错，也不要创建错题记录。',
         `识别出的题目：${res.question_text.slice(0, 1300)}`,
+        relatedContext,
         prompt ? `学生补充的问题：${prompt.slice(0, 300)}` : ''
       ].filter(Boolean).join('\n')
       explanationPrompt = agentPrompt
-      await streamAssistantReply(wait, agentPrompt, false, true)
+      await streamAssistantReply(wait, agentPrompt, false, true, res.related_mistake?.id)
       if (saveQuestion && wait.captureId) {
         try {
           await student.savePhotoCapture(wait.captureId, wait.text)
@@ -965,14 +971,15 @@ async function sendPhotoReview(file: File, prompt: string) {
           ? `系统已确认的错因：${res.diagnosis.errors.map((error) => `第${error.step_seq}步，${error.error_type}：${error.detail}`).join('；')}`
           : '系统批改结果为这道题没有发现错误。'
       const agentPrompt = [
-        '学生上传了数学作业照片并希望得到答疑。批改记录已经写入，不要再次批改或创建作答记录；请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点；并用只读工具查询是否有历史同类错题。',
+        '学生上传了数学作业照片并希望得到答疑。批改记录已经写入，不要再次批改或创建作答记录；请直接回答题目并结合学生步骤讲解，不要只回复提交或审核状态。先给出题目的正确思路，再说明学生步骤中可以确认的关键点。',
         `识别出的题目：${res.question_text.slice(0, 800)}`,
         `识别出的学生步骤：${res.steps.slice(0, 12).map((step, index) => `${index + 1}. ${step}`).join('\n').slice(0, 650)}`,
         diagnosisContext,
+        relatedContext,
         prompt ? `学生补充的问题：${prompt.slice(0, 250)}` : ''
       ].filter(Boolean).join('\n').slice(0, 1950)
       explanationPrompt = agentPrompt
-      await streamAssistantReply(wait, agentPrompt, false, true)
+      await streamAssistantReply(wait, agentPrompt, false, true, res.related_mistake?.id)
     } else {
       wait.kind = 'transcribe'
       wait.text = ''
@@ -1009,7 +1016,7 @@ async function retryExplanation(msg: ChatMsg) {
   chatSending.value = true
   msg.pending = true
   try {
-    await streamAssistantReply(msg, prompt, false, safeToolsOnly)
+    await streamAssistantReply(msg, prompt, false, safeToolsOnly, msg.relatedMistake?.id)
   } catch (err) {
     msg.kind = 'text'
     msg.text = '批改记录已保存，但讲解仍未生成：' + (errDetail(err) || '请稍后重试。')
