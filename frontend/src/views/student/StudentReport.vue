@@ -104,7 +104,7 @@ import { useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { ReportScores, SubjectReport } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
-import EChart from '../../components/EChart.vue'
+import EChart from '../../components/AsyncEChart'
 
 const student = useStudentStore()
 const router = useRouter()

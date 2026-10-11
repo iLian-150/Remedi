@@ -133,7 +133,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useTeacherStore } from '../../stores/teacher'
 import type { ClassRepairRate, KnowledgePointStat, StudentSummary, TeachingSuggestion, TopQuestion } from '../../api/types'
 import { errorTypeKey, ERROR_TYPE_CHART_COLORS } from '../../utils/errorType'
-import EChart from '../../components/EChart.vue'
+import EChart from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
