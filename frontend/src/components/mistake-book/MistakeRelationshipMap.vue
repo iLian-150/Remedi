@@ -47,7 +47,7 @@
         <button v-for="topic in activeSubject.topics" :key="topic.key" type="button" :class="{ selected: topic.key === selectedTopicKey }" @click="selectTopic(topic.key)">{{ topic.label }} · {{ topic.entries.length }}</button>
       </div>
       <div class="mistake-network-frame">
-        <div ref="viewport" class="mistake-network-viewport" role="region" aria-label="错题关联图画布">
+        <div ref="viewport" class="mistake-network-viewport" :class="{ 'is-panning': isPanning }" role="region" aria-label="错题关联图画布" @pointerdown="startPanning" @pointermove="movePanning" @pointerup="stopPanning" @pointercancel="stopPanning" @lostpointercapture="stopPanning">
           <div class="mistake-network-stage" :style="{ width: `${networkWidth * zoom}px`, height: `${networkHeight * zoom}px` }">
             <div class="mistake-network-scaled" :style="{ width: `${networkWidth * zoom}px`, height: `${networkHeight * zoom}px` }">
               <div class="mistake-network-canvas" :style="{ width: `${networkWidth}px`, height: `${networkHeight}px`, transform: `scale(${zoom})`, transformOrigin: 'top left' }">
@@ -247,6 +247,7 @@ function openPoint(point: ErrorPoint) { selectedPointKey.value = point.key; cons
 .mistake-map-section, .mistake-network { min-width: 0; min-height: 0; height: 100%; }
 .mistake-map-viewport-frame, .mistake-map-viewport, .mistake-network-frame, .mistake-network-viewport { height: 100%; min-height: 0; }
 .mistake-network:not(.is-split) .mistake-network-frame, .mistake-network:not(.is-split) .mistake-network-viewport { width: 100%; height: 100%; min-height: 0; }
+.mistake-network .mistake-network-viewport { touch-action: none; }
 .mistake-network .mistake-network-viewport, .mistake-network .mistake-network-topic-nav { scrollbar-width: none; }
 .mistake-network .mistake-network-viewport::-webkit-scrollbar, .mistake-network .mistake-network-topic-nav::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .mistake-board-empty { min-height: 100%; height: 100%; }
