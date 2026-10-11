@@ -43,6 +43,7 @@ from ..schemas import (
     ClassRepairRateOut,
     ErrorCorrectIn,
     KnowledgePointRankItem,
+    PhotoGroupTranscribeOut,
     PhotoTranscribeOut,
     ProfileOut,
     QuestionOut,
@@ -854,6 +855,38 @@ async def photo_recognize(file: UploadFile = File(...),
         "image_url": f"/api/uploads/{filename}",
         "question_text": result.get("question_text", ""),
         "steps": result.get("steps", []),
+    }
+
+
+@router.post("/photo-recognize-group", response_model=PhotoGroupTranscribeOut, summary="拍照识别大题")
+async def photo_recognize_group(file: UploadFile = File(...),
+                                current: User = Depends(require_teacher)):
+    """上传大题照片 → Provider 视觉识别 → 返回 {stem, sub_questions}（v0.13.11）。
+
+    识别入口在大题层级：一张图一次拆出共同题干与全部小题（照片里有解题过程
+    才带每道小题的 steps），前端据此新建/填充一个大题，教师检查修改后再发布；
+    不再逐个小题拍照识别。图片规则与单题识别一致（jpg/png/webp、≤10MB）。"""
+    if file.content_type not in _PHOTO_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
+    if len(data) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    filename = "{}_{}{}".format(
+        datetime.now().strftime("%Y%m%d%H%M%S"),
+        secrets.token_hex(4),
+        _PHOTO_TYPES[file.content_type],
+    )
+    with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
+        f.write(data)
+    result = get_provider().transcribe_group_image(data, file.content_type)
+    return {
+        "image_id": filename,
+        "image_url": f"/api/uploads/{filename}",
+        "stem": result.get("stem", ""),
+        "sub_questions": result.get("sub_questions", []),
     }
 
 

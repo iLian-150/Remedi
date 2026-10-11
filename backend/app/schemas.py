@@ -338,6 +338,19 @@ class PhotoTranscribeOut(BaseModel):
     confidence: Optional[float] = None
 
 
+class PhotoGroupSubOut(BaseModel):
+    question_text: str
+    steps: List[str] = []
+
+
+class PhotoGroupTranscribeOut(BaseModel):
+    """拍照识别大题（v0.13.11）：共同题干 + 全部小题一次返回。"""
+    image_id: str                 # 服务器保存的文件名
+    image_url: str                # 图片相对访问路径（/uploads/<文件名>）
+    stem: str
+    sub_questions: List[PhotoGroupSubOut]
+
+
 class PhotoReviewOut(BaseModel):
     mode: str  # answer | diagnosis | transcribe
     question_text: str = ""
