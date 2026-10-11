@@ -343,11 +343,19 @@ def diagnose_submission(db, student: User, question: Question,
 
 
 def diagnose_visual_submission(db, student: User, question: Question,
-                               visual_steps: List[dict]) -> Tuple[Submission, List[Step], List[Error]]:
+                               visual_steps: List[dict],
+                               reuse: Optional[Submission] = None) -> Tuple[Submission, List[Step], List[Error]]:
     """持久化视觉模型直接给出的数学作答判断，不再二次解析识别文本。"""
-    submission = Submission(student_id=student.id, question_id=question.id, status="submitted")
-    db.add(submission)
-    db.flush()
+    if reuse is not None:
+        submission = reuse
+        db.query(Error).filter(Error.submission_id == submission.id).delete()
+        db.query(Step).filter(Step.submission_id == submission.id).delete()
+        submission.status = "submitted"
+        db.flush()
+    else:
+        submission = Submission(student_id=student.id, question_id=question.id, status="submitted")
+        db.add(submission)
+        db.flush()
 
     stem_step = Step(submission_id=submission.id, seq=0, text=question.stem, status="stem")
     db.add(stem_step)

@@ -55,15 +55,20 @@ async def _deferred_grading_loop() -> None:
     while True:
         try:
             await asyncio.sleep(60)
-            db = SessionLocal()
-            try:
-                deferral_svc.grade_due(db)
-            finally:
-                db.close()
+            await asyncio.to_thread(_grade_due_once)
         except asyncio.CancelledError:
             raise
         except Exception:
             continue
+
+
+def _grade_due_once() -> None:
+    """在线程中执行可能包含视觉模型网络调用的延迟批改。"""
+    db = SessionLocal()
+    try:
+        deferral_svc.grade_due(db)
+    finally:
+        db.close()
 
 
 @app.on_event("startup")

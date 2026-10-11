@@ -28,7 +28,7 @@ class Settings:
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     CLOUDFLARE_API_TOKEN: str = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
     CLOUDFLARE_MODEL: str = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
-    # 视觉（拍照转写）模型；结构化图片识别仍由该视觉模型处理。
+    # 视觉模型直接处理拍照诊断与转写，不经独立 OCR 服务。
     CLOUDFLARE_VISION_MODEL: str = os.getenv(
         "CLOUDFLARE_VISION_MODEL", "@cf/qwen/qwen3.8-27b").strip()
 
