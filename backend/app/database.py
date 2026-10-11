@@ -26,6 +26,8 @@ def get_db():
 
 
 def init_db():
-    """建表（MVP 用；生产请用 Alembic 迁移）。"""
+    """建表并幂等补齐会话消息读取索引（MVP 用；生产请用 Alembic 迁移）。"""
     from . import models  # noqa: F401  确保模型被注册到 Base.metadata
     Base.metadata.create_all(bind=engine)
+    for index in models.ChatSessionMessage.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)

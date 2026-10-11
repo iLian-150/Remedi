@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -165,6 +166,15 @@ class ChatSessionMessage(Base):
     role = Column(String(16), nullable=False, comment="user | assistant")
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+    __table_args__ = (
+        Index(
+            "ix_chat_session_messages_session_created_id",
+            "session_id",
+            "created_at",
+            "id",
+        ),
+    )
 
 
 class ChatSessionMessageImage(Base):
