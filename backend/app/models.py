@@ -346,6 +346,16 @@ class SubmissionScore(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class SubmissionImage(Base):
+    """学生上传作答图片与对应提交的关联；图片文件保存在 UPLOAD_DIR。"""
+    __tablename__ = "submission_images"
+
+    submission_id = Column(Integer, ForeignKey("submissions.id"), primary_key=True)
+    file_path = Column(String(512), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 # ---------------------------------------------------------------- v0.13.1：提交规则 + 大题/小题
 
 class AssignmentSetting(Base):

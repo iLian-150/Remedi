@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -22,6 +22,9 @@ from ..models import (
     QuestionGroup,
     QuestionGroupMember,
     ChatMessage,
+    ChatSession,
+    ChatSessionMessage,
+    ChatSessionMessageImage,
     ChatSessionMessageMistakeLink,
     Correction,
     Error,
@@ -34,6 +37,7 @@ from ..models import (
     StudentMistakeCategoryReview,
     StudentMistakeEvent,
     Submission,
+    SubmissionImage,
     SubmissionReview,
     SubmissionScore,
     User,
@@ -193,6 +197,26 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
     question = sub.question
     assignment = question.assignment if question else None
     err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
+    submission_image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
+    image_url = f"/api/uploads/{submission_image.file_path}" if submission_image else None
+    # 兼容关联表新增之前的自主上传记录：当时原图只挂在学生对话消息上，
+    # 用该学生提交前 15 分钟内最近一张图片补出缩略图。
+    if image_url is None and assignment and assignment.title.startswith("自主上传题目"):
+        legacy_image = (
+            db.query(ChatSessionMessageImage)
+            .join(ChatSessionMessage, ChatSessionMessage.id == ChatSessionMessageImage.message_id)
+            .join(ChatSession, ChatSession.id == ChatSessionMessage.session_id)
+            .filter(
+                ChatSession.user_id == sub.student_id,
+                ChatSessionMessage.role == "user",
+                ChatSessionMessage.created_at <= sub.submitted_at,
+                ChatSessionMessage.created_at >= sub.submitted_at - timedelta(minutes=15),
+            )
+            .order_by(ChatSessionMessage.created_at.desc())
+            .first()
+        )
+        if legacy_image:
+            image_url = f"/api/uploads/{legacy_image.file_path}"
     return ReviewPendingItem(
         submission_id=sub.id,
         student=UserOut.model_validate(student),
@@ -204,6 +228,7 @@ def _review_pending_item(sub: Submission, db: Session) -> ReviewPendingItem:
         knowledge_point=question.knowledge_point if question else "",
         error_count=err_n,
         submitted_at=sub.submitted_at,
+        image_url=image_url,
     )
 
 
@@ -508,6 +533,9 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
             # 评分系统：得分行随提交一并清理
             db.query(SubmissionScore).filter(
                 SubmissionScore.submission_id.in_(sub_ids)
+            ).delete(synchronize_session=False)
+            db.query(SubmissionImage).filter(
+                SubmissionImage.submission_id.in_(sub_ids)
             ).delete(synchronize_session=False)
             db.query(Error).filter(Error.submission_id.in_(sub_ids)) \
                 .delete(synchronize_session=False)

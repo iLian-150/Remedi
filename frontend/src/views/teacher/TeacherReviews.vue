@@ -42,6 +42,10 @@
             class="card assign-card"
             @click="enterAssignment(g)"
           >
+            <span class="assign-card-thumb">
+              <img v-if="g.imageUrl" :src="imageSrc(g.imageUrl)" :alt="`${g.title}作业原图`" loading="lazy" />
+              <span v-else class="assign-card-thumb-empty">暂无作业图片</span>
+            </span>
             <span class="assign-card-main">
               <span class="assign-card-title">{{ g.title }}</span>
               <span class="assign-card-meta">
@@ -291,6 +295,12 @@ function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
+function imageSrc(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path
+  const base = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 function fmtScore(v: number): string {
   return String(Math.round(v * 10) / 10)
 }
@@ -317,6 +327,7 @@ interface AssignmentGroup {
   total: number
   errorItems: number
   latest: string
+  imageUrl: string | null
 }
 
 const assignmentGroups = computed<AssignmentGroup[]>(() => {
@@ -331,7 +342,8 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
         students: [],
         total: 0,
         errorItems: 0,
-        latest: ''
+        latest: '',
+        imageUrl: null
       }
       map.set(key, g)
     }
@@ -344,6 +356,7 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
     g.total += 1
     if (it.error_count) g.errorItems += 1
     if (it.submitted_at > g.latest) g.latest = it.submitted_at
+    if (it.image_url) g.imageUrl = it.image_url
   }
   return [...map.values()]
 })
@@ -540,6 +553,13 @@ onMounted(() => {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .assign-card:hover { border-color: #C9D6F2; }
+.assign-card-thumb {
+  width: 32%; max-width: 400px; min-width: 200px; height: 116px; flex: 0 0 32%;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 10px; background: #F8FAFC;
+}
+.assign-card-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.assign-card-thumb-empty { color: var(--text-3); font-size: 13px; }
 .assign-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .assign-card-title { font-size: 16px; font-weight: 700; }
 .assign-card-meta { font-size: 13px; color: var(--text-2); }
@@ -550,6 +570,10 @@ onMounted(() => {
 .review-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
 @media (max-width: 1080px) {
   .review-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .assign-card { flex-wrap: wrap; }
+  .assign-card-thumb { width: 100%; max-width: none; min-width: 0; flex-basis: 100%; height: 180px; }
 }
 .review-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .student-info-card { padding: 16px 18px; }

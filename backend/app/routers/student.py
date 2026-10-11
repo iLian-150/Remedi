@@ -32,6 +32,7 @@ from ..models import (
     StudentQuestionCapture,
     Step,
     Submission,
+    SubmissionImage,
     User,
     Verification,
 )
@@ -885,6 +886,16 @@ _PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",
 _PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 
+def _save_submission_image_link(db: Session, submission: Submission,
+                                file_path: str, file_name: str) -> None:
+    db.merge(SubmissionImage(
+        submission_id=submission.id,
+        file_path=file_path,
+        file_name=file_name[:255],
+    ))
+    db.commit()
+
+
 @router.post("/photo-review", response_model=PhotoReviewOut, summary="识别题目图片并按作答情况分流")
 async def photo_review(
     file: UploadFile = File(...),
@@ -1036,6 +1047,21 @@ async def photo_review(
         db.flush()
 
     submission, _, _ = diagnose_submission(db, current, question, steps)
+    if stored_image_path is None:
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        stored_image_path = "{}_{}{}".format(
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            secrets.token_hex(8),
+            _PHOTO_TYPES[file.content_type],
+        )
+        with open(os.path.join(settings.UPLOAD_DIR, stored_image_path), "wb") as image_file:
+            image_file.write(data)
+    _save_submission_image_link(
+        db,
+        submission,
+        stored_image_path,
+        os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
+    )
     review_svc.create_review_if_needed(db, submission)
     diagnosis = present_for_student(submission, db)
     # 学习助手随后会基于识别出的题目和步骤流式回答，避免在对话历史里
@@ -1043,7 +1069,8 @@ async def photo_review(
     session_id = chat_session.id if chat_session is not None else None
     return {"mode": "diagnosis", "question_text": question_text,
             "steps": steps, "capture_id": None, "diagnosis": diagnosis,
-            "session_id": session_id, "image_url": image_url}
+            "session_id": session_id,
+            "image_url": f"/api/uploads/{stored_image_path}"}
 
 
 @router.post("/photo-captures/{capture_id}/save", summary="将自主上传题目加入错题本")
@@ -1166,10 +1193,21 @@ async def photo_diagnose(
             "照片中没有识别到学生作答，没有生成错题记录。请上传包含作答过程的照片。",
         )
 
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    image_path = "{}_{}{}".format(
+        datetime.now().strftime("%Y%m%d%H%M%S"),
+        secrets.token_hex(8),
+        _PHOTO_TYPES[file.content_type],
+    )
+    with open(os.path.join(settings.UPLOAD_DIR, image_path), "wb") as image_file:
+        image_file.write(data)
+    image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
+
     # v0.13.1：拍照批改同链——提交锁定 + 延迟批改窗口
     deferral_svc.assert_can_submit(db, current, question)
     if deferral_svc.is_deferred_mode(db, question.assignment_id):
         submission = deferral_svc.create_deferred(db, current, question, steps)
+        _save_submission_image_link(db, submission, image_path, image_name)
         out = deferral_svc.deferred_out(submission)
         out.update({
             "recognized_question_text": recognition.get("question_text", ""),
@@ -1178,6 +1216,7 @@ async def photo_diagnose(
         })
         return out
     submission, _, _ = diagnose_submission(db, current, question, steps)
+    _save_submission_image_link(db, submission, image_path, image_name)
     review_svc.create_review_if_needed(db, submission)
     result = present_for_student(submission, db)
     result.update({

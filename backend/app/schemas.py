@@ -377,6 +377,7 @@ class PhotoReviewOut(BaseModel):
     capture_id: Optional[int] = None
     diagnosis: Optional[DiagnosisOut] = None
     session_id: Optional[int] = None  # 学习助手拍照记录所属会话
+    image_url: Optional[str] = None   # 服务器保存的原图地址
 
 
 class PhotoCaptureSaveIn(BaseModel):
@@ -733,6 +734,7 @@ class ReviewPendingItem(BaseModel):
     knowledge_point: str
     error_count: int            # 该提交的 AI 诊断错误数（教师端可见）
     submitted_at: datetime
+    image_url: Optional[str] = None  # 学生上传的作答原图（如有）
 
 
 class ReviewPendingOut(BaseModel):

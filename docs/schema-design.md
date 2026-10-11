@@ -241,6 +241,17 @@
 - 索引：`ix_chat_session_message_mistake_links_error_id`。
 - 说明：`error_id` 按逻辑关系保存，不设数据库外键；删除教师作业时由应用层同步清理关联。消息恢复时再校验错题仍属于当前学生且可见。
 
+### 2.17 submission_images —— 学生作答原图关联（v0.13.14 新增）
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| submission_id | INTEGER PK，FK → submissions.id | 否 | — | 对应的学生提交；每份提交最多关联一张原图 |
+| file_path | VARCHAR(512) | 否 | — | UPLOAD_DIR 下的相对路径 |
+| file_name | VARCHAR(255) | 否 | — | 学生上传时的文件名 |
+| created_at | TIMESTAMP | 否 | now | 关联创建时间 |
+
+- 说明：图片文件仍存放在 `UPLOAD_DIR`，本表只存提交与文件的对应关系。删除作业时应用层先清理关联行；既有自主上传提交缺少此行时，审核队列可从提交前的对话图片回溯显示缩略图。
+
 ## 3. 关系图（ER，文本版）
 
 ```
@@ -254,6 +265,7 @@ users 1 ──< chat_sessions (user_id)
 errors 1 ──< verifications (source_error_id, 可空)
 chat_sessions 1 ──< chat_session_messages (session_id)
 chat_session_messages 1 ─── chat_session_message_mistake_links (message_id)
+submissions 1 ─── submission_images (submission_id, 1:0..1)
 
 assignments 1 ──< questions (assignment_id)
 assignments 1 ─── assignment_ext (assignment_id, 1:0..1)
@@ -326,3 +338,4 @@ WHERE s.student_id = S
 | v0.5.0 | 2026-10-07 | 新增两张表：`workbooks`（练习册知识库）、`assignment_ext`（作业发布模式扩展）；不改任何现有表/列。教师 Agent 对话复用 `chat_messages`（按 user_id 区分），提醒未交复用 `notifications`（新 type 值 `teacher_reminder`） |
 | v0.6.0 | 2026-10-07 | 新增两张表：`chat_sessions`（对话会话）、`chat_session_messages`（会话内消息）；不改任何现有表/列。`chat_messages` 停用（旧数据首次访问会话接口时迁移为「之前的对话」会话后清空对应行）。练习册封面走文件约定（UPLOAD_DIR/covers/{id}.jpg），不给 `workbooks` 加列 |
 | v0.13.13 | 2026-10-12 | 新增 `chat_session_message_mistake_links`，持久化助手回复与历史错题的关联；不改现有表和列。 |
+| v0.13.14 | 2026-10-12 | 新增 `submission_images`，关联学生作答原图与提交记录，供教师待审核作业卡展示。 |
