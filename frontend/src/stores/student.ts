@@ -287,7 +287,13 @@ export const useStudentStore = defineStore('student', {
         const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
         if (eventName === 'token') {
           const text = typeof payload.text === 'string' ? payload.text : ''
-          if (text) onText(text)
+          if (text) {
+            // 后端按 token 推送；前端再按字符呈现，避免整段突然出现。
+            for (const character of Array.from(text)) {
+              onText(character)
+              await new Promise<void>((resolve) => window.setTimeout(resolve, 12))
+            }
+          }
         } else if (eventName === 'done') {
           result = payload as unknown as AgentChatResult
         } else if (eventName === 'error') {
