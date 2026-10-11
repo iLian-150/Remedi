@@ -29,7 +29,8 @@ import type {
   VerificationSubmitResult
 } from '../api/types'
 
-const STUDENT_STREAM_CHARACTER_DELAY_MS = 10
+// 10ms 会被浏览器合并到相邻绘制帧里，看起来像整段跳出；约 30 字/秒让逐字效果清楚可见。
+const STUDENT_STREAM_CHARACTER_DELAY_MS = 32
 
 function activeSessionStorageKey(): string | null {
   const userId = useAuthStore().user?.id
