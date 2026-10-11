@@ -495,6 +495,7 @@ interface ChatMsg {
 const messages = ref<ChatMsg[]>([])
 const STREAM_MARKDOWN_REFRESH_MS = 16
 const streamMarkdownTimers = new WeakMap<ChatMsg, number>()
+let briefingRefreshGeneration = 0
 
 function scheduleStreamingMarkdown(msg: ChatMsg) {
   if (!msg.streamingHtml) {
@@ -634,11 +635,12 @@ const briefSummaryItems = computed(() => {
 /** 对话消息流（简报消息已从循环抽出、单独在上方简报区渲染） */
 const visibleMessages = computed(() => messages.value.filter((m) => m.kind !== 'briefing'))
 
-/** 进入对话态的瞬间拉一次最新简报：本页发送/批改后原本不刷新简报，
- *  摘要条若沿用挂载时的旧数字会不准；只在「收起态切换」这一刻补拉 */
+/** 进入对话态、拍照诊断或手动批改完成后拉取最新简报，避免摘要数字过期。 */
 async function refreshBriefing() {
+  const generation = ++briefingRefreshGeneration
   try {
     const b = await student.fetchBriefing()
+    if (generation !== briefingRefreshGeneration) return
     const m = messages.value.find((x) => x.kind === 'briefing')
     if (m) m.briefing = b
   } catch (e) {
@@ -1039,10 +1041,12 @@ async function sendPhotoReview(file: File, prompt: string) {
     // 原图讲解与作业诊断并发：讲解请求直接携带图片，诊断请求独立保存错题/审核记录。
     const diagnosisTask = student.reviewPhoto(
       file, questionId, '', sessionId, true, prompt
-    ).then((result) => {
+    ).then(async (result) => {
       // 批改与视觉讲解并发；批改一完成就更新错题/审核状态，不等待讲解流结束。
       applyPhotoReviewResult(wait, userImage, result)
       void student.loadSessions(true)
+      // 简报通常在诊断前已读取；错题入库后再刷新，避免顶部数字停留在旧值。
+      await refreshBriefing()
       return result
     }).catch((reason: unknown) => {
       markPhotoReviewFailure(wait, reason)
@@ -1115,9 +1119,10 @@ async function retryExplanation(msg: ChatMsg) {
     try {
       const diagnosisTask = msg.retryDiagnosis
         ? student.reviewPhoto(photoRetry.file, photoRetry.questionId, '', photoRetry.sessionId, false, photoRetry.prompt)
-          .then((result) => {
+          .then(async (result) => {
             applyPhotoReviewResult(msg, photoRetry.userImage, result)
             void student.loadSessions(true)
+            await refreshBriefing()
             return result
           })
           .catch((reason: unknown) => {
@@ -1238,6 +1243,7 @@ async function confirmTranscribe(msg: ChatMsg) {
     msg.confirmed = true
     doneQids.value.add(msg.questionId)
     pushMsg({ side: 'ai', kind: 'diagnosis', result: res })
+    await refreshBriefing()
   } catch (e) {
     pushMsg({ side: 'ai', kind: 'error', text: '批改失败：' + (errDetail(e) || '请稍后重试。') })
     console.error(e)
