@@ -398,6 +398,7 @@ export const useStudentStore = defineStore('student', {
       const decoder = new TextDecoder()
       let buffer = ''
       let result: AgentChatResult | null = null
+      let finalReply = ''
       const characterQueue: string[] = []
       let queueOffset = 0
       let typingTask: Promise<void> | null = null
@@ -450,6 +451,7 @@ export const useStudentStore = defineStore('student', {
           }
         } else if (eventName === 'done') {
           result = payload as unknown as AgentChatResult
+          finalReply = typeof payload.reply === 'string' ? payload.reply : ''
         } else if (eventName === 'error') {
           throw new Error(typeof payload.detail === 'string' ? payload.detail : '回复生成中断，请稍后重试。')
         }
@@ -472,7 +474,6 @@ export const useStudentStore = defineStore('student', {
         await waitForTypewriter()
         throw error
       }
-      const finalReply = result?.reply ?? ''
       if (finalReply.startsWith(streamedText) && finalReply.length > streamedText.length) {
         characterQueue.push(...Array.from(finalReply.slice(streamedText.length)))
         startTypewriter()
