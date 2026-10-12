@@ -29,8 +29,9 @@ import type {
   VerificationSubmitResult
 } from '../api/types'
 
-// 10ms 会被浏览器合并到相邻绘制帧里，看起来像整段跳出；约 30 字/秒让逐字效果清楚可见。
-const STUDENT_STREAM_CHARACTER_DELAY_MS = 32
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()))
+}
 
 function activeSessionStorageKey(): string | null {
   const userId = useAuthStore().user?.id
@@ -250,15 +251,14 @@ export const useStudentStore = defineStore('student', {
       let buffer = ''
       let reply = ''
       let streamError = ''
+      let streamedText = ''
 
       const startTypewriter = () => {
         if (typingTask || offset >= characters.length) return
         typingTask = (async () => {
           while (offset < characters.length) {
             onText(characters[offset++])
-            await new Promise<void>((resolve) =>
-              window.setTimeout(resolve, STUDENT_STREAM_CHARACTER_DELAY_MS)
-            )
+            await waitForNextPaint()
           }
         })().finally(() => {
           typingTask = null
@@ -293,6 +293,7 @@ export const useStudentStore = defineStore('student', {
         if (eventName === 'token') {
           const text = typeof payload.text === 'string' ? payload.text : ''
           if (text) {
+            streamedText += text
             characters.push(...Array.from(text))
             startTypewriter()
           }
@@ -319,6 +320,10 @@ export const useStudentStore = defineStore('student', {
       } catch (error) {
         await waitForTypewriter()
         throw error
+      }
+      if (reply.startsWith(streamedText) && reply.length > streamedText.length) {
+        characters.push(...Array.from(reply.slice(streamedText.length)))
+        startTypewriter()
       }
       await waitForTypewriter()
       if (streamError) throw new Error(streamError)
@@ -396,16 +401,14 @@ export const useStudentStore = defineStore('student', {
       const characterQueue: string[] = []
       let queueOffset = 0
       let typingTask: Promise<void> | null = null
+      let streamedText = ''
 
       const startTypewriter = () => {
         if (typingTask || queueOffset >= characterQueue.length) return
         typingTask = (async () => {
           while (queueOffset < characterQueue.length) {
             onText(characterQueue[queueOffset++])
-            // 逐字推进但减少人工等待，避免长讲解被动画额外拖慢。
-            await new Promise<void>((resolve) =>
-              window.setTimeout(resolve, STUDENT_STREAM_CHARACTER_DELAY_MS)
-            )
+            await waitForNextPaint()
           }
         })().finally(() => {
           typingTask = null
@@ -440,6 +443,7 @@ export const useStudentStore = defineStore('student', {
         if (eventName === 'token') {
           const text = typeof payload.text === 'string' ? payload.text : ''
           if (text) {
+            streamedText += text
             // 网络流持续读取；独立的队列逐字渲染，避免打字延时反压模型流。
             characterQueue.push(...Array.from(text))
             startTypewriter()
@@ -467,6 +471,11 @@ export const useStudentStore = defineStore('student', {
       } catch (error) {
         await waitForTypewriter()
         throw error
+      }
+      const finalReply = result?.reply ?? ''
+      if (finalReply.startsWith(streamedText) && finalReply.length > streamedText.length) {
+        characterQueue.push(...Array.from(finalReply.slice(streamedText.length)))
+        startTypewriter()
       }
       await waitForTypewriter()
       if (!result) throw new Error('学习助手的流式回复没有正常结束，请重试。')

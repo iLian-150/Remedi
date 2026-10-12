@@ -211,7 +211,7 @@
           <div v-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
             <div class="ai-message-text">
               <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
-              <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming" v-html="msg.streamingHtml ?? ''"></div>
+              <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming">{{ msg.text }}</div>
               <div v-else class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
             </div>
             <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-deferred': msg.mistakeSync.deferred, 'is-empty': !msg.mistakeSync.errorCount && !msg.mistakeSync.deferred, 'is-error': Boolean(msg.mistakeSync.error) }">
@@ -478,7 +478,6 @@ interface ChatMsg {
   submitting: boolean
   pending: boolean
   streaming?: boolean
-  streamingHtml?: string
   result: SubmissionResult | null
   captureId: number | null
   retryPrompt?: string
@@ -493,29 +492,7 @@ interface ChatMsg {
 }
 
 const messages = ref<ChatMsg[]>([])
-const STREAM_MARKDOWN_REFRESH_MS = 16
-const streamMarkdownTimers = new WeakMap<ChatMsg, number>()
 let briefingRefreshGeneration = 0
-
-function scheduleStreamingMarkdown(msg: ChatMsg) {
-  if (!msg.streamingHtml) {
-    msg.streamingHtml = renderAssistantMarkdown(msg.text)
-    return
-  }
-  if (streamMarkdownTimers.has(msg)) return
-  const timer = window.setTimeout(() => {
-    msg.streamingHtml = renderAssistantMarkdown(msg.text)
-    streamMarkdownTimers.delete(msg)
-  }, STREAM_MARKDOWN_REFRESH_MS)
-  streamMarkdownTimers.set(msg, timer)
-}
-
-function clearStreamingMarkdown(msg: ChatMsg) {
-  const timer = streamMarkdownTimers.get(msg)
-  if (timer !== undefined) window.clearTimeout(timer)
-  streamMarkdownTimers.delete(msg)
-  msg.streamingHtml = undefined
-}
 
 type PendingPhotoRetry = {
   file: File
@@ -915,11 +892,10 @@ async function streamAssistantReply(
         firstText = false
       }
       wait.text += text
-      scheduleStreamingMarkdown(wait)
       scrollToBottom()
     }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId)
     wait.pending = false
-    wait.text = result.reply
+    if (!wait.text) wait.text = result.reply
     wait.relatedMistake = result.related_mistake ?? null
     wait.retryPrompt = undefined
     wait.retrySafeToolsOnly = undefined
@@ -928,7 +904,6 @@ async function streamAssistantReply(
     // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
     student.loadSessions(true)
   } finally {
-    clearStreamingMarkdown(wait)
     wait.pending = false
     wait.streaming = false
   }
@@ -1008,13 +983,11 @@ async function streamVisionReply(wait: ChatMsg, file: File, question: string): P
         firstText = false
       }
       wait.text += text
-      scheduleStreamingMarkdown(wait)
       scrollToBottom()
     })
-    wait.text = reply
+    if (!wait.text) wait.text = reply
     return reply
   } finally {
-    clearStreamingMarkdown(wait)
     wait.pending = false
     wait.streaming = false
   }
