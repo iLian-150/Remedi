@@ -1031,7 +1031,7 @@ async def photo_review(
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
-    """没有学生作答时只进入问答，并暂存图片供学生之后主动收录；有作答时复用数学诊断。"""
+    """没有学生作答时只进入问答，并暂存图片供学生之后主动收录；有作答时复用视觉诊断。"""
     request_started_at = perf_counter()
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
@@ -1047,9 +1047,10 @@ async def photo_review(
         question = db.query(Question).filter(Question.id == question_id).first()
         if question is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
-        if question.subject != "math":
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "原图自动诊断目前仅支持数学题")
-    context = question.stem if question else question_context
+    context = (
+        f"学科：{question.subject}\n题目：{question.stem}"
+        if question else question_context
+    )
 
     chat_session = None
     stored_image_path = None
@@ -1090,7 +1091,7 @@ async def photo_review(
     vision_started_at = perf_counter()
     try:
         recognition = await run_in_threadpool(
-            get_provider().diagnose_math_image, data, file.content_type, context
+            get_provider().diagnose_homework_image, data, file.content_type, context
         )
     except Exception as exc:
         logger.exception("学生图片诊断模型调用失败（student_id=%s）", current.id)
@@ -1105,6 +1106,9 @@ async def photo_review(
     vision_elapsed = perf_counter() - vision_started_at
     logger.info("照片视觉识别完成（耗时 %.2f 秒）", vision_elapsed)
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
+    recognized_subject = question.subject if question else str(
+        recognition.get("subject", "other") or "other"
+    )
     visual_steps = recognition.get("steps", [])
     steps = [str(step.get("text", "")).strip() for step in visual_steps
              if isinstance(step, dict) and str(step.get("text", "")).strip()]
@@ -1137,7 +1141,7 @@ async def photo_review(
         capture = StudentQuestionCapture(
             student_id=current.id,
             question_id=question.id if question else None,
-            subject=question.subject if question else "math",
+            subject=recognized_subject,
             question_text=question_text,
             image_path=filename,
         )
@@ -1145,7 +1149,7 @@ async def photo_review(
         db.commit()
         db.refresh(capture)
         related_mistake = find_related_mistake(
-            db, current.id, question.subject if question else "math",
+            db, current.id, recognized_subject,
             question.knowledge_point if question else recognized_knowledge_point,
             exclude_assignment_id=question.assignment_id if question else None,
         )
@@ -1182,7 +1186,7 @@ async def photo_review(
         db.flush()
         question = Question(
             assignment_id=assignment.id,
-            subject="math",
+            subject=recognized_subject,
             knowledge_point=recognized_knowledge_point or "自主上传题",
             stem=question_text,
             order_num=1,
@@ -1341,7 +1345,7 @@ async def photo_transcribe(file: UploadFile = File(...),
 @router.post(
     "/photo-diagnose",
     response_model=PhotoDiagnosisOut,
-    summary="直接用作答原图进行数学诊断",
+    summary="直接用作答原图进行视觉诊断",
 )
 async def photo_diagnose(
     question_id: int = Form(...),
@@ -1366,8 +1370,6 @@ async def photo_diagnose(
     question = db.query(Question).filter(Question.id == question_id).first()
     if question is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
-    if question.subject != "math":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前原图诊断入口仅支持数学题")
 
     # 在调用视觉模型前完成提交资格检查；后续使用同一接收时间决定延迟批改模式。
     deferred_mode = deferral_svc.assert_can_submit(
@@ -1375,10 +1377,10 @@ async def photo_diagnose(
     )
 
     recognition = await run_in_threadpool(
-        get_provider().diagnose_math_image,
+        get_provider().diagnose_homework_image,
         data,
         file.content_type,
-        question.stem,
+        f"学科：{question.subject}\n题目：{question.stem}",
     )
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
     visual_steps = recognition.get("steps", [])

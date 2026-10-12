@@ -48,10 +48,10 @@ class LLMProvider(ABC):
                          question_context: str = "", question_only: bool = False) -> Dict:
         """读取作业原图，返回题干、步骤和视觉识别质量信息。"""
 
-    def diagnose_math_image(self, image_bytes: bytes, content_type: str,
-                            question_context: str = "") -> Dict:
+    def diagnose_homework_image(self, image_bytes: bytes, content_type: str,
+                                question_context: str = "") -> Dict:
         """直接基于作业原图判断学生步骤对错，不依赖文本公式解析器。"""
-        raise RuntimeError("当前模型 Provider 不支持数学作业图片诊断")
+        raise RuntimeError("当前模型 Provider 不支持视觉作业诊断")
 
     def stream_image_answer(self, image_bytes: bytes, content_type: str,
                             question: str = ""):
@@ -443,9 +443,9 @@ class CloudflareProvider(DeepSeekProvider):
             logger.exception("LLM transcribe_image 调用失败")
             raise RuntimeError("图片识别失败，请检查图片后重试") from e
 
-    def diagnose_math_image(self, image_bytes: bytes, content_type: str,
-                            question_context: str = "") -> Dict:
-        """让视觉模型直接阅读题目与作答，并逐步判断正误和错因。"""
+    def diagnose_homework_image(self, image_bytes: bytes, content_type: str,
+                                question_context: str = "") -> Dict:
+        """让视觉模型直接阅读作业原图、识别学科并逐步判断正误和错因。"""
         from ..config import settings
 
         try:
@@ -454,9 +454,11 @@ class CloudflareProvider(DeepSeekProvider):
                 base64.b64encode(image_bytes).decode("ascii"),
             )
             prompt = (
-                "请直接观察这张数学作业原图，同时理解题目、学生实际作答和图形信息，完成批改。"
+                "请直接观察这张作业原图，先识别学科，再理解题目、学生实际作答和图形信息并完成批改。"
                 f"已知题目参考：{question_context or '请从图片中理解题目'}。"
-                "请依据图像中的完整解题过程判断每一步是否正确，不要先把整张图片逐行转写后再用公式匹配来推断。"
+                "本题可能属于数学、英语练习、物理、化学、生物、语文、历史、地理、道德与法治、信息科技、艺术或其他学科；"
+                "若参考信息明确给出学科，优先按该学科判断，否则根据题目内容识别。"
+                "请依据该学科的知识和图像中的完整作答过程判断每一步是否正确；直接分析图像，不要先做 OCR 或逐行转写后再推断。"
                 "steps 只列学生本人写出的解题过程或答案，不要把印刷题干、参考答案、教师红笔勾叉当成学生步骤。"
                 "result 只能是 correct、incorrect、uncertain；判断不清时选 uncertain，并把 confidence 设为 0 到 0.59。"
                 "对 incorrect 步骤，error_type 只能是 计算失误、概念混淆、审题遗漏、无法解析，并用中文简要说明证据；"
@@ -464,15 +466,16 @@ class CloudflareProvider(DeepSeekProvider):
                 "若照片模糊、裁切，或题目/作答无法可靠辨认，needs_image_review=true；单纯错因把握低不代表图像模糊。"
                 "若只有题目而没有学生作答，student_work_detected=false 且 steps 为空。"
                 "confidence 表示图像中题目和作答的整体可辨认度，不表示错因把握。"
-                "knowledge_point 填一个简短、具体的数学知识点名称；若题目无法确定则留空。"
-                '只返回 JSON：{"question_text":"题目内容","student_work_detected":true,'
-                '"knowledge_point":"一元一次方程","needs_image_review":false,"confidence":0.95,"steps":['
+                "subject 必须使用规范代码：math、english、english_exercise、physics、chemistry、biology、chinese、history、geography、politics、computer_science、art、music、pe、other。"
+                "knowledge_point 填一个简短、具体且符合该学科的知识点名称；若题目无法确定则留空。"
+                '只返回 JSON：{"subject":"physics","question_text":"题目内容","student_work_detected":true,'
+                '"knowledge_point":"摩擦力","needs_image_review":false,"confidence":0.95,"steps":['
                 '{"text":"学生原步骤","result":"correct","confidence":0.95,"error_type":"","detail":""},'
                 '{"text":"学生错误步骤","result":"incorrect","confidence":0.82,"error_type":"计算失误","detail":"说明错误和判断依据"}]}。'
             )
             content = self._vision_text(
                 data_url,
-                "你是严谨的数学作业视觉诊断助手。直接分析图片证据，只返回 JSON，不要解释或 Markdown。",
+                "你是严谨的多学科作业视觉诊断助手。直接分析图片证据，只返回 JSON，不要解释、OCR转写或 Markdown。",
                 prompt,
                 timeout=settings.LLM_TIMEOUT_SECONDS,
             )
@@ -514,9 +517,29 @@ class CloudflareProvider(DeepSeekProvider):
                 image_confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
             except (TypeError, ValueError):
                 image_confidence = 0.0
+            subject_aliases = {
+                "math": "math", "mathematics": "math", "数学": "math", "数学题": "math",
+                "english": "english", "英语": "english", "英语题": "english",
+                "english_exercise": "english_exercise", "英语练习": "english_exercise",
+                "physics": "physics", "物理": "physics", "物理题": "physics",
+                "chemistry": "chemistry", "化学": "chemistry",
+                "biology": "biology", "生物": "biology",
+                "chinese": "chinese", "语文": "chinese",
+                "history": "history", "历史": "history",
+                "geography": "geography", "地理": "geography",
+                "politics": "politics", "道德与法治": "politics", "政治": "politics",
+                "computer_science": "computer_science", "信息科技": "computer_science", "信息技术": "computer_science",
+                "art": "art", "美术": "art", "艺术": "art",
+                "music": "music", "音乐": "music",
+                "pe": "pe", "体育": "pe",
+                "other": "other", "其他": "other", "其他学科": "other",
+            }
+            raw_subject = str(data.get("subject", "other")).strip().lower()
+            subject = subject_aliases.get(raw_subject, "other")
             question_text = str(data.get("question_text", "")).strip() or question_context
             knowledge_point = str(data.get("knowledge_point", "")).strip()[:64]
             return {
+                "subject": subject,
                 "question_text": question_text[:12000],
                 "knowledge_point": knowledge_point,
                 "steps": steps,
@@ -529,7 +552,7 @@ class CloudflareProvider(DeepSeekProvider):
                 "confidence": image_confidence,
             }
         except Exception as e:
-            logger.exception("视觉模型数学作业诊断失败")
+            logger.exception("视觉模型作业诊断失败")
             raise RuntimeError("图片诊断失败，请检查图片或稍后重试") from e
 
     def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:

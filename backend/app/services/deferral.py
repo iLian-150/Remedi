@@ -200,7 +200,7 @@ def _grade_due_batch(db: Session) -> int:
                 with open(image_path, "rb") as image_file:
                     image_bytes = image_file.read()
                 content_type = mimetypes.guess_type(image_name)[0] or "image/jpeg"
-                vision = get_provider().diagnose_math_image(
+                vision = get_provider().diagnose_homework_image(
                     image_bytes, content_type, question.stem
                 )
             except Exception:
