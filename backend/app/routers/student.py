@@ -527,9 +527,14 @@ def _record_mistake_event(db: Session, student_id: int, assignment_id: int,
 
 
 @router.get("/mistakes", response_model=List[StudentMistakeOut], summary="我的错题本")
-def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get_db),
-                current: User = Depends(require_student)):
+def my_mistakes(
+    archived: bool = Query(default=False),
+    include_archived: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
     """List this student's active or archived error occurrences without deleting diagnosis history."""
+    archive_filter = None if include_archived else archived
     all_rows = (
         db.query(Error, Submission, Question, Assignment, Step)
         .join(Submission, Error.submission_id == Submission.id)
@@ -564,7 +569,11 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             StudentMistakeArchive.error_id.in_(error_ids[start:start + 500]),
         ).all():
             archived_at_by_error[error_id] = archived_at
-    rows = [row for row in all_rows if (row[0].id in archived_at_by_error) == archived]
+    rows = [
+        row for row in all_rows
+        if archive_filter is None
+        or (row[0].id in archived_at_by_error) == archive_filter
+    ]
     assignment_ids = {assignment.id for _, _, _, assignment, _ in all_rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
     submission_ids = {submission.id for _, submission, _, _, _ in rows}
@@ -790,7 +799,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         .all()
     )
     for capture in captures:
-        if (capture.archived_at is not None) != archived:
+        if archive_filter is not None and (capture.archived_at is not None) != archive_filter:
             continue
         result.append(StudentMistakeOut(
             id=-capture.id,

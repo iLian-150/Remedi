@@ -123,6 +123,12 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', { params: { archived } })
       return data
     },
+    async fetchAllMyMistakes(): Promise<StudentMistake[]> {
+      const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', {
+        params: { include_archived: true }
+      })
+      return data
+    },
     async fetchRelatedMistake(questionId: number): Promise<RelatedMistake | null> {
       const { data } = await api.get<RelatedMistake | null>(
         `/api/student/questions/${questionId}/related-mistake`
@@ -130,16 +136,12 @@ export const useStudentStore = defineStore('student', {
       return data
     },
     /** 可订正错题（v0.9.1 抽到 store 供订正页与右栏订正日历共用）：
-     * 合并未归档+已归档并按 id 去重，只留诊断产生的错题——自主收录题
+     * 一次读取未归档与已归档记录，只留诊断产生的错题——自主收录题
      * （id<0 / source_kind=student_saved）没有 errors 记录，进不了订正判定。
      * 低置信错题会立即进入错题本，并带有 review_status=pending 标记。 */
     async fetchCorrectableMistakes(): Promise<StudentMistake[]> {
-      const [current, archived] = await Promise.all([
-        this.fetchMyMistakes(false),
-        this.fetchMyMistakes(true)
-      ])
-      const merged = [...new Map([...current, ...archived].map((item) => [item.id, item])).values()]
-      return merged.filter((item) => item.id > 0 && item.source_kind !== 'student_saved')
+      const allMistakes = await this.fetchAllMyMistakes()
+      return allMistakes.filter((item) => item.id > 0 && item.source_kind !== 'student_saved')
     },
     async setMistakeCategoryStudied(payload: {
       assignment_id: number
