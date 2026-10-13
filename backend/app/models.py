@@ -296,11 +296,15 @@ class Verification(Base):
             "ix_verifications_student_created_id",
             "student_id", "created_at", "id",
         ),
+        Index(
+            "ix_verifications_student_knowledge_status_latest",
+            "student_id", "knowledge_point", "status", "created_at", "id",
+        ),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    knowledge_point = Column(String(64), nullable=False, index=True)
+    knowledge_point = Column(String(64), nullable=False)
     source_error_id = Column(Integer, ForeignKey("errors.id"), nullable=True,
                              comment="触发本次验证的错题，可空")
     variant_json = Column(Text, nullable=False,
