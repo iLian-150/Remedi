@@ -302,9 +302,16 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     if question_id:
         query = query.filter(Submission.question_id == question_id)
     total = query.count()
-    subs = query.options(joinedload(Submission.question)).order_by(
-        Submission.submitted_at.desc()
-    ).offset(offset).limit(limit).all()
+    subs = query.options(
+        load_only(
+            Submission.id, Submission.question_id,
+            Submission.status, Submission.submitted_at,
+        ),
+        joinedload(Submission.question).load_only(
+            Question.id, Question.assignment_id, Question.stem,
+            Question.knowledge_point,
+        ),
+    ).order_by(Submission.submitted_at.desc()).offset(offset).limit(limit).all()
     status_by_id = review_svc.review_status_map(db, [s.id for s in subs])
     submission_ids = [s.id for s in subs]
     error_counts = dict(
@@ -350,7 +357,11 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
 @router.get("/submissions/{submission_id}", response_model=DiagnosisOut, summary="提交详情")
 def submission_detail(submission_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_student)):
-    s = db.query(Submission).filter(Submission.id == submission_id).first()
+    s = db.query(Submission).options(
+        joinedload(Submission.question).load_only(
+            Question.id, Question.assignment_id, Question.subject, Question.stem,
+        )
+    ).filter(Submission.id == submission_id).first()
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
     if s.student_id != current.id:
