@@ -601,15 +601,40 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
     review_status_by_submission = review_svc.review_status_map(
         db, [submission.id for _, submission, _, _, _ in rows]
     )
+    questions_by_id = {
+        question.id: question
+        for _, _, question, _, _ in rows
+    }
+    correct_answer_by_question = {}
+    solution_steps_by_question = {}
+    for question_id, question in questions_by_id.items():
+        correct_answer = (
+            student_visible_reference_answer(question.stem, question.standard_answer)
+            if question.subject == "math" else question.standard_answer
+        )
+        correct_answer_by_question[question_id] = correct_answer
+        solution_steps_by_question[question_id] = (
+            student_visible_solution_steps(question.stem)
+            if question.subject == "math" and correct_answer else []
+        )
+    linear_detail_by_step = {}
     for error, submission, question, assignment, step in rows:
         category_key, category_label = _mistake_category(
             question.subject, error.error_type, error.knowledge_point
         )
         correction = correction_by_error.get(error.id)
-        correct_answer = (
-            student_visible_reference_answer(question.stem, question.standard_answer)
-            if question.subject == "math" else question.standard_answer
+        correct_answer = correct_answer_by_question[question.id]
+        step_key = (
+            question.id,
+            step.id if step else None,
+            step.seq if step else None,
         )
+        if step_key not in linear_detail_by_step:
+            linear_detail_by_step[step_key] = student_visible_linear_error_detail(
+                question.stem,
+                step.text if step else None,
+                step.seq if step else None,
+            )
         result.append(StudentMistakeOut(
             id=error.id,
             submission_id=submission.id,
@@ -625,16 +650,13 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             # derive a complete answer for solvable one-variable equations.
             correct_answer=correct_answer,
             solution_steps=(
-                student_visible_solution_steps(question.stem)
-                if question.subject == "math" and correct_answer else []
+                solution_steps_by_question[question.id]
             ),
             knowledge_point=error.knowledge_point,
             error_type=error.error_type,
             is_stubborn=error.is_stubborn,
             detail=(
-                student_visible_linear_error_detail(
-                    question.stem, step.text if step else None, step.seq if step else None
-                ) or error.detail
+                linear_detail_by_step[step_key] or error.detail
             ),
             step_seq=step.seq if step else None,
             step_text=step.text if step else None,
