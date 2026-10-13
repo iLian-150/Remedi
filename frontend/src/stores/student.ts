@@ -50,6 +50,26 @@ function persistActiveSessionId(id: number | null) {
   else localStorage.setItem(key, String(id))
 }
 
+const inFlightMistakeRequests = new Map<string, Promise<StudentMistake[]>>()
+
+function coalesceMistakeRequest(
+  userId: number | undefined,
+  filter: string,
+  load: () => Promise<StudentMistake[]>
+): Promise<StudentMistake[]> {
+  const key = `${userId ?? 'anonymous'}:${filter}`
+  const existing = inFlightMistakeRequests.get(key)
+  if (existing) return existing
+
+  const request = Promise.resolve().then(load).finally(() => {
+    if (inFlightMistakeRequests.get(key) === request) {
+      inFlightMistakeRequests.delete(key)
+    }
+  })
+  inFlightMistakeRequests.set(key, request)
+  return request
+}
+
 export const useStudentStore = defineStore('student', {
   state: () => ({
     /** 作业列表页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
@@ -125,15 +145,21 @@ export const useStudentStore = defineStore('student', {
       return data.items
     },
     // 错题本：全部诊断错误，附作业、分类、订正与历史同类错误
-    async fetchMyMistakes(archived = false): Promise<StudentMistake[]> {
-      const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', { params: { archived } })
-      return data
-    },
-    async fetchAllMyMistakes(): Promise<StudentMistake[]> {
-      const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', {
-        params: { include_archived: true }
+    fetchMyMistakes(archived = false): Promise<StudentMistake[]> {
+      const userId = useAuthStore().user?.id
+      return coalesceMistakeRequest(userId, `archived:${archived}`, async () => {
+        const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', { params: { archived } })
+        return data
       })
-      return data
+    },
+    fetchAllMyMistakes(): Promise<StudentMistake[]> {
+      const userId = useAuthStore().user?.id
+      return coalesceMistakeRequest(userId, 'include-archived', async () => {
+        const { data } = await api.get<StudentMistake[]>('/api/student/mistakes', {
+          params: { include_archived: true }
+        })
+        return data
+      })
     },
     async fetchRelatedMistake(questionId: number): Promise<RelatedMistake | null> {
       const { data } = await api.get<RelatedMistake | null>(
