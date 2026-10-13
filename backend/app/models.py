@@ -159,7 +159,7 @@ class Essay(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    question_id = Column(Integer, ForeignKey("questions.id"), nullable=True)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=True, index=True)
     text = Column(Text, nullable=False, comment="作文原文")
     scores_json = Column(Text, nullable=False, comment='JSON: {content,structure,grammar,vocabulary,expression,total}')
     grammar_issues_json = Column(Text, nullable=False, comment="JSON 数组: [{sentence_no,sentence,issue,suggestion}]")
