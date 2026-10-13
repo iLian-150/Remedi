@@ -525,6 +525,8 @@ async function loadQueue(preselect?: number) {
     detail.value = null
   } catch (e) {
     error.value = '待审核队列加载失败，请确认后端已启动。'
+    // 审核页跳过了单独的角标计数请求；队列加载失败时退回轻量接口。
+    void teacher.refreshPendingReviewCount()
     console.error(e)
   } finally {
     loading.value = false

@@ -282,14 +282,16 @@ function setRail(open: boolean) {
   }
 }
 
-// ---------- 未读数 / 待审计数刷新（v0.8.2 / v0.9.0）：进入对应角色任何页面（路由变化）时刷新一次 ----------
+// ---------- 未读数 / 待审计数刷新（v0.8.2 / v0.9.0）：进入对应角色页面时刷新轻量计数 ----------
 // 未读数由 student store 持有，RightRail 读/写后同步回写，FAB 角标直接读 store；
-// 待审核数由 teacher store 持有，教师导航「待审核」角标直接读 store。
+// 待审核数由 teacher store 持有；审核页自身拉完整队列时会一并回写总数。
 watch(
   () => route.path,
   () => {
     if (auth.role === 'student') void student.refreshUnread()
-    if (auth.role === 'teacher') void teacher.refreshPendingReviewCount()
+    if (auth.role === 'teacher' && route.path !== '/teacher/reviews') {
+      void teacher.refreshPendingReviewCount()
+    }
   },
   { immediate: true }
 )
