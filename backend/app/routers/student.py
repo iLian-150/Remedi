@@ -1576,6 +1576,8 @@ async def agent_vision_chat_stream(
 
     def stream_events():
         yield ": connected\n\n"
+        stream_started_at = perf_counter()
+        first_text_at = None
         reply_parts = []
         try:
             for chunk in get_provider().stream_image_answer(
@@ -1583,14 +1585,30 @@ async def agent_vision_chat_stream(
             ):
                 if not chunk:
                     continue
+                if first_text_at is None:
+                    first_text_at = perf_counter()
+                    logger.info(
+                        "图片视觉讲解首字延迟（耗时 %.2f 秒，student_id=%s）",
+                        first_text_at - stream_started_at, student_id,
+                    )
                 reply_parts.append(chunk)
                 yield event("token", {"text": chunk})
             reply = "".join(reply_parts).strip()
             if not reply:
                 raise ValueError("视觉模型没有返回讲解内容")
+            logger.info(
+                "图片视觉讲解流完成（总耗时 %.2f 秒，输出字符数 %d，student_id=%s）",
+                perf_counter() - stream_started_at, len(reply), student_id,
+            )
             yield event("done", {"reply": reply})
         except Exception:
             logger.exception("学生图片视觉讲解流中断（student_id=%s）", student_id)
+            logger.warning(
+                "图片视觉讲解流失败（耗时 %.2f 秒，已输出字符数 %d，student_id=%s）",
+                perf_counter() - stream_started_at,
+                sum(len(part) for part in reply_parts),
+                student_id,
+            )
             yield event("error", {"detail": "视觉模型暂时无法完成讲解，请稍后重试。"})
 
     return StreamingResponse(
