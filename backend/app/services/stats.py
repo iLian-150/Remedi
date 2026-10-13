@@ -144,6 +144,31 @@ def _student_error_summaries(db, submission_ids: List[int]):
     ))
 
 
+def _student_profile_errors(db, student_id: int, visible_only: bool):
+    """按学生读取画像所需的错因列，并在 SQL 中排除待审核提交。"""
+    query = (
+        db.query(
+            Error.id.label("id"),
+            Error.submission_id.label("submission_id"),
+            Error.knowledge_point.label("knowledge_point"),
+            Error.is_stubborn.label("is_stubborn"),
+            Error.error_type.label("error_type"),
+            Error.step_id.label("step_id"),
+            Error.created_at.label("created_at"),
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .filter(Submission.student_id == student_id)
+    )
+    if visible_only:
+        query = query.outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
+            func.coalesce(SubmissionReview.status, "approved") != "pending"
+        )
+    return query.order_by(Error.created_at.desc()).all()
+
+
 def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
                         stubborn_errors: List[Dict], errors: List) -> str:
     """学习建议（v0.9.1 改本地模板生成，不再同步调 LLM）。
@@ -179,16 +204,34 @@ def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
 
 def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
-    submissions = _student_submissions(db, student, visible_only)
-    sub_ids = [s.id for s in submissions]
-
     # 按知识点聚合：attempts（提交数）、errors（错误数）
-    kp_attempts: Dict[str, int] = {}
+    knowledge_point = case(
+        (Question.id.is_(None), "未知"),
+        else_=Question.knowledge_point,
+    )
+    attempts_query = (
+        db.query(
+            knowledge_point.label("knowledge_point"),
+            func.count(Submission.id),
+        )
+        .select_from(Submission)
+        .outerjoin(Question, Question.id == Submission.question_id)
+        .filter(Submission.student_id == student.id)
+    )
+    if visible_only:
+        attempts_query = attempts_query.outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
+            func.coalesce(SubmissionReview.status, "approved") != "pending"
+        )
+    kp_attempts = {
+        kp: int(attempts)
+        for kp, attempts in attempts_query.group_by(knowledge_point).all()
+    }
+
     kp_errors: Dict[str, int] = {}
-    for s in submissions:
-        kp = s.question.knowledge_point if s.question else "未知"
-        kp_attempts[kp] = kp_attempts.get(kp, 0) + 1
-    errors = _student_error_summaries(db, sub_ids)
+    errors = _student_profile_errors(db, student.id, visible_only)
     for e in errors:
         kp_errors[e.knowledge_point] = kp_errors.get(e.knowledge_point, 0) + 1
 
