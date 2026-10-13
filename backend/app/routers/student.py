@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_student
@@ -413,53 +413,109 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
         .join(Question, Submission.question_id == Question.id)
         .join(Assignment, Question.assignment_id == Assignment.id)
         .outerjoin(Step, Error.step_id == Step.id)
+        .options(
+            load_only(
+                Error.id, Error.knowledge_point, Error.error_type,
+                Error.is_stubborn, Error.detail, Error.created_at,
+            ),
+            load_only(Submission.id, Submission.submitted_at),
+            load_only(
+                Question.id, Question.subject, Question.stem,
+                Question.standard_answer, Question.order_num,
+            ),
+            load_only(Assignment.id, Assignment.title, Assignment.created_at),
+            load_only(Step.id, Step.seq, Step.text),
+        )
         .filter(Submission.student_id == current.id)
         .order_by(Error.created_at.desc(), Error.id.desc())
         .all()
     )
     # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
     error_ids = [error.id for error, _, _, _, _ in all_rows]
-    archived_at_by_error = {
-        item.error_id: item.archived_at
-        for item in db.query(StudentMistakeArchive)
-        .filter(StudentMistakeArchive.student_id == current.id,
-                StudentMistakeArchive.error_id.in_(error_ids))
-        .all()
-    }
+    archived_at_by_error = {}
+    for start in range(0, len(error_ids), 500):
+        for error_id, archived_at in db.query(
+            StudentMistakeArchive.error_id, StudentMistakeArchive.archived_at
+        ).filter(
+            StudentMistakeArchive.student_id == current.id,
+            StudentMistakeArchive.error_id.in_(error_ids[start:start + 500]),
+        ).all():
+            archived_at_by_error[error_id] = archived_at
     rows = [row for row in all_rows if (row[0].id in archived_at_by_error) == archived]
     assignment_ids = {assignment.id for _, _, _, assignment, _ in all_rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
     submission_ids = {submission.id for _, submission, _, _, _ in rows}
-    image_path_by_submission = {
-        image.submission_id: image.file_path
-        for image in db.query(SubmissionImage)
-        .filter(SubmissionImage.submission_id.in_(submission_ids))
-        .all()
-    } if submission_ids else {}
-    reviewed = {
-        (item.assignment_id, item.category_key)
-        for item in db.query(StudentMistakeCategoryReview)
-        .filter(StudentMistakeCategoryReview.student_id == current.id,
-                StudentMistakeCategoryReview.assignment_id.in_(assignment_ids))
-        .all()
-    }
+    image_path_by_submission = {}
+    submission_id_list = list(submission_ids)
+    for start in range(0, len(submission_id_list), 500):
+        for submission_id, file_path in db.query(
+            SubmissionImage.submission_id, SubmissionImage.file_path
+        ).filter(
+            SubmissionImage.submission_id.in_(submission_id_list[start:start + 500])
+        ).all():
+            image_path_by_submission[submission_id] = file_path
+    reviewed = set()
+    assignment_id_list = list(assignment_ids)
+    for start in range(0, len(assignment_id_list), 500):
+        reviewed.update(
+            (assignment_id, category_key)
+            for assignment_id, category_key in db.query(
+                StudentMistakeCategoryReview.assignment_id,
+                StudentMistakeCategoryReview.category_key,
+            ).filter(
+                StudentMistakeCategoryReview.student_id == current.id,
+                StudentMistakeCategoryReview.assignment_id.in_(
+                    assignment_id_list[start:start + 500]
+                ),
+            ).all()
+        )
     correction_by_error = {}
-    for correction in (
-        db.query(Correction)
-        .filter(Correction.student_id == current.id, Correction.error_id.in_(visible_error_ids))
-        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
-        .all()
-    ):
-        correction_by_error.setdefault(correction.error_id, correction)
+    for start in range(0, len(visible_error_ids), 500):
+        error_id_chunk = visible_error_ids[start:start + 500]
+        ranked_corrections = db.query(
+            Correction.id.label("id"),
+            Correction.error_id.label("error_id"),
+            func.row_number().over(
+                partition_by=Correction.error_id,
+                order_by=(Correction.submitted_at.desc(), Correction.id.desc()),
+            ).label("rank"),
+        ).filter(
+            Correction.student_id == current.id,
+            Correction.error_id.in_(error_id_chunk),
+        ).subquery()
+        latest = ranked_corrections.c
+        for correction in db.query(
+            Correction.id,
+            Correction.error_id,
+            Correction.content,
+            Correction.is_correct,
+            Correction.note,
+            Correction.submitted_at,
+        ).join(
+            ranked_corrections, Correction.id == latest.id
+        ).filter(latest.rank == 1).all():
+            correction_by_error[correction.error_id] = correction
     verification_by_error = {}
-    for verification in (
-        db.query(Verification)
-        .filter(Verification.student_id == current.id,
-                Verification.source_error_id.in_(visible_error_ids))
-        .order_by(Verification.created_at.desc(), Verification.id.desc())
-        .all()
-    ):
-        verification_by_error.setdefault(verification.source_error_id, verification)
+    for start in range(0, len(visible_error_ids), 500):
+        error_id_chunk = visible_error_ids[start:start + 500]
+        ranked_verifications = db.query(
+            Verification.id.label("id"),
+            Verification.source_error_id.label("source_error_id"),
+            func.row_number().over(
+                partition_by=Verification.source_error_id,
+                order_by=(Verification.created_at.desc(), Verification.id.desc()),
+            ).label("rank"),
+        ).filter(
+            Verification.student_id == current.id,
+            Verification.source_error_id.in_(error_id_chunk),
+        ).subquery()
+        latest = ranked_verifications.c
+        for error_id, verification_status in db.query(
+            Verification.source_error_id, Verification.status
+        ).join(
+            ranked_verifications, Verification.id == latest.id
+        ).filter(latest.rank == 1).all():
+            verification_by_error[error_id] = verification_status
 
     history_by_category = {}
     for error, submission, question, assignment, _ in all_rows:
@@ -527,7 +583,6 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             question.subject, error.error_type, error.knowledge_point
         )
         correction = correction_by_error.get(error.id)
-        verification = verification_by_error.get(error.id)
         correct_answer = (
             student_visible_reference_answer(question.stem, question.standard_answer)
             if question.subject == "math" else question.standard_answer
@@ -576,7 +631,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
                 "note": correction.note,
                 "submitted_at": correction.submitted_at,
             } if correction else None),
-            verification_status=verification.status if verification else None,
+            verification_status=verification_by_error.get(error.id),
             image_url=(
                 f"/api/uploads/{image_path_by_submission[submission.id]}"
                 if submission.id in image_path_by_submission else None

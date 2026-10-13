@@ -370,12 +370,15 @@ def review_status_map(db: Session, submission_ids: Iterable[int]) -> dict:
     ids = list(submission_ids)
     if not ids:
         return {}
-    rows = (
-        db.query(SubmissionReview)
-        .filter(SubmissionReview.submission_id.in_(ids))
-        .all()
-    )
-    return {r.submission_id: r.status for r in rows}
+    statuses = {}
+    for start in range(0, len(ids), 500):
+        for submission_id, status in db.query(
+            SubmissionReview.submission_id, SubmissionReview.status
+        ).filter(
+            SubmissionReview.submission_id.in_(ids[start:start + 500])
+        ).all():
+            statuses[submission_id] = status
+    return statuses
 
 
 def pending_submission_ids(db: Session, student_id: Optional[int] = None) -> Set[int]:
