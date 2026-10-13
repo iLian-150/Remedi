@@ -1,5 +1,4 @@
 # 班级聚合与学习画像：高频错题 TopN、知识点错误率排行、学生画像。
-from heapq import merge
 from typing import Dict, List
 
 from sqlalchemy import case, func, tuple_
@@ -90,58 +89,6 @@ def knowledge_point_ranking(db) -> List[Dict]:
         })
     items.sort(key=lambda x: x["error_rate"], reverse=True)
     return items
-
-
-def _student_submissions(db, student: User, visible_only: bool):
-    """取学生提交列表；学生画像等审核敏感统计可选择只计已审核提交。
-    教师端调用一律 visible_only=False，全量可见；只预加载报告实际使用的题目字段。"""
-    question_load = joinedload(Submission.question).load_only(
-        Question.id, Question.subject, Question.knowledge_point,
-    )
-    submissions = (
-        db.query(Submission)
-        .options(
-            load_only(
-                Submission.id, Submission.student_id,
-                Submission.question_id, Submission.submitted_at,
-            ),
-            question_load,
-        )
-        .filter(Submission.student_id == student.id)
-        .all()
-    )
-    if visible_only:
-        from .reviews import visible_submissions
-
-        submissions = visible_submissions(db, submissions)
-    return submissions
-
-
-def _student_error_summaries(db, submission_ids: List[int]):
-    """按批读取学生分析所需的错因列，避免加载长说明、订正备注等正文。"""
-    error_chunks = []
-    for start in range(0, len(submission_ids), 500):
-        error_chunks.append(
-            db.query(
-                Error.id.label("id"),
-                Error.submission_id.label("submission_id"),
-                Error.knowledge_point.label("knowledge_point"),
-                Error.is_stubborn.label("is_stubborn"),
-                Error.error_type.label("error_type"),
-                Error.step_id.label("step_id"),
-                Error.created_at.label("created_at"),
-            )
-            .filter(Error.submission_id.in_(submission_ids[start:start + 500]))
-            .order_by(Error.created_at.desc())
-            .all()
-        )
-    if len(error_chunks) <= 1:
-        return error_chunks[0] if error_chunks else []
-    return list(merge(
-        *error_chunks,
-        key=lambda error: error.created_at,
-        reverse=True,
-    ))
 
 
 def _student_profile_errors(db, student_id: int, visible_only: bool):
@@ -537,85 +484,116 @@ def _fixed_error_ids(db, student: User, error_ids: List[int]):
     return fixed_ids
 
 
-def _passed_verification_kps(db, student_id: int):
-    """该生已通过二次验证的知识点集合（verifications.status = passed）。"""
-    return {
-        knowledge_point
-        for (knowledge_point,) in db.query(Verification.knowledge_point).filter(
-            Verification.student_id == student_id, Verification.status == "passed"
-        ).all()
-    }
-
-
-def _knowledge_point_status(errs, fixed_ids, passed_kps, kp_name: str) -> str:
-    """单个知识点的四态判定（学生报告与教师班级修复率共用同一口径）。"""
-    if kp_name in passed_kps:
-        return "fixed"
-    if all(e.id in fixed_ids for e in errs):
-        return "awaiting_verify"
-    if any(e.is_stubborn for e in errs):
-        return "stubborn"
-    return "pending"
-
-
 def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     """学生学习报告：按科目聚合提交/正确率/修复进度，并下钻到知识点状态。"""
-    submissions = _student_submissions(db, student, visible_only)
-    sub_ids = [s.id for s in submissions]
-    errors = _student_error_summaries(db, sub_ids)
-    fixed_ids = _fixed_error_ids(db, student, [error.id for error in errors])
-    passed_kps = _passed_verification_kps(db, student.id)
-    sub_by_id = {s.id: s for s in submissions}
+    subject_expr = case(
+        (Question.id.is_(None), "math"), else_=Question.subject,
+    )
+    knowledge_point_expr = case(
+        (Question.id.is_(None), "未知"), else_=Question.knowledge_point,
+    )
+    pending_review = db.query(SubmissionReview.submission_id).filter(
+        SubmissionReview.submission_id == Submission.id,
+        SubmissionReview.status == "pending",
+    ).exists()
 
-    # 按 (科目, 知识点) 聚合提交数与错题
-    attempts: Dict = {}
-    kp_errors: Dict = {}
-    for s in submissions:
-        subject = s.question.subject if s.question else "math"
-        kp = s.question.knowledge_point if s.question else "未知"
-        attempts[(subject, kp)] = attempts.get((subject, kp), 0) + 1
-    for e in errors:
-        s = sub_by_id.get(e.submission_id)
-        subject = s.question.subject if s and s.question else "math"
-        kp_errors.setdefault((subject, e.knowledge_point), []).append(e)
+    attempt_query = (
+        db.query(
+            subject_expr.label("subject"),
+            knowledge_point_expr.label("knowledge_point"),
+            func.count(Submission.id).label("attempt_count"),
+        )
+        .select_from(Submission)
+        .outerjoin(Question, Question.id == Submission.question_id)
+        .filter(Submission.student_id == student.id)
+    )
+    if visible_only:
+        attempt_query = attempt_query.filter(~pending_review)
+    attempt_rows = attempt_query.group_by(
+        subject_expr, knowledge_point_expr,
+    ).all()
+    attempts = {
+        (row.subject, row.knowledge_point): int(row.attempt_count)
+        for row in attempt_rows
+    }
 
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == student.id,
+        Correction.is_correct.is_(True),
+    ).exists()
+    error_query = (
+        db.query(
+            subject_expr.label("subject"),
+            Error.knowledge_point.label("knowledge_point"),
+            func.count(Error.id).label("error_count"),
+            func.sum(case((Error.is_stubborn.is_(True), 1), else_=0)).label(
+                "stubborn_count"
+            ),
+            func.sum(case((has_correct_correction, 1), else_=0)).label(
+                "corrected_count"
+            ),
+            func.max(Error.created_at).label("last_error_at"),
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .outerjoin(Question, Question.id == Submission.question_id)
+        .filter(Submission.student_id == student.id)
+    )
+    if visible_only:
+        error_query = error_query.filter(~pending_review)
+    error_rows = error_query.group_by(
+        subject_expr, Error.knowledge_point,
+    ).order_by(func.max(Error.created_at).desc()).all()
+
+    error_knowledge_points = {row.knowledge_point for row in error_rows}
+    passed_kps = set()
+    knowledge_point_list = list(error_knowledge_points)
+    for start in range(0, len(knowledge_point_list), 400):
+        passed_kps.update(
+            knowledge_point
+            for (knowledge_point,) in db.query(Verification.knowledge_point).filter(
+                Verification.student_id == student.id,
+                Verification.status == "passed",
+                Verification.knowledge_point.in_(knowledge_point_list[start:start + 400]),
+            ).all()
+        )
+
+    # 报告只下发聚合结果；提交数、错因状态与时间均由数据库按组返回。
     by_subject: Dict[str, Dict] = {}
-    for (subject, kp), errs in kp_errors.items():
-        att = attempts.get((subject, kp), 0)
-        err_n = len(errs)
-        # 错误率口径与学生画像一致：errors / attempts，上限截断 1.0
-        rate = round(min(1.0, err_n / att), 3) if att else 0.0
-        kp_status = _knowledge_point_status(errs, fixed_ids, passed_kps, kp)
+    for (subject, _knowledge_point), attempt_count in attempts.items():
         entry = by_subject.setdefault(subject, {
             "subject": subject,
             "submission_count": 0,
             "error_total": 0,
             "knowledge_points": [],
         })
-        entry["knowledge_points"].append({
-            "name": kp,
-            "attempts": att,
-            "error_count": err_n,
-            "error_rate": rate,
-            "status": kp_status,
-            "last_error_at": max(e.created_at for e in errs),
-        })
+        entry["submission_count"] += attempt_count
 
-    # 科目层汇总：提交数补全（含从未出错的科目），正确率 = 1 - 错误率（画像同口径）
-    for s in submissions:
-        subject = s.question.subject if s.question else "math"
-        entry = by_subject.setdefault(subject, {
-            "subject": subject,
-            "submission_count": 0,
-            "error_total": 0,
-            "knowledge_points": [],
+    for row in error_rows:
+        error_count = int(row.error_count)
+        corrected_count = int(row.corrected_count or 0)
+        if row.knowledge_point in passed_kps:
+            status = "fixed"
+        elif corrected_count == error_count:
+            status = "awaiting_verify"
+        elif int(row.stubborn_count or 0) > 0:
+            status = "stubborn"
+        else:
+            status = "pending"
+
+        attempt_count = attempts.get((row.subject, row.knowledge_point), 0)
+        entry = by_subject[row.subject]
+        entry["error_total"] += error_count
+        entry["knowledge_points"].append({
+            "name": row.knowledge_point,
+            "attempts": attempt_count,
+            "error_count": error_count,
+            "error_rate": round(
+                min(1.0, error_count / attempt_count), 3
+            ) if attempt_count else 0.0,
+            "status": status,
+            "last_error_at": row.last_error_at,
         })
-        entry["submission_count"] += 1
-    for e in errors:
-        s = sub_by_id.get(e.submission_id)
-        subject = s.question.subject if s and s.question else "math"
-        if subject in by_subject:
-            by_subject[subject]["error_total"] += 1
 
     result = []
     for subject in sorted(by_subject):
@@ -689,7 +667,7 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
 
 
 # ---------------------------------------------------------------- 班级知识修复率（v0.4.0 新增）
-# 全班口径与学生报告一致（四态判定共用 _knowledge_point_status）：
+# 全班口径与学生报告一致（共用四态判定规则）：
 #   班级知识修复率 = 已修复的（学生 × 知识点）组合数 / 出过错的（学生 × 知识点）组合数
 #   各知识点修复率 = 该知识点已修复学生数 / 该知识点出过错学生数
 
