@@ -186,19 +186,23 @@ def history_items(db: Session, user: User, session: ChatSession,
         .all()
     )
 
-    from .related_mistakes import find_related_mistake_for_error
+    assistant_error_ids = {
+        mistake_error_by_message[message.id]
+        for message in messages
+        if message.role == "assistant" and message.id in mistake_error_by_message
+    }
+    from .related_mistakes import find_related_mistakes_for_errors
 
-    related_by_error = {}
+    related_by_error = find_related_mistakes_for_errors(
+        db, user.id, assistant_error_ids
+    )
     result = []
     for message in messages:
         error_id = mistake_error_by_message.get(message.id)
-        related = None
-        if message.role == "assistant" and error_id is not None:
-            if error_id not in related_by_error:
-                related_by_error[error_id] = find_related_mistake_for_error(
-                    db, user.id, error_id
-                )
-            related = related_by_error[error_id]
+        related = (
+            related_by_error.get(error_id)
+            if message.role == "assistant" else None
+        )
         item = {
             "role": message.role,
             "content": message.content,
