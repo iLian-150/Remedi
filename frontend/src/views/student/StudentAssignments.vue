@@ -205,20 +205,11 @@ function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string
 onMounted(async () => {
   loading.value = true
   try {
-    const [list, subs] = await Promise.all([
-      student.fetchAssignments(true),
-      student.fetchMySubmissions().catch(() => [])
-    ])
+    const list = await student.fetchAssignments(true, true)
     assignments.value = list
-    subs.forEach((s) => doneQids.value.add(s.question_id))
-    // 待审核按每题最新一次提交判定（列表时间倒序，首见即最新）
-    const seenLatest = new Set<number>()
-    subs.forEach((s) => {
-      if (seenLatest.has(s.question_id)) return
-      seenLatest.add(s.question_id)
-      if (s.review_status === 'pending') pendingQids.value.add(s.question_id)
-    })
     list.forEach((assignment) => {
+      assignment.submitted_question_ids?.forEach((id) => doneQids.value.add(id))
+      assignment.pending_question_ids?.forEach((id) => pendingQids.value.add(id))
       questionIdsByAssignment.value[assignment.id] =
         (assignment.questions ?? []).map((question) => question.id)
     })

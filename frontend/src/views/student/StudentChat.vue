@@ -1236,13 +1236,10 @@ async function confirmTranscribe(msg: ChatMsg) {
 onMounted(async () => {
   window.addEventListener('keydown', onImagePreviewKeydown)
   try {
-    const [list, subs] = await Promise.all([
-      student.fetchAssignments(true),
-      student.fetchMySubmissions().catch(() => [])
-    ])
+    const list = await student.fetchAssignments(true, true)
     assignments.value = list
-    subs.forEach((s) => doneQids.value.add(s.question_id))
     list.forEach((assignment) => {
+      assignment.submitted_question_ids?.forEach((id) => doneQids.value.add(id))
       const questions = assignment.questions ?? []
       questionsByAssignment.value[assignment.id] = questions
       questions.forEach((question) => {

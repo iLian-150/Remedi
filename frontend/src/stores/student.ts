@@ -87,9 +87,15 @@ export const useStudentStore = defineStore('student', {
       this.correctionsDateFilter = date
     },
     // 3.1 作业列表
-    async fetchAssignments(includeQuestions = false): Promise<Assignment[]> {
+    async fetchAssignments(
+      includeQuestions = false,
+      includeSubmissionStatus = false
+    ): Promise<Assignment[]> {
       const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments', {
-        params: includeQuestions ? { include_questions: true } : undefined
+        params: {
+          ...(includeQuestions ? { include_questions: true } : {}),
+          ...(includeSubmissionStatus ? { include_submission_status: true } : {})
+        }
       })
       return data.items
     },

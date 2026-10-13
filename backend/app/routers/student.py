@@ -37,6 +37,7 @@ from ..models import (
     Step,
     Submission,
     SubmissionImage,
+    SubmissionReview,
     User,
     Verification,
     Workbook,
@@ -159,6 +160,7 @@ def present_for_student(submission: Submission, db: Session) -> dict:
 @router.get("/assignments", summary="作业列表")
 def list_assignments(
     include_questions: bool = Query(default=False),
+    include_submission_status: bool = Query(default=False),
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
@@ -218,6 +220,41 @@ def list_assignments(
 
     questions_by_assignment = {}
     groups_by_assignment = {}
+    submitted_question_ids = {}
+    pending_question_ids = {}
+    if include_submission_status and assignment_ids:
+        for start in range(0, len(assignment_ids), 500):
+            assignment_id_chunk = assignment_ids[start:start + 500]
+            latest_submissions = (
+                db.query(
+                    Question.assignment_id.label("assignment_id"),
+                    Submission.question_id.label("question_id"),
+                    SubmissionReview.status.label("review_status"),
+                    func.row_number().over(
+                        partition_by=Submission.question_id,
+                        order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+                    ).label("row_num"),
+                )
+                .join(Question, Question.id == Submission.question_id)
+                .outerjoin(
+                    SubmissionReview,
+                    SubmissionReview.submission_id == Submission.id,
+                )
+                .filter(
+                    Submission.student_id == current.id,
+                    Question.assignment_id.in_(assignment_id_chunk),
+                )
+                .subquery()
+            )
+            for assignment_id, question_id, review_status in db.query(
+                latest_submissions.c.assignment_id,
+                latest_submissions.c.question_id,
+                latest_submissions.c.review_status,
+            ).filter(latest_submissions.c.row_num == 1).all():
+                submitted_question_ids.setdefault(assignment_id, []).append(question_id)
+                if review_status == review_svc.PENDING:
+                    pending_question_ids.setdefault(assignment_id, []).append(question_id)
+
     if include_questions and assignment_ids:
         question_rows = []
         for start in range(0, len(assignment_ids), 500):
@@ -292,6 +329,9 @@ def list_assignments(
         if include_questions:
             item["questions"] = questions_by_assignment.get(a.id, [])
             item["groups"] = groups_by_assignment.get(a.id, [])
+        if include_submission_status:
+            item["submitted_question_ids"] = submitted_question_ids.get(a.id, [])
+            item["pending_question_ids"] = pending_question_ids.get(a.id, [])
         result.append(item)
     return {"total": len(result), "items": result}
 
