@@ -336,7 +336,7 @@ class StudentMistakeEvent(Base):
     __tablename__ = "student_mistake_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
     event_type = Column(String(48), nullable=False)
     payload_json = Column(Text, nullable=False)
