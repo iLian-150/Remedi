@@ -30,7 +30,9 @@ import type {
   VerificationSubmitResult
 } from '../api/types'
 
-const TYPEWRITER_INTERVAL_MS = 8
+// Keep updates slower than a 60 Hz paint interval so each streamed character
+// can appear in its own rendered frame instead of being visually batched.
+const TYPEWRITER_INTERVAL_MS = 18
 
 function waitForNextCharacter(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, TYPEWRITER_INTERVAL_MS))
