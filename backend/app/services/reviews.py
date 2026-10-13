@@ -23,16 +23,25 @@ def create_pending_review(db: Session, submission: Submission) -> SubmissionRevi
 
 
 def create_pending_reviews(
-    db: Session, submissions: Iterable[Submission]
+    db: Session,
+    submissions: Iterable[Submission],
+    *,
+    existing_rows: Optional[Iterable[SubmissionReview]] = None,
 ) -> dict[int, SubmissionReview]:
-    """幂等地为多条提交建待审行，只做一次查询和一次提交。"""
+    """幂等地为多条提交建待审行；已有记录按批读取，最后一次提交。"""
     unique_submissions = {item.id: item for item in submissions if item.id is not None}
     if not unique_submissions:
         return {}
 
-    existing_rows = db.query(SubmissionReview).filter(
-        SubmissionReview.submission_id.in_(unique_submissions)
-    ).all()
+    if existing_rows is None:
+        existing_rows = []
+        submission_ids = list(unique_submissions)
+        for start in range(0, len(submission_ids), 500):
+            existing_rows.extend(
+                db.query(SubmissionReview).filter(
+                    SubmissionReview.submission_id.in_(submission_ids[start:start + 500])
+                ).all()
+            )
     rows_by_id = {row.submission_id: row for row in existing_rows}
     added = False
     for submission_id in unique_submissions:
@@ -140,11 +149,13 @@ def assignment_accuracy_contexts(
         for submission in rows
     }
     statuses_by_submission = {}
-    if latest_ids:
+    latest_id_list = list(latest_ids)
+    for start in range(0, len(latest_id_list), 500):
+        id_chunk = latest_id_list[start:start + 500]
         for submission_id, status in db.query(
             Step.submission_id, Step.status
         ).filter(
-            Step.submission_id.in_(latest_ids),
+            Step.submission_id.in_(id_chunk),
             Step.seq >= 1,
             Step.status.in_(("ok", "error", "unparseable")),
         ).all():
@@ -258,6 +269,7 @@ def backfill_missing_review_records(db: Session) -> int:
     candidates = (
         db.query(Submission)
         .outerjoin(SubmissionReview, SubmissionReview.submission_id == Submission.id)
+        .options(joinedload(Submission.question))
         .filter(
             SubmissionReview.submission_id.is_(None),
             Submission.status == "graded",
@@ -265,24 +277,54 @@ def backfill_missing_review_records(db: Session) -> int:
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
-    contexts = {}
+    contexts = assignment_accuracy_contexts(db, candidates)
+    latest_ids_by_key = {
+        key: {submission.id for submission in context[0]}
+        for key, context in contexts.items()
+        if context
+    }
+    candidate_ids = [submission.id for submission in candidates]
+    step_statuses_by_submission = {}
+    error_confidences_by_submission = {}
+    # Bound IN lists for SQLite while keeping the startup backfill query count
+    # proportional to batches instead of the number of historical submissions.
+    for start in range(0, len(candidate_ids), 500):
+        id_chunk = candidate_ids[start:start + 500]
+        for submission_id, status in db.query(
+            Step.submission_id, Step.status
+        ).filter(
+            Step.submission_id.in_(id_chunk),
+            Step.seq >= 1,
+            Step.status.in_(("ok", "error", "unparseable")),
+        ).all():
+            step_statuses_by_submission.setdefault(submission_id, []).append(status)
+        for submission_id, confidence in db.query(
+            Error.submission_id, Error.confidence
+        ).filter(Error.submission_id.in_(id_chunk)).all():
+            error_confidences_by_submission.setdefault(submission_id, []).append(
+                float(confidence)
+            )
+
     submissions_to_review = {}
     for submission in candidates:
         question = submission.question
         if question is None:
             continue
         key = (submission.student_id, question.assignment_id)
-        if key not in contexts:
-            contexts[key] = assignment_accuracy_context(db, submission)
-        context = contexts[key]
+        context = contexts.get(key)
         if not context:
             continue
 
         latest_submissions, correct, total = context
-        latest_ids = {item.id for item in latest_submissions}
-        if submission.id not in latest_ids:
+        if submission.id not in latest_ids_by_key.get(key, set()):
             continue
-        if not review_reasons(db, submission, assignment_context=context):
+        if not review_reasons(
+            db,
+            submission,
+            assignment_context=context,
+            step_statuses=step_statuses_by_submission.get(submission.id, []),
+            error_confidences=error_confidences_by_submission.get(submission.id, []),
+        ):
             continue
 
         targets = (
@@ -294,13 +336,19 @@ def backfill_missing_review_records(db: Session) -> int:
 
     if not submissions_to_review:
         return 0
-    existing_ids = {
-        row[0]
-        for row in db.query(SubmissionReview.submission_id)
-        .filter(SubmissionReview.submission_id.in_(submissions_to_review))
-        .all()
-    }
-    rows = create_pending_reviews(db, submissions_to_review.values())
+    submission_ids = list(submissions_to_review)
+    existing_rows = {}
+    for start in range(0, len(submission_ids), 500):
+        for row in db.query(SubmissionReview).filter(
+            SubmissionReview.submission_id.in_(submission_ids[start:start + 500])
+        ).all():
+            existing_rows[row.submission_id] = row
+    existing_ids = set(existing_rows)
+    rows = create_pending_reviews(
+        db,
+        submissions_to_review.values(),
+        existing_rows=existing_rows.values(),
+    )
     return sum(
         1 for submission_id, row in rows.items()
         if submission_id not in existing_ids and row.status == PENDING
