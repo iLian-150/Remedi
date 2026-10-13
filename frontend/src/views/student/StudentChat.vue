@@ -462,7 +462,10 @@ const assistantMarkdown = new MarkdownIt({
 })
 
 function renderAssistantMarkdown(text: string): string {
-  return assistantMarkdown.render(text || '')
+  const normalized = (text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+  return assistantMarkdown.render(normalized)
 }
 
 // ---------- 对话消息 ----------
