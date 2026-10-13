@@ -48,6 +48,7 @@ export const useTeacherStore = defineStore('teacher', {
     sessionsLoading: false,
     sessionsLoaded: false,
     sessionsError: '',
+    sessionsLoadPromise: null as Promise<void> | null,
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
@@ -272,21 +273,36 @@ export const useTeacherStore = defineStore('teacher', {
     // ---- 会话区状态层（v0.6.2）：左侧栏会话导航与对话页共用 ----
     /** 拉取会话列表进 store；首次自动定位当前会话 = 最近更新的一条 */
     async loadSessions(force = false) {
-      if (this.sessionsLoading) return
+      if (this.sessionsLoadPromise) {
+        try {
+          await this.sessionsLoadPromise
+        } catch {
+          // 强制刷新在旧请求结束后继续；普通并发调用共享旧请求结果。
+        }
+        if (!force) return
+      }
       if (this.sessionsLoaded && !force) return
       this.sessionsLoading = true
       this.sessionsError = ''
-      try {
+      const task = (async () => {
         this.sessions = await this.fetchSessions()
         this.sessionsLoaded = true
-        if (this.activeSessionId == null) {
+        const activeExists = this.sessions.some((session) => session.id === this.activeSessionId)
+        if (this.activeSessionId == null || !activeExists) {
           this.activeSessionId = this.sessions[0]?.id ?? null
         }
+      })()
+      this.sessionsLoadPromise = task
+      try {
+        await task
       } catch (e) {
         this.sessionsError = '历史对话加载失败，请重试。'
         console.error(e)
       } finally {
-        this.sessionsLoading = false
+        if (this.sessionsLoadPromise === task) {
+          this.sessionsLoadPromise = null
+          this.sessionsLoading = false
+        }
       }
     },
     setActiveSession(id: number | null) {
@@ -334,6 +350,7 @@ export const useTeacherStore = defineStore('teacher', {
       this.sessionsLoading = false
       this.sessionsLoaded = false
       this.sessionsError = ''
+      this.sessionsLoadPromise = null
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     // 4.15 上传练习册 PDF 到知识库（v0.5.0，≤30MB）
