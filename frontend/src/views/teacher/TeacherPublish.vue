@@ -4,7 +4,7 @@
        - 线下作业 · 练习册：从练习册知识库选一本（可现场上传整本 PDF）+ 填页码范围 + 截止时间，
          再拍照上传题目页识别成草稿题，教师检查修改后发布；学生作答方式与线上完全一致。
      契约：POST /api/teacher/assignments（4.7，v0.5.0 加 mode/workbook_id/page_range/deadline）、
-           练习册知识库 4.15~4.17、拍照识别 4.9。本轮题目仍只支持数学。 -->
+           练习册知识库 4.15~4.17、拍照识别 4.9。数学线上作答用公式板，其他学科通过视觉模型拍照批改。 -->
 <template>
   <div class="page publish-page">
     <!-- v0.13.4：页头两级共用同一结构——选完发布方式后，「重新选择 + 模式徽章」只出现在
@@ -48,7 +48,7 @@
           <span class="mode-enter">进入发布 <AppIcon name="arrow-right" :size="15" /></span>
         </button>
       </div>
-      <p class="choose-hint">两种方式发布的都是数学作业，批改与审核流程完全一致。</p>
+      <p class="choose-hint">可发布多学科作业。数学线上作业支持公式板作答，其他学科和线下作业通过拍照提交并由视觉模型直接批改。</p>
     </template>
 
     <!-- 第二级：发布表单 -->
@@ -147,15 +147,15 @@
       <h3>基本信息</h3>
       <div class="form-row">
         <label>作业标题</label>
-        <input v-model="title" type="text" :placeholder="mode === 'offline' ? '例如：练习册 P12-14 勾股定理练习' : '例如：第二周数学作业'" maxlength="128" />
+        <input v-model="title" type="text" :placeholder="mode === 'offline' ? `例如：练习册 P12-14 ${subjectLabel}练习` : `例如：第二周${subjectLabel}作业`" maxlength="128" />
       </div>
       <!-- v0.13.4：学科 / 总分 / 时间限制并到同一行；时间限制点开是自制日历面板，
            「允许学生修改」收在面板里（见下方 time-panel）；作业说明是独立折叠按钮 -->
       <div class="grid-3">
         <div class="form-row">
           <label>学科</label>
-          <select v-model="subject" disabled>
-            <option value="math">数学</option>
+          <select v-model="subject">
+            <option v-for="option in SUBJECT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </div>
         <div class="form-row">
@@ -277,7 +277,7 @@
 
     <div v-for="(q, idx) in questions" :key="idx" class="card" :class="{ 'q-suspect': showResult(q) && q.check_status === 'suspect' }">
       <div class="q-head">
-        <h3 style="margin-bottom: 0">第 {{ idx + 1 }} 题 · 数学</h3>
+        <h3 style="margin-bottom: 0">第 {{ idx + 1 }} 题 · {{ subjectLabel }}</h3>
         <div class="q-actions">
           <button class="btn small secondary inline-icon" :disabled="q.recognizing" @click="pickPhoto(q)">
             <AppIcon name="camera" :size="15" /> {{ q.recognizing ? '识别中…' : '拍照识别题目' }}
@@ -288,7 +288,7 @@
       <p v-if="q.recognized" class="ok-msg" style="margin-bottom: 12px">已通过照片识别填入，请检查题干与标准步骤是否正确，可直接修改后再发布。</p>
       <div class="form-row">
         <label>题干</label>
-        <textarea v-model="q.prompt" rows="2" placeholder="例如：解方程：3x-5=10"></textarea>
+        <textarea v-model="q.prompt" rows="2" :placeholder="subject === 'math' ? '例如：解方程：3x-5=10' : '输入题目内容、要求或需要学生完成的任务'"></textarea>
       </div>
       <!-- v0.13.2：知识点 / 分值占比 / 参考答案并到同一行（AI 识别贴知识点右侧、
            AI 验算贴参考答案右侧），验算提示整行显示，下面整行留给标准解题步骤 -->
@@ -296,7 +296,7 @@
         <div class="form-row">
           <label>知识点</label>
           <div class="kp-row">
-            <input v-model="q.knowledge_point" type="text" placeholder="例如：一元一次方程" maxlength="64" />
+            <input v-model="q.knowledge_point" type="text" :placeholder="subject === 'math' ? '例如：一元一次方程' : `例如：${subjectLabel}核心知识点`" maxlength="64" />
             <button
               type="button"
               class="btn small secondary inline-icon"
@@ -322,10 +322,10 @@
           </div>
         </div>
         <div class="form-row">
-          <label>参考答案（选填）</label>
+            <label>{{ subject === 'math' ? '参考答案（选填）' : '参考答案或评分要点（选填）' }}</label>
           <div class="kp-row">
-            <input v-model="q.reference_answer" type="text" placeholder="例如：x=5" />
-            <button
+            <input v-model="q.reference_answer" type="text" :placeholder="subject === 'math' ? '例如：x=5' : '供视觉模型和教师批改参考'" />
+            <button v-if="subject === 'math'"
               type="button"
               class="btn small secondary inline-icon"
               :disabled="q.check_status === 'checking' || !q.prompt.trim() || !q.reference_answer.trim()"
@@ -337,7 +337,7 @@
           </div>
         </div>
       </div>
-      <div v-if="q.check_status === 'checking' || (showResult(q) && (q.check_status === 'ok' || q.check_status === 'suspect'))" class="check-notes">
+      <div v-if="subject === 'math' && (q.check_status === 'checking' || (showResult(q) && (q.check_status === 'ok' || q.check_status === 'suspect')))" class="check-notes">
         <p v-if="q.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
         <p v-else-if="showResult(q) && q.check_status === 'ok'" class="check-note ok" :title="q.check_detail">
           <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
@@ -348,8 +348,8 @@
         </p>
       </div>
       <div class="form-row">
-        <label>标准解题步骤（选填，每行一步，含第一步原式，供批改参考）</label>
-        <div class="symbol-bar" role="group" aria-label="数学符号">
+        <label>{{ subject === 'math' ? '标准解题步骤（选填，每行一步，含第一步原式，供批改参考）' : '参考作答要点（选填，每行一条，供视觉模型批改参考）' }}</label>
+        <div v-if="subject === 'math'" class="symbol-bar" role="group" aria-label="数学符号">
           <button
             v-for="s in STEP_SYMBOLS"
             :key="s.label"
@@ -359,15 +359,15 @@
             @click="insertStepSymbol(q, s)"
           >{{ s.label }}</button>
         </div>
-        <textarea :ref="(el) => setStepsRef(q, el)" v-model="q.standard_steps_text" rows="5" placeholder="3x-5=10&#10;3x=10+5&#10;3x=15&#10;x=5"></textarea>
-        <p class="hint" style="margin-top: 8px">标准步骤是批改的参照系，写得越完整，步骤诊断越准。</p>
+        <textarea :ref="(el) => setStepsRef(q, el)" v-model="q.standard_steps_text" rows="5" :placeholder="subject === 'math' ? mathStandardStepsPlaceholder : '按评分标准列出关键要点，每行一条'"></textarea>
+        <p class="hint" style="margin-top: 8px">参考内容只提供给视觉模型和教师，不会展示给学生。</p>
       </div>
     </div>
 
     <!-- 大题（v0.13.1）：共享题干 + 若干小题，小题逐题作答/批改/计分 -->
     <div v-for="(g, gi) in groups" :key="`g${gi}`" class="card group-card">
       <div class="q-head">
-        <h3 style="margin-bottom: 0">大题 {{ gi + 1 }} · 数学</h3>
+        <h3 style="margin-bottom: 0">大题 {{ gi + 1 }} · {{ subjectLabel }}</h3>
         <div class="q-actions">
           <button type="button" class="btn small secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto(g)">
             <AppIcon name="camera" :size="15" /> {{ groupRecognizing && groupPhotoTarget === g ? '识别中…' : '拍照识别大题' }}
@@ -377,7 +377,7 @@
       </div>
       <div class="form-row">
         <label>大题题干（共享材料，每道小题上方都会展示给学生）</label>
-        <textarea v-model="g.stem" rows="3" placeholder="例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。"></textarea>
+          <textarea v-model="g.stem" rows="3" :placeholder="subject === 'math' ? '例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。' : '填写多道小题共用的题干材料或背景信息'"></textarea>
       </div>
       <div v-for="(sub, si) in g.subs" :key="si" class="sub-block">
         <div class="q-head">
@@ -398,7 +398,7 @@
           <div class="form-row">
             <label>知识点</label>
             <div class="kp-row">
-              <input v-model="sub.knowledge_point" type="text" placeholder="例如：勾股定理" maxlength="64" />
+            <input v-model="sub.knowledge_point" type="text" :placeholder="subject === 'math' ? '例如：勾股定理' : `例如：${subjectLabel}核心知识点`" maxlength="64" />
               <button
                 type="button"
                 class="btn small secondary inline-icon"
@@ -424,10 +424,10 @@
             </div>
           </div>
           <div class="form-row">
-            <label>参考答案（选填）</label>
+            <label>{{ subject === 'math' ? '参考答案（选填）' : '参考答案或评分要点（选填）' }}</label>
             <div class="kp-row">
-              <input v-model="sub.reference_answer" type="text" placeholder="例如：c=5" />
-              <button
+              <input v-model="sub.reference_answer" type="text" :placeholder="subject === 'math' ? '例如：c=5' : '供视觉模型和教师批改参考'" />
+              <button v-if="subject === 'math'"
                 type="button"
                 class="btn small secondary inline-icon"
                 :disabled="sub.check_status === 'checking' || !sub.prompt.trim() || !sub.reference_answer.trim()"
@@ -439,7 +439,7 @@
             </div>
           </div>
         </div>
-        <div v-if="sub.check_status === 'checking' || (showResult(sub) && (sub.check_status === 'ok' || sub.check_status === 'suspect'))" class="check-notes">
+        <div v-if="subject === 'math' && (sub.check_status === 'checking' || (showResult(sub) && (sub.check_status === 'ok' || sub.check_status === 'suspect')))" class="check-notes">
           <p v-if="sub.check_status === 'checking'" class="check-note muted">正在验算这道题的参考答案…</p>
           <p v-else-if="showResult(sub) && sub.check_status === 'ok'" class="check-note ok" :title="sub.check_detail">
             <span class="check-ic"><AppIcon name="check" :size="13" /></span> AI 验算无误
@@ -450,8 +450,8 @@
           </p>
         </div>
         <div class="form-row">
-          <label>标准解题步骤（选填，每行一步）</label>
-          <div class="symbol-bar" role="group" aria-label="数学符号">
+          <label>{{ subject === 'math' ? '标准解题步骤（选填，每行一步）' : '参考作答要点（选填，每行一条）' }}</label>
+          <div v-if="subject === 'math'" class="symbol-bar" role="group" aria-label="数学符号">
             <button
               v-for="s in STEP_SYMBOLS"
               :key="s.label"
@@ -461,7 +461,7 @@
               @click="insertStepSymbol(sub, s)"
             >{{ s.label }}</button>
           </div>
-          <textarea :ref="(el) => setStepsRef(sub, el)" v-model="sub.standard_steps_text" rows="5" placeholder="c²=a²+b²&#10;c²=3²+4²&#10;c²=25&#10;c=5"></textarea>
+          <textarea :ref="(el) => setStepsRef(sub, el)" v-model="sub.standard_steps_text" rows="5" :placeholder="subject === 'math' ? groupMathStandardStepsPlaceholder : '按评分标准列出关键要点，每行一条'"></textarea>
         </div>
       </div>
       <button type="button" class="btn secondary small inline-icon" @click="g.subs.push(blankQuestion())">
@@ -502,7 +502,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
-import type { TeacherAssignmentInput, Workbook } from '../../api/types'
+import type { QuestionSubject, TeacherAssignmentInput, Workbook } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
@@ -543,7 +543,27 @@ function backToChoose() {
 }
 const title = ref('')
 const description = ref('')   // 作业说明（v0.13.1）：两种模式共用，学生端交作业页顶部展示
-const subject = ref<'math'>('math')
+const SUBJECT_OPTIONS: { value: QuestionSubject; label: string }[] = [
+  { value: 'math', label: '数学' },
+  { value: 'english', label: '英语' },
+  { value: 'english_exercise', label: '英语练习' },
+  { value: 'physics', label: '物理' },
+  { value: 'chemistry', label: '化学' },
+  { value: 'biology', label: '生物' },
+  { value: 'chinese', label: '语文' },
+  { value: 'history', label: '历史' },
+  { value: 'geography', label: '地理' },
+  { value: 'politics', label: '道德与法治' },
+  { value: 'computer_science', label: '信息科技' },
+  { value: 'art', label: '艺术' },
+  { value: 'music', label: '音乐' },
+  { value: 'pe', label: '体育' },
+  { value: 'other', label: '其他' },
+]
+const mathStandardStepsPlaceholder = '3x-5=10\n3x=10+5\n3x=15\nx=5'
+const groupMathStandardStepsPlaceholder = 'c²=a²+b²\nc²=3²+4²\nc²=25\nc=5'
+const subject = ref<QuestionSubject>('math')
+const subjectLabel = computed(() => SUBJECT_OPTIONS.find((option) => option.value === subject.value)?.label ?? '其他')
 const totalScore = ref(100)   // 评分系统：作业总分（满分），默认 100
 const blankQuestion = (): QuestionForm => ({
   prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '',
@@ -1158,7 +1178,7 @@ async function submit() {
   }
   // 发布前批量验算参考答案（v0.9.3）：填了答案的题全部验一遍；
   // suspect 只在题下留黄色标记并弹一次确认，教师确认后照常发布，绝不拦截
-  const withAnswer = valid.filter((q) => q.reference_answer.trim())
+  const withAnswer = subject.value === 'math' ? valid.filter((q) => q.reference_answer.trim()) : []
   if (withAnswer.length) {
     checkingAll.value = true
     try {
@@ -1186,7 +1206,9 @@ async function submit() {
     allow_revision: allowRevision.value,
     groups: groupPayload,
     questions: entries.map((e) => ({
-      type: 'math' as const,
+      // type 保留旧接口兼容；subject 保存这道题的实际学科。
+      type: subject.value === 'math' ? 'math' as const : 'essay' as const,
+      subject: subject.value,
       prompt: e.q.prompt.trim(),
       knowledge_point: e.q.knowledge_point.trim(),
       standard_steps: e.q.standard_steps_text.split('\n').map((s) => s.trim()).filter(Boolean),

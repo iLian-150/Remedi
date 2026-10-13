@@ -157,6 +157,7 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
     )
     assignment_ids = [a.id for a, _, _, _ in assignment_rows]
     question_stats = {}
+    photo_required_assignment_ids = set()
     if assignment_ids:
         rows = (
             db.query(
@@ -179,16 +180,28 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
             assignment_id: (question_count, submitted_count)
             for assignment_id, question_count, submitted_count in rows
         }
+        photo_required_assignment_ids = {
+            assignment_id
+            for assignment_id, in db.query(Question.assignment_id)
+            .filter(
+                Question.assignment_id.in_(assignment_ids),
+                Question.subject != "math",
+            )
+            .distinct()
+            .all()
+        }
 
     result = []
     for a, ext, setting, workbook_title in assignment_rows:
         question_count, submitted = question_stats.get(a.id, (0, 0))
+        mode = (ext.mode or "online") if ext else "online"
         result.append({
             "id": a.id, "title": a.title, "description": a.description,
             "question_count": question_count, "submitted_count": submitted,
             "created_at": a.created_at,
             # v0.5.0：发布模式与线下作业信息（mode/workbook_title/page_range/deadline）
-            "mode": (ext.mode or "online") if ext else "online",
+            "mode": mode,
+            "photo_required": mode == "offline" or a.id in photo_required_assignment_ids,
             "workbook_title": workbook_title if ext and ext.workbook_id else None,
             "page_range": ext.page_range if ext else None,
             "deadline": ext.deadline if ext else None,
@@ -1020,6 +1033,14 @@ def _visual_review_confidence(confidence: float, recognition: dict) -> float:
     return min(confidence, 0.59) if recognition.get("needs_image_review") else confidence
 
 
+def _visual_question_context(question: Question) -> str:
+    """向视觉模型提供学科、题目和教师参考内容，直接按图片证据诊断。"""
+    return (
+        f"学科：{question.subject}\n题目：{question.stem}\n"
+        f"教师参考答案或步骤：{question.standard_answer or '未提供'}"
+    )
+
+
 @router.post("/photo-review", response_model=PhotoReviewOut, summary="识别题目图片并按作答情况分流")
 async def photo_review(
     file: UploadFile = File(...),
@@ -1048,7 +1069,7 @@ async def photo_review(
         if question is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
     context = (
-        f"学科：{question.subject}\n题目：{question.stem}"
+        _visual_question_context(question)
         if question else question_context
     )
 
@@ -1380,7 +1401,7 @@ async def photo_diagnose(
         get_provider().diagnose_homework_image,
         data,
         file.content_type,
-        f"学科：{question.subject}\n题目：{question.stem}",
+        _visual_question_context(question),
     )
     confidence = float(recognition.get("confidence", 0.0) or 0.0)
     visual_steps = recognition.get("steps", [])

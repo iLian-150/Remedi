@@ -201,7 +201,10 @@ def _grade_due_batch(db: Session) -> int:
                     image_bytes = image_file.read()
                 content_type = mimetypes.guess_type(image_name)[0] or "image/jpeg"
                 vision = get_provider().diagnose_homework_image(
-                    image_bytes, content_type, question.stem
+                    image_bytes,
+                    content_type,
+                    f"学科：{question.subject}\n题目：{question.stem}\n"
+                    f"教师参考答案或步骤：{question.standard_answer or '未提供'}",
                 )
             except Exception:
                 # 模型或文件暂时不可用时保留 deferred 状态，下轮继续重试。

@@ -549,7 +549,7 @@ const questionId = ref<number | ''>('')
 const doneQids = ref<Set<number>>(new Set())
 
 const currentQuestions = computed(
-  () => (questionsByAssignment.value[Number(assignmentId.value)] ?? []).filter((q) => q.subject === 'math')
+  () => questionsByAssignment.value[Number(assignmentId.value)] ?? []
 )
 const selectedQuestion = computed(
   () => flatQuestions.value.find((q) => q.id === Number(questionId.value)) ?? null

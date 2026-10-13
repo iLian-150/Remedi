@@ -89,14 +89,14 @@
               </p>
               <div class="assign-meta">
                 <span v-if="a.mode === 'offline'" class="badge badge-amber">线下练习</span>
-                <span v-else class="badge badge-blue">线上作业</span>
+                <span v-else class="badge badge-blue">{{ a.photo_required ? '拍照提交' : '线上作业' }}</span>
                 <span class="badge badge-blue tnum">{{ a.question_count }} 道题</span>
                 <span class="meta-progress tnum">已答 {{ doneCount(a) }}/{{ a.question_count }} 题</span>
                 <span class="assign-time">{{ fmtTime(a.created_at) }} 发布</span>
               </div>
               <div class="item-foot">
                 <router-link :to="`/student/submit?assignment_id=${a.id}`">
-                  <button class="btn">{{ a.mode === 'offline' ? '拍照批改' : '在线作答' }}</button>
+                  <button class="btn">{{ a.photo_required ? '拍照批改' : '在线作答' }}</button>
                 </router-link>
               </div>
             </section>

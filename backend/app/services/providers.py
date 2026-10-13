@@ -461,7 +461,7 @@ class CloudflareProvider(DeepSeekProvider):
                 "请依据该学科的知识和图像中的完整作答过程判断每一步是否正确；直接分析图像，不要先做 OCR 或逐行转写后再推断。"
                 "steps 只列学生本人写出的解题过程或答案，不要把印刷题干、参考答案、教师红笔勾叉当成学生步骤。"
                 "result 只能是 correct、incorrect、uncertain；判断不清时选 uncertain，并把 confidence 设为 0 到 0.59。"
-                "对 incorrect 步骤，error_type 只能是 计算失误、概念混淆、审题遗漏、无法解析，并用中文简要说明证据；"
+                "对 incorrect 步骤，error_type 请按学科从 计算失误、概念混淆、审题遗漏、无法解析、语法错误、拼写错误、词形错误、表达不当、知识错误、单位错误、步骤遗漏、答案不完整、论证不充分、图表判断错误、其他错误 中选择最贴切的一项，并用中文简要说明证据；"
                 "对 correct 步骤，error_type 和 detail 留空。逐步给出判断 confidence（0 到 1）。"
                 "若照片模糊、裁切，或题目/作答无法可靠辨认，needs_image_review=true；单纯错因把握低不代表图像模糊。"
                 "若只有题目而没有学生作答，student_work_detected=false 且 steps 为空。"
@@ -503,7 +503,12 @@ class CloudflareProvider(DeepSeekProvider):
                 except (TypeError, ValueError):
                     step_confidence = 0.5
                 error_type = str(item.get("error_type", "")).strip()
-                if error_type not in {"计算失误", "概念混淆", "审题遗漏", "无法解析"}:
+                allowed_error_types = {
+                    "计算失误", "概念混淆", "审题遗漏", "无法解析", "语法错误",
+                    "拼写错误", "词形错误", "表达不当", "知识错误", "单位错误",
+                    "步骤遗漏", "答案不完整", "论证不充分", "图表判断错误", "其他错误",
+                }
+                if error_type not in allowed_error_types:
                     error_type = "无法解析" if result == "uncertain" else "审题遗漏"
                 steps.append({
                     "text": text[:500],

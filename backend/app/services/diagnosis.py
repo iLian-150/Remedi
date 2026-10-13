@@ -345,7 +345,7 @@ def diagnose_submission(db, student: User, question: Question,
 def diagnose_visual_submission(db, student: User, question: Question,
                                visual_steps: List[dict],
                                reuse: Optional[Submission] = None) -> Tuple[Submission, List[Step], List[Error]]:
-    """持久化视觉模型直接给出的数学作答判断，不再二次解析识别文本。"""
+    """持久化视觉模型直接给出的多学科作答判断，不再二次解析识别文本。"""
     if reuse is not None:
         submission = reuse
         db.query(Error).filter(Error.submission_id == submission.id).delete()
@@ -361,7 +361,11 @@ def diagnose_visual_submission(db, student: User, question: Question,
     db.add(stem_step)
     steps: List[Step] = [stem_step]
     errors: List[Error] = []
-    allowed_error_types = {"计算失误", "概念混淆", "审题遗漏", "无法解析"}
+    allowed_error_types = {
+        "计算失误", "概念混淆", "审题遗漏", "无法解析", "语法错误",
+        "拼写错误", "词形错误", "表达不当", "知识错误", "单位错误",
+        "步骤遗漏", "答案不完整", "论证不充分", "图表判断错误", "其他错误",
+    }
 
     for seq, item in enumerate(visual_steps, start=1):
         text = str(item.get("text", "")).strip()[:500]

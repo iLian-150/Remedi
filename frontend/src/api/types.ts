@@ -21,9 +21,17 @@ export interface PageResult<T> {
   items: T[]
 }
 
-export type ErrorType = '计算失误' | '概念混淆' | '审题遗漏' | '无法解析'
+export type ErrorType =
+  | '计算失误' | '概念混淆' | '审题遗漏' | '无法解析'
+  | '语法错误' | '拼写错误' | '词形错误' | '表达不当' | '知识错误'
+  | '单位错误' | '步骤遗漏' | '答案不完整' | '论证不充分' | '图表判断错误' | '其他错误'
 
 // ---------- 作业 / 题目 ----------
+export type QuestionSubject =
+  | 'math' | 'english' | 'english_exercise' | 'physics' | 'chemistry' | 'biology'
+  | 'chinese' | 'history' | 'geography' | 'politics' | 'computer_science'
+  | 'art' | 'music' | 'pe' | 'other'
+
 export interface Assignment {
   id: number
   title: string
@@ -36,11 +44,12 @@ export interface Assignment {
   workbook_title: string | null
   page_range: string | null
   deadline: string | null
+  photo_required?: boolean // v0.13.23：线下作业或非数学科目需要拍照提交
 }
 
 export interface Question {
   id: number
-  subject: 'math' | 'english'
+  subject: QuestionSubject
   knowledge_point: string
   stem: string
   order_num: number
@@ -429,6 +438,7 @@ export interface NotificationList {
 export interface TeacherAssignmentQuestion {
   id: number
   type: 'math' | 'essay'
+  subject: QuestionSubject
   prompt: string
   knowledge_point: string
   standard_answer: string | null
@@ -450,6 +460,7 @@ export interface TeacherAssignment {
 
 export interface TeacherQuestionInput {
   type: 'math' | 'essay'
+  subject?: QuestionSubject
   prompt: string
   knowledge_point: string
   standard_steps?: string[]
@@ -460,7 +471,7 @@ export interface TeacherQuestionInput {
 
 export interface TeacherAssignmentInput {
   title: string
-  subject?: 'math' | 'english'
+  subject?: QuestionSubject
   description?: string
   questions: TeacherQuestionInput[]
   // v0.13.1：允许学生截止前修改作答（开启后延迟到截止统一批改）

@@ -59,8 +59,7 @@
           <tbody>
             <tr v-for="q in a.questions" :key="q.id">
               <td>
-                <span v-if="q.type === 'math'" class="badge badge-blue">数学</span>
-                <span v-else class="badge badge-gray">其他题型</span>
+                <span class="badge" :class="q.subject === 'math' ? 'badge-blue' : 'badge-gray'">{{ subjectLabel(q.subject) }}</span>
               </td>
               <td>{{ q.prompt }}</td>
               <td>{{ q.knowledge_point }}</td>
@@ -111,6 +110,16 @@ const toast = ref('')
 const pendingDelete = ref<TeacherAssignment | null>(null)
 const deleting = ref(false)
 const deleteError = ref('')
+
+function subjectLabel(subject: string): string {
+  const labels: Record<string, string> = {
+    math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理',
+    chemistry: '化学', biology: '生物', chinese: '语文', history: '历史',
+    geography: '地理', politics: '道德与法治', computer_science: '信息科技',
+    art: '艺术', music: '音乐', pe: '体育', other: '其他',
+  }
+  return labels[subject] ?? '其他'
+}
 
 /** 右侧栏日历选中的发布日期（yyyy-mm-dd，空 = 不筛选）——与日历共用 store 状态 */
 const dateFilter = computed(() => teacher.assignmentDateFilter)

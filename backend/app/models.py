@@ -93,7 +93,7 @@ class Error(Base):
     submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
     step_id = Column(Integer, ForeignKey("steps.id"), nullable=True)
     knowledge_point = Column(String(64), nullable=False, index=True, comment="冗余自题目，便于聚合")
-    error_type = Column(String(16), nullable=False, comment="计算失误 | 概念混淆 | 审题遗漏 | 无法解析")
+    error_type = Column(String(16), nullable=False, comment="按学科归类的错因，长度不超过 16")
     confidence = Column(Float, nullable=False, comment="置信度 0~1")
     is_stubborn = Column(Boolean, nullable=False, default=False, comment="顽固误区")
     teacher_corrected = Column(Boolean, nullable=False, default=False)

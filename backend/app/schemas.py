@@ -65,6 +65,8 @@ class AssignmentBrief(BaseModel):
     workbook_title: Optional[str] = None
     page_range: Optional[str] = None
     deadline: Optional[datetime] = None
+    # v0.13.23：非数学题与线下题都需要拍照提交；数学线上题使用在线步骤板。
+    photo_required: bool = False
 
 
 class AssignmentDetail(BaseModel):
@@ -507,6 +509,10 @@ class StudentBrief(BaseModel):
 
 class TeacherQuestionIn(BaseModel):
     type: str = Field(pattern="^(math|essay)$")
+    subject: Optional[str] = Field(
+        default=None,
+        pattern="^(math|english|english_exercise|physics|chemistry|biology|chinese|history|geography|politics|computer_science|art|music|pe|other)$",
+    )
     prompt: str = Field(min_length=1, max_length=2000)          # 题干
     knowledge_point: str = Field(min_length=1, max_length=64)
     standard_steps: Optional[List[str]] = Field(default=None, max_length=30)  # 标准解题步骤（参考）
@@ -525,7 +531,10 @@ class QuestionGroupIn(BaseModel):
 
 class TeacherAssignmentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=128)
-    subject: Optional[str] = Field(default=None, pattern="^(math|english)$")
+    subject: Optional[str] = Field(
+        default=None,
+        pattern="^(math|english|english_exercise|physics|chemistry|biology|chinese|history|geography|politics|computer_science|art|music|pe|other)$",
+    )
     description: Optional[str] = Field(default=None, max_length=2000)
     questions: List[TeacherQuestionIn] = Field(min_length=1, max_length=50)
     # v0.5.0 新增（只加可选字段）：发布模式。mode=offline 时把后三项写进 assignment_ext
@@ -544,6 +553,7 @@ class TeacherAssignmentCreate(BaseModel):
 class TeacherAssignmentQuestionOut(BaseModel):
     id: int
     type: str                     # math | essay（由题目 subject 映射）
+    subject: str                  # v0.13.23：题目实际学科代码
     prompt: str                   # 题干
     knowledge_point: str
     standard_answer: Optional[str] = None

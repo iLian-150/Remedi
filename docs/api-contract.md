@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.13.17（2026-10-12）
+> 版本：v0.13.23（2026-10-13）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -116,7 +116,9 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
       "title": "第一周数学作业",
       "description": "包含 3 道数学题",
       "question_count": 3,
-      "created_at": "2026-10-06T10:00:00"
+      "created_at": "2026-10-06T10:00:00",
+      "mode": "online",
+      "photo_required": false
     }
   ]
 }
@@ -124,6 +126,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 - `created_at`：作业发布时间（ISO 8601），学生/教师两端作业日历的数据源（v0.2.1 确认双端均有此字段，无变更）。
 - v0.5.0 新增字段（只加字段）：`mode`（`online | offline`，无扩展记录时为 `online`）、`workbook_title`（线下作业关联的练习册名，未关联时为 `null`）、`page_range`（如「第12-14页 第1-8题」，可空）、`deadline`（截止时间 ISO 8601，可空）。3.2 作业详情同样包含这四个字段；3.12 简报的 `pending_assignments[]` 亦同步包含。
+- v0.13.23 新增 `photo_required`：线下作业或包含非数学题时为 `true`，前端据此显示拍照提交入口；数学线上题使用在线步骤板。
 
 ### 3.2 GET /api/student/assignments/{assignment_id} —— 作业详情（含题目）
 
@@ -943,8 +946,9 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 }
 ```
 
-- `subject`：选填，作业级学科标记（`math | english`），仅记录用；题目学科以每题 `type` 为准。
-- `questions[].type`：`math | essay`，分别落库为题目 `subject=math | english`；`prompt` 落库为题干 `stem`；`order_num` 按数组顺序从 1 开始。
+- `subject`：选填，作业级学科标记，供兼容客户端使用。新客户端应在每题传 `questions[].subject`。
+- `questions[].type`：保留兼容的 `math | essay` 字段；新客户端仍发送该字段。新增选填 `questions[].subject` 支持 `math | english | english_exercise | physics | chemistry | biology | chinese | history | geography | politics | computer_science | art | music | pe | other`；缺省时按 `type` 映射 `math | essay` 到 `math | english`。`prompt` 落库为题干 `stem`；`order_num` 按数组顺序从 1 开始。响应新增每题实际 `subject`。
+- 学生提交：数学线上题使用在线步骤板；其他学科或线下作业走拍照提交，服务端将原图直接交给视觉模型，不先做 OCR 转写。教师填写的参考答案和步骤仅作为模型批改上下文，不向学生返回。
 - `standard_steps` / `reference_answer`：选填，仅教师可见（学生端详情不返回标准答案，沿用 3.2 约定）。`standard_steps` 无独立存储列：当 `reference_answer` 为空时，它按行拼入 `standard_answer` 字段保存。
 - 校验：`questions` 至少 1 道；`title` / `prompt` / `knowledge_point` 非空，否则 `422`。
 - v0.5.0 新增选填字段（不传 = 线上作业）：`mode`（`online | offline`，默认 `online`）、`workbook_id`、`page_range`、`deadline`（ISO 8601）。`mode=offline` 时把这四项写入新表 `assignment_ext`（题目仍走原 `questions` 结构，由教师拍照识别题目页产生）；`workbook_id` 必须指向本人经 4.15 上传的练习册，否则 `400`。响应同步新增 `mode` / `workbook_title` / `page_range` / `deadline` 四个字段。
@@ -1169,8 +1173,8 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | 字段 | 枚举值 |
 |---|---|
 | `role` | `teacher` / `student` |
-| `subject` | `math` / `english` |
-| `error_type` | `计算失误` / `概念混淆` / `审题遗漏` / `无法解析` |
+| `subject` | `math` / `english` / `english_exercise` / `physics` / `chemistry` / `biology` / `chinese` / `history` / `geography` / `politics` / `computer_science` / `art` / `music` / `pe` / `other` |
+| `error_type` | `计算失误` / `概念混淆` / `审题遗漏` / `无法解析` / `语法错误` / `拼写错误` / `词形错误` / `表达不当` / `知识错误` / `单位错误` / `步骤遗漏` / `答案不完整` / `论证不充分` / `图表判断错误` / `其他错误` |
 | `step.status` | `stem` / `ok` / `error` / `unparseable` / `skipped` |
 | `submission.status` | `submitted` / `graded` |
 | 报告知识点 `status` | `pending`（待修复）/ `stubborn`（反复出错）/ `awaiting_verify`（已订正待验证，v0.4.0 新增）/ `fixed`（已修复） |
@@ -1228,3 +1232,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.20 | 2026-10-12 | 累计正确率低于 60% 时批量创建整份作业的待审核记录，将原先逐题查询、逐题提交改为一次批量写入，缩短作业进入审核队列的数据库处理时间。 |
 | v0.13.21 | 2026-10-12 | 归一化视觉模型返回的布尔字段，兼容 JSON 布尔值、数字和中英文字符串，防止字符串 `"false"` 被当作真值而误判学生是否作答或是否需要图片复核。 |
 | v0.13.22 | 2026-10-12 | 处理学生照片诊断时视觉模型调用异常：明确返回 502 并记录服务端异常；当照片已保存在聊天会话时，同步保存可恢复识别的提示，避免历史对话只有图片、没有失败说明。 |
+| v0.13.23 | 2026-10-13 | 打通多学科作业链路：教师可发布英语、物理、化学、生物、语文、历史、地理等学科；数学线上作业保留公式步骤板，其他学科通过拍照交给视觉模型直接批改。学生作业入口按学科显示拍照要求，聊天页也可选择非数学作业题关联照片。批改上下文加入教师参考答案/步骤，视觉错因保留语法、拼写、论证等学科分类，不再统一降级为“审题遗漏”。 |

@@ -49,7 +49,7 @@
             >
               <span class="switch-option-main">
                 <span class="switch-option-title">{{ a.title }}</span>
-                <span class="switch-option-meta">{{ a.question_count }} 题<template v-if="a.submitted_count"> · 已交 {{ a.submitted_count }} 题</template> · {{ a.mode === 'offline' ? '线下练习' : '线上作业' }}</span>
+                <span class="switch-option-meta">{{ a.question_count }} 题<template v-if="a.submitted_count"> · 已交 {{ a.submitted_count }} 题</template> · {{ a.photo_required ? '拍照提交' : '在线作答' }}</span>
               </span>
               <AppIcon v-if="a.id === assignmentId" name="check" :size="15" class="switch-option-check" />
             </button>
@@ -201,12 +201,12 @@
       </div>
 
       <!-- 线下题目列表（v0.13.1 精简）：题干放大，只留状态与得分，不再挂知识点小字 -->
-      <div v-else-if="mathQuestions.length" class="card">
-        <h3>题目列表</h3>
+      <div v-if="photoQuestions.length" class="card">
+        <h3>{{ isOffline ? '题目列表' : mathQuestions.length ? '其他学科拍照提交' : '题目列表' }}</h3>
         <p class="card-sub">{{ listSub }}</p>
-        <template v-for="(q, qi) in mathQuestions" :key="q.id">
+        <template v-for="(q, qi) in photoQuestions" :key="q.id">
           <!-- 大题共享材料（v0.13.1）：一组小题上方只展示一次 -->
-          <div v-if="showGroupBanner(q, qi)" class="group-stem-banner">
+          <div v-if="showGroupBanner(q, qi, photoQuestions)" class="group-stem-banner">
             <span class="board-group-tag">大题材料</span>
             <p>{{ groupStemOf(q) }}</p>
           </div>
@@ -269,7 +269,7 @@
         </div>
       </div>
 
-      <div v-if="!mathQuestions.length && assignmentId" class="card">
+      <div v-if="!mathQuestions.length && !photoQuestions.length && assignmentId" class="card">
         <div class="empty">这份作业暂时没有可作答的题目。</div>
       </div>
     </template>
@@ -343,22 +343,32 @@ const loading = ref(false)
 const error = ref('')
 
 const mathQuestions = computed(() => questions.value.filter((q) => q.subject === 'math'))
+const isOffline = computed(() => currentDetail.value?.mode === 'offline')
+const photoQuestions = computed(() => isOffline.value
+  ? questions.value
+  : questions.value.filter((q) => q.subject !== 'math'))
+function isPhotoQuestion(q: Question): boolean {
+  return isOffline.value || q.subject !== 'math'
+}
 function openRelatedMistake(mistake: RelatedMistake) {
   selectedRelatedMistake.value = mistake
 }
-/** 作答方式按作业模式分流：offline=线下练习册走拍照，其余（online）走在线作答 */
-const isOffline = computed(() => currentDetail.value?.mode === 'offline')
 
 const headSub = computed(() => {
   if (!currentDetail.value) return '先在上方选一份作业，再逐题完成作答；判断不确定的结果会送老师复核。'
-  return isOffline.value
-    ? '选好题目，拍一张作答照片；系统会自动批改，判断不确定的结果会送老师复核。'
-    : '在线写下每道题的解题步骤提交；系统会自动批改，判断不确定的结果会送老师复核。'
+  if (isOffline.value) return '选好题目，拍一张作答照片；系统会自动批改，判断不确定的结果会送老师复核。'
+  if (photoQuestions.value.length && mathQuestions.value.length) return '数学题在线写步骤，其他学科拍照提交；视觉模型直接批改，判断不确定的结果会送老师复核。'
+  if (photoQuestions.value.length) return '拍一张作答照片提交；视觉模型会直接批改，判断不确定的结果会送老师复核。'
+  return '在线写下每道题的解题步骤提交；系统会自动批改，判断不确定的结果会送老师复核。'
 })
 const listSub = computed(() =>
   isOffline.value
     ? '点任意一题的「拍照批改」会直接打开图库，选好照片就在本题这里出结果，不用跳页面。'
-    : '点任意一题的「在线作答」，在本题这里把解题步骤一行一步写下来提交，不用跳页面。'
+    : photoQuestions.value.length && mathQuestions.value.length
+      ? '其他学科的题目点「拍照批改」并拍下作答过程；数学题请在上方做题板在线作答。'
+      : photoQuestions.value.length
+        ? '点任意一题的「拍照批改」并拍下作答过程，视觉模型直接分析原图，不经过 OCR 转写。'
+        : '点任意一题的「在线作答」，在本题这里把解题步骤一行一步写下来提交，不用跳页面。'
 )
 
 /* ---------- 线下拍照流：点按直达图库（v0.9.2） ---------- */
@@ -456,12 +466,12 @@ const groupById = computed(() => new Map((currentDetail.value?.groups ?? []).map
 function groupStemOf(q: Question): string | undefined {
   return q.group_id ? groupById.value.get(q.group_id)?.stem : undefined
 }
-function showGroupBanner(q: Question, i: number): boolean {
+function showGroupBanner(q: Question, i: number, list: Question[] = mathQuestions.value): boolean {
   if (!q.group_id) return false
-  const prev = mathQuestions.value[i - 1]
+  const prev = list[i - 1]
   return !prev || prev.group_id !== q.group_id
 }
-const submittedQuestions = computed(() => mathQuestions.value.filter((q) => noteKind(q)))
+const submittedQuestions = computed(() => questions.value.filter((q) => noteKind(q)))
 /** 还能修改：老师开了允许修改、没到截止、且已有提交 */
 const canRevise = computed(() => {
   if (!currentDetail.value?.allow_revision) return false
@@ -470,7 +480,7 @@ const canRevise = computed(() => {
   return submittedQuestions.value.length > 0
 })
 function reviseQuestion(q: Question) {
-  if (isOffline.value) {
+  if (isPhotoQuestion(q)) {
     document.getElementById(`q-block-${q.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     pickPhoto(q.id)
     return
@@ -581,7 +591,6 @@ async function loadQuestions(id: number) {
   questions.value = detail.questions
   currentDetail.value = detail
   const relatedRows = await Promise.all(detail.questions
-    .filter((q) => q.subject === 'math')
     .map(async (q) => ({ questionId: q.id, mistake: await student.fetchRelatedMistake(q.id).catch(() => null) })))
   const related: Record<number, RelatedMistake> = {}
   relatedRows.forEach(({ questionId, mistake }) => {
@@ -595,7 +604,7 @@ async function loadQuestions(id: number) {
     if (saved) restored[q.id] = saved
   })
   drafts.value = { ...drafts.value, ...restored }
-  if (detail.mode !== 'offline') {
+  if (detail.mode !== 'offline' && detail.questions.some((q) => q.subject === 'math')) {
     // 做题板初始定位：优先地址栏 ?q=<题目 id>（AI 简报「去完成」跳入时带），
     // 其次第一道未完成题；定位到的题若还没提交过，直接展开编辑器
     const qs = detail.questions.filter((q) => q.subject === 'math')

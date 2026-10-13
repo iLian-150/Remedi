@@ -685,6 +685,7 @@ def _teacher_assignments_out(
             question_items.append(TeacherAssignmentQuestionOut(
                 id=question.id,
                 type="math" if question.subject == "math" else "essay",
+                subject=question.subject,
                 prompt=question.stem,
                 knowledge_point=question.knowledge_point,
                 standard_answer=question.standard_answer,
@@ -748,7 +749,9 @@ def create_assignment(body: TeacherAssignmentCreate,
             standard_answer = "\n".join(s.strip() for s in q.standard_steps if s.strip())
         question = Question(
             assignment_id=assignment.id,
-            subject="math" if q.type == "math" else "english",
+            # 逐题 subject 是新增字段；旧客户端仍按 type 映射数学/英语，
+            # 保留旧作业混合 math/essay 题型的兼容行为。
+            subject=q.subject or ("math" if q.type == "math" else "english"),
             knowledge_point=q.knowledge_point,
             stem=q.prompt,
             standard_answer=standard_answer,
