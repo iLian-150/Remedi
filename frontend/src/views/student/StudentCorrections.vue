@@ -102,6 +102,7 @@
           <p class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(selectedError.detail ?? '') }}</p>
           <p style="margin-top: 10px">
             <ErrorTypeBadge :type="selectedError.error_type" />
+            <span class="badge badge-blue">{{ subjectName(selectedError.question_subject) }}</span>
             <span class="badge badge-blue">{{ selectedError.knowledge_point }}</span>
             <span v-if="selectedError.review_status === 'pending'" class="badge badge-amber">老师复核中</span>
             <span v-if="fixedIds.has(selectedError.id)" class="badge badge-green">已订正</span>
@@ -113,7 +114,7 @@
           <h3>我的订正</h3>
           <div class="form-row">
             <label>写出这一步的正确内容</label>
-            <input v-model="content" type="text" placeholder="例如：2x=7-3" />
+            <input v-model="content" type="text" :placeholder="correctionPlaceholder" />
           </div>
           <button class="btn" :disabled="submitting || !content.trim()" @click="submit">
             {{ submitting ? '判定中…' : '提交订正' }}
@@ -124,14 +125,14 @@
           <h3>判定结果</h3>
           <p v-if="result.is_correct === true"><span class="badge badge-green">订正成功</span></p>
           <p v-else-if="result.is_correct === false"><span class="badge badge-amber">再想一想</span></p>
-          <p v-else><span class="badge badge-gray">已转交老师确认</span></p>
+          <p v-else><span class="badge badge-gray">暂时无法自动判定</span></p>
           <p class="note">
             {{
               result.is_correct === true
                 ? '做得好，这条错题订正对了。'
                 : result.is_correct === false
                   ? '这次还不太对，再看看解析，换个思路试一次。'
-                  : '暂时无法自动判定，老师会帮你看一下。'
+                  : '暂时无法自动判定，请将这条订正内容交给老师确认。'
             }}
           </p>
           <p class="note hint">{{ result.note }}</p>
@@ -278,6 +279,16 @@ function syncSelection() {
 // v0.13.9：工作区直接消费错题原条目（StudentMistake）——题目回顾要用的原题、
 // 正确答案、标准解题过程、原图都在原条目上，经 toGradingError 映射后会丢掉
 const selectedError = computed(() => visibleMistakes.value.find((e) => e.id === selectedErrorId.value) ?? null)
+const correctionPlaceholder = computed(() => selectedError.value?.question_subject === 'math'
+  ? '例如：2x=7-3'
+  : '写出订正后的正确步骤、结论或答案')
+const subjectNames: Record<string, string> = {
+  math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理',
+  chemistry: '化学', biology: '生物', chinese: '语文', history: '历史',
+  geography: '地理', politics: '道德与法治', computer_science: '信息科技',
+  art: '艺术', music: '音乐', pe: '体育', other: '其他学科'
+}
+function subjectName(subject: string) { return subjectNames[subject] || subject || '其他学科' }
 
 // v0.13.9：题目回顾要展示「我当时的作答」全文——错题条目里只有出错的那一步，
 // 完整原步骤在提交详情里（每步带判定状态），选中错题时按 submission_id 拉一次；
