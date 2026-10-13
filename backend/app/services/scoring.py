@@ -379,36 +379,54 @@ def score_detail_for_teacher(db: Session, submission: Submission) -> Dict:
 
 def student_score_report(db: Session, student) -> Dict:
     """学习报告的成绩分析（只统计学生可见口径：审核已通过且有分的提交）：
-    按作业聚合——每题取最新一次已通过提交的最终分求和；再算学科/总体平均得分率。"""
+    按作业聚合——每题取最新一次已通过提交的最终分求和；再算学科/总体平均得分率。
+    在数据库中筛选每题最新可见提交，避免加载整段重复提交历史。"""
     from . import reviews as review_svc
 
+    latest_visible = (
+        db.query(
+            Submission.id.label("submission_id"),
+            func.row_number().over(
+                partition_by=Submission.question_id,
+                order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+            ).label("rank"),
+        )
+        .join(Question, Question.id == Submission.question_id)
+        .outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        )
+        .filter(
+            Submission.student_id == student.id,
+            Submission.status == "graded",
+            func.coalesce(SubmissionReview.status, review_svc.APPROVED)
+            != review_svc.PENDING,
+        )
+        .subquery()
+    )
     question_load = joinedload(Submission.question).load_only(
         Question.id, Question.assignment_id, Question.subject,
     ).joinedload(Question.assignment).load_only(Assignment.id, Assignment.title)
     subs = (
         db.query(Submission)
+        .join(latest_visible, latest_visible.c.submission_id == Submission.id)
         .options(
             load_only(Submission.id, Submission.question_id, Submission.submitted_at),
             question_load,
         )
-        .filter(Submission.student_id == student.id, Submission.status == "graded")
+        .filter(latest_visible.c.rank == 1)
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
-    pending = review_svc.pending_submission_ids(db, student.id)
-    visible_subs = [
-        sub for sub in subs
-        if sub.id not in pending and sub.question is not None
-    ]
     scores_by_submission = {}
-    for start in range(0, len(visible_subs), 300):
+    for start in range(0, len(subs), 300):
         scores_by_submission.update(
-            visible_scores(db, visible_subs[start:start + 300])
+            visible_scores(db, subs[start:start + 300])
         )
     # assignment_id -> {question_id: (submitted_at, final, max)}，后写覆盖 = 取最新一次
     per_assignment: Dict[int, Dict[int, Tuple]] = {}
     meta: Dict[int, Dict] = {}
-    for sub in visible_subs:
+    for sub in subs:
         score_info = scores_by_submission.get(sub.id)
         if score_info is None:
             continue
