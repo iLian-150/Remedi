@@ -8,9 +8,9 @@
 from typing import Dict, List, Optional
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from ..models import Error, Submission
+from ..models import Error, Question, Submission
 from .stats import class_repair_rate, knowledge_point_ranking, top_error_questions
 
 _KIND_ORDER = {"reteach": 0, "stubborn_group": 1, "high_error": 2, "low_score": 3}
@@ -125,19 +125,32 @@ def build_teaching_suggestions(db: Session) -> List[Dict]:
 
     # ---- low_score：某份作业整体得分率偏低 ----
     try:
-        from .scoring import ensure_score, question_max_score
+        from .scoring import visible_scores
 
         per_assignment: Dict[str, List[float]] = {}
-        subs = db.query(Submission).filter(Submission.status == "graded").all()
+        subs = (
+            db.query(Submission)
+            .options(
+                joinedload(Submission.question).joinedload(Question.assignment)
+            )
+            .filter(Submission.status == "graded")
+            .all()
+        )
+        scores_by_submission = {}
+        for start in range(0, len(subs), 300):
+            scores_by_submission.update(
+                visible_scores(db, subs[start:start + 300])
+            )
         for sub in subs:
-            if sub.question is None:
+            question = sub.question
+            score_info = scores_by_submission.get(sub.id)
+            if question is None or score_info is None:
                 continue
-            row = ensure_score(db, sub)
-            final = row.final_score if row.final_score is not None else row.ai_score
-            max_score = question_max_score(db, sub.question)
+            final = score_info["score"]
+            max_score = score_info["max_score"]
             if not max_score:
                 continue
-            title = sub.question.assignment.title if sub.question.assignment else "未命名作业"
+            title = question.assignment.title if question.assignment else "未命名作业"
             per_assignment.setdefault(title, []).append(float(final) / float(max_score))
         for title, rates in per_assignment.items():
             if len(rates) < 2:
