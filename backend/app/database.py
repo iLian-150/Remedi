@@ -57,6 +57,7 @@ def init_db():
         models.Essay,
         models.Verification,
         models.StudentMistakeArchive,
+        models.AssignmentExt,
         models.StudentQuestionCapture,
         models.ChatSession,
     ):

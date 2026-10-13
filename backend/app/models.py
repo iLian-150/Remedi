@@ -420,7 +420,7 @@ class AssignmentExt(Base):
     mode = Column(String(16), nullable=False, default="online",
                   comment="online | offline（线下练习册作业）")
     workbook_id = Column(Integer, ForeignKey("workbooks.id"), nullable=True,
-                         comment="线下作业关联的练习册，可空")
+                         index=True, comment="线下作业关联的练习册，可空")
     page_range = Column(String(64), nullable=True, comment="页码/题号范围，如 第12-14页 第1-8题")
     deadline = Column(DateTime, nullable=True, comment="线下作业截止时间，可空")
 
