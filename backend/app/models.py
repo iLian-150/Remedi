@@ -466,9 +466,17 @@ class QuestionGroup(Base):
     """大题（v0.13.1 新增表）：共享题干 + 若干小题（小题仍是普通 Question 行，
     逐题作答/批改/计分不变；分组关系见 QuestionGroupMember）。"""
     __tablename__ = "question_groups"
+    __table_args__ = (
+        Index(
+            "ix_question_groups_assignment_order_id",
+            "assignment_id",
+            "order_num",
+            "id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False)
     stem = Column(Text, nullable=False, comment="大题共享题干（材料/背景）")
     order_num = Column(Integer, nullable=False, default=0, comment="在作业题目序列中的位置（按首个小题排序）")
 

@@ -53,6 +53,7 @@ def init_db():
         models.SubmissionReview,
         models.Correction,
         models.Question,
+        models.QuestionGroup,
         models.Essay,
         models.Verification,
         models.ChatSession,
@@ -66,5 +67,6 @@ def init_db():
         connection.execute(text("DROP INDEX IF EXISTS ix_verifications_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_questions_assignment_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_steps_submission_id"))
+        connection.execute(text("DROP INDEX IF EXISTS ix_question_groups_assignment_id"))
     for index in models.ChatSessionMessage.__table__.indexes:
         index.create(bind=engine, checkfirst=True)
