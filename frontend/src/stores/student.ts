@@ -29,8 +29,10 @@ import type {
   VerificationSubmitResult
 } from '../api/types'
 
-function waitForNextPaint(): Promise<void> {
-  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()))
+const TYPEWRITER_INTERVAL_MS = 8
+
+function waitForNextCharacter(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, TYPEWRITER_INTERVAL_MS))
 }
 
 function activeSessionStorageKey(): string | null {
@@ -258,7 +260,7 @@ export const useStudentStore = defineStore('student', {
         typingTask = (async () => {
           while (offset < characters.length) {
             onText(characters[offset++])
-            await waitForNextPaint()
+            await waitForNextCharacter()
           }
         })().finally(() => {
           typingTask = null
@@ -409,7 +411,7 @@ export const useStudentStore = defineStore('student', {
         typingTask = (async () => {
           while (queueOffset < characterQueue.length) {
             onText(characterQueue[queueOffset++])
-            await waitForNextPaint()
+            await waitForNextCharacter()
           }
         })().finally(() => {
           typingTask = null
