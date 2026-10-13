@@ -91,29 +91,64 @@ def knowledge_point_ranking(db) -> List[Dict]:
     return items
 
 
-def _student_profile_errors(db, student_id: int, visible_only: bool):
-    """按学生读取画像所需的错因列，并在 SQL 中排除待审核提交。"""
-    query = (
-        db.query(
+def _student_error_query(db, student_id: int, visible_only: bool):
+    """该生错因的基础查询；学生自查时在 SQL 中排除待审核提交。"""
+    query = db.query(Error).join(
+        Submission, Submission.id == Error.submission_id,
+    ).filter(Submission.student_id == student_id)
+    if visible_only:
+        pending_review = db.query(SubmissionReview.submission_id).filter(
+            SubmissionReview.submission_id == Submission.id,
+            SubmissionReview.status == "pending",
+        ).exists()
+        query = query.filter(~pending_review)
+    return query
+
+
+def _student_profile_error_stats(db, student_id: int, visible_only: bool):
+    """按知识点汇总画像所需错因数、最近时间、顽固数与正确订正数。"""
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == student_id,
+        Correction.is_correct.is_(True),
+    ).exists()
+    rows = _student_error_query(db, student_id, visible_only).with_entities(
+        Error.knowledge_point.label("knowledge_point"),
+        func.count(Error.id).label("error_count"),
+        func.max(Error.created_at).label("last_error_at"),
+        func.max(case((Error.is_stubborn.is_(True), 1), else_=0)).label(
+            "stubborn_count"
+        ),
+        func.sum(case((has_correct_correction, 1), else_=0)).label(
+            "corrected_count"
+        ),
+    ).group_by(Error.knowledge_point).all()
+    return {
+        row.knowledge_point: (
+            int(row.error_count),
+            row.last_error_at,
+            bool(row.stubborn_count),
+            int(row.corrected_count or 0),
+        )
+        for row in rows
+    }
+
+
+def _student_stubborn_errors(db, student_id: int, visible_only: bool):
+    """只读取画像实际展示的顽固错因摘要行。"""
+    return (
+        _student_error_query(db, student_id, visible_only)
+        .filter(Error.is_stubborn.is_(True))
+        .with_entities(
             Error.id.label("id"),
-            Error.submission_id.label("submission_id"),
             Error.knowledge_point.label("knowledge_point"),
-            Error.is_stubborn.label("is_stubborn"),
             Error.error_type.label("error_type"),
             Error.step_id.label("step_id"),
             Error.created_at.label("created_at"),
         )
-        .join(Submission, Submission.id == Error.submission_id)
-        .filter(Submission.student_id == student_id)
+        .order_by(Error.created_at.desc(), Error.id.desc())
+        .all()
     )
-    if visible_only:
-        query = query.outerjoin(
-            SubmissionReview,
-            SubmissionReview.submission_id == Submission.id,
-        ).filter(
-            func.coalesce(SubmissionReview.status, "approved") != "pending"
-        )
-    return query.order_by(Error.created_at.desc()).all()
 
 
 def _student_attempt_counts(db, student_id: int, visible_only: bool) -> Dict[str, int]:
@@ -167,8 +202,9 @@ def _student_error_stats(db, student_id: int, visible_only: bool):
     }
 
 
-def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
-                        stubborn_errors: List[Dict], errors: List) -> str:
+def _profile_suggestion(student: User, knowledge_points: List[Dict],
+                        stubborn_kps: set, error_count: int,
+                        corrected_count: int, pending_kps: set) -> str:
     """学习建议（v0.9.1 改本地模板生成，不再同步调 LLM）。
 
     画像是学生/教师双端高频读接口，线上大模型一次往返要数秒到数十秒，
@@ -176,24 +212,19 @@ def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
     先肯定已订正的成果，再点名最弱（仍有待订正错题）的知识点给具体动作
     （订正 → 变式题验证），全部订正完给收尾鼓励，无错题给保持类鼓励。
     口径与前端「老师寄语」一致，学生端措辞用「需要加固」不用「顽固」。"""
-    fixed_ids = _fixed_error_ids(db, student, [error.id for error in errors])
-    corrected = sum(1 for e in errors if e.id in fixed_ids)
-    pending = [e for e in errors if e.id not in fixed_ids]
-    pending_kps = {e.knowledge_point for e in pending}
-    stubborn_kps = {e.get("knowledge_point") for e in stubborn_errors}
     # knowledge_points 已按掌握度升序（最弱在前），取第一个仍有待订正错题的
     weak = next((k for k in knowledge_points if k["knowledge_point"] in pending_kps), None)
 
     parts = []
-    if corrected:
-        parts.append(f"已经订正对了 {corrected} 条错题，这股认真劲儿保持住")
-    if pending and weak:
+    if corrected_count:
+        parts.append(f"已经订正对了 {corrected_count} 条错题，这股认真劲儿保持住")
+    if pending_kps and weak:
         kp = weak["knowledge_point"]
         if kp in stubborn_kps:
             parts.append(f"「{kp}」反复出错、需要加固：先重看一遍规则，把错题订正掉，再做一道变式题验证一下")
         else:
             parts.append(f"眼下最需要补的是「{kp}」：先把它的错题订正掉，再做一道变式题验证，这个知识点就修复啦")
-    elif errors and not pending:
+    elif error_count and not pending_kps:
         parts.append("错题都订正完了，再做几道变式题验证一下，把知识点彻底修复")
     if not parts:
         parts.append("最近的作业完成得很稳，继续保持；可以试着挑战难一点的综合题")
@@ -204,11 +235,16 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
     # 按知识点聚合：attempts（提交数）、errors（错误数）
     kp_attempts = _student_attempt_counts(db, student.id, visible_only)
-
-    kp_errors: Dict[str, int] = {}
-    errors = _student_profile_errors(db, student.id, visible_only)
-    for e in errors:
-        kp_errors[e.knowledge_point] = kp_errors.get(e.knowledge_point, 0) + 1
+    kp_error_stats = _student_profile_error_stats(db, student.id, visible_only)
+    kp_errors = {kp: stats[0] for kp, stats in kp_error_stats.items()}
+    total_errors = sum(stats[0] for stats in kp_error_stats.values())
+    corrected_count = sum(stats[3] for stats in kp_error_stats.values())
+    pending_kps = {
+        kp for kp, stats in kp_error_stats.items() if stats[3] < stats[0]
+    }
+    stubborn_kps = {
+        kp for kp, stats in kp_error_stats.items() if stats[2]
+    }
 
     knowledge_points = []
     for kp in sorted(set(list(kp_attempts) + list(kp_errors))):
@@ -226,7 +262,7 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     knowledge_points.sort(key=lambda x: x["mastery"])
 
     from .diagnosis import present_error
-    stubborn_list = [e for e in errors if e.is_stubborn]
+    stubborn_list = _student_stubborn_errors(db, student.id, visible_only)
     stubborn_step_ids = list({e.step_id for e in stubborn_list if e.step_id is not None})
     step_text_by_id = {}
     for start in range(0, len(stubborn_step_ids), 500):
@@ -244,24 +280,22 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
             "created_at": e.created_at,
         })
 
-    recent_error_ids = [e.id for e in errors[:5]]
-    recent_errors_by_id = {}
-    if recent_error_ids:
-        recent_errors_by_id = {
-            error.id: error
-            for error in db.query(Error)
-            .options(joinedload(Error.step).load_only(Step.id, Step.seq, Step.text))
-            .filter(Error.id.in_(recent_error_ids))
-            .all()
-        }
+    recent_errors = _student_error_query(
+        db, student.id, visible_only,
+    ).options(
+        joinedload(Error.step).load_only(Step.id, Step.seq, Step.text)
+    ).order_by(
+        Error.created_at.desc(), Error.id.desc(),
+    ).limit(5).all()
     recent_errors = [
-        present_error(recent_errors_by_id[error_id], db, recent_errors_by_id[error_id].step)
-        for error_id in recent_error_ids
-        if error_id in recent_errors_by_id
+        present_error(error, db, error.step) for error in recent_errors
     ]
 
     # v0.9.1：建议改本地模板拼装（见 _profile_suggestion），画像接口不再同步等 LLM
-    suggestion = _profile_suggestion(db, student, knowledge_points, stubborn_errors, errors)
+    suggestion = _profile_suggestion(
+        student, knowledge_points, stubborn_kps, total_errors,
+        corrected_count, pending_kps,
+    )
 
     return {
         "student": {"id": student.id, "name": student.name,
