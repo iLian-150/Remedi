@@ -120,21 +120,6 @@ def _message_chunk_text(msg) -> str:
     return ""
 
 
-def _response_text(content) -> str:
-    """把 OpenAI 兼容接口的文本内容归一化；忽略非文本响应块。"""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(str(block.get("text", "")))
-            elif isinstance(block, str):
-                parts.append(block)
-        return "".join(parts)
-    return ""
-
-
 def agent_reply_stream(db: Session, student: User,
                        history: List[BaseMessage], user_text: str,
                        safe_tools_only: bool = False):
@@ -160,15 +145,11 @@ def agent_reply_stream(db: Session, student: User,
     tool_names: dict[int, str] = {}
     reply = ""
 
-    def direct_photo_explanation() -> str:
-        """不依赖 LangChain 流式解析、工具或历史消息，直接讲解本次题目。"""
+    def direct_photo_explanation():
+        """LangGraph 失败时绕过工具链，仍从模型 SSE 流逐块讲解本次题目。"""
         from ..services.providers import get_provider
 
-        content = get_provider()._chat(system, user_text, temperature=0.5)
-        reply = _response_text(content).strip()
-        if not reply:
-            raise ValueError("模型直接讲解未返回文本内容")
-        return reply
+        yield from get_provider().stream_chat_answer(system, user_text, temperature=0.5)
 
     try:
         from langgraph.graph import END, START, StateGraph
@@ -253,24 +234,41 @@ def agent_reply_stream(db: Session, student: User,
 
         # 图片识别和批改结果已经包含在 user_text 中；历史错题查询是辅助能力，
         # 不能让工具绑定、工具执行或旧聊天上下文阻断学生获得本题讲解。
-        logger.exception("照片讲解的 LangGraph 工具链失败，改用非流式直接讲解")
+        logger.exception("照片讲解的 LangGraph 工具链失败，改用直接流式讲解")
         try:
             fallback_started_at = perf_counter()
-            fallback_reply = direct_photo_explanation()
-            logger.info("照片讲解直接兜底完成（耗时 %.2f 秒）", perf_counter() - fallback_started_at)
-            streamed_reply = "".join(reply_parts).strip()
-            if streamed_reply and fallback_reply.startswith(streamed_reply):
-                remainder = fallback_reply[len(streamed_reply):]
-            elif streamed_reply:
-                remainder = "\n\n补充讲解：\n" + fallback_reply
-            else:
-                remainder = fallback_reply
-            if remainder:
-                yield remainder
-                reply_parts.append(remainder)
+            streamed_reply = "".join(reply_parts)
+            matched = 0
+            diverged = False
+            fallback_had_text = False
+            for chunk in direct_photo_explanation():
+                if not chunk:
+                    continue
+                fallback_had_text = True
+                if not streamed_reply:
+                    yield chunk
+                    reply_parts.append(chunk)
+                    continue
+                for character in chunk:
+                    if not diverged and matched < len(streamed_reply) and character == streamed_reply[matched]:
+                        matched += 1
+                        continue
+                    if not diverged:
+                        diverged = True
+                        if matched < len(streamed_reply):
+                            supplement = "\n\n补充讲解：\n"
+                            yield supplement
+                            reply_parts.append(supplement)
+                    yield character
+                    reply_parts.append(character)
+            if not fallback_had_text:
+                raise ValueError("模型直接讲解未返回文本内容")
+            logger.info("照片讲解直接流式兜底完成（耗时 %.2f 秒）", perf_counter() - fallback_started_at)
             reply = "".join(reply_parts).strip()
+            if not reply:
+                raise ValueError("模型直接讲解未返回文本内容")
         except Exception:
-            logger.exception("照片讲解的非流式直接生成兜底也失败")
+            logger.exception("照片讲解的直接流式兜底也失败")
             raise
 
     names = list(dict.fromkeys(name for name in tool_names.values() if name))

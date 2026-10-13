@@ -138,6 +138,54 @@ class DeepSeekProvider(LLMProvider):
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
 
+    def stream_chat_answer(self, system: str, user: str,
+                           temperature: float = 0.2):
+        """以 OpenAI 兼容 SSE 流式返回文本，供讲解兜底路径保持边生成边输出。"""
+        import requests
+        from ..config import settings
+
+        response = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={
+                "model": self.model,
+                "temperature": temperature,
+                "stream": True,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            },
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            stream=True,
+        )
+        try:
+            response.raise_for_status()
+            for raw_line in response.iter_lines(chunk_size=1):
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8", errors="replace") if isinstance(raw_line, bytes) else raw_line
+                if not line.startswith("data:"):
+                    continue
+                payload_text = line[5:].strip()
+                if not payload_text or payload_text == "[DONE]":
+                    continue
+                payload = json.loads(payload_text)
+                choices = payload.get("choices") or []
+                if not choices:
+                    continue
+                content = (choices[0].get("delta") or {}).get("content")
+                if isinstance(content, str) and content:
+                    yield content
+                elif isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text = str(block.get("text", ""))
+                            if text:
+                                yield text
+        finally:
+            response.close()
+
     @staticmethod
     def _extract_json(text: str) -> Dict:
         m = re.search(r"\{.*\}", text, re.S)
