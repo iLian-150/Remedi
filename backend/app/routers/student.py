@@ -1045,6 +1045,7 @@ def _visual_question_context(question: Question) -> str:
 @router.post("/photo-review", response_model=PhotoReviewOut, summary="识别题目图片并按作答情况分流")
 async def photo_review(
     file: UploadFile = File(...),
+    model_file: Optional[UploadFile] = File(default=None),
     question_id: Optional[int] = Form(default=None),
     question_context: str = Form(default=""),
     save_to_chat: bool = Form(default=False),
@@ -1062,6 +1063,17 @@ async def photo_review(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    model_data = data
+    model_content_type = file.content_type or "image/jpeg"
+    if model_file is not None:
+        if model_file.content_type not in _PHOTO_TYPES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "模型处理图片格式无效")
+        model_data = await model_file.read()
+        if not model_data:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "模型处理图片为空，请重新上传")
+        if len(model_data) > _PHOTO_MAX_BYTES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "模型处理图片大小不能超过 10MB")
+        model_content_type = model_file.content_type or "image/jpeg"
     received_at = datetime.now()
 
     question = None
@@ -1113,7 +1125,7 @@ async def photo_review(
     vision_started_at = perf_counter()
     try:
         recognition = await run_in_threadpool(
-            get_provider().diagnose_homework_image, data, file.content_type, context
+            get_provider().diagnose_homework_image, model_data, model_content_type, context
         )
     except Exception as exc:
         logger.exception("学生图片诊断模型调用失败（student_id=%s）", current.id)
@@ -1126,7 +1138,10 @@ async def photo_review(
             failure_message,
         ) from exc
     vision_elapsed = perf_counter() - vision_started_at
-    logger.info("照片视觉识别完成（耗时 %.2f 秒）", vision_elapsed)
+    logger.info(
+        "照片视觉识别完成（耗时 %.2f 秒，原图 %d 字节，模型输入 %d 字节）",
+        vision_elapsed, len(data), len(model_data),
+    )
     confidence = normalize_confidence(recognition.get("confidence", 0.0))
     recognized_subject = question.subject if question else str(
         recognition.get("subject", "other") or "other"

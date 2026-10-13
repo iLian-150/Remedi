@@ -756,7 +756,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 3.31 POST /api/student/photo-review —— 按图片作答情况答疑或诊断
 
-权限：学生。请求为 `multipart/form-data`，必填 `file`（jpg / png / webp，≤10MB），可选 `question_id`（学生已选定的作业数学题）。学习助手可额外传 `save_to_chat=true`、`chat_session_id` 和 `chat_prompt`；服务端会在开始识别前保存照片提问，并在识别结束或失败后保存文字结果。返回 `session_id` 供前端继续写入同一会话。视觉模型调用失败时返回 `502`；若照片已附加到会话，也会保存可恢复识别的提示。照片原图仍按既有流程处理，不作为聊天历史附件恢复。视觉模型同时识别知识点，服务端在讲解模型调用前查询历史同类错题并返回 `related_mistake`，讲解回复可直接关联该错题。
+权限：学生。请求为 `multipart/form-data`，必填 `file`（jpg / png / webp，≤10MB），可选 `model_file`（jpg / png / webp，≤10MB；仅用于视觉模型识别）、`question_id`（学生已选定的作业数学题）。前端可将大图压缩后作为 `model_file` 发送；服务端仍保存和展示 `file` 原图，教师审核与学生查看不受压缩影响。学习助手可额外传 `save_to_chat=true`、`chat_session_id` 和 `chat_prompt`；服务端会在开始识别前保存照片提问，并在识别结束或失败后保存文字结果。返回 `session_id` 供前端继续写入同一会话。视觉模型调用失败时返回 `502`；若照片已附加到会话，也会保存可恢复识别的提示。照片原图仍按既有流程处理，不作为聊天历史附件恢复。视觉模型同时识别知识点，服务端在讲解模型调用前查询历史同类错题并返回 `related_mistake`，讲解回复可直接关联该错题。
 
 无学生作答证据时返回 `mode="answer"`、识别题干和 `capture_id`；前端将题干交给学习助手解答，但此时不创建 `Submission` / `Error`，也不展示为错题。学生点「加入错题本」或在同一对话里明确要求收录后，调用 3.32。
 

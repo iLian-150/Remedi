@@ -2,6 +2,7 @@
 // 路径与字段严格对齐 docs/api-contract.md v0.1.0
 import { defineStore } from 'pinia'
 import api from '../api/client'
+import { visionImageForModel } from '../utils/visionImage'
 import { useAuthStore } from './auth'
 import type {
   AgentChatResult,
@@ -196,6 +197,8 @@ export const useStudentStore = defineStore('student', {
     ): Promise<PhotoReviewResult> {
       const form = new FormData()
       form.append('file', file)
+      const modelFile = await visionImageForModel(file)
+      if (modelFile !== file) form.append('model_file', modelFile)
       if (questionId) form.append('question_id', String(questionId))
       if (questionContext) form.append('question_context', questionContext)
       if (saveToChat) {
@@ -227,7 +230,7 @@ export const useStudentStore = defineStore('student', {
     ): Promise<string> {
       const auth = useAuthStore()
       const form = new FormData()
-      form.append('file', file)
+      form.append('file', await visionImageForModel(file))
       form.append('question', question)
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/vision/stream' }), {
         method: 'POST',
