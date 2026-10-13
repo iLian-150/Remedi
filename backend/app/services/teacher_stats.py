@@ -3,7 +3,7 @@
 # 一份作业「全部完成」= 作业内每道题都已提交。
 from typing import Dict, List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 
 from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
 
@@ -95,11 +95,28 @@ def latest_assignment(db) -> Optional[Assignment]:
 
 def class_overview(db) -> Dict:
     """班级总览：学生数 / 作业份数 / 累计提交数 / 累计错误数。"""
+    counts = db.execute(
+        select(
+            select(func.count(User.id))
+            .where(User.role == "student")
+            .scalar_subquery()
+            .label("student_count"),
+            select(func.count(Assignment.id))
+            .scalar_subquery()
+            .label("assignment_count"),
+            select(func.count(Submission.id))
+            .scalar_subquery()
+            .label("submission_count"),
+            select(func.count(Error.id))
+            .scalar_subquery()
+            .label("error_count"),
+        )
+    ).one()
     return {
-        "student_count": db.query(User).filter(User.role == "student").count(),
-        "assignment_count": db.query(Assignment).count(),
-        "submission_count": db.query(Submission).count(),
-        "error_count": db.query(Error).count(),
+        "student_count": counts.student_count,
+        "assignment_count": counts.assignment_count,
+        "submission_count": counts.submission_count,
+        "error_count": counts.error_count,
     }
 
 
