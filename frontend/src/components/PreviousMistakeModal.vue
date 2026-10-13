@@ -1,9 +1,9 @@
 <template>
   <div v-if="mistake" class="mistake-overlay" role="presentation" @click.self="emit('close')">
-    <section class="mistake-modal" role="dialog" aria-modal="true" aria-label="原题与解题过程">
+    <section ref="modalRef" class="mistake-modal" role="dialog" aria-modal="true" aria-label="原题与解题过程" tabindex="-1">
       <header class="mistake-header">
         <div class="mistake-brand"><span>知</span><strong>Remedi</strong><small>原题与解题过程</small></div>
-        <button type="button" class="mistake-close" aria-label="关闭" @click="emit('close')">×</button>
+        <button ref="closeButtonRef" type="button" class="mistake-close" aria-label="关闭" @click="emit('close')">×</button>
       </header>
 
       <div class="mistake-meta">
@@ -71,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { RelatedMistake, StudentMistake, SubmissionResult } from '../api/types'
 import { useStudentStore } from '../stores/student'
 import { STEP_STATUS_TEXT } from '../api/types'
@@ -82,12 +82,58 @@ const student = useStudentStore()
 const submission = ref<SubmissionResult | null>(null)
 const submissionLoading = ref(false)
 const submissionError = ref('')
+const modalRef = ref<HTMLElement | null>(null)
+const closeButtonRef = ref<HTMLButtonElement | null>(null)
 let requestSeq = 0
 const originalImageUrl = computed(() => {
   if (!props.mistake || !('image_url' in props.mistake) || !props.mistake.image_url) return ''
   const base = import.meta.env.VITE_API_BASE_URL || ''
   return base ? `${base.replace(/\/+$/, '')}${props.mistake.image_url}` : props.mistake.image_url
 })
+
+watch(() => Boolean(props.mistake), (isOpen, _wasOpen, onCleanup) => {
+  if (!isOpen) return
+  const previousOverflow = document.body.style.overflow
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  document.body.style.overflow = 'hidden'
+
+  const handleKeydown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      emit('close')
+      return
+    }
+    if (event.key !== 'Tab') return
+
+    const modal = modalRef.value
+    if (!modal) return
+    const focusable = Array.from(modal.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ))
+    if (!focusable.length) {
+      event.preventDefault()
+      modal.focus()
+      return
+    }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (!modal.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) {
+      event.preventDefault()
+      ;(event.shiftKey ? last : first).focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  document.addEventListener('keydown', handleKeydown)
+  void nextTick(() => closeButtonRef.value?.focus())
+  onCleanup(() => {
+    document.removeEventListener('keydown', handleKeydown)
+    document.body.style.overflow = previousOverflow
+    if (previousFocus?.isConnected) previousFocus.focus()
+  })
+}, { immediate: true })
 
 watch(() => props.mistake?.submission_id, async (submissionId) => {
   const seq = ++requestSeq
