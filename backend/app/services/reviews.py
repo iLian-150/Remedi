@@ -6,7 +6,7 @@ from datetime import datetime
 import math
 from typing import Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import tuple_
+from sqlalchemy import case, func, tuple_
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Error, Notification, Question, Step, Submission, SubmissionReview
@@ -66,6 +66,29 @@ def visual_confidence_signals(image_confidence, visual_steps) -> List[float]:
     return [normalize_confidence(raw) for raw in raw_values]
 
 
+def _step_counts_by_submission(
+    db: Session, submission_ids: Iterable[int],
+) -> dict[int, Tuple[int, int]]:
+    """分块按提交聚合有效步骤数，避免全量回传步骤状态或超过数据库参数上限。"""
+    ids = list(dict.fromkeys(submission_ids))
+    counts_by_submission = {}
+    for start in range(0, len(ids), 500):
+        rows = db.query(
+            Step.submission_id,
+            func.sum(case((Step.status == "ok", 1), else_=0)),
+            func.count(Step.id),
+        ).filter(
+            Step.submission_id.in_(ids[start:start + 500]),
+            Step.seq >= 1,
+            Step.status.in_(("ok", "error", "unparseable")),
+        ).group_by(Step.submission_id).all()
+        counts_by_submission.update({
+            submission_id: (int(correct or 0), int(total or 0))
+            for submission_id, correct, total in rows
+        })
+    return counts_by_submission
+
+
 def assignment_accuracy_context(
     db: Session, submission: Submission
 ) -> Optional[Tuple[List[Submission], int, int]]:
@@ -97,14 +120,12 @@ def assignment_accuracy_context(
     )
     latest_by_question = {item.question_id: item for item in submissions}
     latest_submissions = list(latest_by_question.values())
-    submission_ids = [item.id for item in latest_submissions]
-    statuses = db.query(Step.status).filter(
-        Step.submission_id.in_(submission_ids),
-        Step.seq >= 1,
-        Step.status.in_(("ok", "error", "unparseable")),
-    ).all() if submission_ids else []
-    correct = sum(1 for row in statuses if row[0] == "ok")
-    return latest_submissions, correct, len(statuses)
+    step_counts = _step_counts_by_submission(
+        db, (item.id for item in latest_submissions)
+    )
+    correct = sum(counts[0] for counts in step_counts.values())
+    total = sum(counts[1] for counts in step_counts.values())
+    return latest_submissions, correct, total
 
 
 def assignment_accuracy_contexts(
@@ -148,21 +169,7 @@ def assignment_accuracy_contexts(
         for rows in latest_submissions_by_key.values()
         for submission in rows
     }
-    statuses_by_submission = {}
-    latest_id_list = list(latest_ids)
-    for start in range(0, len(latest_id_list), 500):
-        id_chunk = latest_id_list[start:start + 500]
-        for submission_id, status in db.query(
-            Step.submission_id, Step.status
-        ).filter(
-            Step.submission_id.in_(id_chunk),
-            Step.seq >= 1,
-            Step.status.in_(("ok", "error", "unparseable")),
-        ).all():
-            counts = statuses_by_submission.setdefault(submission_id, [0, 0])
-            counts[1] += 1
-            if status == "ok":
-                counts[0] += 1
+    statuses_by_submission = _step_counts_by_submission(db, latest_ids)
 
     for key, latest_submissions in latest_submissions_by_key.items():
         correct = total = 0
