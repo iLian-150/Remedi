@@ -230,23 +230,33 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
 @router.get("/assignments/{assignment_id}", response_model=AssignmentDetail, summary="作业详情")
 def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_student)):
-    a = db.query(Assignment).filter(Assignment.id == assignment_id).first()
-    creator = db.query(User).filter(User.id == a.created_by).first() if a and a.created_by else None
-    if not a or (creator and creator.role == "student"):
+    a = db.query(Assignment).options(load_only(
+        Assignment.id, Assignment.created_by, Assignment.title, Assignment.description,
+    )).filter(Assignment.id == assignment_id).first()
+    creator_role = db.query(User.role).filter(
+        User.id == a.created_by
+    ).scalar() if a and a.created_by else None
+    if not a or creator_role == "student":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     questions = (
-        db.query(Question).filter(Question.assignment_id == a.id)
+        db.query(Question).options(load_only(
+            Question.id, Question.subject, Question.knowledge_point,
+            Question.stem, Question.order_num,
+        )).filter(Question.assignment_id == a.id)
         .order_by(Question.order_num, Question.id).all()
     )
     # v0.13.1：大题分组（成员映射 + 大题列表）
     members = (
-        db.query(QuestionGroupMember)
-        .filter(QuestionGroupMember.question_id.in_([q.id for q in questions])).all()
+        db.query(QuestionGroupMember.question_id, QuestionGroupMember.group_id)
+        .join(Question, Question.id == QuestionGroupMember.question_id)
+        .filter(Question.assignment_id == a.id)
+        .all()
         if questions else []
     )
-    group_by_qid = {m.question_id: m.group_id for m in members}
+    group_by_qid = {question_id: group_id for question_id, group_id in members}
     groups = (
-        db.query(QuestionGroup).filter(QuestionGroup.assignment_id == a.id)
+        db.query(QuestionGroup.id, QuestionGroup.stem, QuestionGroup.order_num)
+        .filter(QuestionGroup.assignment_id == a.id)
         .order_by(QuestionGroup.order_num, QuestionGroup.id).all()
     )
     return AssignmentDetail(
@@ -259,7 +269,8 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
             for q in questions
         ],
         groups=[
-            {"id": g.id, "stem": g.stem, "order_num": g.order_num} for g in groups
+            {"id": group_id, "stem": stem, "order_num": order_num}
+            for group_id, stem, order_num in groups
         ],
         **assignment_ext_fields(db, a.id),
     )
