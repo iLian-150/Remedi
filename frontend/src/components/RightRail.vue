@@ -293,6 +293,8 @@ async function loadNotes() {
     unread.value = res.unread_count
   } catch (e) {
     console.error(e)
+    // 进入提醒场景时 App 复用了列表响应中的未读数；列表失败则退回轻量计数接口。
+    void student.refreshUnread()
   }
 }
 

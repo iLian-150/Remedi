@@ -231,16 +231,25 @@ const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
 // 其余页面显示老师提醒。教师仅作业管理页放日历。
 type RailScene = 'notes' | 'mistakes' | 'calendar' | 'corrections' | 'timeline'
 type RailMode = RailScene | 'none'
-const railMode = computed<RailMode>(() => {
-  if (auth.role === 'teacher') {
-    return route.path === '/teacher/assignments' ? 'calendar' : 'none'
+function railModeForPath(
+  path: string,
+  role: 'teacher' | 'student' | '',
+  authenticated: boolean
+): RailMode {
+  if (!authenticated) return 'none'
+  if (role === 'teacher') {
+    return path === '/teacher/assignments' ? 'calendar' : 'none'
   }
-  if (route.path === '/student/mistakes') return 'mistakes'
-  if (route.path === '/student/assignments') return 'calendar'
-  if (route.path === '/student/corrections') return 'corrections'
-  if (route.path === '/student/report' || route.path.startsWith('/student/report/')) return 'timeline'
+  if (role !== 'student' || !path.startsWith('/student/')) return 'none'
+  if (path === '/student/mistakes') return 'mistakes'
+  if (path === '/student/assignments') return 'calendar'
+  if (path === '/student/corrections') return 'corrections'
+  if (path === '/student/report' || path.startsWith('/student/report/')) return 'timeline'
   return 'notes'
-})
+}
+const railMode = computed<RailMode>(() =>
+  railModeForPath(route.path, auth.role, Boolean(auth.token))
+)
 
 // ---------- 右侧栏展开状态（v0.8.2）：按场景分键存 localStorage，互不串扰 ----------
 // notes 与 calendar 各记各的展开状态；切换场景（路由变化）时读入该场景的记忆值。
@@ -287,8 +296,11 @@ function setRail(open: boolean) {
 // 待审核数由 teacher store 持有；审核页自身拉完整队列时会一并回写总数。
 watch(
   () => route.path,
-  () => {
-    if (auth.role === 'student') void student.refreshUnread()
+  (path, previousPath) => {
+    const mode = railModeForPath(path, auth.role, Boolean(auth.token))
+    const previousMode = railModeForPath(previousPath ?? '', auth.role, Boolean(auth.token))
+    const enteringNotesRail = mode === 'notes' && previousMode !== 'notes'
+    if (auth.role === 'student' && !enteringNotesRail) void student.refreshUnread()
     if (auth.role === 'teacher' && route.path !== '/teacher/reviews') {
       void teacher.refreshPendingReviewCount()
     }

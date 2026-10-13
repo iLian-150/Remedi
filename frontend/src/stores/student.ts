@@ -743,7 +743,7 @@ export const useStudentStore = defineStore('student', {
     resetUnread() {
       this.unreadCount = 0
     },
-    /** 刷新未读数（v0.8.2）：只取计数不取列表，进任意学生页面时由 App.vue 调用 */
+    /** 刷新未读数（v0.8.2）：只取计数不取列表，App 在提醒列表未同步计数时调用 */
     async refreshUnread() {
       try {
         await this.fetchUnreadCount()
