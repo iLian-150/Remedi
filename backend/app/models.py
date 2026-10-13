@@ -169,9 +169,17 @@ class ChatSession(Base):
     旧会话保留在历史列表里可找回、可单独删除。标题默认「新对话」，
     第一条用户消息到达时自动改为该消息前 20 字。"""
     __tablename__ = "chat_sessions"
+    __table_args__ = (
+        Index(
+            "ix_chat_sessions_user_updated_id",
+            "user_id",
+            "updated_at",
+            "id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(128), nullable=False, default="新对话")
     message_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
