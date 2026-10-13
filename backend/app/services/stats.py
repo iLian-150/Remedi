@@ -430,8 +430,8 @@ def _fixed_error_ids(db, student: User, error_ids: List[int]):
 def _passed_verification_kps(db, student_id: int):
     """该生已通过二次验证的知识点集合（verifications.status = passed）。"""
     return {
-        v.knowledge_point
-        for v in db.query(Verification).filter(
+        knowledge_point
+        for (knowledge_point,) in db.query(Verification.knowledge_point).filter(
             Verification.student_id == student_id, Verification.status == "passed"
         ).all()
     }
@@ -573,8 +573,23 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
 
 def class_repair_rate(db) -> Dict:
     """教师端：班级知识修复率 + 各知识点修复率（只读聚合，不改任何已有口径）。"""
-    students = db.query(User).filter(User.role == "student").order_by(User.id).all()
-    if not students:
+    # 只取聚合所需字段；Error 还有 detail/teacher_note 等长文本，
+    # Verification.variant_json 也可能很大，不能为计数把整行载入 ORM。
+    errors_by_student: Dict[int, List] = {}
+    for error in (
+        db.query(
+            Submission.student_id.label("student_id"),
+            Error.id.label("id"),
+            Error.knowledge_point.label("knowledge_point"),
+            Error.is_stubborn.label("is_stubborn"),
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(User, User.id == Submission.student_id)
+        .filter(User.role == "student")
+        .all()
+    ):
+        errors_by_student.setdefault(error.student_id, []).append(error)
+    if not errors_by_student:
         return {
             "class_repair_rate": 0.0,
             "students_with_errors": 0,
@@ -582,15 +597,6 @@ def class_repair_rate(db) -> Dict:
             "fixed_knowledge_point_pairs": 0,
             "knowledge_points": [],
         }
-    errors_by_student: Dict[int, List[Error]] = {}
-    for student_id, error in (
-        db.query(Submission.student_id, Error)
-        .join(Submission, Submission.id == Error.submission_id)
-        .join(User, User.id == Submission.student_id)
-        .filter(User.role == "student")
-        .all()
-    ):
-        errors_by_student.setdefault(student_id, []).append(error)
 
     fixed_by_student: Dict[int, set] = {}
     for student_id, error_id in (
@@ -614,13 +620,10 @@ def class_repair_rate(db) -> Dict:
     fixed_pairs = 0
     students_with_errors = 0
     per_kp: Dict[str, Dict] = {}
-    for st in students:
-        errs = errors_by_student.get(st.id, [])
-        if not errs:
-            continue
+    for student_id, errs in errors_by_student.items():
         students_with_errors += 1
-        fixed_ids = fixed_by_student.get(st.id, set())
-        passed_kps = passed_by_student.get(st.id, set())
+        fixed_ids = fixed_by_student.get(student_id, set())
+        passed_kps = passed_by_student.get(student_id, set())
         by_kp: Dict[str, List] = {}
         for e in errs:
             by_kp.setdefault(e.knowledge_point, []).append(e)
