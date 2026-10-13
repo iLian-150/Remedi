@@ -35,6 +35,25 @@ export interface ErrorFilter {
   offset?: number
 }
 
+const inFlightAssignmentRequests = new Map<string, Promise<TeacherAssignment[]>>()
+
+function coalesceAssignmentRequest(
+  userId: number | undefined,
+  load: () => Promise<TeacherAssignment[]>
+): Promise<TeacherAssignment[]> {
+  const key = userId == null ? 'anonymous' : String(userId)
+  const existing = inFlightAssignmentRequests.get(key)
+  if (existing) return existing
+
+  const request = Promise.resolve().then(load).finally(() => {
+    if (inFlightAssignmentRequests.get(key) === request) {
+      inFlightAssignmentRequests.delete(key)
+    }
+  })
+  inFlightAssignmentRequests.set(key, request)
+  return request
+}
+
 export const useTeacherStore = defineStore('teacher', {
   state: () => ({
     /** 作业管理页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
@@ -113,9 +132,12 @@ export const useTeacherStore = defineStore('teacher', {
       return data
     },
     // 4.8 已发布作业列表（含每题提交人数，v0.2.0）
-    async fetchTeacherAssignments(): Promise<TeacherAssignment[]> {
-      const { data } = await api.get<PageResult<TeacherAssignment>>('/api/teacher/assignments')
-      return data.items
+    fetchTeacherAssignments(): Promise<TeacherAssignment[]> {
+      const userId = useAuthStore().user?.id
+      return coalesceAssignmentRequest(userId, async () => {
+        const { data } = await api.get<PageResult<TeacherAssignment>>('/api/teacher/assignments')
+        return data.items
+      })
     },
     // 4.7 发布作业（v0.2.0）
     async createAssignment(payload: TeacherAssignmentInput): Promise<TeacherAssignment> {
