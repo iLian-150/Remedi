@@ -43,7 +43,7 @@
           <template v-if="mistake.source_kind !== 'student_saved'">
             <div class="mistake-answer-actions">
               <button v-if="!answerRevealed" type="button" class="mistake-answer-reveal" @click="answerRevealed = true">自己先想一想，想看时点这里：查看正确答案与解题过程</button>
-              <button type="button" class="mistake-original-button" @click="$emit('review', mistake)">查看原题 <AppIcon name="arrow-right" :size="13"/></button>
+              <button type="button" class="mistake-original-button" aria-label="查看这道错题的原题" @click="$emit('review', mistake)"><span>查看原题</span><AppIcon name="arrow-right" :size="13"/></button>
             </div>
             <template v-if="answerRevealed">
               <div class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
@@ -205,8 +205,9 @@ async function sendQuestion() {
 .mistake-answer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
 .mistake-answer-reveal { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: 9px; background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
 .mistake-answer-reveal:hover { border-color: var(--primary); background: var(--primary-50); }
-.mistake-original-button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--primary); font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
-.mistake-original-button:hover { border-color: var(--primary); background: var(--primary-50); }
+.mistake-point-summary-detail .mistake-answer-actions .mistake-original-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-height: 36px; margin-left: auto; padding: 8px 12px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; cursor: pointer; }
+.mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:hover { border-color: var(--primary-dark, var(--primary)); background: var(--primary-dark, var(--primary)); }
+.mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 2px; }
 .mistake-point-transcript { overflow-y: auto; }
 .mistake-point-message p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mistake-point-composer textarea { resize: vertical; }
