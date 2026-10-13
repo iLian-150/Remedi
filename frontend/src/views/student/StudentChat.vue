@@ -1317,7 +1317,7 @@ onMounted(async () => {
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
 .ai-message-text { display: flex; align-items: flex-start; gap: 8px; line-height: 1.65; }
-.ai-message-markdown { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.ai-message-markdown { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .ai-message-markdown :deep(:first-child) { margin-top: 0; }
 .ai-message-markdown :deep(:last-child) { margin-bottom: 0; }
 .ai-message-markdown :deep(p) { margin: 0 0 0.4em; }
