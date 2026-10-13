@@ -355,7 +355,7 @@ class StudentQuestionCapture(Base):
     image_path = Column(String(256), nullable=False)
     explanation = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
-    saved_at = Column(DateTime, nullable=True, index=True)
+    saved_at = Column(DateTime, nullable=True)
     archived_at = Column(DateTime, nullable=True)
 
 
