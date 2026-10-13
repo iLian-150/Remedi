@@ -952,16 +952,22 @@ def my_mistakes(
                 if submission.id in image_path_by_submission else None
             ),
         ))
-    captures = (
-        db.query(StudentQuestionCapture)
-        .filter(StudentQuestionCapture.student_id == current.id,
-                StudentQuestionCapture.saved_at.isnot(None))
-        .order_by(StudentQuestionCapture.created_at.desc(), StudentQuestionCapture.id.desc())
-        .all()
+    captures_query = db.query(StudentQuestionCapture).filter(
+        StudentQuestionCapture.student_id == current.id,
+        StudentQuestionCapture.saved_at.isnot(None),
     )
+    if archive_filter is not None:
+        archived_at_match = (
+            StudentQuestionCapture.archived_at.isnot(None)
+            if archive_filter
+            else StudentQuestionCapture.archived_at.is_(None)
+        )
+        captures_query = captures_query.filter(archived_at_match)
+    captures = captures_query.order_by(
+        StudentQuestionCapture.created_at.desc(),
+        StudentQuestionCapture.id.desc(),
+    ).all()
     for capture in captures:
-        if archive_filter is not None and (capture.archived_at is not None) != archive_filter:
-            continue
         result.append(StudentMistakeOut(
             id=-capture.id,
             submission_id=0,
