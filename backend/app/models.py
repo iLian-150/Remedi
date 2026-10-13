@@ -80,6 +80,12 @@ Index(
     Submission.submitted_at.desc(),
     Submission.id.desc(),
 )
+Index(
+    "ix_submissions_student_submitted_latest",
+    Submission.student_id,
+    Submission.submitted_at.desc(),
+    Submission.id.desc(),
+)
 
 
 class Step(Base):
