@@ -98,9 +98,17 @@ Index(
 
 class Step(Base):
     __tablename__ = "steps"
+    __table_args__ = (
+        Index(
+            "ix_steps_submission_seq_id",
+            "submission_id",
+            "seq",
+            "id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False)
     seq = Column(Integer, nullable=False, comment="0=题干，1..n=学生作答步骤")
     text = Column(Text, nullable=False)
     status = Column(String(16), nullable=False, default="pending",

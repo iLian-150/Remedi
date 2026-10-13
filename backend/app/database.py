@@ -48,6 +48,7 @@ def init_db():
     # create_all 不会给已存在的表补建后来添加的索引；启动时显式幂等创建热查询表索引。
     for model in (
         models.Submission,
+        models.Step,
         models.Notification,
         models.SubmissionReview,
         models.Correction,
@@ -64,5 +65,6 @@ def init_db():
         connection.execute(text("DROP INDEX IF EXISTS ix_essays_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_verifications_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_questions_assignment_id"))
+        connection.execute(text("DROP INDEX IF EXISTS ix_steps_submission_id"))
     for index in models.ChatSessionMessage.__table__.indexes:
         index.create(bind=engine, checkfirst=True)
