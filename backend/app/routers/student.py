@@ -794,7 +794,7 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
                 "archived_at": capture.archived_at}
 
     rows = (
-        db.query(Error, Question)
+        db.query(Error.id, Error.error_type, Error.knowledge_point, Question.subject)
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
         .filter(Submission.student_id == current.id, Question.assignment_id == assignment_id)
@@ -803,20 +803,27 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
     if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业没有可整理的错题")
 
-    error_ids = [error.id for error, _ in rows]
-    archive_states = db.query(StudentMistakeArchive).filter(
-        StudentMistakeArchive.student_id == current.id,
-        StudentMistakeArchive.error_id.in_(error_ids),
-    ).all()
-    archived_by_error = {state.error_id: state for state in archive_states}
+    archived_error_ids = {
+        error_id
+        for error_id, in db.query(StudentMistakeArchive.error_id)
+        .join(Error, Error.id == StudentMistakeArchive.error_id)
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
+        .filter(
+            StudentMistakeArchive.student_id == current.id,
+            Submission.student_id == current.id,
+            Question.assignment_id == assignment_id,
+        )
+        .all()
+    }
 
     if body.archived:
-        active_rows = [(error, question) for error, question in rows if error.id not in archived_by_error]
+        active_rows = [row for row in rows if row[0] not in archived_error_ids]
         if not active_rows:
             return {"assignment_id": assignment_id, "archived_ids": []}
         categories = {
-            _mistake_category(question.subject, error.error_type, error.knowledge_point)[0]
-            for error, question in active_rows
+            _mistake_category(subject, error_type, knowledge_point)[0]
+            for _, error_type, knowledge_point, subject in active_rows
         }
         reviewed = {
             item.category_key for item in db.query(StudentMistakeCategoryReview)
@@ -826,7 +833,7 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
         if remaining:
             raise HTTPException(status.HTTP_409_CONFLICT, f"还有 {len(remaining)} 类错误没有标记为已学习。")
         now = datetime.now()
-        archived_ids = [error.id for error, _ in active_rows]
+        archived_ids = [error_id for error_id, _, _, _ in active_rows]
         db.add_all(StudentMistakeArchive(student_id=current.id, error_id=error_id, archived_at=now)
                     for error_id in archived_ids)
         _record_mistake_event(db, current.id, assignment_id, "mistake_assignment_archived",
@@ -837,18 +844,20 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
     occurrence_ids = list(dict.fromkeys(body.occurrence_ids))
     if not occurrence_ids:
         return {"assignment_id": assignment_id, "archived_ids": []}
-    restore_states = (
-        db.query(StudentMistakeArchive)
-        .join(Error, StudentMistakeArchive.error_id == Error.id)
-        .join(Submission, Error.submission_id == Submission.id)
-        .join(Question, Submission.question_id == Question.id)
-        .filter(
-            StudentMistakeArchive.student_id == current.id,
-            StudentMistakeArchive.error_id.in_(occurrence_ids),
-            Submission.student_id == current.id,
-            Question.assignment_id == assignment_id,
-        ).all()
-    )
+    restore_states = []
+    for start in range(0, len(occurrence_ids), 500):
+        restore_states.extend(
+            db.query(StudentMistakeArchive)
+            .join(Error, StudentMistakeArchive.error_id == Error.id)
+            .join(Submission, Error.submission_id == Submission.id)
+            .join(Question, Submission.question_id == Question.id)
+            .filter(
+                StudentMistakeArchive.student_id == current.id,
+                StudentMistakeArchive.error_id.in_(occurrence_ids[start:start + 500]),
+                Submission.student_id == current.id,
+                Question.assignment_id == assignment_id,
+            ).all()
+        )
     restored_ids = [state.error_id for state in restore_states]
     if restored_ids:
         for state in restore_states:
