@@ -154,11 +154,12 @@ def _student_stubborn_errors(db, student_id: int, visible_only: bool):
     return (
         _student_error_query(db, student_id, visible_only)
         .filter(Error.is_stubborn.is_(True))
+        .outerjoin(Step, Step.id == Error.step_id)
         .with_entities(
             Error.id.label("id"),
             Error.knowledge_point.label("knowledge_point"),
             Error.error_type.label("error_type"),
-            Error.step_id.label("step_id"),
+            Step.text.label("step_text"),
             Error.created_at.label("created_at"),
         )
         .order_by(Error.created_at.desc(), Error.id.desc())
@@ -278,20 +279,13 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
 
     from .diagnosis import present_error
     stubborn_list = _student_stubborn_errors(db, student.id, visible_only)
-    stubborn_step_ids = list({e.step_id for e in stubborn_list if e.step_id is not None})
-    step_text_by_id = {}
-    for start in range(0, len(stubborn_step_ids), 500):
-        for step_id, step_text in db.query(Step.id, Step.text).filter(
-            Step.id.in_(stubborn_step_ids[start:start + 500])
-        ).all():
-            step_text_by_id[step_id] = step_text
     stubborn_errors = []
     for e in stubborn_list:
         stubborn_errors.append({
             "id": e.id,
             "knowledge_point": e.knowledge_point,
             "error_type": e.error_type,
-            "step_text": step_text_by_id.get(e.step_id),
+            "step_text": e.step_text,
             "created_at": e.created_at,
         })
 
