@@ -271,10 +271,14 @@ class Verification(Base):
             "ix_verifications_student_source_error_created",
             "student_id", "source_error_id", "created_at", "id",
         ),
+        Index(
+            "ix_verifications_student_created_id",
+            "student_id", "created_at", "id",
+        ),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     knowledge_point = Column(String(64), nullable=False, index=True)
     source_error_id = Column(Integer, ForeignKey("errors.id"), nullable=True,
                              comment="触发本次验证的错题，可空")
