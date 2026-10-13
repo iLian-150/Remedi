@@ -43,7 +43,7 @@
           <template v-if="mistake.source_kind !== 'student_saved'">
             <div class="mistake-answer-actions">
               <button v-if="!answerRevealed" type="button" class="mistake-answer-reveal" @click="answerRevealed = true">自己先想一想，想看时点这里：查看正确答案与解题过程</button>
-              <button type="button" class="mistake-original-button" title="打开这道错题的原题和批改详情" aria-label="查看这道错题的原题" @click.stop.prevent="$emit('review', mistake)"><span>查看原题</span><AppIcon name="arrow-right" :size="13"/></button>
+              <button type="button" class="mistake-original-button" title="在当前窗口查看原题和批改详情" aria-label="查看这道错题的原题" aria-haspopup="dialog" @click.stop.prevent="$emit('open-original', mistake)"><span>查看原题</span><AppIcon name="arrow-right" :size="13"/></button>
             </div>
             <template v-if="answerRevealed">
               <div class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
@@ -60,7 +60,7 @@
           <strong>同类错误出现在 {{ related.length }} 道错题中</strong>
           <div v-for="item in related" :key="item.id">
             <span>第 {{ item.question_order }} 题 · {{ item.assignment_title }}<template v-if="item.id === mistake.id"> · 当前错题</template></span>
-            <button type="button" @click.stop.prevent="$emit('review', item)">查看原题</button>
+            <button type="button" aria-haspopup="dialog" @click.stop.prevent="$emit('open-original', item)">查看原题</button>
           </div>
         </div>
         <div class="mistake-point-summary-actions">
@@ -118,7 +118,7 @@ defineEmits<{
   close: []
   swap: []
   fullscreen: []
-  review: [mistake: StudentMistake]
+  'open-original': [mistake: StudentMistake]
   study: []
 }>()
 
