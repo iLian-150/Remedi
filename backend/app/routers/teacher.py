@@ -891,32 +891,56 @@ def list_teacher_assignments(db: Session = Depends(get_db),
 def _delete_unreferenced_submission_images(db: Session, file_paths: set[str]) -> None:
     """删除作业移除后不再被任何功能引用的提交原图。"""
     upload_dir = os.path.realpath(settings.UPLOAD_DIR)
+    safe_paths = {}
     for stored_path in file_paths:
         absolute_path = os.path.realpath(
             stored_path if os.path.isabs(stored_path)
             else os.path.join(upload_dir, stored_path)
         )
         try:
-            try:
-                inside_upload_dir = os.path.commonpath(
-                    (upload_dir, absolute_path)
-                ) == upload_dir
-            except ValueError:
-                inside_upload_dir = False
-            if absolute_path == upload_dir or not inside_upload_dir:
-                continue
-            still_referenced = (
-                db.query(SubmissionImage.submission_id)
-                .filter(SubmissionImage.file_path == stored_path).first()
-                or db.query(ChatSessionMessageImage.message_id)
-                .filter(ChatSessionMessageImage.file_path == stored_path).first()
-                or db.query(StudentQuestionCapture.id)
-                .filter(StudentQuestionCapture.image_path == stored_path).first()
-                or db.query(Workbook.id)
-                .filter(Workbook.file_path == stored_path).first()
-            )
-            if still_referenced:
-                continue
+            inside_upload_dir = os.path.commonpath(
+                (upload_dir, absolute_path)
+            ) == upload_dir
+        except ValueError:
+            inside_upload_dir = False
+        if absolute_path == upload_dir or not inside_upload_dir:
+            continue
+        safe_paths[stored_path] = absolute_path
+
+    if not safe_paths:
+        return
+
+    referenced_paths = set()
+    reference_columns = (
+        SubmissionImage.file_path,
+        ChatSessionMessageImage.file_path,
+        StudentQuestionCapture.image_path,
+        Workbook.file_path,
+    )
+    paths = list(safe_paths)
+    try:
+        for start in range(0, len(paths), 500):
+            path_chunk = paths[start:start + 500]
+            for column in reference_columns:
+                referenced_paths.update(
+                    path
+                    for (path,) in db.query(column).filter(
+                        column.in_(path_chunk)
+                    ).all()
+                    if path
+                )
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "作业删除后批量检查提交图片引用失败，保留原图",
+            exc_info=True,
+        )
+        return
+
+    for stored_path, absolute_path in safe_paths.items():
+        if stored_path in referenced_paths:
+            continue
+        try:
             os.remove(absolute_path)
         except FileNotFoundError:
             continue
