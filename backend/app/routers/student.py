@@ -423,6 +423,13 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
     rows = [row for row in all_rows if (row[0].id in archived_at_by_error) == archived]
     assignment_ids = {assignment.id for _, _, _, assignment, _ in all_rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
+    submission_ids = {submission.id for _, submission, _, _, _ in rows}
+    image_path_by_submission = {
+        image.submission_id: image.file_path
+        for image in db.query(SubmissionImage)
+        .filter(SubmissionImage.submission_id.in_(submission_ids))
+        .all()
+    } if submission_ids else {}
     reviewed = {
         (item.assignment_id, item.category_key)
         for item in db.query(StudentMistakeCategoryReview)
@@ -564,6 +571,10 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
                 "submitted_at": correction.submitted_at,
             } if correction else None),
             verification_status=verification.status if verification else None,
+            image_url=(
+                f"/api/uploads/{image_path_by_submission[submission.id]}"
+                if submission.id in image_path_by_submission else None
+            ),
         ))
     captures = (
         db.query(StudentQuestionCapture)

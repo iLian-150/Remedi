@@ -1,6 +1,6 @@
 <template>
   <div v-if="mistake" class="mistake-overlay" role="presentation" @click.self="emit('close')">
-    <section class="mistake-modal" role="dialog" aria-modal="true" aria-label="历史同类错题">
+    <section class="mistake-modal" role="dialog" aria-modal="true" aria-label="原题与解题过程">
       <header class="mistake-header">
         <div class="mistake-brand"><span>知</span><strong>Remedi</strong><small>原题与解题过程</small></div>
         <button type="button" class="mistake-close" aria-label="关闭" @click="emit('close')">×</button>
@@ -14,7 +14,11 @@
 
       <div class="mistake-columns">
         <section class="mistake-panel">
-          <h3>之前做错的题目</h3>
+          <h3>原题内容</h3>
+          <a v-if="originalImageUrl" class="mistake-original-image" :href="originalImageUrl" target="_blank" rel="noreferrer" aria-label="新窗口查看上传的原题图片">
+            <img :src="originalImageUrl" alt="上传的原题图片" />
+            <span>查看上传原图 <b aria-hidden="true">↗</b></span>
+          </a>
           <p class="mistake-question">{{ mistake.question_stem }}</p>
           <div v-if="submissionLoading" class="mistake-state">正在加载当时的作答…</div>
           <div v-else-if="submissionError" class="mistake-state error">{{ submissionError }}</div>
@@ -38,7 +42,7 @@
             <p>{{ mistake.detail || '系统记录了这一步的错误。' }}</p>
             <div v-if="mistake.step_seq" class="mistake-step-ref">第 {{ mistake.step_seq }} 步<template v-if="mistake.step_text">：{{ mistake.step_text }}</template></div>
           </div>
-          <div v-if="mistake.solution_steps.length" class="mistake-solution">
+          <div v-if="mistake.solution_steps?.length" class="mistake-solution">
             <h4>参考解题过程</h4>
             <ol>
               <li v-for="(step, index) in mistake.solution_steps" :key="index">{{ step }}</li>
@@ -67,18 +71,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import type { RelatedMistake, SubmissionResult } from '../api/types'
+import { computed, ref, watch } from 'vue'
+import type { RelatedMistake, StudentMistake, SubmissionResult } from '../api/types'
 import { useStudentStore } from '../stores/student'
 import { STEP_STATUS_TEXT } from '../api/types'
 
-const props = defineProps<{ mistake: RelatedMistake | null }>()
+const props = defineProps<{ mistake: RelatedMistake | StudentMistake | null }>()
 const emit = defineEmits<{ close: [] }>()
 const student = useStudentStore()
 const submission = ref<SubmissionResult | null>(null)
 const submissionLoading = ref(false)
 const submissionError = ref('')
 let requestSeq = 0
+const originalImageUrl = computed(() => {
+  if (!props.mistake || !('image_url' in props.mistake) || !props.mistake.image_url) return ''
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  return base ? `${base.replace(/\/+$/, '')}${props.mistake.image_url}` : props.mistake.image_url
+})
 
 watch(() => props.mistake?.submission_id, async (submissionId) => {
   const seq = ++requestSeq
@@ -124,6 +133,8 @@ function stepStatusLabel(status: string) {
 .mistake-panel { min-width: 0; padding: 18px; border: 1px solid #e5ece6; border-radius: 15px; background: white; }
 .mistake-panel h3 { margin: 0 0 14px; color: #30443d; font-size: 18px; }
 .mistake-question { white-space: pre-wrap; margin: 0; padding: 16px; border-radius: 10px; background: #f8faf8; color: #44534d; line-height: 1.8; }
+.mistake-original-image { display: grid; justify-items: center; gap: 7px; margin-bottom: 12px; padding: 10px; border: 1px solid #e5ece6; border-radius: 10px; background: #f8faf8; color: #315fc8; font-size: 12px; font-weight: 600; text-decoration: none; }
+.mistake-original-image img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; border-radius: 6px; }
 .mistake-work, .mistake-solution, .mistake-correction { margin-top: 20px; }
 .mistake-work h4, .mistake-solution h4, .mistake-correction h4 { margin: 0 0 9px; color: #45554e; font-size: 14px; }
 .mistake-work ol, .mistake-solution ol { margin: 0; padding-left: 24px; color: #53635d; line-height: 1.8; }

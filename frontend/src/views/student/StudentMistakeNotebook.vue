@@ -60,10 +60,10 @@
                 <div class="notebook-assignment-content">
                   <section v-for="category in assignment.categories" :key="category.key" class="notebook-category" :class="{ studied: category.studied }">
                     <header class="notebook-category-head"><div><span class="notebook-category-dot"/><div><h4>{{ category.label }}</h4><small>{{ category.items.length }} 条记录</small></div></div><button v-if="!category.items.every(isStudentSaved)" type="button" :class="{ studied: category.studied }" :disabled="workingKey === studyKey(assignment.id, category.key)" @click="toggleCategory(assignment, category)">{{ workingKey === studyKey(assignment.id, category.key) ? '保存中…' : category.studied ? '已学会 · 撤销' : '标记已学会' }}</button></header>
-                    <div v-if="category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in category.similar" :key="previous.id" type="button" @click="openDiagnosis(previous.submission_id)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
+                    <div v-if="category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in category.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
                     <div class="notebook-category-questions"><article v-for="mistake in category.items" :key="mistake.id">
                       <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.id === mistake.id }" @click="openAssistant(mistake)"><strong>{{ isStudentSaved(mistake) ? '自主收录题目' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</strong><small>{{ mistake.knowledge_point }} · {{ mistake.error_type }}<span v-if="mistake.review_status === 'pending'" class="badge badge-amber">老师复核中</span></small><span class="notebook-question-excerpt">{{ mistake.question_stem }}</span><span class="notebook-question-detail">{{ safe(mistake.detail || '') }}</span></button>
-                      <button v-if="!isStudentSaved(mistake)" type="button" @click="openDiagnosis(mistake.submission_id)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
+                      <button v-if="!isStudentSaved(mistake)" type="button" @click="openOriginalQuestion(mistake)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
                       <button v-else type="button" :disabled="workingKey === `archive:${mistake.assignment_id}`" @click="archiveSaved(mistake)">{{ workingKey === `archive:${mistake.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
                     </article></div>
                   </section>
@@ -75,17 +75,18 @@
           </div>
           <div class="notebook-footer-note"><AppIcon name="book" :size="14"/>每学会一类错误，就离下一次做对更近一步。</div>
         </div>
-        <MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @review="openDiagnosis($event.submission_id)" @study="toggleAssistantStudy"/>
+        <MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @review="openOriginalQuestion($event)" @study="toggleAssistantStudy"/>
       </section>
 
-      <MistakeStickyNotes v-else-if="view === 'sticky'" :mistakes="allMistakes" :loading="loading" :student-name="studentName" :split="Boolean(selectedMistake)" :reversed="assistantOnLeft" :fullscreen="assistantFullscreen" :working-key="workingKey" @select-mistake="openAssistant" @study-category="toggleCategoryByPayload" @archive-assignment="archiveById" @start-assignment="router.push('/student/assignments')" @review="openDiagnosis($event.submission_id)">
-        <template #assistant><MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @review="openDiagnosis($event.submission_id)" @study="toggleAssistantStudy"/></template>
+      <MistakeStickyNotes v-else-if="view === 'sticky'" :mistakes="allMistakes" :loading="loading" :student-name="studentName" :split="Boolean(selectedMistake)" :reversed="assistantOnLeft" :fullscreen="assistantFullscreen" :working-key="workingKey" @select-mistake="openAssistant" @study-category="toggleCategoryByPayload" @archive-assignment="archiveById" @start-assignment="router.push('/student/assignments')" @review="openOriginalQuestion($event)">
+        <template #assistant><MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @review="openOriginalQuestion($event)" @study="toggleAssistantStudy"/></template>
       </MistakeStickyNotes>
 
       <MistakeRelationshipMap v-else :mode="view" :mistakes="allMistakes" :student-name="studentName" :split="Boolean(selectedMistake)" :reversed="assistantOnLeft" :fullscreen="assistantFullscreen" @select="openAssistant">
-        <template #assistant><MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @review="openDiagnosis($event.submission_id)" @study="toggleAssistantStudy"/></template>
+        <template #assistant><MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @review="openOriginalQuestion($event)" @study="toggleAssistantStudy"/></template>
       </MistakeRelationshipMap>
     </main>
+    <PreviousMistakeModal :mistake="selectedOriginalMistake" @close="selectedOriginalMistake = null" />
   </div>
 </template>
 
@@ -94,7 +95,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
-import type { StudentMistake } from '../../api/types'
+import type { RelatedMistake, StudentMistake } from '../../api/types'
+import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import MistakePointAssistant from '../../components/mistake-book/MistakePointAssistant.vue'
 import MistakeRelationshipMap from '../../components/mistake-book/MistakeRelationshipMap.vue'
@@ -118,6 +120,7 @@ const mistakesLoaded = ref(false)
 const loadError = ref('')
 const actionError = ref('')
 const view = ref<NotebookView>('notebook')
+const selectedOriginalMistake = ref<RelatedMistake | StudentMistake | null>(null)
 const subject = ref('all')
 const status = ref<'all' | 'pending' | 'ready'>('all')
 const query = ref('')
@@ -212,7 +215,32 @@ function studyKey(assignmentId: number, categoryKey: string) { return `${assignm
 function setView(next: NotebookView) { view.value = next; closeAssistant(); actionError.value = '' }
 function openAssistant(mistake: StudentMistake) { selectedMistake.value = mistake; assistantFullscreen.value = false }
 function closeAssistant() { selectedMistake.value = null; assistantOnLeft.value = false; assistantFullscreen.value = false }
-function openDiagnosis(submissionId: number) { router.push({ path: '/student/diagnosis', query: { submission_id: submissionId } }) }
+function openOriginalQuestion(mistake: RelatedMistake | StudentMistake) { selectedOriginalMistake.value = mistake }
+function openSimilarOriginal(previous: StudentMistake['similar_occurrences'][number]) {
+  const fullMistake = allMistakes.value.find((item) => item.submission_id === previous.submission_id)
+  if (fullMistake) {
+    openOriginalQuestion(fullMistake)
+    return
+  }
+  selectedOriginalMistake.value = {
+    id: previous.id,
+    submission_id: previous.submission_id,
+    question_id: selectedMistake.value?.question_id ?? 0,
+    assignment_id: previous.assignment_id,
+    assignment_title: previous.assignment_title,
+    assignment_created_at: previous.assignment_created_at,
+    question_subject: selectedMistake.value?.question_subject ?? '',
+    question_stem: previous.question_stem,
+    solution_steps: [],
+    knowledge_point: selectedMistake.value?.knowledge_point ?? '历史同类错题',
+    error_type: selectedMistake.value?.error_type ?? '历史错题',
+    detail: null,
+    step_seq: null,
+    step_text: null,
+    created_at: previous.assignment_created_at,
+    latest_correction: null,
+  }
+}
 function resetFilters() { subject.value = 'all'; status.value = 'all'; query.value = '' }
 
 async function loadMistakes() {
