@@ -289,13 +289,25 @@ def backfill_missing_review_records(db: Session) -> int:
     当前作业的数据。按可从数据库恢复的作答率、作业累计率和错因置信度判断；
     已有 approved 行不回退，旧作答若已被新作答替代也不补审。
     """
+    latest_graded = (
+        db.query(
+            Submission.id.label("submission_id"),
+            func.row_number().over(
+                partition_by=(Submission.student_id, Submission.question_id),
+                order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+            ).label("rank"),
+        )
+        .filter(Submission.status == "graded")
+        .subquery()
+    )
     candidates = (
         db.query(Submission)
+        .join(latest_graded, latest_graded.c.submission_id == Submission.id)
         .outerjoin(SubmissionReview, SubmissionReview.submission_id == Submission.id)
         .options(joinedload(Submission.question))
         .filter(
+            latest_graded.c.rank == 1,
             SubmissionReview.submission_id.is_(None),
-            Submission.status == "graded",
         )
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
