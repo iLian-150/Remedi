@@ -106,11 +106,6 @@ def class_overview(db) -> Dict:
 def uncorrected_overview(db) -> List[Dict]:
     """订正未完成概览：每位学生「出错但尚无一条订正正确」的错题数，降序。
     口径与学生简报的待订正判定一致（corrections 里没有 is_correct=True 即未完成）。"""
-    students = _students(db)
-    student_ids = [student.id for student in students]
-    if not student_ids:
-        return []
-
     has_correct_correction = db.query(Correction.id).filter(
         Correction.error_id == Error.id,
         Correction.student_id == Submission.student_id,
@@ -119,13 +114,14 @@ def uncorrected_overview(db) -> List[Dict]:
     pending_query = (
         db.query(Submission.student_id, Error.knowledge_point)
         .join(Error, Error.submission_id == Submission.id)
-        .filter(Submission.student_id.in_(student_ids), ~has_correct_correction)
+        .join(User, User.id == Submission.student_id)
+        .filter(User.role == "student", ~has_correct_correction)
     )
     counts_by_student = {
-        student_id: count
+        student_id: (student_name, count)
         for student_id, count in pending_query.with_entities(
-            Submission.student_id, func.count(Error.id)
-        ).group_by(Submission.student_id).all()
+            Submission.student_id, User.name, func.count(Error.id)
+        ).group_by(Submission.student_id, User.name).all()
     }
     knowledge_points_by_student: Dict[int, set] = {}
     for student_id, knowledge_point in pending_query.with_entities(
@@ -135,13 +131,12 @@ def uncorrected_overview(db) -> List[Dict]:
 
     rows = [
         {
-            "student_id": student.id,
-            "student_name": student.name,
-            "uncorrected_count": counts_by_student[student.id],
-            "knowledge_points": sorted(knowledge_points_by_student.get(student.id, set())),
+            "student_id": student_id,
+            "student_name": student_name,
+            "uncorrected_count": count,
+            "knowledge_points": sorted(knowledge_points_by_student.get(student_id, set())),
         }
-        for student in students
-        if counts_by_student.get(student.id, 0)
+        for student_id, (student_name, count) in counts_by_student.items()
     ]
-    rows.sort(key=lambda row: row["uncorrected_count"], reverse=True)
+    rows.sort(key=lambda row: (-row["uncorrected_count"], row["student_id"]))
     return rows
