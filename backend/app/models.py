@@ -254,12 +254,17 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True,
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False,
                      comment="接收提醒的用户")
     type = Column(String(32), nullable=False, comment="teacher_correction | ...")
     content = Column(Text, nullable=False, comment="提醒文案")
-    related_submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=True,
-                                   comment="关联的提交（点提醒跳诊断报告用），可空")
+    related_submission_id = Column(
+        Integer,
+        ForeignKey("submissions.id"),
+        nullable=True,
+        index=True,
+        comment="关联的提交（点提醒跳诊断报告用），可空",
+    )
     is_read = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 

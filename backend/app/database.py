@@ -63,6 +63,7 @@ def init_db():
     # 新的复合索引覆盖旧单列索引的查询用途。
     with engine.begin() as connection:
         connection.execute(text("DROP INDEX IF EXISTS ix_chat_sessions_user_id"))
+        connection.execute(text("DROP INDEX IF EXISTS ix_notifications_user_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_essays_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_verifications_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_questions_assignment_id"))
