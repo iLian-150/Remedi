@@ -412,23 +412,25 @@ def related_mistakes_for_assignment(
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
-    assignment = db.query(Assignment).options(load_only(
-        Assignment.id, Assignment.created_by,
-    )).filter(Assignment.id == assignment_id).first()
-    creator_role = db.query(User.role).filter(
-        User.id == assignment.created_by
-    ).scalar() if assignment and assignment.created_by else None
-    if not assignment or creator_role == "student":
+    assignment_rows = (
+        db.query(Assignment.id, User.role, Question)
+        .outerjoin(User, User.id == Assignment.created_by)
+        .outerjoin(Question, Question.assignment_id == Assignment.id)
+        .options(load_only(
+            Question.id, Question.subject, Question.knowledge_point,
+        ))
+        .filter(Assignment.id == assignment_id)
+        .all()
+    )
+    if not assignment_rows or assignment_rows[0][1] == "student":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
 
-    questions = db.query(Question).options(load_only(
-        Question.id, Question.subject, Question.knowledge_point,
-    )).filter(Question.assignment_id == assignment.id).all()
+    questions = [row[2] for row in assignment_rows if row[2] is not None]
     related_by_question = find_related_mistakes_for_questions(
         db,
         current.id,
         questions,
-        exclude_assignment_id=assignment.id,
+        exclude_assignment_id=assignment_rows[0][0],
     )
     return {
         str(question.id): related_by_question.get(question.id)
