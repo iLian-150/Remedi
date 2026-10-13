@@ -1,6 +1,5 @@
 <!-- 教师端：班级总览 Dashboard（v0.4.0 版式重构：KPI 横排 → 双列网格 → 底部双列）
-     数据源：4.1 错误列表（总数/顽固数/错因分布）/ 4.3 高频错题 TopN / 4.4 知识点错误率 /
-             4.5 学生列表 / 4.11 班级知识修复率（v0.4.0 新增）
+     数据源：教师首页汇总接口（高频错题、知识点错误率、错因分布、学生列表与修复率）
      错因三色全局统一：计算失误=琥珀 / 概念混淆=红 / 审题遗漏=紫 -->
 <template>
   <div class="page">
@@ -100,7 +99,7 @@
       <div class="dash-grid">
         <div class="card">
           <h3>错因类型分布</h3>
-          <p class="card-sub">基于最近 100 条错误记录统计（契约 4.1 未提供聚合接口，前端本地汇总）。</p>
+          <p class="card-sub">基于最近 100 条错误记录统计。</p>
           <EChart v-if="typeOptionData.length" :option="typeOption" />
           <div v-else class="empty">暂无数据。</div>
         </div>
@@ -275,28 +274,16 @@ async function loadStats() {
   loading.value = true
   error.value = ''
   try {
-    const [tq, kp, errAll, errStubborn, students, repair] = await Promise.all([
-      teacher.fetchTopQuestions(topN.value),
-      teacher.fetchKnowledgePoints(),
-      teacher.fetchErrors({ limit: 1, offset: 0 }),
-      teacher.fetchErrors({ limit: 1, offset: 0, stubborn_only: true }),
-      teacher.fetchStudents(),
-      teacher.fetchRepairRate().catch(() => null)
-    ])
-    topQuestions.value = tq
-    kpStats.value = kp
-    studentsList.value = students
-    if (repair) repairRate.value = repair
-    overview.totalErrors = errAll.total
-    overview.stubbornErrors = errStubborn.total
-    overview.studentCount = students.length
-    overview.kpCount = kp.length
-
-    // 错因类型分布：最近 100 条本地汇总
-    const sample = await teacher.fetchErrors({ limit: 100, offset: 0 })
-    const counts = new Map<string, number>()
-    sample.items.forEach((e) => counts.set(e.error_type, (counts.get(e.error_type) ?? 0) + 1))
-    typeOptionData.value = [...counts.entries()].map(([name, value]) => ({ name, value }))
+    const summary = await teacher.fetchDashboardSummary(topN.value)
+    topQuestions.value = summary.top_questions
+    kpStats.value = summary.knowledge_points
+    studentsList.value = summary.students
+    if (summary.repair_rate) repairRate.value = summary.repair_rate
+    overview.totalErrors = summary.total_errors
+    overview.stubbornErrors = summary.stubborn_errors
+    overview.studentCount = summary.students.length
+    overview.kpCount = summary.knowledge_points.length
+    typeOptionData.value = summary.recent_error_types
   } catch (e) {
     error.value = '班级看板加载失败，请确认后端已启动。'
     console.error(e)

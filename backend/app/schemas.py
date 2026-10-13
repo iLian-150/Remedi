@@ -740,6 +740,21 @@ class ClassRepairRateOut(BaseModel):
     knowledge_points: List[KnowledgePointRepairItem]
 
 
+class ErrorTypeCountOut(BaseModel):
+    name: str
+    value: int
+
+
+class TeacherDashboardOut(BaseModel):
+    top_questions: List[TopQuestionItem]
+    knowledge_points: List[KnowledgePointRankItem]
+    students: List[StudentBrief]
+    total_errors: int
+    stubborn_errors: int
+    repair_rate: Optional[ClassRepairRateOut] = None
+    recent_error_types: List[ErrorTypeCountOut]
+
+
 # ---------- 教师：提交审核流（v0.9.0 新增） ----------
 
 class ReviewPendingItem(BaseModel):

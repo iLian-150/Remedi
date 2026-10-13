@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_teacher
@@ -54,6 +54,7 @@ from ..schemas import (
     AgentHistoryItem,
     ChatSessionOut,
     ClassRepairRateOut,
+    ErrorTypeCountOut,
     ErrorCorrectIn,
     KnowledgePointRankItem,
     PhotoGroupTranscribeOut,
@@ -72,6 +73,7 @@ from ..schemas import (
     TeacherAssignmentCreate,
     TeacherAssignmentOut,
     TeacherAssignmentQuestionOut,
+    TeacherDashboardOut,
     TeacherErrorItem,
     TopQuestionItem,
     UserOut,
@@ -541,6 +543,55 @@ def stats_repair_rate(db: Session = Depends(get_db), current: User = Depends(req
     """班级知识修复率 + 各知识点修复率：口径与学生学习报告四态一致
     （已修复 = 错题订正后通过二次验证）。"""
     return class_repair_rate(db)
+
+
+@router.get("/dashboard", response_model=TeacherDashboardOut, summary="教师首页看板汇总")
+def teacher_dashboard(
+    n: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    """一次返回教师首页各卡片数据，错因分布只读取最近 100 条的类别字段。"""
+    error_total, stubborn_total = db.query(
+        func.count(Error.id),
+        func.sum(case((Error.is_stubborn.is_(True), 1), else_=0)),
+    ).join(Submission, Error.submission_id == Submission.id).one()
+
+    recent_error_types = db.query(Error.error_type).join(
+        Submission, Error.submission_id == Submission.id,
+    ).order_by(Error.created_at.desc()).limit(100).all()
+    counts_by_type = {}
+    for (error_type,) in recent_error_types:
+        counts_by_type[error_type] = counts_by_type.get(error_type, 0) + 1
+
+    top_questions = [
+        TopQuestionItem(**item) for item in top_error_questions(db, n)
+    ]
+    knowledge_points = [
+        KnowledgePointRankItem(**item) for item in knowledge_point_ranking(db)
+    ]
+    students_list = [StudentBrief(**item) for item in list_students(db)]
+
+    try:
+        repair_rate = ClassRepairRateOut(**class_repair_rate(db))
+    except Exception:
+        # 和旧看板单独请求修复率时的降级口径一致：该卡为空值，其余统计仍可展示。
+        db.rollback()
+        logger.exception("教师首页班级知识修复率统计失败")
+        repair_rate = None
+
+    return TeacherDashboardOut(
+        top_questions=top_questions,
+        knowledge_points=knowledge_points,
+        students=students_list,
+        total_errors=int(error_total or 0),
+        stubborn_errors=int(stubborn_total or 0),
+        repair_rate=repair_rate,
+        recent_error_types=[
+            ErrorTypeCountOut(name=name, value=count)
+            for name, count in counts_by_type.items()
+        ],
+    )
 
 
 @router.get("/students", summary="学生列表")

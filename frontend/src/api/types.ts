@@ -621,6 +621,16 @@ export interface ClassRepairRate {
   knowledge_points: KnowledgePointRepair[]
 }
 
+export interface TeacherDashboardSummary {
+  top_questions: TopQuestion[]
+  knowledge_points: KnowledgePointStat[]
+  students: StudentSummary[]
+  total_errors: number
+  stubborn_errors: number
+  repair_rate: ClassRepairRate | null
+  recent_error_types: Array<{ name: string; value: number }>
+}
+
 // 教学建议（GET /api/teacher/suggestions）：规则模板生成，按严重度排序
 export interface TeachingSuggestion {
   kind: 'reteach' | 'stubborn_group' | 'high_error' | 'low_score'
