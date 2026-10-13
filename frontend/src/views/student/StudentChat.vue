@@ -211,8 +211,10 @@
           <div v-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
             <div class="ai-message-text">
               <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
-              <div v-if="msg.streaming" class="ai-message-markdown ai-message-streaming">{{ msg.text }}</div>
-              <div v-else class="ai-message-markdown" v-html="renderAssistantMarkdown(msg.text)"></div>
+              <div
+                class="ai-message-markdown"
+                v-html="renderAssistantMarkdown(msg.text)"
+              ></div>
             </div>
             <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-deferred': msg.mistakeSync.deferred, 'is-empty': !msg.mistakeSync.errorCount && !msg.mistakeSync.deferred, 'is-error': Boolean(msg.mistakeSync.error) }">
               <AppIcon :name="msg.mistakeSync.error ? 'alert' : msg.mistakeSync.deferred ? 'history' : msg.mistakeSync.errorCount ? 'check' : 'help'" :size="15" />
@@ -1315,7 +1317,6 @@ onMounted(async () => {
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
 .ai-message-text { display: flex; align-items: flex-start; gap: 8px; line-height: 1.75; }
 .ai-message-markdown { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.ai-message-streaming { white-space: pre-wrap; }
 .ai-message-markdown :deep(:first-child) { margin-top: 0; }
 .ai-message-markdown :deep(:last-child) { margin-bottom: 0; }
 .ai-message-markdown :deep(p) { margin: 0 0 0.75em; white-space: pre-wrap; }
