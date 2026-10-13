@@ -43,7 +43,7 @@
           <template v-if="mistake.source_kind !== 'student_saved'">
             <div class="mistake-answer-actions">
               <button v-if="!answerRevealed" type="button" class="mistake-answer-reveal" @click="answerRevealed = true">自己先想一想，想看时点这里：查看正确答案与解题过程</button>
-              <button type="button" class="mistake-original-button" aria-label="查看这道错题的原题" @click="$emit('review', mistake)"><span>查看原题</span><AppIcon name="arrow-right" :size="13"/></button>
+              <button type="button" class="mistake-original-button" title="打开这道错题的原题和批改详情" aria-label="查看这道错题的原题" @click="$emit('review', mistake)"><span>查看原题</span><AppIcon name="arrow-right" :size="13"/></button>
             </div>
             <template v-if="answerRevealed">
               <div class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
@@ -202,10 +202,10 @@ async function sendQuestion() {
 .mistake-solution li > span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-50); font-size: 11px; font-weight: 700; }
 .mistake-solution li p { margin: 1px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .mistake-capture-image-link { display: inline-flex; align-items: center; gap: 3px; margin: 6px 0 10px; color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
-.mistake-answer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
+.mistake-answer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 10px 0 2px; }
 .mistake-answer-reveal { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: 9px; background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
 .mistake-answer-reveal:hover { border-color: var(--primary); background: var(--primary-50); }
-.mistake-point-summary-detail .mistake-answer-actions .mistake-original-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-height: 36px; margin-left: auto; padding: 8px 12px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; cursor: pointer; }
+.mistake-point-summary-detail .mistake-answer-actions .mistake-original-button { display: inline-flex; min-width: 100px; min-height: 38px; align-items: center; justify-content: center; gap: 5px; padding: 8px 12px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; cursor: pointer; }
 .mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:hover { border-color: var(--primary-dark, var(--primary)); background: var(--primary-dark, var(--primary)); }
 .mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 2px; }
 .mistake-point-transcript { overflow-y: auto; }
