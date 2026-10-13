@@ -1235,8 +1235,22 @@ async function confirmTranscribe(msg: ChatMsg) {
 // ---------- 初始化 ----------
 onMounted(async () => {
   window.addEventListener('keydown', onImagePreviewKeydown)
-  try {
-    const list = await student.fetchAssignments(true, true)
+  const sessionsPromise = student.loadSessions()
+  const historyPromise = sessionsPromise
+    .then(async () => student.activeSessionId == null
+      ? []
+      : student.fetchSessionMessages(student.activeSessionId))
+    .then(
+      (history) => ({ history } as const),
+      (error) => ({ error } as const)
+    )
+  const [assignmentResult, briefingResult] = await Promise.allSettled([
+    student.fetchAssignments(true, true),
+    student.fetchBriefing()
+  ])
+
+  if (assignmentResult.status === 'fulfilled') {
+    const list = assignmentResult.value
     assignments.value = list
     list.forEach((assignment) => {
       assignment.submitted_question_ids?.forEach((id) => doneQids.value.add(id))
@@ -1256,12 +1270,13 @@ onMounted(async () => {
         ? presetQuestion
         : (qs.find((q) => !doneQids.value.has(q.id))?.id ?? qs[0]?.id ?? '')
     }
-  } catch (e) {
+  } else {
     pushMsg({ side: 'ai', kind: 'error', text: '作业数据加载失败，请确认后端已启动后刷新页面。' })
-    console.error(e)
+    console.error(assignmentResult.reason)
   }
-  try {
-    const briefing = await student.fetchBriefing()
+
+  if (briefingResult.status === 'fulfilled') {
+    const briefing = briefingResult.value
     // 简报作为第一条 AI 消息
     messages.value.unshift({
       id: ++seq,
@@ -1282,19 +1297,20 @@ onMounted(async () => {
       savingCapture: false,
       relatedMistake: null
     })
-  } catch (e) {
+  } else {
     pushMsg({ side: 'ai', kind: 'error', text: '学习简报加载失败，刷新页面可以重试。' })
-    console.error(e)
+    console.error(briefingResult.reason)
   }
   // 按上次选中的会话读取历史，避免刷新后跳到别的会话。
-  await student.loadSessions()
-  try {
-    const history = student.activeSessionId == null
-      ? []
-      : await student.fetchSessionMessages(student.activeSessionId)
-    history.forEach(restoreHistoryMessage)
-  } catch (e) {
-    console.error(e)
+  const historyResult = await historyPromise
+  if ('history' in historyResult) {
+    try {
+      historyResult.history.forEach(restoreHistoryMessage)
+    } catch (e) {
+      console.error(e)
+    }
+  } else {
+    console.error(historyResult.error)
   }
   // 当前会话定位（v0.6.2）：会话状态归 store 与侧栏共用，loadSessions 首次会自动定位
   // 当前会话（最近更新的一条，与上面 fetchAgentHistory 返回当前会话的口径一致）；
