@@ -415,23 +415,24 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
     step_statuses_by_submission = defaultdict(list)
     error_confidences_by_submission = defaultdict(list)
     images_by_submission = {}
-    if submission_ids:
+    for start in range(0, len(submission_ids), 500):
+        submission_id_chunk = submission_ids[start:start + 500]
         for submission_id, step_status in db.query(Step.submission_id, Step.status).filter(
-            Step.submission_id.in_(submission_ids),
+            Step.submission_id.in_(submission_id_chunk),
             Step.seq >= 1,
             Step.status.in_(("ok", "error", "unparseable")),
         ).all():
             step_statuses_by_submission[submission_id].append(step_status)
         for submission_id, confidence in db.query(Error.submission_id, Error.confidence).filter(
-            Error.submission_id.in_(submission_ids)
+            Error.submission_id.in_(submission_id_chunk)
         ).all():
             error_confidences_by_submission[submission_id].append(float(confidence))
-        images_by_submission = {
+        images_by_submission.update({
             image.submission_id: image
             for image in db.query(SubmissionImage).filter(
-                SubmissionImage.submission_id.in_(submission_ids)
+                SubmissionImage.submission_id.in_(submission_id_chunk)
             ).all()
-        }
+        })
     legacy_images_by_submission = _legacy_review_images(db, subs, images_by_submission)
     assignment_contexts = review_svc.assignment_accuracy_contexts(db, subs)
     items = []
