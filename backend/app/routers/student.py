@@ -782,7 +782,7 @@ def my_mistakes(
         ).subquery()
         latest_correction = ranked_corrections.c
         latest_verification = ranked_verifications.c
-        rows = db.query(
+        latest_state_rows = db.query(
             Error.id.label("error_id"),
             latest_correction.id.label("correction_id"),
             latest_correction.content.label("correction_content"),
@@ -803,7 +803,7 @@ def my_mistakes(
                 latest_verification.rank == 1,
             ),
         ).filter(Error.id.in_(error_id_chunk)).all()
-        for row in rows:
+        for row in latest_state_rows:
             if row.correction_id is not None:
                 correction_by_error[row.error_id] = {
                     "id": row.correction_id,
