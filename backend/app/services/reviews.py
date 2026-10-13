@@ -140,30 +140,40 @@ def assignment_accuracy_contexts(
     if not requested:
         return requested
 
-    latest_by_key_question = {}
+    latest_submissions_by_key = {key: [] for key in requested}
     requested_keys = list(requested)
-    # SQLite 默认绑定参数上限通常为 999；每个键有两个参数，按 400 对分块，
-    # 同时避免把“审核中的学生 × 作业”笛卡尔积全部读回内存。
+    # SQLite 默认绑定参数上限通常为 999；每个键有两个参数，按 400 对分块。
+    # 在数据库中按学生、题目对历史提交排序，只把每题最新的已批改提交传回，
+    # 避免待审核队列随重做历史增长而反复物化所有旧提交。
     for start in range(0, len(requested_keys), 400):
         key_chunk = requested_keys[start:start + 400]
-        candidate_rows = (
-            db.query(Submission, Question.assignment_id)
+        latest_ranked = (
+            db.query(
+                Submission.id.label("submission_id"),
+                Submission.student_id.label("student_id"),
+                Question.assignment_id.label("assignment_id"),
+                func.row_number().over(
+                    partition_by=(Submission.student_id, Submission.question_id),
+                    order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+                ).label("rank"),
+            )
             .join(Question, Question.id == Submission.question_id)
             .filter(
                 tuple_(Submission.student_id, Question.assignment_id).in_(key_chunk),
                 Submission.status == "graded",
             )
+            .subquery()
+        )
+        candidate_rows = (
+            db.query(Submission, latest_ranked.c.assignment_id)
+            .join(latest_ranked, latest_ranked.c.submission_id == Submission.id)
+            .filter(latest_ranked.c.rank == 1)
             .order_by(Submission.submitted_at.asc(), Submission.id.asc())
             .all()
         )
         for submission, assignment_id in candidate_rows:
             key = (submission.student_id, assignment_id)
-            latest_by_key_question.setdefault(key, {})[submission.question_id] = submission
-
-    latest_submissions_by_key = {
-        key: list(latest_by_key_question.get(key, {}).values())
-        for key in requested
-    }
+            latest_submissions_by_key[key].append(submission)
     latest_ids = {
         submission.id
         for rows in latest_submissions_by_key.values()
