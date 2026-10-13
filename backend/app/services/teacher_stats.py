@@ -149,16 +149,22 @@ def uncorrected_overview(db) -> List[Dict]:
         .join(User, User.id == Submission.student_id)
         .filter(User.role == "student", ~has_correct_correction)
     )
-    counts_by_student = {
-        student_id: (student_name, count)
-        for student_id, count in pending_query.with_entities(
-            Submission.student_id, User.name, func.count(Error.id)
-        ).group_by(Submission.student_id, User.name).all()
-    }
+    counts_by_student = {}
     knowledge_points_by_student: Dict[int, set] = {}
-    for student_id, knowledge_point in pending_query.with_entities(
-        Submission.student_id, Error.knowledge_point
-    ).distinct().all():
+    grouped_rows = pending_query.with_entities(
+        Submission.student_id,
+        User.name,
+        Error.knowledge_point,
+        func.count(Error.id),
+    ).group_by(
+        Submission.student_id, User.name, Error.knowledge_point
+    ).all()
+    for student_id, student_name, knowledge_point, error_count in grouped_rows:
+        current = counts_by_student.get(student_id)
+        counts_by_student[student_id] = (
+            student_name,
+            (current[1] if current else 0) + error_count,
+        )
         knowledge_points_by_student.setdefault(student_id, set()).add(knowledge_point)
 
     rows = [
