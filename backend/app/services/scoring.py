@@ -25,6 +25,7 @@ from ..models import (
     QuestionWeight,
     Step,
     Submission,
+    SubmissionReview,
     SubmissionScore,
 )
 
@@ -301,39 +302,57 @@ def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict
 
 def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dict:
     """一份作业的累计得分（成绩单用）：每题取最新一次已通过提交的最终分求和，
-    分母是作业总分。只算学生可见口径（待审核的不计）。"""
+    分母是作业总分。只算学生可见口径（待审核的不计），并在数据库里筛出每题最新可见提交。"""
     from . import reviews as review_svc
 
     total = assignment_total(db, assignment_id)
+    latest_visible = (
+        db.query(
+            Submission.id.label("submission_id"),
+            func.row_number().over(
+                partition_by=Submission.question_id,
+                order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+            ).label("rank"),
+        )
+        .join(Question, Submission.question_id == Question.id)
+        .outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        )
+        .filter(
+            Submission.student_id == student_id,
+            Question.assignment_id == assignment_id,
+            Submission.status == "graded",
+            func.coalesce(SubmissionReview.status, review_svc.APPROVED)
+            != review_svc.PENDING,
+        )
+        .subquery()
+    )
     question_load = joinedload(Submission.question).load_only(
         Question.id, Question.assignment_id,
     )
     subs = (
         db.query(Submission)
-        .join(Question, Submission.question_id == Question.id)
+        .join(latest_visible, latest_visible.c.submission_id == Submission.id)
         .options(
             load_only(Submission.id, Submission.question_id, Submission.submitted_at),
             question_load,
         )
-        .filter(Submission.student_id == student_id,
-                Question.assignment_id == assignment_id,
-                Submission.status == "graded")
+        .filter(latest_visible.c.rank == 1)
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
     if not subs:
         return {"assignment_score": 0.0, "assignment_total": total}
 
-    pending = review_svc.pending_submission_ids(db, student_id)
-    visible_subs = [sub for sub in subs if sub.id not in pending]
     scores_by_submission = {}
-    for start in range(0, len(visible_subs), 300):
+    for start in range(0, len(subs), 300):
         scores_by_submission.update(
-            visible_scores(db, visible_subs[start:start + 300])
+            visible_scores(db, subs[start:start + 300])
         )
 
     latest: Dict[int, float] = {}
-    for sub in visible_subs:
+    for sub in subs:
         score_info = scores_by_submission.get(sub.id)
         if score_info is not None:
             latest[sub.question_id] = float(score_info["score"])
