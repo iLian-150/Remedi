@@ -116,7 +116,7 @@ def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
     先肯定已订正的成果，再点名最弱（仍有待订正错题）的知识点给具体动作
     （订正 → 变式题验证），全部订正完给收尾鼓励，无错题给保持类鼓励。
     口径与前端「老师寄语」一致，学生端措辞用「需要加固」不用「顽固」。"""
-    fixed_ids = _fixed_error_ids(db, student)
+    fixed_ids = _fixed_error_ids(db, student, [error.id for error in errors])
     corrected = sum(1 for e in errors if e.id in fixed_ids)
     pending = [e for e in errors if e.id not in fixed_ids]
     pending_kps = {e.knowledge_point for e in pending}
@@ -307,12 +307,9 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
         ) if correction_sub_ids else []
 
     # 待订正：尚无一条 is_correct=True 订正的 error；与老师复核并行统计。
-    fixed_ids = {
-        c.error_id
-        for c in db.query(Correction).filter(
-            Correction.student_id == student.id, Correction.is_correct.is_(True)
-        ).all()
-    }
+    fixed_ids = _fixed_error_ids(
+        db, student, [error.id for error in correction_errors]
+    )
     pending_errors = [e for e in correction_errors if e.id not in fixed_ids]
     pending_kps = sorted({e.knowledge_point for e in pending_errors})
 
@@ -412,14 +409,22 @@ def list_students(db) -> List[Dict]:
 # 必须再独立做对一道同知识点变式题（二次验证）才算修复。
 # 知识修复率 fixed_ratio = fixed 知识点数 / 出过错知识点数（与本口径配套）。
 
-def _fixed_error_ids(db, student: User):
-    """该生已订正正确的 error id 集合（口径与 student_briefing 一致）。"""
-    return {
-        c.error_id
-        for c in db.query(Correction).filter(
-            Correction.student_id == student.id, Correction.is_correct.is_(True)
-        ).all()
-    }
+def _fixed_error_ids(db, student: User, error_ids: List[int]):
+    """批量读取指定错题中该生已订正正确的 ID，不加载订正正文或无关历史行。"""
+    fixed_ids = set()
+    # SQLite 对单条语句的绑定变量数有限，分块查询以兼容学生的长历史记录。
+    for start in range(0, len(error_ids), 500):
+        rows = (
+            db.query(Correction.error_id)
+            .filter(
+                Correction.student_id == student.id,
+                Correction.is_correct.is_(True),
+                Correction.error_id.in_(error_ids[start:start + 500]),
+            )
+            .all()
+        )
+        fixed_ids.update(error_id for (error_id,) in rows)
+    return fixed_ids
 
 
 def _passed_verification_kps(db, student_id: int):
@@ -455,7 +460,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
             .order_by(Error.created_at.desc())
             .all()
         )
-    fixed_ids = _fixed_error_ids(db, student)
+    fixed_ids = _fixed_error_ids(db, student, [error.id for error in errors])
     passed_kps = _passed_verification_kps(db, student.id)
     sub_by_id = {s.id: s for s in submissions}
 
@@ -542,7 +547,7 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
         .order_by(Error.created_at.desc(), Error.id.desc())
         .all()
     )
-    fixed_ids = _fixed_error_ids(db, student)
+    fixed_ids = _fixed_error_ids(db, student, [error.id for error in errors])
     sub_by_id = {s.id: s for s in submissions}
     items = []
     for e in errors:
