@@ -7,10 +7,19 @@
 #   low_score      —— 某份作业全班平均得分率 < 60%（已批改 ≥ 2 份）：巩固练习
 from typing import Dict, List, Optional
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session
 
-from ..models import Error, Question, Submission
+from ..models import (
+    Assignment,
+    AssignmentScoring,
+    Error,
+    Question,
+    QuestionWeight,
+    Step,
+    Submission,
+    SubmissionScore,
+)
 from .stats import class_repair_rate, knowledge_point_ranking, top_error_questions
 
 _KIND_ORDER = {"reteach": 0, "stubborn_group": 1, "high_error": 2, "low_score": 3}
@@ -125,44 +134,127 @@ def build_teaching_suggestions(db: Session) -> List[Dict]:
 
     # ---- low_score：某份作业整体得分率偏低 ----
     try:
-        from .scoring import visible_scores
+        from .scoring import DEFAULT_TOTAL
 
-        per_assignment: Dict[str, List[float]] = {}
-        subs = (
+        question_counts = (
+            db.query(
+                Question.assignment_id.label("assignment_id"),
+                func.count(Question.id).label("question_count"),
+            )
+            .group_by(Question.assignment_id)
+            .subquery()
+        )
+        step_counts = (
+            db.query(
+                Step.submission_id.label("submission_id"),
+                func.sum(case((Step.status == "ok", 1), else_=0)).label(
+                    "correct_steps"
+                ),
+                func.count(Step.id).label("total_steps"),
+            )
+            .join(Submission, Submission.id == Step.submission_id)
+            .filter(
+                Submission.status == "graded",
+                Step.seq >= 1,
+                Step.status.in_(("ok", "error", "unparseable")),
+            )
+            .group_by(Step.submission_id)
+            .subquery()
+        )
+        score_rows = (
             db.query(Submission)
-            .options(
-                joinedload(Submission.question).joinedload(Question.assignment)
+            .with_entities(
+                Submission.id.label("submission_id"),
+                Assignment.title.label("assignment_title"),
+                SubmissionScore.submission_id.label("score_submission_id"),
+                SubmissionScore.final_score.label("final_score"),
+                SubmissionScore.ai_score.label("ai_score"),
+                AssignmentScoring.total_score.label("assignment_total"),
+                QuestionWeight.question_id.label("weight_question_id"),
+                QuestionWeight.weight_pct.label("weight_pct"),
+                question_counts.c.question_count,
+                step_counts.c.correct_steps,
+                step_counts.c.total_steps,
+            )
+            .join(Question, Question.id == Submission.question_id)
+            .outerjoin(Assignment, Assignment.id == Question.assignment_id)
+            .outerjoin(
+                SubmissionScore,
+                SubmissionScore.submission_id == Submission.id,
+            )
+            .outerjoin(
+                AssignmentScoring,
+                AssignmentScoring.assignment_id == Question.assignment_id,
+            )
+            .outerjoin(
+                QuestionWeight,
+                QuestionWeight.question_id == Question.id,
+            )
+            .outerjoin(
+                question_counts,
+                question_counts.c.assignment_id == Question.assignment_id,
+            )
+            .outerjoin(
+                step_counts,
+                step_counts.c.submission_id == Submission.id,
             )
             .filter(Submission.status == "graded")
-            .all()
         )
-        scores_by_submission = {}
-        for start in range(0, len(subs), 300):
-            scores_by_submission.update(
-                visible_scores(db, subs[start:start + 300])
+        per_assignment: Dict[str, tuple[int, float]] = {}
+        created_missing_score = False
+        for row in score_rows.yield_per(1000):
+            assignment_total = (
+                float(row.assignment_total)
+                if row.assignment_total else DEFAULT_TOTAL
             )
-        for sub in subs:
-            question = sub.question
-            score_info = scores_by_submission.get(sub.id)
-            if question is None or score_info is None:
-                continue
-            final = score_info["score"]
-            max_score = score_info["max_score"]
+            question_count = int(row.question_count or 0)
+            weight_pct = (
+                float(row.weight_pct)
+                if row.weight_question_id is not None
+                else 100.0 / question_count if question_count else 100.0
+            )
+            max_score = round(assignment_total * weight_pct / 100.0, 1)
+            if row.score_submission_id is None:
+                correct_steps = int(row.correct_steps or 0)
+                total_steps = int(row.total_steps or 0)
+                final = round(
+                    max_score * (correct_steps / total_steps if total_steps else 0.0),
+                    1,
+                )
+                # Keep the same legacy-score backfill performed by visible_scores,
+                # but persist all missing rows with one commit after the scan.
+                db.add(SubmissionScore(
+                    submission_id=row.submission_id,
+                    ai_score=final,
+                ))
+                created_missing_score = True
+            else:
+                final = float(
+                    row.final_score
+                    if row.final_score is not None else row.ai_score
+                )
             if not max_score:
                 continue
-            title = question.assignment.title if question.assignment else "未命名作业"
-            per_assignment.setdefault(title, []).append(float(final) / float(max_score))
-        for title, rates in per_assignment.items():
-            if len(rates) < 2:
+            title = row.assignment_title or "未命名作业"
+            count, rate_sum = per_assignment.get(title, (0, 0.0))
+            per_assignment[title] = (
+                count + 1,
+                rate_sum + float(final) / float(max_score),
+            )
+
+        if created_missing_score:
+            db.commit()
+        for title, (count, rate_sum) in per_assignment.items():
+            if count < 2:
                 continue
-            avg = sum(rates) / len(rates)
+            avg = rate_sum / count
             if avg >= 0.6:
                 continue
             items.append({
                 "kind": "low_score",
                 "title": f"巩固练习：{title}",
                 "knowledge_point": None,
-                "evidence": f"《{title}》全班平均得分率 {_pct(avg)}%（{len(rates)} 份已批改提交）",
+                "evidence": f"《{title}》全班平均得分率 {_pct(avg)}%（{count} 份已批改提交）",
                 "action": (
                     f"建议针对《{title}》的错题安排一次巩固练习，讲评后督促学生完成订正与二次验证。"
                 ),
