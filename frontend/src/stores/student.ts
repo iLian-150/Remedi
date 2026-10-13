@@ -65,6 +65,7 @@ export const useStudentStore = defineStore('student', {
     activeSessionId: null as number | null,
     sessionsLoading: false,
     sessionsLoaded: false,
+    sessionsError: '',
     sessionsLoadPromise: null as Promise<void> | null,
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
@@ -531,6 +532,7 @@ export const useStudentStore = defineStore('student', {
       }
       if (this.sessionsLoaded && !force) return
       this.sessionsLoading = true
+      this.sessionsError = ''
       const task = (async () => {
         this.sessions = await this.fetchSessions()
         this.sessionsLoaded = true
@@ -548,6 +550,7 @@ export const useStudentStore = defineStore('student', {
       try {
         await task
       } catch (e) {
+        this.sessionsError = '历史对话加载失败，请重试。'
         console.error(e)
       } finally {
         if (this.sessionsLoadPromise === task) {
@@ -623,6 +626,7 @@ export const useStudentStore = defineStore('student', {
       persistActiveSessionId(null)
       this.sessionsLoading = false
       this.sessionsLoaded = false
+      this.sessionsError = ''
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     /** 退出登录时重置提醒未读数（v0.8.2），避免换人登录后角标残留 */

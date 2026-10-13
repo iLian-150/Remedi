@@ -10,8 +10,16 @@
 
     <div class="sb-list">
       <div v-if="store.sessionsLoading && !store.sessions.length" class="sb-hint">加载中…</div>
+      <div v-else-if="store.sessionsError && !store.sessions.length" class="sb-hint sb-error" role="alert">
+        <span>{{ store.sessionsError }}</span>
+        <button type="button" :disabled="store.sessionsLoading" @click="retrySessions">重试</button>
+      </div>
       <div v-else-if="!store.sessions.length" class="sb-hint">还没有历史对话</div>
       <template v-else>
+        <div v-if="store.sessionsError" class="sb-hint sb-error" role="alert">
+          <span>{{ store.sessionsError }}</span>
+          <button type="button" :disabled="store.sessionsLoading" @click="retrySessions">重试</button>
+        </div>
         <template v-for="g in groups" :key="g.key">
           <div v-if="g.items.length" class="sb-group-title">{{ g.label }}</div>
           <div
@@ -62,6 +70,10 @@ const creating = ref(false)
 onMounted(() => {
   store.value.loadSessions()
 })
+
+async function retrySessions() {
+  await store.value.loadSessions(true)
+}
 
 type GroupKey = 'today' | 'yesterday' | 'earlier'
 function groupOf(iso: string): GroupKey {
@@ -136,6 +148,10 @@ async function onRemove(id: number) {
 .sb-new-btn .app-icon { color: var(--primary); }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
+.sb-error { display: flex; align-items: center; gap: 8px; color: var(--red); }
+.sb-error span { min-width: 0; }
+.sb-error button { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--primary); font: inherit; cursor: pointer; }
+.sb-error button:disabled { opacity: 0.6; cursor: wait; }
 .sb-group-title {
   font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: var(--text-3);
   padding: 10px 10px 4px;

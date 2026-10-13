@@ -47,6 +47,7 @@ export const useTeacherStore = defineStore('teacher', {
     activeSessionId: null as number | null,
     sessionsLoading: false,
     sessionsLoaded: false,
+    sessionsError: '',
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
@@ -274,6 +275,7 @@ export const useTeacherStore = defineStore('teacher', {
       if (this.sessionsLoading) return
       if (this.sessionsLoaded && !force) return
       this.sessionsLoading = true
+      this.sessionsError = ''
       try {
         this.sessions = await this.fetchSessions()
         this.sessionsLoaded = true
@@ -281,6 +283,7 @@ export const useTeacherStore = defineStore('teacher', {
           this.activeSessionId = this.sessions[0]?.id ?? null
         }
       } catch (e) {
+        this.sessionsError = '历史对话加载失败，请重试。'
         console.error(e)
       } finally {
         this.sessionsLoading = false
@@ -330,6 +333,7 @@ export const useTeacherStore = defineStore('teacher', {
       this.activeSessionId = null
       this.sessionsLoading = false
       this.sessionsLoaded = false
+      this.sessionsError = ''
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     // 4.15 上传练习册 PDF 到知识库（v0.5.0，≤30MB）
