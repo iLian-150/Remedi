@@ -163,8 +163,14 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     errors = []
     if sub_ids:
         errors = (
-            db.query(Error)
-            .options(joinedload(Error.step))
+            db.query(
+                Error.id,
+                Error.knowledge_point,
+                Error.is_stubborn,
+                Error.error_type,
+                Error.step_id,
+                Error.created_at,
+            )
             .filter(Error.submission_id.in_(sub_ids))
             .order_by(Error.created_at.desc())
             .all()
@@ -189,18 +195,38 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
 
     from .diagnosis import present_error
     stubborn_list = [e for e in errors if e.is_stubborn]
+    stubborn_step_ids = list({e.step_id for e in stubborn_list if e.step_id is not None})
+    step_text_by_id = {}
+    for start in range(0, len(stubborn_step_ids), 500):
+        for step_id, step_text in db.query(Step.id, Step.text).filter(
+            Step.id.in_(stubborn_step_ids[start:start + 500])
+        ).all():
+            step_text_by_id[step_id] = step_text
     stubborn_errors = []
     for e in stubborn_list:
-        st = e.step if e.step_id else None
         stubborn_errors.append({
             "id": e.id,
             "knowledge_point": e.knowledge_point,
             "error_type": e.error_type,
-            "step_text": st.text if st else None,
+            "step_text": step_text_by_id.get(e.step_id),
             "created_at": e.created_at,
         })
 
-    recent_errors = [present_error(e, db, e.step) for e in errors[:5]]
+    recent_error_ids = [e.id for e in errors[:5]]
+    recent_errors_by_id = {}
+    if recent_error_ids:
+        recent_errors_by_id = {
+            error.id: error
+            for error in db.query(Error)
+            .options(joinedload(Error.step).load_only(Step.id, Step.seq, Step.text))
+            .filter(Error.id.in_(recent_error_ids))
+            .all()
+        }
+    recent_errors = [
+        present_error(recent_errors_by_id[error_id], db, recent_errors_by_id[error_id].step)
+        for error_id in recent_error_ids
+        if error_id in recent_errors_by_id
+    ]
 
     # v0.9.1：建议改本地模板拼装（见 _profile_suggestion），画像接口不再同步等 LLM
     suggestion = _profile_suggestion(db, student, knowledge_points, stubborn_errors, errors)
