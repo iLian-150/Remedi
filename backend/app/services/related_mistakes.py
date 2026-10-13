@@ -2,7 +2,7 @@
 from typing import Iterable
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..models import (
     Assignment,
@@ -37,22 +37,29 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
         .join(Question, Submission.question_id == Question.id)
         .join(Assignment, Question.assignment_id == Assignment.id)
         .outerjoin(Step, Error.step_id == Step.id)
+        .options(
+            load_only(
+                Error.id, Error.knowledge_point, Error.error_type,
+                Error.detail, Error.created_at,
+            ),
+            load_only(Submission.id),
+            load_only(Question.id, Question.subject, Question.stem),
+            load_only(Assignment.id, Assignment.title, Assignment.created_at),
+            load_only(Step.id, Step.seq, Step.text),
+        )
         .filter(Submission.student_id == student_id, Question.subject == subject_key)
         .order_by(Error.created_at.desc(), Error.id.desc())
     )
     if exclude_assignment_id is not None:
         query = query.filter(Assignment.id != exclude_assignment_id)
 
-    archived_ids = {
-        row[0]
-        for row in db.query(StudentMistakeArchive.error_id)
-        .filter(StudentMistakeArchive.student_id == student_id)
-        .all()
-    }
+    is_archived = db.query(StudentMistakeArchive.error_id).filter(
+        StudentMistakeArchive.student_id == student_id,
+        StudentMistakeArchive.error_id == Error.id,
+    ).exists()
+    query = query.filter(~is_archived)
 
     for error, submission, question, assignment, step in query.limit(300).all():
-        if error.id in archived_ids:
-            continue
         if "".join((error.knowledge_point or "").split()).casefold() != knowledge_key:
             continue
         correction = (
