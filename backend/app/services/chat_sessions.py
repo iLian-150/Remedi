@@ -144,6 +144,72 @@ def session_messages(db: Session, session: ChatSession,
     return list(reversed(rows))
 
 
+def history_items(db: Session, user: User, session: ChatSession,
+                  limit: Optional[int] = None) -> List[dict]:
+    """批量组装会话历史，避免逐条查询图片和错题关联 ID。"""
+    messages = session_messages(db, session, limit)
+    if not messages:
+        return []
+    message_filter = ChatSessionMessage.session_id == session.id
+    if limit is not None and len(messages) <= 500:
+        message_filter = ChatSessionMessage.id.in_([message.id for message in messages])
+
+    image_by_message = {
+        message_id: {
+            "image_url": f"/api/uploads/{file_path}",
+            "image_name": file_name,
+        }
+        for message_id, file_path, file_name in (
+            db.query(
+                ChatSessionMessageImage.message_id,
+                ChatSessionMessageImage.file_path,
+                ChatSessionMessageImage.file_name,
+            )
+            .join(
+                ChatSessionMessage,
+                ChatSessionMessage.id == ChatSessionMessageImage.message_id,
+            )
+            .filter(message_filter)
+            .all()
+        )
+    }
+    mistake_error_by_message = dict(
+        db.query(
+            ChatSessionMessageMistakeLink.message_id,
+            ChatSessionMessageMistakeLink.error_id,
+        )
+        .join(
+            ChatSessionMessage,
+            ChatSessionMessage.id == ChatSessionMessageMistakeLink.message_id,
+        )
+        .filter(message_filter)
+        .all()
+    )
+
+    from .related_mistakes import find_related_mistake_for_error
+
+    related_by_error = {}
+    result = []
+    for message in messages:
+        error_id = mistake_error_by_message.get(message.id)
+        related = None
+        if message.role == "assistant" and error_id is not None:
+            if error_id not in related_by_error:
+                related_by_error[error_id] = find_related_mistake_for_error(
+                    db, user.id, error_id
+                )
+            related = related_by_error[error_id]
+        item = {
+            "role": message.role,
+            "content": message.content,
+            "created_at": message.created_at,
+            "related_mistake": related,
+        }
+        item.update(image_by_message.get(message.id, {}))
+        result.append(item)
+    return result
+
+
 def append_message(db: Session, session: ChatSession, role: str, content: str) -> ChatSessionMessage:
     """往会话追加一条消息并刷新 updated_at；
     第一条用户消息到达且标题仍是默认「新对话」时，自动把标题改为该消息前 20 字。"""

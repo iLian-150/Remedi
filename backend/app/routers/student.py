@@ -1525,12 +1525,7 @@ def agent_session_messages(session_id: int, db: Session = Depends(get_db),
     session = cs.get_own_session(db, current, session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
-    return [
-        {"role": m.role, "content": m.content, "created_at": m.created_at,
-         "related_mistake": cs.related_mistake_for_message(db, current, m),
-         **(cs.image_for_message(db, m) or {})}
-        for m in cs.session_messages(db, session)
-    ]
+    return cs.history_items(db, current, session)
 
 
 @router.post("/agent/sessions/{session_id}/assistant-message",
@@ -1779,12 +1774,7 @@ def agent_history(db: Session = Depends(get_db), current: User = Depends(require
     session = cs.current_session(db, current)
     if session is None:
         return []
-    return [
-        {"role": m.role, "content": m.content, "created_at": m.created_at,
-         "related_mistake": cs.related_mistake_for_message(db, current, m),
-         **(cs.image_for_message(db, m) or {})}
-        for m in cs.session_messages(db, session, limit=_AGENT_HISTORY_RETURN)
-    ]
+    return cs.history_items(db, current, session, limit=_AGENT_HISTORY_RETURN)
 
 
 @router.post("/agent/new-session", response_model=ChatSessionOut, summary="开始新对话（v0.6.0 改为新建会话）")
