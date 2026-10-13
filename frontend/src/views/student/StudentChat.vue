@@ -455,7 +455,8 @@ const router = useRouter()
 
 const assistantMarkdown = new MarkdownIt({
   html: false,
-  breaks: true,
+  // 单换行按 Markdown 软换行处理，避免模型自然换行被强制渲染成 <br>。
+  breaks: false,
   linkify: false,
   typographer: false
 })
@@ -1315,17 +1316,18 @@ onMounted(async () => {
 .chat-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
-.ai-message-text { display: flex; align-items: flex-start; gap: 8px; line-height: 1.75; }
+.ai-message-text { display: flex; align-items: flex-start; gap: 8px; line-height: 1.65; }
 .ai-message-markdown { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .ai-message-markdown :deep(:first-child) { margin-top: 0; }
 .ai-message-markdown :deep(:last-child) { margin-bottom: 0; }
-.ai-message-markdown :deep(p) { margin: 0 0 0.75em; white-space: pre-wrap; }
-.ai-message-markdown :deep(h1), .ai-message-markdown :deep(h2), .ai-message-markdown :deep(h3), .ai-message-markdown :deep(h4) { margin: 0.9em 0 0.45em; color: var(--text); line-height: 1.4; }
-.ai-message-markdown :deep(ul), .ai-message-markdown :deep(ol) { margin: 0.35em 0 0.8em; padding-left: 1.6em; }
-.ai-message-markdown :deep(li + li) { margin-top: 0.2em; }
-.ai-message-markdown :deep(hr) { margin: 1em 0; border: 0; border-top: 1px solid var(--border); }
-.ai-message-markdown :deep(blockquote) { margin: 0.6em 0; border-left: 3px solid var(--border); padding-left: 0.8em; color: var(--text-2); }
-.ai-message-markdown :deep(pre) { overflow-x: auto; margin: 0.6em 0; border-radius: 8px; background: var(--surface-2, #f5f7fa); padding: 10px 12px; }
+.ai-message-markdown :deep(p) { margin: 0 0 0.4em; }
+.ai-message-markdown :deep(h1), .ai-message-markdown :deep(h2), .ai-message-markdown :deep(h3), .ai-message-markdown :deep(h4) { margin: 0.6em 0 0.25em; color: var(--text); line-height: 1.35; }
+.ai-message-markdown :deep(ul), .ai-message-markdown :deep(ol) { margin: 0.15em 0 0.4em; padding-left: 1.5em; }
+.ai-message-markdown :deep(li + li) { margin-top: 0.12em; }
+.ai-message-markdown :deep(li > p) { margin: 0; }
+.ai-message-markdown :deep(hr) { margin: 0.65em 0; border: 0; border-top: 1px solid var(--border); }
+.ai-message-markdown :deep(blockquote) { margin: 0.4em 0; border-left: 3px solid var(--border); padding-left: 0.8em; color: var(--text-2); }
+.ai-message-markdown :deep(pre) { overflow-x: auto; margin: 0.45em 0; border-radius: 8px; background: var(--surface-2, #f5f7fa); padding: 10px 12px; }
 .ai-message-markdown :deep(code) { border-radius: 4px; background: var(--surface-2, #f5f7fa); padding: 0.08em 0.25em; font-size: 0.92em; }
 .ai-message-markdown :deep(pre code) { background: transparent; padding: 0; }
 .ai-message-markdown :deep(a) { color: var(--primary); text-decoration: underline; }
