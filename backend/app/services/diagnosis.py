@@ -208,21 +208,23 @@ def classify_rule(prev: ParsedStep, prev_text: str,
 
 # ---------------------------------------------------------------- 顽固判定
 
-def check_stubborn(db, student_id: int, knowledge_point: str, exclude_error_id: int) -> bool:
-    """同一学生、同一知识点，过去 N 天内已有 ≥1 条错误 → 顽固误区。"""
+def check_stubborn(
+    db, student_id: int, knowledge_point: str, exclude_submission_id: int,
+) -> bool:
+    """同一学生的其他提交在过去 N 天内出现过该知识点错因 → 顽固误区。"""
     window_start = datetime.now() - timedelta(days=settings.STUBBORN_WINDOW_DAYS)
-    count = (
-        db.query(Error)
+    return (
+        db.query(Error.id)
         .join(Submission, Error.submission_id == Submission.id)
         .filter(
             Submission.student_id == student_id,
             Error.knowledge_point == knowledge_point,
-            Error.id != exclude_error_id,
+            Submission.id != exclude_submission_id,
             Error.created_at >= window_start,
         )
-        .count()
+        .first()
+        is not None
     )
-    return count >= 1
 
 
 # ---------------------------------------------------------------- 主流程
@@ -247,6 +249,7 @@ def diagnose_submission(db, student: User, question: Question,
 
     steps: List[Step] = []
     errors: List[Error] = []
+    stubborn_history = None
 
     # seq=0：题干，仅参考
     stem_step = Step(submission_id=submission.id, seq=0, text=question.stem, status="stem")
@@ -277,7 +280,11 @@ def diagnose_submission(db, student: User, question: Question,
             )
             db.add(err)
             db.flush()
-            err.is_stubborn = check_stubborn(db, student.id, question.knowledge_point, err.id)
+            if stubborn_history is None:
+                stubborn_history = check_stubborn(
+                    db, student.id, question.knowledge_point, submission.id
+                )
+            err.is_stubborn = stubborn_history
             steps.append(step)
             errors.append(err)
             continue  # 基准不变，流程继续（不停止）
@@ -320,7 +327,11 @@ def diagnose_submission(db, student: User, question: Question,
         )
         db.add(err)
         db.flush()
-        err.is_stubborn = check_stubborn(db, student.id, question.knowledge_point, err.id)
+        if stubborn_history is None:
+            stubborn_history = check_stubborn(
+                db, student.id, question.knowledge_point, submission.id
+            )
+        err.is_stubborn = stubborn_history
         steps.append(step)
         errors.append(err)
         stopped = True  # 首个不等价步骤：停止，后续步骤记 skipped
@@ -365,6 +376,7 @@ def diagnose_visual_submission(db, student: User, question: Question,
     db.add(stem_step)
     steps: List[Step] = [stem_step]
     errors: List[Error] = []
+    stubborn_history = None
     allowed_error_types = {
         "计算失误", "概念混淆", "审题遗漏", "无法解析", "语法错误",
         "拼写错误", "词形错误", "表达不当", "知识错误", "单位错误",
@@ -410,9 +422,11 @@ def diagnose_visual_submission(db, student: User, question: Question,
         )
         db.add(error)
         db.flush()
-        error.is_stubborn = check_stubborn(
-            db, student.id, question.knowledge_point, error.id
-        )
+        if stubborn_history is None:
+            stubborn_history = check_stubborn(
+                db, student.id, question.knowledge_point, submission.id
+            )
+        error.is_stubborn = stubborn_history
         steps.append(step)
         errors.append(error)
 
