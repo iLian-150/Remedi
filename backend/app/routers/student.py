@@ -195,28 +195,25 @@ def list_assignments(
     if assignment_ids:
         for start in range(0, len(assignment_ids), 500):
             assignment_id_chunk = assignment_ids[start:start + 500]
+            has_submission = db.query(Submission.id).filter(
+                Submission.question_id == Question.id,
+                Submission.student_id == current.id,
+            ).exists()
             question_stats_query = db.query(
                 Question.assignment_id.label("assignment_id"),
-                func.count(func.distinct(Question.id)).label("question_count"),
-                func.count(func.distinct(Submission.question_id)).label(
+                func.count(Question.id).label("question_count"),
+                func.sum(case((has_submission, 1), else_=0)).label(
                     "submitted_count"
                 ),
             )
             if not include_questions:
                 question_stats_query = question_stats_query.add_columns(
-                    func.count(func.distinct(
-                        case((Question.subject != "math", Question.id))
-                    )).label("non_math_count")
+                    func.sum(case((Question.subject != "math", 1), else_=0)).label(
+                        "non_math_count"
+                    )
                 )
             rows = (
                 question_stats_query
-                .outerjoin(
-                    Submission,
-                    and_(
-                        Submission.question_id == Question.id,
-                        Submission.student_id == current.id,
-                    ),
-                )
                 .filter(Question.assignment_id.in_(assignment_id_chunk))
                 .group_by(Question.assignment_id)
             )
