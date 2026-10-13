@@ -10,6 +10,7 @@ from sqlalchemy import tuple_
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Error, Notification, Question, Step, Submission, SubmissionReview
+from .confidence import normalize_confidence
 
 PENDING = "pending"
 APPROVED = "approved"
@@ -53,16 +54,7 @@ def visual_confidence_signals(image_confidence, visual_steps) -> List[float]:
             # 与 diagnose_visual_submission 一致：缺少步骤置信度时按 0.5 处理。
             raw_values.append(step.get("confidence", 0.5))
 
-    values = []
-    for raw in raw_values:
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            value = 0.0
-        if not math.isfinite(value):
-            value = 0.0
-        values.append(max(0.0, min(1.0, value)))
-    return values
+    return [normalize_confidence(raw) for raw in raw_values]
 
 
 def assignment_accuracy_context(
@@ -216,13 +208,7 @@ def review_reasons(
 
     normalized_signals = []
     for raw in confidence_signals:
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            value = 0.0
-        if not math.isfinite(value):
-            value = 0.0
-        normalized_signals.append(max(0.0, min(1.0, value)))
+        normalized_signals.append(normalize_confidence(raw))
     if any(value < REVIEW_THRESHOLD for value in normalized_signals):
         reasons.append("图片或步骤判断置信度低于 60%")
     return reasons

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
 from ..models import AssignmentExt, AssignmentSetting, Question, Step, Submission, SubmissionImage, User
+from .confidence import normalize_confidence
 from .diagnosis import diagnose_submission, diagnose_visual_submission
 from . import reviews as review_svc
 from .providers import get_provider
@@ -211,7 +212,7 @@ def _grade_due_batch(db: Session) -> int:
                 logger.exception("延迟作业视觉批改失败，submission_id=%s", sub.id)
                 continue
             visual_steps = vision.get("steps", [])
-            if vision.get("needs_image_review") or float(vision.get("confidence", 0.0)) < 0.45:
+            if vision.get("needs_image_review") or normalize_confidence(vision.get("confidence", 0.0)) < 0.45:
                 # 截止时图片仍无法确认，交由教师看原图复核，避免永久卡在延迟态。
                 visual_steps = [{
                     "text": text,

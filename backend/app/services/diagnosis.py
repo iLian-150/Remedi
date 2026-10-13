@@ -16,6 +16,7 @@ from sympy import Add, Eq, expand, simplify
 from ..config import settings
 from ..models import Error, Question, Step, Submission, User
 from .mathparse import ParsedStep, UnparseableError, extract_equation, parse_step
+from .confidence import normalize_confidence
 from .providers import get_provider
 
 # 置信度常量
@@ -311,7 +312,10 @@ def diagnose_submission(db, student: User, question: Question,
             step_id=step.id,
             knowledge_point=question.knowledge_point,
             error_type=final.get("error_type", rule_result["error_type"]),
-            confidence=float(final.get("confidence", rule_result["confidence"])),
+            confidence=normalize_confidence(
+                final.get("confidence", rule_result["confidence"]),
+                rule_result["confidence"],
+            ),
             detail=final.get("detail", rule_result["detail"]),
         )
         db.add(err)
@@ -372,7 +376,7 @@ def diagnose_visual_submission(db, student: User, question: Question,
         if not text:
             continue
         result = str(item.get("result", "uncertain")).strip().lower()
-        confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
+        confidence = normalize_confidence(item.get("confidence", 0.5), 0.5)
         if result == "correct":
             step = Step(submission_id=submission.id, seq=seq, text=text, status="ok")
             db.add(step)

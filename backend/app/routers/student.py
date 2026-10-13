@@ -86,6 +86,7 @@ from ..schemas import (
 from ..services import variant_gen
 from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
+from ..services.confidence import normalize_confidence
 from ..services import scoring as scoring_svc
 from ..services.diagnosis import (
     diagnose_submission,
@@ -1126,7 +1127,7 @@ async def photo_review(
         ) from exc
     vision_elapsed = perf_counter() - vision_started_at
     logger.info("照片视觉识别完成（耗时 %.2f 秒）", vision_elapsed)
-    confidence = float(recognition.get("confidence", 0.0) or 0.0)
+    confidence = normalize_confidence(recognition.get("confidence", 0.0))
     recognized_subject = question.subject if question else str(
         recognition.get("subject", "other") or "other"
     )
@@ -1403,7 +1404,7 @@ async def photo_diagnose(
         file.content_type,
         _visual_question_context(question),
     )
-    confidence = float(recognition.get("confidence", 0.0) or 0.0)
+    confidence = normalize_confidence(recognition.get("confidence", 0.0))
     visual_steps = recognition.get("steps", [])
     steps = [str(step.get("text", "")).strip() for step in visual_steps
              if isinstance(step, dict) and str(step.get("text", "")).strip()]

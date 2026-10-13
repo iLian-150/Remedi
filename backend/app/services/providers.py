@@ -5,9 +5,12 @@
 import base64
 import json
 import logging
+import math
 import re
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
+
+from .confidence import normalize_confidence
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,8 @@ def _as_bool(value, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            return default
         return value != 0
     if isinstance(value, str):
         normalized = value.strip().lower()
@@ -154,7 +159,7 @@ class DeepSeekProvider(LLMProvider):
             data = self._extract_json(out)
             if data.get("error_type") not in ("计算失误", "概念混淆", "审题遗漏"):
                 raise ValueError("error_type 非法")
-            data["confidence"] = max(0.0, min(1.0, float(data.get("confidence", 0.5))))
+            data["confidence"] = normalize_confidence(data.get("confidence", 0.5), 0.5)
             return data
         except Exception as e:
             logger.exception("LLM classify_error 调用失败")
@@ -424,10 +429,7 @@ class CloudflareProvider(DeepSeekProvider):
             data = self._extract_json(content)
             steps = [str(s).strip() for s in data.get("steps", []) if str(s).strip()]
             question_text = str(data.get("question_text", "")).strip()
-            try:
-                confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
-            except (TypeError, ValueError):
-                confidence = 0.0
+            confidence = normalize_confidence(data.get("confidence", 0.0))
             return {
                 "question_text": question_text,
                 "steps": steps,
@@ -498,10 +500,7 @@ class CloudflareProvider(DeepSeekProvider):
                     result = "incorrect"
                 else:
                     result = "uncertain"
-                try:
-                    step_confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
-                except (TypeError, ValueError):
-                    step_confidence = 0.5
+                step_confidence = normalize_confidence(item.get("confidence", 0.5), 0.5)
                 error_type = str(item.get("error_type", "")).strip()
                 allowed_error_types = {
                     "计算失误", "概念混淆", "审题遗漏", "无法解析", "语法错误",
@@ -518,10 +517,7 @@ class CloudflareProvider(DeepSeekProvider):
                     "detail": str(item.get("detail", "")).strip()[:1000],
                 })
 
-            try:
-                image_confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
-            except (TypeError, ValueError):
-                image_confidence = 0.0
+            image_confidence = normalize_confidence(data.get("confidence", 0.0))
             subject_aliases = {
                 "math": "math", "mathematics": "math", "数学": "math", "数学题": "math",
                 "english": "english", "英语": "english", "英语题": "english",
