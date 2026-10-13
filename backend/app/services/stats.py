@@ -1,7 +1,7 @@
 # 班级聚合与学习画像：高频错题 TopN、知识点错误率排行、学生画像。
 from typing import Dict, List
 
-from sqlalchemy import case, func, literal, tuple_
+from sqlalchemy import and_, case, func, literal, tuple_
 from sqlalchemy.orm import joinedload, load_only
 
 from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
@@ -727,13 +727,24 @@ def class_repair_rate(db) -> Dict:
         db.query(
             Submission.student_id.label("student_id"),
             Error.knowledge_point.label("knowledge_point"),
-            func.count(Error.id).label("error_count"),
-            func.sum(case((Error.is_stubborn.is_(True), 1), else_=0)).label(
+            func.count(func.distinct(Error.id)).label("error_count"),
+            func.count(func.distinct(case((
+                Error.is_stubborn.is_(True), Error.id,
+            )))).label(
                 "stubborn_count"
             ),
+            func.count(func.distinct(Correction.error_id)).label("fixed_count"),
         )
         .join(Error, Error.submission_id == Submission.id)
         .join(User, User.id == Submission.student_id)
+        .outerjoin(
+            Correction,
+            and_(
+                Correction.error_id == Error.id,
+                Correction.student_id == Submission.student_id,
+                Correction.is_correct.is_(True),
+            ),
+        )
         .filter(User.role == "student")
         .group_by(Submission.student_id, Error.knowledge_point)
         .all()
@@ -746,31 +757,6 @@ def class_repair_rate(db) -> Dict:
             "fixed_knowledge_point_pairs": 0,
             "knowledge_points": [],
         }
-
-    # 仅统计这些错题组合中已有正确订正的错误；distinct 保留重复订正只计一次的口径。
-    fixed_counts = dict(
-        (
-            (student_id, knowledge_point),
-            int(fixed_count),
-        )
-        for student_id, knowledge_point, fixed_count in (
-            db.query(
-                Submission.student_id,
-                Error.knowledge_point,
-                func.count(func.distinct(Error.id)),
-            )
-            .join(Error, Error.submission_id == Submission.id)
-            .join(User, User.id == Submission.student_id)
-            .join(Correction, Correction.error_id == Error.id)
-            .filter(
-                User.role == "student",
-                Correction.student_id == Submission.student_id,
-                Correction.is_correct.is_(True),
-            )
-            .group_by(Submission.student_id, Error.knowledge_point)
-            .all()
-        )
-    )
 
     error_pairs = [
         (summary.student_id, summary.knowledge_point)
@@ -801,7 +787,7 @@ def class_repair_rate(db) -> Dict:
         pair = (student_id, kp)
         is_fixed = (
             pair in passed_pairs
-            or fixed_counts.get(pair, 0) == summary.error_count
+            or int(summary.fixed_count or 0) == summary.error_count
         )
         total_pairs += 1
         cell = per_kp.setdefault(kp, {
