@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_teacher
@@ -902,65 +902,70 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
     )
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
-    qids = [q.id for q in db.query(Question).filter(Question.assignment_id == assignment.id).all()]
-    submission_image_paths: set[str] = set()
-    if qids:
-        sub_ids = [
-            s.id for s in db.query(Submission).filter(Submission.question_id.in_(qids)).all()
-        ]
-        if sub_ids:
-            submission_image_paths = {
-                row[0]
-                for row in db.query(SubmissionImage.file_path)
-                .filter(SubmissionImage.submission_id.in_(sub_ids)).all()
-                if row[0]
-            }
-            err_ids = [
-                e.id for e in db.query(Error).filter(Error.submission_id.in_(sub_ids)).all()
-            ]
-            if err_ids:
-                db.query(ChatSessionMessageMistakeLink).filter(
-                    ChatSessionMessageMistakeLink.error_id.in_(err_ids)
-                ).delete(synchronize_session=False)
-                db.query(Verification).filter(
-                    Verification.source_error_id.in_(err_ids)
-                ).update({Verification.source_error_id: None}, synchronize_session=False)
-                db.query(Correction).filter(Correction.error_id.in_(err_ids)) \
-                    .delete(synchronize_session=False)
-                db.query(StudentMistakeArchive).filter(StudentMistakeArchive.error_id.in_(err_ids)) \
-                    .delete(synchronize_session=False)
-            db.query(Notification).filter(
-                Notification.related_submission_id.in_(sub_ids)
-            ).delete(synchronize_session=False)
-            # v0.9.0：审核行随提交一并清理，避免待审核队列出现孤儿
-            db.query(SubmissionReview).filter(
-                SubmissionReview.submission_id.in_(sub_ids)
-            ).delete(synchronize_session=False)
-            # 评分系统：得分行随提交一并清理
-            db.query(SubmissionScore).filter(
-                SubmissionScore.submission_id.in_(sub_ids)
-            ).delete(synchronize_session=False)
-            db.query(SubmissionImage).filter(
-                SubmissionImage.submission_id.in_(sub_ids)
-            ).delete(synchronize_session=False)
-            db.query(Error).filter(Error.submission_id.in_(sub_ids)) \
-                .delete(synchronize_session=False)
-            db.query(Step).filter(Step.submission_id.in_(sub_ids)) \
-                .delete(synchronize_session=False)
-            db.query(Submission).filter(Submission.id.in_(sub_ids)) \
-                .delete(synchronize_session=False)
-        db.query(Essay).filter(Essay.question_id.in_(qids)).delete(synchronize_session=False)
-        # 学生上传题的原始留档独立于作业，保留图片与识别文本，只解除已删除题目的关联。
-        db.query(StudentQuestionCapture).filter(
-            StudentQuestionCapture.question_id.in_(qids)
-        ).update({StudentQuestionCapture.question_id: None}, synchronize_session=False)
-        # 评分系统：题目分值占比行随题目一并清理
-        db.query(QuestionWeight).filter(QuestionWeight.question_id.in_(qids)) \
-            .delete(synchronize_session=False)
-        # v0.13.1：大题成员行随题目一并清理
-        db.query(QuestionGroupMember).filter(QuestionGroupMember.question_id.in_(qids)) \
-            .delete(synchronize_session=False)
-        db.query(Question).filter(Question.id.in_(qids)).delete(synchronize_session=False)
+    question_ids = select(Question.id).where(Question.assignment_id == assignment.id)
+    submission_ids = (
+        select(Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .where(Question.assignment_id == assignment.id)
+    )
+    error_ids = (
+        select(Error.id)
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .where(Question.assignment_id == assignment.id)
+    )
+    submission_image_paths = {
+        file_path
+        for file_path, in db.query(SubmissionImage.file_path)
+        .filter(SubmissionImage.submission_id.in_(submission_ids))
+        .all()
+        if file_path
+    }
+    db.query(ChatSessionMessageMistakeLink).filter(
+        ChatSessionMessageMistakeLink.error_id.in_(error_ids)
+    ).delete(synchronize_session=False)
+    db.query(Verification).filter(
+        Verification.source_error_id.in_(error_ids)
+    ).update({Verification.source_error_id: None}, synchronize_session=False)
+    db.query(Correction).filter(Correction.error_id.in_(error_ids)) \
+        .delete(synchronize_session=False)
+    db.query(StudentMistakeArchive).filter(
+        StudentMistakeArchive.error_id.in_(error_ids)
+    ).delete(synchronize_session=False)
+    db.query(Notification).filter(
+        Notification.related_submission_id.in_(submission_ids)
+    ).delete(synchronize_session=False)
+    # v0.9.0：审核行随提交一并清理，避免待审核队列出现孤儿
+    db.query(SubmissionReview).filter(
+        SubmissionReview.submission_id.in_(submission_ids)
+    ).delete(synchronize_session=False)
+    # 评分系统：得分行随提交一并清理
+    db.query(SubmissionScore).filter(
+        SubmissionScore.submission_id.in_(submission_ids)
+    ).delete(synchronize_session=False)
+    db.query(SubmissionImage).filter(
+        SubmissionImage.submission_id.in_(submission_ids)
+    ).delete(synchronize_session=False)
+    db.query(Error).filter(Error.submission_id.in_(submission_ids)) \
+        .delete(synchronize_session=False)
+    db.query(Step).filter(Step.submission_id.in_(submission_ids)) \
+        .delete(synchronize_session=False)
+    db.query(Submission).filter(Submission.question_id.in_(question_ids)) \
+        .delete(synchronize_session=False)
+    db.query(Essay).filter(Essay.question_id.in_(question_ids)) \
+        .delete(synchronize_session=False)
+    # 学生上传题的原始留档独立于作业，保留图片与识别文本，只解除已删除题目的关联。
+    db.query(StudentQuestionCapture).filter(
+        StudentQuestionCapture.question_id.in_(question_ids)
+    ).update({StudentQuestionCapture.question_id: None}, synchronize_session=False)
+    # 评分系统：题目分值占比行随题目一并清理
+    db.query(QuestionWeight).filter(QuestionWeight.question_id.in_(question_ids)) \
+        .delete(synchronize_session=False)
+    # v0.13.1：大题成员行随题目一并清理
+    db.query(QuestionGroupMember).filter(QuestionGroupMember.question_id.in_(question_ids)) \
+        .delete(synchronize_session=False)
+    db.query(Question).filter(Question.assignment_id == assignment.id) \
+        .delete(synchronize_session=False)
     # v0.13.1：提交设置行与大题行随作业一并清理
     db.query(AssignmentSetting).filter(AssignmentSetting.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
