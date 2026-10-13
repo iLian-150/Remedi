@@ -67,6 +67,8 @@ export const useStudentStore = defineStore('student', {
     sessionsLoaded: false,
     sessionsError: '',
     sessionsLoadPromise: null as Promise<void> | null,
+    sessionsRefreshPromise: null as Promise<void> | null,
+    sessionsGeneration: 0,
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
@@ -522,19 +524,53 @@ export const useStudentStore = defineStore('student', {
     // ---- 会话区状态层（v0.6.2）：左侧栏会话导航与对话页共用 ----
     /** 拉取会话列表进 store；首次自动定位当前会话 = 最近更新的一条 */
     async loadSessions(force = false) {
+      if (force) {
+        if (this.sessionsRefreshPromise) {
+          await this.sessionsRefreshPromise
+          return
+        }
+        const generation = this.sessionsGeneration
+        const refreshTask = (async () => {
+          if (this.sessionsLoadPromise) {
+            try {
+              await this.sessionsLoadPromise
+            } catch {
+              // 即使初次请求失败，强制刷新仍继续重试。
+            }
+          }
+          if (generation !== this.sessionsGeneration) return
+          await this.fetchSessionsIntoStore()
+        })()
+        this.sessionsRefreshPromise = refreshTask
+        try {
+          await refreshTask
+        } finally {
+          if (this.sessionsRefreshPromise === refreshTask) {
+            this.sessionsRefreshPromise = null
+          }
+        }
+        return
+      }
       if (this.sessionsLoadPromise) {
         try {
           await this.sessionsLoadPromise
         } catch {
-          // 让强制刷新继续重试；普通并发调用复用这次结果即可。
+          // 请求失败状态已由 fetchSessionsIntoStore 记录。
         }
-        if (!force) return
+        return
       }
-      if (this.sessionsLoaded && !force) return
+      if (this.sessionsLoaded) return
+
+      await this.fetchSessionsIntoStore()
+    },
+    async fetchSessionsIntoStore() {
       this.sessionsLoading = true
       this.sessionsError = ''
+      const generation = this.sessionsGeneration
       const task = (async () => {
-        this.sessions = await this.fetchSessions()
+        const sessions = await this.fetchSessions()
+        if (generation !== this.sessionsGeneration) return
+        this.sessions = sessions
         this.sessionsLoaded = true
         const activeExists = this.sessions.some((session) => session.id === this.activeSessionId)
         if (this.activeSessionId == null || !activeExists) {
@@ -550,7 +586,9 @@ export const useStudentStore = defineStore('student', {
       try {
         await task
       } catch (e) {
-        this.sessionsError = '历史对话加载失败，请重试。'
+        if (generation === this.sessionsGeneration) {
+          this.sessionsError = '历史对话加载失败，请重试。'
+        }
         console.error(e)
       } finally {
         if (this.sessionsLoadPromise === task) {
@@ -621,12 +659,15 @@ export const useStudentStore = defineStore('student', {
     },
     /** 退出登录时清空会话区状态，避免换人后残留 */
     clearSessionState() {
+      this.sessionsGeneration += 1
       this.sessions = []
       this.activeSessionId = null
       persistActiveSessionId(null)
       this.sessionsLoading = false
       this.sessionsLoaded = false
       this.sessionsError = ''
+      this.sessionsLoadPromise = null
+      this.sessionsRefreshPromise = null
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     /** 退出登录时重置提醒未读数（v0.8.2），避免换人登录后角标残留 */
