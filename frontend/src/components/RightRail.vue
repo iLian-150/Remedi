@@ -95,10 +95,10 @@
 
     <!-- 错题时间线（仅学习报告页）：默认收起只露标题行，点开才展开纵向时间线 -->
     <template v-else-if="mode === 'timeline'">
-      <button type="button" class="tl-toggle" @click="tlExpanded = !tlExpanded">
+      <button type="button" class="tl-toggle" @click="toggleTimeline">
         <span class="tl-toggle-main">
           <AppIcon name="history" :size="16" />
-          <span>{{ tlScopeLabel }} · 共 <span class="tnum">{{ timelineItems.length }}</span> 条</span>
+          <span>{{ tlScopeLabel }} · 共 <span class="tnum">{{ tlCount ?? '…' }}</span> 条</span>
         </span>
         <span class="tl-chevron" :class="{ open: tlExpanded }"><AppIcon name="chevron-down" :size="16" /></span>
       </button>
@@ -204,6 +204,9 @@ const correctionMarks = ref<Record<string, number>>({})
 const tlRaw = ref<StudentMistake[]>([])
 const tlLoading = ref(false)
 const tlExpanded = ref(false)
+const tlCount = ref<number | null>(null)
+const tlLoaded = ref(false)
+let tlLoadPromise: Promise<void> | null = null
 
 interface ReviewCategory {
   key: string
@@ -274,6 +277,15 @@ const timelineItems = computed(() =>
     .map((item) => ({ ...item, corrected: item.latest_correction?.is_correct === true }))
 )
 
+watch(tlSubject, () => {
+  if (props.mode !== 'timeline') return
+  if (tlLoaded.value) {
+    tlCount.value = timelineItems.value.length
+  } else if (!tlExpanded.value) {
+    void loadTimelineCount()
+  }
+})
+
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
@@ -337,17 +349,47 @@ async function loadCorrectionMarks() {
   }
 }
 
-/** 错题时间线数据：与订正日历共用 store.fetchCorrectableMistakes（只读复用，
- * 源头是 /student/mistakes 响应合并口径：仅诊断产生的错题，待审核记录也会同步展示） */
-async function loadTimeline() {
-  tlLoading.value = true
+async function loadTimelineCount() {
+  const subject = tlSubject.value
+  tlCount.value = null
   try {
-    tlRaw.value = await student.fetchCorrectableMistakes()
+    const count = await student.fetchMistakeCount(subject || undefined)
+    if (props.mode === 'timeline' && tlSubject.value === subject && !tlLoaded.value) {
+      tlCount.value = count
+    }
   } catch (e) {
     console.error(e)
-  } finally {
-    tlLoading.value = false
   }
+}
+
+/** 错题时间线仅在展开时加载完整错题本数据；折叠标题使用轻量计数接口。 */
+async function loadTimeline() {
+  if (tlLoaded.value) {
+    tlCount.value = timelineItems.value.length
+    return
+  }
+  if (tlLoadPromise) return tlLoadPromise
+
+  tlLoading.value = true
+  const request = (async () => {
+    try {
+      tlRaw.value = await student.fetchCorrectableMistakes()
+      tlLoaded.value = true
+      tlCount.value = timelineItems.value.length
+    } catch (e) {
+      console.error(e)
+    } finally {
+      tlLoading.value = false
+      tlLoadPromise = null
+    }
+  })()
+  tlLoadPromise = request
+  return request
+}
+
+function toggleTimeline() {
+  tlExpanded.value = !tlExpanded.value
+  if (tlExpanded.value) void loadTimeline()
 }
 
 function reviewSubjectName(value: string) {
@@ -388,7 +430,9 @@ async function loadForMode() {
   } else if (props.mode === 'corrections') {
     await loadCorrectionMarks()
   } else if (props.mode === 'timeline') {
-    await loadTimeline()
+    tlLoaded.value = false
+    if (tlExpanded.value) await loadTimeline()
+    else await loadTimelineCount()
   } else {
     await loadMarks()
   }

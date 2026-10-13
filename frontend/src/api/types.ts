@@ -137,6 +137,10 @@ export interface StudentMistake {
   image_url?: string | null
 }
 
+export interface StudentMistakeCount {
+  count: number
+}
+
 export interface RelatedMistake {
   id: number
   submission_id: number

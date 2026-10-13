@@ -20,6 +20,7 @@ import type {
   PhotoTranscribeResult,
   RelatedMistake,
   StudentBriefing,
+  StudentMistakeCount,
   StudentProfile,
   StudentMistake,
   SubjectReport,
@@ -197,6 +198,12 @@ export const useStudentStore = defineStore('student', {
     async fetchCorrectableMistakes(): Promise<StudentMistake[]> {
       const allMistakes = await this.fetchAllMyMistakes()
       return allMistakes.filter((item) => item.id > 0 && item.source_kind !== 'student_saved')
+    },
+    async fetchMistakeCount(subject?: string): Promise<number> {
+      const { data } = await api.get<StudentMistakeCount>('/api/student/mistakes/count', {
+        params: subject ? { subject } : {}
+      })
+      return data.count
     },
     async setMistakeCategoryStudied(payload: {
       assignment_id: number

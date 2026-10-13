@@ -78,6 +78,7 @@ from ..schemas import (
     SubmissionBrief,
     SubmissionCreate,
     StudentMistakeOut,
+    StudentMistakeCountOut,
     StudentQuestionCaptureCreate,
     VerificationCreate,
     VerificationOut,
@@ -880,6 +881,25 @@ def my_mistakes(
         ))
     result.sort(key=lambda item: item.created_at, reverse=True)
     return result
+
+
+@router.get("/mistakes/count", response_model=StudentMistakeCountOut,
+            summary="我的诊断错题数量")
+def my_mistake_count(subject: Optional[str] = Query(default=None),
+                     db: Session = Depends(get_db),
+                     current: User = Depends(require_student)):
+    """Count diagnosis errors without assembling the full mistake notebook payload."""
+    query = (
+        db.query(func.count(Error.id))
+        .select_from(Error)
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .filter(Submission.student_id == current.id)
+    )
+    if subject:
+        query = query.filter(Question.subject == subject)
+    return {"count": int(query.scalar() or 0)}
 
 
 @router.patch("/mistakes/categories", summary="标记错因类别学习状态")

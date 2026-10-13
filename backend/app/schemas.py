@@ -226,6 +226,10 @@ class StudentMistakeOut(BaseModel):
     image_url: Optional[str] = None
 
 
+class StudentMistakeCountOut(BaseModel):
+    count: int
+
+
 class RelatedMistakeOut(BaseModel):
     id: int
     submission_id: int
