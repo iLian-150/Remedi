@@ -810,6 +810,11 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
 def class_repair_rate(db) -> Dict:
     """教师端：班级知识修复率 + 各知识点修复率（只读聚合，不改任何已有口径）。"""
     # 先在数据库按学生和知识点汇总，避免把每条错题及订正正文读入 Python。
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == Submission.student_id,
+        Correction.is_correct.is_(True),
+    ).exists()
     error_summaries = (
         db.query(
             Submission.student_id.label("student_id"),
@@ -820,18 +825,12 @@ def class_repair_rate(db) -> Dict:
             )))).label(
                 "stubborn_count"
             ),
-            func.count(func.distinct(Correction.error_id)).label("fixed_count"),
+            func.count(func.distinct(case((
+                has_correct_correction, Error.id,
+            )))).label("fixed_count"),
         )
         .join(Error, Error.submission_id == Submission.id)
         .join(User, User.id == Submission.student_id)
-        .outerjoin(
-            Correction,
-            and_(
-                Correction.error_id == Error.id,
-                Correction.student_id == Submission.student_id,
-                Correction.is_correct.is_(True),
-            ),
-        )
         .filter(User.role == "student")
         .group_by(Submission.student_id, Error.knowledge_point)
         .all()
