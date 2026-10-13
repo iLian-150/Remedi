@@ -1,4 +1,5 @@
 # 班级聚合与学习画像：高频错题 TopN、知识点错误率排行、学生画像。
+from heapq import merge
 from typing import Dict, List
 
 from sqlalchemy import case, func, tuple_
@@ -95,7 +96,7 @@ def _student_submissions(db, student: User, visible_only: bool):
     """取学生提交列表；学生画像等审核敏感统计可选择只计已审核提交。
     教师端调用一律 visible_only=False，全量可见；只预加载报告实际使用的题目字段。"""
     question_load = joinedload(Submission.question).load_only(
-        Question.id, Question.subject, Question.knowledge_point, Question.stem,
+        Question.id, Question.subject, Question.knowledge_point,
     )
     submissions = (
         db.query(Submission)
@@ -114,6 +115,33 @@ def _student_submissions(db, student: User, visible_only: bool):
 
         submissions = visible_submissions(db, submissions)
     return submissions
+
+
+def _student_error_summaries(db, submission_ids: List[int]):
+    """按批读取学生分析所需的错因列，避免加载长说明、订正备注等正文。"""
+    error_chunks = []
+    for start in range(0, len(submission_ids), 500):
+        error_chunks.append(
+            db.query(
+                Error.id.label("id"),
+                Error.submission_id.label("submission_id"),
+                Error.knowledge_point.label("knowledge_point"),
+                Error.is_stubborn.label("is_stubborn"),
+                Error.error_type.label("error_type"),
+                Error.step_id.label("step_id"),
+                Error.created_at.label("created_at"),
+            )
+            .filter(Error.submission_id.in_(submission_ids[start:start + 500]))
+            .order_by(Error.created_at.desc())
+            .all()
+        )
+    if len(error_chunks) <= 1:
+        return error_chunks[0] if error_chunks else []
+    return list(merge(
+        *error_chunks,
+        key=lambda error: error.created_at,
+        reverse=True,
+    ))
 
 
 def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
@@ -160,21 +188,7 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     for s in submissions:
         kp = s.question.knowledge_point if s.question else "未知"
         kp_attempts[kp] = kp_attempts.get(kp, 0) + 1
-    errors = []
-    if sub_ids:
-        errors = (
-            db.query(
-                Error.id,
-                Error.knowledge_point,
-                Error.is_stubborn,
-                Error.error_type,
-                Error.step_id,
-                Error.created_at,
-            )
-            .filter(Error.submission_id.in_(sub_ids))
-            .order_by(Error.created_at.desc())
-            .all()
-        )
+    errors = _student_error_summaries(db, sub_ids)
     for e in errors:
         kp_errors[e.knowledge_point] = kp_errors.get(e.knowledge_point, 0) + 1
 
@@ -246,6 +260,9 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
     submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
+    latest_submission = max(
+        submissions, key=lambda submission: (submission.submitted_at, submission.id)
+    ) if submissions else None
 
     # 未完成作业：批量读取作业、题目数与扩展信息，避免按作业逐条查库。
     # 与学生作业列表保持相同可见范围：学生自主上传题目只归上传者练习，不进入班级作业简报。
@@ -317,14 +334,7 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
             })
 
     # 已审核错误集合用于学习报告类统计；低置信度错题仍立即进入订正待办。
-    errors = []
-    if sub_ids:
-        errors = (
-            db.query(Error)
-            .filter(Error.submission_id.in_(sub_ids))
-            .order_by(Error.created_at.desc())
-            .all()
-        )
+    errors = _student_error_summaries(db, sub_ids)
 
     correction_sub_ids = sub_ids
     if visible_only:
@@ -334,12 +344,7 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
         ]
     correction_errors = errors
     if correction_sub_ids != sub_ids:
-        correction_errors = (
-            db.query(Error)
-            .filter(Error.submission_id.in_(correction_sub_ids))
-            .order_by(Error.created_at.desc())
-            .all()
-        ) if correction_sub_ids else []
+        correction_errors = _student_error_summaries(db, correction_sub_ids)
 
     # 待订正：尚无一条 is_correct=True 订正的 error；与老师复核并行统计。
     fixed_ids = _fixed_error_ids(
@@ -383,13 +388,19 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
 
     # 最近一次批改的一句话摘要
     recent_feedback = None
-    if submissions:
-        latest = max(submissions, key=lambda s: (s.submitted_at, s.id))
-        stem = latest.question.stem if latest.question else ""
-        latest_errors = [e for e in errors if e.submission_id == latest.id]
-        if latest_errors:
-            e0 = latest_errors[0]
-            detail = e0.detail or f"出现了「{e0.error_type}」"
+    if latest_submission is not None:
+        feedback_row = (
+            db.query(Question.stem, Error.detail, Error.error_type)
+            .select_from(Submission)
+            .outerjoin(Question, Question.id == Submission.question_id)
+            .outerjoin(Error, Error.submission_id == Submission.id)
+            .filter(Submission.id == latest_submission.id)
+            .order_by(Error.created_at.desc())
+            .first()
+        )
+        stem = (feedback_row.stem if feedback_row else None) or ""
+        if feedback_row is not None and feedback_row.error_type is not None:
+            detail = feedback_row.detail or f"出现了「{feedback_row.error_type}」"
             recent_feedback = f"最近一次批改《{stem}》：{detail}"
         else:
             recent_feedback = f"最近一次作答《{stem}》全部正确，继续保持！"
@@ -487,14 +498,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     """学生学习报告：按科目聚合提交/正确率/修复进度，并下钻到知识点状态。"""
     submissions = _student_submissions(db, student, visible_only)
     sub_ids = [s.id for s in submissions]
-    errors = []
-    if sub_ids:
-        errors = (
-            db.query(Error)
-            .filter(Error.submission_id.in_(sub_ids))
-            .order_by(Error.created_at.desc())
-            .all()
-        )
+    errors = _student_error_summaries(db, sub_ids)
     fixed_ids = _fixed_error_ids(db, student, [error.id for error in errors])
     passed_kps = _passed_verification_kps(db, student.id)
     sub_by_id = {s.id: s for s in submissions}
