@@ -1,7 +1,7 @@
 # 班级聚合与学习画像：高频错题 TopN、知识点错误率排行、学生画像。
 from typing import Dict, List
 
-from sqlalchemy import case, func, tuple_
+from sqlalchemy import case, func, literal, tuple_
 from sqlalchemy.orm import joinedload, load_only
 
 from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
@@ -62,23 +62,38 @@ def knowledge_point_ranking(db) -> List[Dict]:
     """知识点错误率排行。
     口径：submissions = 该知识点题目的提交总数；errors = 该知识点累计 error 数；
     error_rate = errors / submissions。按 error_rate 降序。"""
-    # 每个知识点的提交数
-    sub_rows = (
-        db.query(Question.knowledge_point, func.count(Submission.id).label("submissions"))
+    # 将提交数与错因数两组聚合合并为一条 SQL，避免看板和统计接口各自往返两次。
+    combined_counts = (
+        db.query(
+            Question.knowledge_point.label("knowledge_point"),
+            func.count(Submission.id).label("submissions"),
+            literal(0).label("errors"),
+        )
         .join(Submission, Submission.question_id == Question.id)
         .group_by(Question.knowledge_point)
-        .all()
+        .union_all(
+            db.query(
+                Error.knowledge_point.label("knowledge_point"),
+                literal(0).label("submissions"),
+                func.count(Error.id).label("errors"),
+            )
+            .group_by(Error.knowledge_point)
+        )
+        .subquery()
     )
-    submissions_map = {kp: s for kp, s in sub_rows}
-    # 每个知识点的错误数
-    err_rows = (
-        db.query(Error.knowledge_point, func.count(Error.id).label("errors"))
-        .group_by(Error.knowledge_point)
+    rows = (
+        db.query(
+            combined_counts.c.knowledge_point,
+            func.sum(combined_counts.c.submissions).label("submissions"),
+            func.sum(combined_counts.c.errors).label("errors"),
+        )
+        .group_by(combined_counts.c.knowledge_point)
+        .having(func.sum(combined_counts.c.errors) > 0)
         .all()
     )
     items = []
-    for kp, ec in err_rows:
-        s = submissions_map.get(kp, 0)
+    for kp, submissions, ec in rows:
+        s = int(submissions or 0)
         # 同一提交可能产生多条 error（如无法解析+后续错误），错误率上限截断为 1.0
         rate = round(min(1.0, ec / s), 3) if s else 0.0
         items.append({
