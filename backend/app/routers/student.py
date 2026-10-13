@@ -708,21 +708,28 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
 def set_mistake_category_studied(body: MistakeCategoryStudyIn,
                                  db: Session = Depends(get_db),
                                  current: User = Depends(require_student)):
-    rows = (
-        db.query(Error, Question)
+    category_rows = (
+        db.query(Error.error_type, Error.knowledge_point, Question.subject)
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
-        .filter(Submission.student_id == current.id, Question.assignment_id == body.assignment_id)
+        .outerjoin(
+            StudentMistakeArchive,
+            and_(
+                StudentMistakeArchive.error_id == Error.id,
+                StudentMistakeArchive.student_id == current.id,
+            ),
+        )
+        .filter(
+            Submission.student_id == current.id,
+            Question.assignment_id == body.assignment_id,
+            StudentMistakeArchive.error_id.is_(None),
+        )
+        .distinct()
         .all()
     )
-    archived_ids = {
-        item.error_id for item in db.query(StudentMistakeArchive)
-        .filter(StudentMistakeArchive.student_id == current.id).all()
-    }
-    active_rows = [(error, question) for error, question in rows if error.id not in archived_ids]
     valid_keys = {
-        _mistake_category(question.subject, error.error_type, error.knowledge_point)[0]
-        for error, question in active_rows
+        _mistake_category(subject, error_type, knowledge_point)[0]
+        for error_type, knowledge_point, subject in category_rows
     }
     if body.category_key not in valid_keys:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业或错题类别不存在")
