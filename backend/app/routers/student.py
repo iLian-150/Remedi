@@ -738,11 +738,16 @@ def my_mistakes(
             ).all()
         )
     correction_by_error = {}
+    verification_by_error = {}
     for start in range(0, len(visible_error_ids), 500):
         error_id_chunk = visible_error_ids[start:start + 500]
         ranked_corrections = db.query(
             Correction.id.label("id"),
             Correction.error_id.label("error_id"),
+            Correction.content.label("content"),
+            Correction.is_correct.label("is_correct"),
+            Correction.note.label("note"),
+            Correction.submitted_at.label("submitted_at"),
             func.row_number().over(
                 partition_by=Correction.error_id,
                 order_by=(Correction.submitted_at.desc(), Correction.id.desc()),
@@ -751,24 +756,10 @@ def my_mistakes(
             Correction.student_id == current.id,
             Correction.error_id.in_(error_id_chunk),
         ).subquery()
-        latest = ranked_corrections.c
-        for correction in db.query(
-            Correction.id,
-            Correction.error_id,
-            Correction.content,
-            Correction.is_correct,
-            Correction.note,
-            Correction.submitted_at,
-        ).join(
-            ranked_corrections, Correction.id == latest.id
-        ).filter(latest.rank == 1).all():
-            correction_by_error[correction.error_id] = correction
-    verification_by_error = {}
-    for start in range(0, len(visible_error_ids), 500):
-        error_id_chunk = visible_error_ids[start:start + 500]
         ranked_verifications = db.query(
             Verification.id.label("id"),
             Verification.source_error_id.label("source_error_id"),
+            Verification.status.label("status"),
             func.row_number().over(
                 partition_by=Verification.source_error_id,
                 order_by=(Verification.created_at.desc(), Verification.id.desc()),
@@ -777,13 +768,40 @@ def my_mistakes(
             Verification.student_id == current.id,
             Verification.source_error_id.in_(error_id_chunk),
         ).subquery()
-        latest = ranked_verifications.c
-        for error_id, verification_status in db.query(
-            Verification.source_error_id, Verification.status
-        ).join(
-            ranked_verifications, Verification.id == latest.id
-        ).filter(latest.rank == 1).all():
-            verification_by_error[error_id] = verification_status
+        latest_correction = ranked_corrections.c
+        latest_verification = ranked_verifications.c
+        rows = db.query(
+            Error.id.label("error_id"),
+            latest_correction.id.label("correction_id"),
+            latest_correction.content.label("correction_content"),
+            latest_correction.is_correct.label("correction_is_correct"),
+            latest_correction.note.label("correction_note"),
+            latest_correction.submitted_at.label("correction_submitted_at"),
+            latest_verification.status.label("verification_status"),
+        ).select_from(Error).outerjoin(
+            ranked_corrections,
+            and_(
+                latest_correction.error_id == Error.id,
+                latest_correction.rank == 1,
+            ),
+        ).outerjoin(
+            ranked_verifications,
+            and_(
+                latest_verification.source_error_id == Error.id,
+                latest_verification.rank == 1,
+            ),
+        ).filter(Error.id.in_(error_id_chunk)).all()
+        for row in rows:
+            if row.correction_id is not None:
+                correction_by_error[row.error_id] = {
+                    "id": row.correction_id,
+                    "content": row.correction_content,
+                    "is_correct": row.correction_is_correct,
+                    "note": row.correction_note,
+                    "submitted_at": row.correction_submitted_at,
+                }
+            if row.verification_status is not None:
+                verification_by_error[row.error_id] = row.verification_status
 
     history_by_category = {}
     for error, submission, question, assignment, _ in all_rows:
@@ -914,13 +932,7 @@ def my_mistakes(
             similar_occurrences=similar_by_category_assignment.get(
                 (category_key, assignment.id), []
             ),
-            latest_correction=({
-                "id": correction.id,
-                "content": correction.content,
-                "is_correct": correction.is_correct,
-                "note": correction.note,
-                "submitted_at": correction.submitted_at,
-            } if correction else None),
+            latest_correction=correction,
             verification_status=verification_by_error.get(error.id),
             image_url=(
                 f"/api/uploads/{image_path_by_submission[submission.id]}"
