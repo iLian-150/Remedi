@@ -11,7 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, func
+from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session, aliased, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
@@ -186,12 +186,19 @@ def list_assignments(
     if assignment_ids:
         for start in range(0, len(assignment_ids), 500):
             assignment_id_chunk = assignment_ids[start:start + 500]
-            rows = (
-                db.query(
-                    Question.assignment_id,
-                    func.count(func.distinct(Question.id)),
-                    func.count(func.distinct(Submission.question_id)),
+            question_stats_query = db.query(
+                Question.assignment_id,
+                func.count(func.distinct(Question.id)),
+                func.count(func.distinct(Submission.question_id)),
+            )
+            if not include_questions:
+                question_stats_query = question_stats_query.add_columns(
+                    func.count(func.distinct(
+                        case((Question.subject != "math", Question.id))
+                    )).label("non_math_count")
                 )
+            rows = (
+                question_stats_query
                 .outerjoin(
                     Submission,
                     and_(
@@ -203,21 +210,21 @@ def list_assignments(
                 .group_by(Question.assignment_id)
                 .all()
             )
-            question_stats.update({
-                assignment_id: (question_count, submitted_count)
-                for assignment_id, question_count, submitted_count in rows
-            })
-            if not include_questions:
-                photo_required_assignment_ids.update(
-                    assignment_id
-                    for assignment_id, in db.query(Question.assignment_id)
-                    .filter(
-                        Question.assignment_id.in_(assignment_id_chunk),
-                        Question.subject != "math",
-                    )
-                    .distinct()
-                    .all()
-                )
+            if include_questions:
+                question_stats.update({
+                    assignment_id: (question_count, submitted_count)
+                    for assignment_id, question_count, submitted_count in rows
+                })
+            else:
+                for (
+                    assignment_id,
+                    question_count,
+                    submitted_count,
+                    non_math_count,
+                ) in rows:
+                    question_stats[assignment_id] = (question_count, submitted_count)
+                    if non_math_count:
+                        photo_required_assignment_ids.add(assignment_id)
 
     questions_by_assignment = {}
     groups_by_assignment = {}
