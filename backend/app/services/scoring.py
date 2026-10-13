@@ -74,12 +74,20 @@ def set_assignment_scoring(db: Session, assignment_id: int,
                                      total_score=float(total_score)))
         else:
             row.total_score = float(total_score)
-    for question_id, pct in weights:
-        if pct is None:
-            continue
-        row = db.query(QuestionWeight).filter(
-            QuestionWeight.question_id == question_id
-        ).first()
+    specified_weights = [
+        (question_id, pct) for question_id, pct in weights if pct is not None
+    ]
+    existing_weights = {}
+    if specified_weights:
+        question_ids = [question_id for question_id, _ in specified_weights]
+        existing_weights = {
+            row.question_id: row
+            for row in db.query(QuestionWeight).filter(
+                QuestionWeight.question_id.in_(question_ids)
+            ).all()
+        }
+    for question_id, pct in specified_weights:
+        row = existing_weights.get(question_id)
         if row is None:
             db.add(QuestionWeight(question_id=question_id, weight_pct=float(pct)))
         else:

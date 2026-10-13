@@ -778,12 +778,14 @@ def create_assignment(body: TeacherAssignmentCreate,
     # v0.13.1：提交设置（允许修改）与大题分组
     if body.allow_revision:
         db.add(AssignmentSetting(assignment_id=assignment.id, allow_revision=True))
-    group_id_by_key = {}
+    created_groups = []
     for gi, g in enumerate(body.groups, start=1):
         grp = QuestionGroup(assignment_id=assignment.id, stem=g.stem, order_num=gi)
         db.add(grp)
+        created_groups.append((g.key, grp))
+    if created_groups:
         db.flush()
-        group_id_by_key[g.key] = grp.id
+    group_id_by_key = {key: grp.id for key, grp in created_groups}
     for (question, _pct), qin in zip(created_questions, body.questions):
         if qin.group_key and qin.group_key in group_id_by_key:
             db.add(QuestionGroupMember(question_id=question.id, group_id=group_id_by_key[qin.group_key]))
