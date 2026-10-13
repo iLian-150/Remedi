@@ -4,7 +4,7 @@ from typing import Dict, List
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, load_only
 
-from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Submission, SubmissionReview, User, Verification, Workbook
+from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
 
 
 def assignment_ext_fields(db, assignment_id: int) -> Dict:
