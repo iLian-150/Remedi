@@ -41,8 +41,11 @@
           <!-- v0.13.10：正确答案与解题过程不直接给（用户口径）——先自己想，
                点开才显示；切换错题时自动收起 -->
           <template v-if="mistake.source_kind !== 'student_saved'">
-            <button v-if="!answerRevealed" type="button" class="mistake-answer-reveal" @click="answerRevealed = true">自己先想一想，想看时点这里：查看正确答案与解题过程</button>
-            <template v-else>
+            <div class="mistake-answer-actions">
+              <button v-if="!answerRevealed" type="button" class="mistake-answer-reveal" @click="answerRevealed = true">自己先想一想，想看时点这里：查看正确答案与解题过程</button>
+              <button type="button" class="mistake-original-button" @click="$emit('review', mistake)">查看原题 <AppIcon name="arrow-right" :size="13"/></button>
+            </div>
+            <template v-if="answerRevealed">
               <div class="mistake-reference-line" :class="mistake.correct_answer ? 'is-correct' : 'is-revision'"><span>正确答案</span><p>{{ mistake.correct_answer || '暂时无法核验，请老师确认' }}</p></div>
               <section v-if="mistake.solution_steps?.length" class="mistake-solution" aria-label="解题过程">
                 <strong>解题过程</strong>
@@ -62,7 +65,6 @@
         </div>
         <div class="mistake-point-summary-actions">
           <template v-if="mistake.source_kind !== 'student_saved'">
-            <button type="button" @click="$emit('review', mistake)">查看原题</button>
             <button type="button" class="study" :disabled="savingStudy" @click="$emit('study')">{{ savingStudy ? '保存中…' : mistake.category_studied ? '已学会 · 撤销' : '学完这个错误点' }}</button>
           </template>
           <span v-else>已保存在错题本，可以继续和学习助手讨论。</span>
@@ -200,8 +202,11 @@ async function sendQuestion() {
 .mistake-solution li > span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-50); font-size: 11px; font-weight: 700; }
 .mistake-solution li p { margin: 1px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .mistake-capture-image-link { display: inline-flex; align-items: center; gap: 3px; margin: 6px 0 10px; color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
-.mistake-answer-reveal { margin: 10px 0 2px; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: 9px; background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; }
+.mistake-answer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 2px; }
+.mistake-answer-reveal { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: 9px; background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
 .mistake-answer-reveal:hover { border-color: var(--primary); background: var(--primary-50); }
+.mistake-original-button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--primary); font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.mistake-original-button:hover { border-color: var(--primary); background: var(--primary-50); }
 .mistake-point-transcript { overflow-y: auto; }
 .mistake-point-message p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mistake-point-composer textarea { resize: vertical; }
