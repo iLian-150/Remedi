@@ -1020,12 +1020,12 @@ async function sendPhotoReview(file: File, prompt: string) {
     // 原图讲解与作业诊断并发：讲解请求直接携带图片，诊断请求独立保存错题/审核记录。
     const diagnosisTask = student.reviewPhoto(
       file, questionId, '', sessionId, true, prompt
-    ).then(async (result) => {
+    ).then((result) => {
       // 批改与视觉讲解并发；批改一完成就更新错题/审核状态，不等待讲解流结束。
       applyPhotoReviewResult(wait, userImage, result)
       void student.loadSessions(true)
-      // 简报通常在诊断前已读取；错题入库后再刷新，避免顶部数字停留在旧值。
-      await refreshBriefing()
+      // 简报刷新不应阻塞本轮并发任务收尾、讲解保存或输入框解锁。
+      void refreshBriefing()
       return result
     }).catch((reason: unknown) => {
       markPhotoReviewFailure(wait, reason)
@@ -1098,10 +1098,10 @@ async function retryExplanation(msg: ChatMsg) {
     try {
       const diagnosisTask = msg.retryDiagnosis
         ? student.reviewPhoto(photoRetry.file, photoRetry.questionId, '', photoRetry.sessionId, false, photoRetry.prompt)
-          .then(async (result) => {
+          .then((result) => {
             applyPhotoReviewResult(msg, photoRetry.userImage, result)
             void student.loadSessions(true)
-            await refreshBriefing()
+            void refreshBriefing()
             return result
           })
           .catch((reason: unknown) => {
