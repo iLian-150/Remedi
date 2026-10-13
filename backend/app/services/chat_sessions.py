@@ -34,19 +34,21 @@ def ensure_migrated(db: Session, user: User) -> None:
     )
     if has_session:
         return
-    first_created_at, last_created_at = (
+    legacy_count, first_created_at, last_created_at = (
         db.query(
+            func.count(ChatMessage.id),
             func.min(ChatMessage.created_at),
             func.max(ChatMessage.created_at),
         )
         .filter(ChatMessage.user_id == user.id)
         .one()
     )
-    if first_created_at is None:
+    if not legacy_count:
         return
     session = ChatSession(
         user_id=user.id,
         title=LEGACY_SESSION_TITLE,
+        message_count=int(legacy_count),
         created_at=first_created_at,
         updated_at=last_created_at,
     )
@@ -110,22 +112,8 @@ def get_own_session(db: Session, user: User, session_id: int) -> Optional[ChatSe
 
 
 def list_sessions(db: Session, user: User) -> List[dict]:
-    message_counts = (
-        db.query(
-            ChatSessionMessage.session_id.label("session_id"),
-            func.count(ChatSessionMessage.id).label("message_count"),
-        )
-        .join(ChatSession, ChatSession.id == ChatSessionMessage.session_id)
-        .filter(ChatSession.user_id == user.id)
-        .group_by(ChatSessionMessage.session_id)
-        .subquery()
-    )
     rows = (
-        db.query(
-            ChatSession,
-            func.coalesce(message_counts.c.message_count, 0),
-        )
-        .outerjoin(message_counts, message_counts.c.session_id == ChatSession.id)
+        db.query(ChatSession)
         .filter(ChatSession.user_id == user.id)
         .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
         .all()
@@ -136,9 +124,9 @@ def list_sessions(db: Session, user: User) -> List[dict]:
             "title": s.title,
             "created_at": s.created_at,
             "updated_at": s.updated_at,
-            "message_count": int(message_count),
+            "message_count": s.message_count,
         }
-        for s, message_count in rows
+        for s in rows
     ]
 
 
@@ -242,6 +230,8 @@ def append_message(db: Session, session: ChatSession, role: str, content: str) -
         if has_user_msg is None:
             session.title = content.strip()[:TITLE_MAX_CHARS] or DEFAULT_SESSION_TITLE
     session.updated_at = datetime.now()
+    # 用数据库原子递增，避免并发追加消息时把另一请求的计数覆盖掉。
+    session.message_count = ChatSession.message_count + 1
     db.commit()
     db.refresh(msg)
     return msg
