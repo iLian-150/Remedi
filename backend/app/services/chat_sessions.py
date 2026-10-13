@@ -10,7 +10,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import func, insert
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -294,9 +294,13 @@ def delete_session(db: Session, user: User, session_id: int) -> bool:
     session = get_own_session(db, user, session_id)
     if session is None:
         return False
-    message_ids = [row[0] for row in db.query(ChatSessionMessage.id)
-                   .filter(ChatSessionMessage.session_id == session.id).all()]
-    if message_ids:
+    has_messages = db.query(ChatSessionMessage.id).filter(
+        ChatSessionMessage.session_id == session.id
+    ).first()
+    if has_messages:
+        message_ids = select(ChatSessionMessage.id).where(
+            ChatSessionMessage.session_id == session.id
+        )
         db.query(ChatSessionMessageImage).filter(
             ChatSessionMessageImage.message_id.in_(message_ids)
         ).delete(synchronize_session=False)
