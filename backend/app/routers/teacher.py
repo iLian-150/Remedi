@@ -480,9 +480,10 @@ def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(r
     """把当前队列里全部 pending 提交置为 approved，逐个给学生发审核通过提醒。
     评分系统：通过时一并落定最终分（未改分 = AI 初评分）。"""
     subs = review_svc.pending_reviews(db)
-    for sub in subs:
-        review_svc.approve_submission(db, sub, current)
-        scoring_svc.finalize_on_approve(db, sub, current)
+    if subs:
+        scoring_svc.finalize_on_approve_many(db, subs, current)
+        review_svc.approve_submissions(db, subs, current)
+        db.commit()
     return {"approved_count": len(subs)}
 
 

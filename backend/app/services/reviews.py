@@ -470,6 +470,50 @@ def approve_submission(db: Session, submission: Submission, teacher,
     return row
 
 
+def approve_submissions(db: Session, submissions: Iterable[Submission], teacher) -> None:
+    """批量更新审核状态并添加提醒；由调用方统一提交事务。"""
+    unique_submissions = {
+        submission.id: submission
+        for submission in submissions
+        if submission.id is not None
+    }
+    if not unique_submissions:
+        return
+
+    submission_ids = list(unique_submissions)
+    rows_by_id = {}
+    for start in range(0, len(submission_ids), 500):
+        rows_by_id.update({
+            row.submission_id: row
+            for row in db.query(SubmissionReview).filter(
+                SubmissionReview.submission_id.in_(submission_ids[start:start + 500])
+            ).all()
+        })
+
+    for submission_id, submission in unique_submissions.items():
+        row = rows_by_id.get(submission_id)
+        if row is None:
+            row = SubmissionReview(submission_id=submission_id)
+            db.add(row)
+        was_pending = row.status == PENDING
+        row.status = APPROVED
+        row.reviewed_by = teacher.id
+        row.reviewed_at = datetime.now()
+        if was_pending:
+            question = submission.question
+            assignment = question.assignment if question is not None else None
+            title = assignment.title if assignment is not None else ""
+            db.add(Notification(
+                user_id=submission.student_id,
+                type="review_approved",
+                content=(
+                    f"{teacher.name}已审核通过你《{title}》的批改结果，"
+                    "去看看老师的诊断吧。"
+                ),
+                related_submission_id=submission.id,
+            ))
+
+
 def pending_reviews(db: Session) -> List[Submission]:
     """教师端待审核队列：pending 的提交按提交时间正序（先交先审）。"""
     return (

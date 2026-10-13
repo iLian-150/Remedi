@@ -300,6 +300,52 @@ def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict
     return result
 
 
+def finalize_on_approve_many(
+    db: Session, submissions: List[Submission], teacher,
+) -> None:
+    """批量落定通过审核的最终分，复用可见分批量补算旧记录。"""
+    unique_submissions = {
+        submission.id: submission
+        for submission in submissions
+        if submission.id is not None
+    }
+    if not unique_submissions:
+        return
+
+    items = list(unique_submissions.values())
+    # visible_scores 限定每批大小，避免 SQLite 绑定参数上限；缺失的历史成绩
+    # 会按统一规则批量补算并写入，已有教师最终分仍由下面的逻辑保留。
+    for start in range(0, len(items), 300):
+        visible_scores(db, items[start:start + 300])
+
+    scores_by_submission = {}
+    submission_ids = list(unique_submissions)
+    for start in range(0, len(submission_ids), 500):
+        scores_by_submission.update({
+            row.submission_id: row
+            for row in db.query(SubmissionScore).filter(
+                SubmissionScore.submission_id.in_(submission_ids[start:start + 500])
+            ).all()
+        })
+
+    for submission_id, submission in unique_submissions.items():
+        row = scores_by_submission.get(submission_id)
+        if row is None:
+            # 没有关联题目的历史异常记录无法由 visible_scores 处理；保持单条
+            # finalize_on_approve 的满分为 0 口径，并仍然落定最终分。
+            info = compute_ai_score(db, submission)
+            row = SubmissionScore(
+                submission_id=submission_id,
+                ai_score=info["ai_score"],
+            )
+            db.add(row)
+            scores_by_submission[submission_id] = row
+        if row.final_score is None:
+            row.final_score = row.ai_score
+            row.updated_by = teacher.id
+        row.updated_at = datetime.now()
+
+
 def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dict:
     """一份作业的累计得分（成绩单用）：每题取最新一次已通过提交的最终分求和，
     分母是作业总分。只算学生可见口径（待审核的不计），并在数据库里筛出每题最新可见提交。"""
