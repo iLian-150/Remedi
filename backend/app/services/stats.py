@@ -17,6 +17,12 @@ def top_error_questions(db, n: int = 10) -> List[Dict]:
         )
         .join(Submission, Submission.question_id == Question.id)
         .join(Error, Error.submission_id == Submission.id)
+        .options(load_only(
+            Question.id,
+            Question.stem,
+            Question.subject,
+            Question.knowledge_point,
+        ))
         .group_by(Question.id)
         .order_by(func.count(Error.id).desc())
         .limit(n)
