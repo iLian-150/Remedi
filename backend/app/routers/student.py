@@ -115,6 +115,20 @@ router = APIRouter(prefix="/api/student", tags=["student"])
 logger = logging.getLogger(__name__)
 
 
+def _student_accessible_question(db: Session, student: User, question_id: int) -> Question:
+    """Load a public/teacher question or this student's own private question."""
+    row = (
+        db.query(Question, Assignment.created_by, User.role)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .outerjoin(User, User.id == Assignment.created_by)
+        .filter(Question.id == question_id)
+        .first()
+    )
+    if row is None or (row[2] == "student" and row[1] != student.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    return row[0]
+
+
 # ---------- 学生诊断出参 ----------
 # 低置信度诊断会同步进入教师审核队列，但错题和订正流程不等待审核；
 # 学生立即看到诊断并可订正，成绩仍等教师审核后放出。
@@ -253,13 +267,7 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
             summary="查看题目对应的历史同类错题")
 def related_mistake_for_question(question_id: int, db: Session = Depends(get_db),
                                  current: User = Depends(require_student)):
-    question = db.query(Question).filter(Question.id == question_id).first()
-    if question is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
-    assignment = db.query(Assignment).filter(Assignment.id == question.assignment_id).first()
-    creator = db.query(User).filter(User.id == assignment.created_by).first() if assignment and assignment.created_by else None
-    if creator and creator.role == "student" and assignment.created_by != current.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    question = _student_accessible_question(db, current, question_id)
     return find_related_mistake(
         db, current.id, question.subject, question.knowledge_point,
         exclude_assignment_id=question.assignment_id,
@@ -271,9 +279,7 @@ def related_mistake_for_question(question_id: int, db: Session = Depends(get_db)
 @router.post("/submissions", response_model=DiagnosisOut, summary="提交数学作业并诊断")
 def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
                current: User = Depends(require_student)):
-    q = db.query(Question).filter(Question.id == data.question_id).first()
-    if not q:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    q = _student_accessible_question(db, current, data.question_id)
     if q.subject != "math":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题是作文题，请使用 /api/student/essays 提交")
     # v0.13.1：按请求接收时刻检查提交锁，并固定本次是否进入延迟批改窗口。
@@ -793,9 +799,7 @@ def submit_essay(body: EssayCreate, db: Session = Depends(get_db),
                  current: User = Depends(require_student)):
     question = None
     if body.question_id:
-        question = db.query(Question).filter(Question.id == body.question_id).first()
-        if not question:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+        question = _student_accessible_question(db, current, body.question_id)
         if question.subject != "english":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题不是作文题")
     return score_and_save_essay(db, current, body.text.strip(), question)
@@ -1089,9 +1093,7 @@ async def photo_review(
 
     question = None
     if question_id is not None:
-        question = db.query(Question).filter(Question.id == question_id).first()
-        if question is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+        question = _student_accessible_question(db, current, question_id)
     context = (
         _visual_question_context(question)
         if question else question_context
@@ -1415,9 +1417,7 @@ async def photo_diagnose(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
     received_at = datetime.now()
 
-    question = db.query(Question).filter(Question.id == question_id).first()
-    if question is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    question = _student_accessible_question(db, current, question_id)
 
     # 在调用视觉模型前完成提交资格检查；后续使用同一接收时间决定延迟批改模式。
     deferred_mode = deferral_svc.assert_can_submit(
