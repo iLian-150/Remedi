@@ -97,6 +97,153 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
     return None
 
 
+def find_related_mistakes_for_questions(
+    db: Session,
+    student_id: int,
+    questions: Iterable[Question],
+    *,
+    exclude_assignment_id: int | None = None,
+) -> dict[int, dict | None]:
+    """Batch the same latest unarchived history lookup for all questions in an assignment."""
+    questions = list(questions)
+    normalized_subjects = {
+        "数学": "math",
+        "english": "english",
+        "英语": "english",
+        "英语作文": "english",
+    }
+    question_keys = {}
+    knowledge_keys_by_subject = {}
+    for question in questions:
+        subject_key = (question.subject or "").strip().casefold()
+        subject_key = normalized_subjects.get(subject_key, subject_key)
+        knowledge_key = "".join((question.knowledge_point or "").split()).casefold()
+        if not subject_key or not knowledge_key:
+            continue
+        question_keys[question.id] = (subject_key, knowledge_key)
+        knowledge_keys_by_subject.setdefault(subject_key, set()).add(knowledge_key)
+
+    result = {question.id: None for question in questions}
+    if not knowledge_keys_by_subject:
+        return result
+
+    candidate_by_key = {}
+    for subject_key, knowledge_keys in knowledge_keys_by_subject.items():
+        query = (
+            db.query(Error, Submission, Question, Assignment, Step)
+            .join(Submission, Error.submission_id == Submission.id)
+            .join(Question, Submission.question_id == Question.id)
+            .join(Assignment, Question.assignment_id == Assignment.id)
+            .outerjoin(Step, Error.step_id == Step.id)
+            .options(
+                load_only(
+                    Error.id, Error.knowledge_point, Error.error_type,
+                    Error.detail, Error.created_at,
+                ),
+                load_only(Submission.id),
+                load_only(Question.id, Question.subject, Question.stem),
+                load_only(Assignment.id, Assignment.title, Assignment.created_at),
+                load_only(Step.id, Step.seq, Step.text),
+            )
+            .filter(
+                Submission.student_id == student_id,
+                Question.subject == subject_key,
+            )
+            .order_by(Error.created_at.desc(), Error.id.desc())
+        )
+        if exclude_assignment_id is not None:
+            query = query.filter(Assignment.id != exclude_assignment_id)
+
+        is_archived = db.query(StudentMistakeArchive.error_id).filter(
+            StudentMistakeArchive.student_id == student_id,
+            StudentMistakeArchive.error_id == Error.id,
+        ).exists()
+        for row in query.filter(~is_archived).limit(300).all():
+            key = (
+                subject_key,
+                "".join((row[0].knowledge_point or "").split()).casefold(),
+            )
+            if key[1] in knowledge_keys and key not in candidate_by_key:
+                candidate_by_key[key] = row
+
+    error_ids = list(dict.fromkeys(row[0].id for row in candidate_by_key.values()))
+    correction_by_error = {}
+    for start in range(0, len(error_ids), 500):
+        error_id_chunk = error_ids[start:start + 500]
+        ranked_corrections = db.query(
+            Correction.error_id.label("error_id"),
+            Correction.id.label("id"),
+            Correction.content.label("content"),
+            Correction.is_correct.label("is_correct"),
+            Correction.note.label("note"),
+            Correction.submitted_at.label("submitted_at"),
+            func.row_number().over(
+                partition_by=Correction.error_id,
+                order_by=(Correction.submitted_at.desc(), Correction.id.desc()),
+            ).label("rank"),
+        ).filter(
+            Correction.student_id == student_id,
+            Correction.error_id.in_(error_id_chunk),
+        ).subquery()
+        latest = ranked_corrections.c
+        correction_by_error.update({
+            error_id: {
+                "id": correction_id,
+                "content": content,
+                "is_correct": is_correct,
+                "note": note,
+                "submitted_at": submitted_at,
+            }
+            for error_id, correction_id, content, is_correct, note, submitted_at
+            in db.query(
+                latest.error_id,
+                latest.id,
+                latest.content,
+                latest.is_correct,
+                latest.note,
+                latest.submitted_at,
+            ).filter(latest.rank == 1).all()
+        })
+
+    review_by_submission = review_svc.review_status_map(
+        db, {row[1].id for row in candidate_by_key.values()}
+    )
+    payload_by_error = {}
+    payload_by_key = {}
+    for key, row in candidate_by_key.items():
+        error, submission, question, assignment, step = row
+        payload = payload_by_error.get(error.id)
+        if payload is None:
+            payload = {
+                "id": error.id,
+                "submission_id": submission.id,
+                "review_status": review_by_submission.get(
+                    submission.id, review_svc.APPROVED
+                ),
+                "question_id": question.id,
+                "assignment_id": assignment.id,
+                "assignment_title": assignment.title,
+                "assignment_created_at": assignment.created_at,
+                "question_subject": question.subject,
+                "question_stem": question.stem,
+                "solution_steps": student_visible_solution_steps(question.stem)
+                if question.subject == "math" else [],
+                "knowledge_point": error.knowledge_point,
+                "error_type": error.error_type,
+                "detail": error.detail,
+                "step_seq": step.seq if step else None,
+                "step_text": step.text if step else None,
+                "created_at": error.created_at,
+                "latest_correction": correction_by_error.get(error.id),
+            }
+            payload_by_error[error.id] = payload
+        payload_by_key[key] = payload
+
+    for question_id, key in question_keys.items():
+        result[question_id] = payload_by_key.get(key)
+    return result
+
+
 def find_related_mistake_for_error(db: Session, student_id: int, error_id: int) -> dict | None:
     """加载已关联错题并再次校验归属与审核状态。"""
     return find_related_mistakes_for_errors(db, student_id, [error_id]).get(error_id)

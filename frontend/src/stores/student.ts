@@ -98,6 +98,14 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<AssignmentDetail>(`/api/student/assignments/${id}`)
       return data
     },
+    async fetchRelatedMistakesForAssignment(
+      assignmentId: number
+    ): Promise<Record<string, RelatedMistake | null>> {
+      const { data } = await api.get<Record<string, RelatedMistake | null>>(
+        `/api/student/assignments/${assignmentId}/related-mistakes`
+      )
+      return data
+    },
     // 3.3 提交数学作业并诊断（诊断同步返回）
     async submitMath(payload: { question_id: number; steps: string[] }): Promise<SubmissionResult> {
       const { data } = await api.post<SubmissionResult>('/api/student/submissions', payload)

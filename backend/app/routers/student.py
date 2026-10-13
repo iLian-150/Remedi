@@ -99,7 +99,11 @@ from ..services.answer_check import (
     student_visible_reference_answer,
     student_visible_solution_steps,
 )
-from ..services.related_mistakes import find_related_mistake, find_related_mistake_for_error
+from ..services.related_mistakes import (
+    find_related_mistake,
+    find_related_mistake_for_error,
+    find_related_mistakes_for_questions,
+)
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
@@ -339,6 +343,36 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
         ],
         **assignment_ext_fields(db, a.id),
     )
+
+
+@router.get("/assignments/{assignment_id}/related-mistakes", summary="批量查看作业题目的历史同类错题")
+def related_mistakes_for_assignment(
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    assignment = db.query(Assignment).options(load_only(
+        Assignment.id, Assignment.created_by,
+    )).filter(Assignment.id == assignment_id).first()
+    creator_role = db.query(User.role).filter(
+        User.id == assignment.created_by
+    ).scalar() if assignment and assignment.created_by else None
+    if not assignment or creator_role == "student":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+
+    questions = db.query(Question).options(load_only(
+        Question.id, Question.subject, Question.knowledge_point,
+    )).filter(Question.assignment_id == assignment.id).all()
+    related_by_question = find_related_mistakes_for_questions(
+        db,
+        current.id,
+        questions,
+        exclude_assignment_id=assignment.id,
+    )
+    return {
+        str(question.id): related_by_question.get(question.id)
+        for question in questions
+    }
 
 
 @router.get("/questions/{question_id}/related-mistake", response_model=Optional[RelatedMistakeOut],

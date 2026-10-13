@@ -590,11 +590,10 @@ async function loadQuestions(id: number) {
   const detail = await student.fetchAssignmentDetail(id)
   questions.value = detail.questions
   currentDetail.value = detail
-  const relatedRows = await Promise.all(detail.questions
-    .map(async (q) => ({ questionId: q.id, mistake: await student.fetchRelatedMistake(q.id).catch(() => null) })))
+  const relatedByQuestion = await student.fetchRelatedMistakesForAssignment(id).catch(() => ({}))
   const related: Record<number, RelatedMistake> = {}
-  relatedRows.forEach(({ questionId, mistake }) => {
-    if (mistake) related[questionId] = mistake
+  Object.entries(relatedByQuestion).forEach(([questionId, mistake]) => {
+    if (mistake) related[Number(questionId)] = mistake
   })
   relatedByQid.value = related
   // 恢复本机草稿（按题目），并为线上作业自动展开第一道未完成题的编辑器
