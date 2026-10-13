@@ -1,6 +1,7 @@
 <template>
-  <div v-if="mistake" class="mistake-overlay" role="presentation" @click.self="emit('close')">
-    <section ref="modalRef" class="mistake-modal" role="dialog" aria-modal="true" aria-label="原题与解题过程" tabindex="-1">
+  <Teleport to="body">
+    <div v-if="mistake" class="mistake-overlay" role="presentation" @click.self="emit('close')">
+      <section ref="modalRef" class="mistake-modal" role="dialog" aria-modal="true" aria-label="原题与解题过程" tabindex="-1">
       <header class="mistake-header">
         <div class="mistake-brand"><span>知</span><strong>Remedi</strong><small>原题与解题过程</small></div>
         <button ref="closeButtonRef" type="button" class="mistake-close" aria-label="关闭" @click="emit('close')">×</button>
@@ -66,8 +67,9 @@
           <p v-else class="mistake-state">还没有订正记录。</p>
         </section>
       </div>
-    </section>
-  </div>
+      </section>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
