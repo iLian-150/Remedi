@@ -10,7 +10,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, insert
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -30,12 +30,17 @@ TITLE_MAX_CHARS = 20
 def ensure_migrated(db: Session, user: User) -> None:
     """把该用户在旧 chat_messages 的记录一次性迁入会话表（幂等，可重复调用）。"""
     has_session = (
-        db.query(ChatSession).filter(ChatSession.user_id == user.id).first()
+        db.query(ChatSession.id).filter(ChatSession.user_id == user.id).first()
     )
     if has_session:
         return
     legacy = (
-        db.query(ChatMessage)
+        db.query(
+            ChatMessage.id,
+            ChatMessage.role,
+            ChatMessage.content,
+            ChatMessage.created_at,
+        )
         .filter(ChatMessage.user_id == user.id)
         .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
         .all()
@@ -50,13 +55,18 @@ def ensure_migrated(db: Session, user: User) -> None:
     )
     db.add(session)
     db.flush()  # 先拿到 session.id 再挂消息
-    for row in legacy:
-        db.add(ChatSessionMessage(
-            session_id=session.id,
-            role=row.role,
-            content=row.content,
-            created_at=row.created_at,
-        ))
+    db.execute(
+        insert(ChatSessionMessage),
+        [
+            {
+                "session_id": session.id,
+                "role": row.role,
+                "content": row.content,
+                "created_at": row.created_at,
+            }
+            for row in legacy
+        ],
+    )
     db.query(ChatMessage).filter(ChatMessage.user_id == user.id) \
         .delete(synchronize_session=False)
     db.commit()
