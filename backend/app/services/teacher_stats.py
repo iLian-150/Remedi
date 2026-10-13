@@ -8,82 +8,96 @@ from sqlalchemy import func, select
 from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
 
 
-def _students(db) -> List[User]:
-    return db.query(User).filter(User.role == "student").order_by(User.id).all()
-
-
-def _submitted_qids_by_student(
-    db, student_ids: List[int], assignment_id: int,
-) -> Dict[int, set]:
-    """按作业批量返回学生已提交的题目，与单学生口径保持一致。"""
-    done_by_student = {student_id: set() for student_id in student_ids}
-    if not student_ids:
-        return done_by_student
-    for student_id, question_id in db.query(
-        Submission.student_id, Submission.question_id
-    ).join(Question, Question.id == Submission.question_id).join(
+def _submitted_question_pairs(db, assignment_id: int):
+    """数据库内合并并去重学生在作业中的提交题目与作文题目。"""
+    submission_pairs = select(
+        Submission.student_id.label("student_id"),
+        Submission.question_id.label("question_id"),
+    ).join(
+        Question, Question.id == Submission.question_id
+    ).join(
         User, User.id == Submission.student_id
-    ).filter(
+    ).where(
         User.role == "student", Question.assignment_id == assignment_id
-    ).distinct().all():
-        done_by_student[student_id].add(question_id)
-    for student_id, question_id in db.query(
-        Essay.student_id, Essay.question_id
-    ).join(Question, Question.id == Essay.question_id).join(
+    )
+    essay_pairs = select(
+        Essay.student_id.label("student_id"),
+        Essay.question_id.label("question_id"),
+    ).join(
+        Question, Question.id == Essay.question_id
+    ).join(
         User, User.id == Essay.student_id
-    ).filter(
+    ).where(
         User.role == "student", Question.assignment_id == assignment_id
-    ).distinct().all():
-        done_by_student[student_id].add(question_id)
-    return done_by_student
+    )
+    return submission_pairs.union(essay_pairs).subquery()
 
 
 def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
     """未提交全部题目的学生名单（提醒未交 + 教师 Agent 共用）。"""
-    qids = [
-        question_id
-        for question_id, in db.query(Question.id).filter(
-            Question.assignment_id == assignment.id
-        ).all()
-    ]
-    if not qids:
+    question_count = db.query(func.count(Question.id)).filter(
+        Question.assignment_id == assignment.id
+    ).scalar() or 0
+    if not question_count:
         return []
-    students = _students(db)
-    done_by_student = _submitted_qids_by_student(
-        db, [student.id for student in students], assignment.id
+    submitted_pairs = _submitted_question_pairs(db, assignment.id)
+    done_counts = (
+        select(
+            submitted_pairs.c.student_id,
+            func.count(submitted_pairs.c.question_id).label("done_count"),
+        )
+        .group_by(submitted_pairs.c.student_id)
+        .subquery()
     )
-    question_ids = set(qids)
-    return [
-        student for student in students
-        if done_by_student.get(student.id, set()) != question_ids
-    ]
+    return (
+        db.query(User)
+        .outerjoin(done_counts, done_counts.c.student_id == User.id)
+        .filter(
+            User.role == "student",
+            func.coalesce(done_counts.c.done_count, 0) != question_count,
+        )
+        .order_by(User.id)
+        .all()
+    )
 
 
 def assignment_status(db, assignment: Assignment) -> Dict:
     """一份作业的提交情况：全部完成 / 部分完成 / 完全没交，三组学生名单。"""
-    qids = [
-        question_id
-        for question_id, in db.query(Question.id).filter(
-            Question.assignment_id == assignment.id
-        ).all()
-    ]
-    students = _students(db)
-    done_by_student = _submitted_qids_by_student(
-        db, [student.id for student in students], assignment.id
+    question_count = db.query(func.count(Question.id)).filter(
+        Question.assignment_id == assignment.id
+    ).scalar() or 0
+    submitted_pairs = _submitted_question_pairs(db, assignment.id)
+    done_counts = (
+        select(
+            submitted_pairs.c.student_id,
+            func.count(submitted_pairs.c.question_id).label("done_count"),
+        )
+        .group_by(submitted_pairs.c.student_id)
+        .subquery()
+    )
+    students = (
+        db.query(
+            User.id,
+            User.name,
+            func.coalesce(done_counts.c.done_count, 0),
+        )
+        .outerjoin(done_counts, done_counts.c.student_id == User.id)
+        .filter(User.role == "student")
+        .order_by(User.id)
+        .all()
     )
     done_all, partial, none = [], [], []
-    for st in students:
-        done = done_by_student.get(st.id, set())
-        if qids and done == set(qids):
-            done_all.append(st.name)
-        elif done:
-            partial.append({"name": st.name, "done": len(done), "total": len(qids)})
+    for _, name, done_count in students:
+        if question_count and done_count == question_count:
+            done_all.append(name)
+        elif done_count:
+            partial.append({"name": name, "done": done_count, "total": question_count})
         else:
-            none.append(st.name)
+            none.append(name)
     return {
         "assignment_id": assignment.id,
         "title": assignment.title,
-        "question_count": len(qids),
+        "question_count": question_count,
         "student_total": len(done_all) + len(partial) + len(none),
         "done_all": done_all,
         "partial": partial,
