@@ -1,5 +1,4 @@
 # /api/student/* 学生端
-import heapq
 import json
 import logging
 import os
@@ -571,7 +570,7 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
             assignments_by_id.values(),
             key=lambda assignment: (assignment.created_at, assignment.id),
         )
-        eligible = []
+        top_five = []
         representative_index = 0
         for assignment in current_assignments:
             while (
@@ -581,11 +580,11 @@ def my_mistakes(archived: bool = Query(default=False), db: Session = Depends(get
                 entry = representatives[representative_index]
                 representative_index += 1
                 error = entry[0]
-                heapq.heappush(
-                    eligible,
-                    (-datetime_order_key(error.created_at), -error.id, entry),
+                top_five.append(
+                    (-datetime_order_key(error.created_at), -error.id, entry)
                 )
-            top_five = heapq.nsmallest(5, eligible)
+                top_five.sort(key=lambda candidate: (candidate[0], candidate[1]))
+                del top_five[5:]
             similar_by_category_assignment[(category_key, assignment.id)] = [
                 {
                     "id": entry[0].id,
