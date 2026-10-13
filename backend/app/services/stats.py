@@ -2,9 +2,9 @@
 from typing import Dict, List
 
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, load_only
 
-from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Submission, User, Verification, Workbook
+from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Submission, SubmissionReview, User, Verification, Workbook
 
 
 def assignment_ext_fields(db, assignment_id: int) -> Dict:
@@ -93,10 +93,19 @@ def knowledge_point_ranking(db) -> List[Dict]:
 
 def _student_submissions(db, student: User, visible_only: bool):
     """取学生提交列表；学生画像等审核敏感统计可选择只计已审核提交。
-    教师端调用一律 visible_only=False，全量可见。"""
+    教师端调用一律 visible_only=False，全量可见；只预加载报告实际使用的题目字段。"""
+    question_load = joinedload(Submission.question).load_only(
+        Question.id, Question.subject, Question.knowledge_point, Question.stem,
+    )
     submissions = (
         db.query(Submission)
-        .options(joinedload(Submission.question))
+        .options(
+            load_only(
+                Submission.id, Submission.student_id,
+                Submission.question_id, Submission.submitted_at,
+            ),
+            question_load,
+        )
         .filter(Submission.student_id == student.id)
         .all()
     )
@@ -536,32 +545,51 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
 def knowledge_point_errors(db, student: User, knowledge_point: str,
                            visible_only: bool = False) -> List[Dict]:
     """某知识点下该生的错题时间线（纵向学习记忆），按时间倒序。"""
-    submissions = _student_submissions(db, student, visible_only)
-    sub_ids = [s.id for s in submissions]
-    if not sub_ids:
-        return []
-    errors = (
-        db.query(Error)
-        .options(joinedload(Error.step))
-        .filter(Error.submission_id.in_(sub_ids), Error.knowledge_point == knowledge_point)
+    query = (
+        db.query(Error, Submission, Question, Assignment, Step)
+        .join(Submission, Error.submission_id == Submission.id)
+        .outerjoin(Question, Submission.question_id == Question.id)
+        .outerjoin(Assignment, Question.assignment_id == Assignment.id)
+        .outerjoin(Step, Error.step_id == Step.id)
+        .options(
+            load_only(
+                Error.id, Error.submission_id, Error.knowledge_point,
+                Error.error_type, Error.step_id, Error.created_at,
+            ),
+            load_only(Submission.id),
+            load_only(Question.id, Question.stem),
+            load_only(Assignment.id, Assignment.title),
+            load_only(Step.id, Step.seq, Step.text),
+        )
+        .filter(
+            Submission.student_id == student.id,
+            Error.knowledge_point == knowledge_point,
+        )
         .order_by(Error.created_at.desc(), Error.id.desc())
-        .all()
     )
-    fixed_ids = _fixed_error_ids(db, student, [error.id for error in errors])
-    sub_by_id = {s.id: s for s in submissions}
+    if visible_only:
+        pending_review = db.query(SubmissionReview.submission_id).filter(
+            SubmissionReview.submission_id == Submission.id,
+            SubmissionReview.status == "pending",
+        ).exists()
+        query = query.filter(~pending_review)
+
+    rows = query.all()
+    if not rows:
+        return []
+    fixed_ids = _fixed_error_ids(
+        db, student, [error.id for error, _, _, _, _ in rows]
+    )
     items = []
-    for e in errors:
-        s = sub_by_id.get(e.submission_id)
-        q = s.question if s else None
-        step = e.step if e.step_id else None
+    for error, submission, question, assignment, step in rows:
         items.append({
-            "created_at": e.created_at,
-            "assignment_title": q.assignment.title if q and q.assignment else "",
-            "question_prompt": q.stem if q else "",
+            "created_at": error.created_at,
+            "assignment_title": assignment.title if assignment else "",
+            "question_prompt": question.stem if question else "",
             "first_error_seq": step.seq if step else None,
-            "error_type": e.error_type,
-            "corrected": e.id in fixed_ids,
-            "submission_id": e.submission_id,
+            "error_type": error.error_type,
+            "corrected": error.id in fixed_ids,
+            "submission_id": submission.id,
         })
     return items
 
