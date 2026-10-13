@@ -346,9 +346,16 @@ def finalize_on_approve_many(
         row.updated_at = datetime.now()
 
 
-def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dict:
+def assignment_progress(
+    db: Session,
+    student_id: int,
+    assignment_id: int,
+    *,
+    current_submission: Optional[Submission] = None,
+) -> Dict:
     """一份作业的累计得分（成绩单用）：每题取最新一次已通过提交的最终分求和，
-    分母是作业总分。只算学生可见口径（待审核的不计），并在数据库里筛出每题最新可见提交。"""
+    分母是作业总分。只算学生可见口径（待审核的不计），并在数据库里筛出每题最新可见提交。
+    可选返回当前提交的成绩，供诊断页与作业累计分共用同一批成绩读取。"""
     from . import reviews as review_svc
 
     total = assignment_total(db, assignment_id)
@@ -388,13 +395,21 @@ def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dic
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
-    if not subs:
+    if not subs and current_submission is None:
         return {"assignment_score": 0.0, "assignment_total": total}
 
+    score_submissions = list(subs)
+    if (
+        current_submission is not None
+        and all(item.id != current_submission.id for item in score_submissions)
+    ):
+        # 打开较早的提交详情时，它未必属于每题最新提交；仍需给详情返回本次成绩，
+        # 但不能把它加入累计分的求和集合。
+        score_submissions.append(current_submission)
     scores_by_submission = {}
-    for start in range(0, len(subs), 300):
+    for start in range(0, len(score_submissions), 300):
         scores_by_submission.update(
-            visible_scores(db, subs[start:start + 300])
+            visible_scores(db, score_submissions[start:start + 300])
         )
 
     latest: Dict[int, float] = {}
@@ -402,10 +417,13 @@ def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dic
         score_info = scores_by_submission.get(sub.id)
         if score_info is not None:
             latest[sub.question_id] = float(score_info["score"])
-    return {
+    result = {
         "assignment_score": round(sum(latest.values()), 1),
         "assignment_total": total,
     }
+    if current_submission is not None:
+        result["current_score"] = scores_by_submission.get(current_submission.id)
+    return result
 
 
 def score_detail_for_teacher(db: Session, submission: Submission) -> Dict:

@@ -147,11 +147,18 @@ def present_for_student(submission: Submission, db: Session) -> dict:
         out["status"] = "pending_review"
         out["score"] = None
         return out
-    # 评分系统：已通过才带本题得分（最终分/满分）+ 该作业累计；算不出时为 None
-    vis = scoring_svc.visible_score(db, submission)
-    if vis is not None and submission.question is not None:
-        vis.update(scoring_svc.assignment_progress(
-            db, submission.student_id, submission.question.assignment_id))
+    # 评分系统：本题分与作业累计分共用进度计算中的批量成绩读取。
+    vis = None
+    if submission.question is not None:
+        progress = scoring_svc.assignment_progress(
+            db,
+            submission.student_id,
+            submission.question.assignment_id,
+            current_submission=submission,
+        )
+        vis = progress.pop("current_score", None)
+        if vis is not None:
+            vis.update(progress)
     out["score"] = vis
     return out
 
