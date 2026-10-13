@@ -140,9 +140,17 @@ class Correction(Base):
 
 class Essay(Base):
     __tablename__ = "essays"
+    __table_args__ = (
+        Index(
+            "ix_essays_student_submitted_id",
+            "student_id",
+            "submitted_at",
+            "id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=True)
     text = Column(Text, nullable=False, comment="作文原文")
     scores_json = Column(Text, nullable=False, comment='JSON: {content,structure,grammar,vocabulary,expression,total}')

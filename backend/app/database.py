@@ -51,13 +51,15 @@ def init_db():
         models.Notification,
         models.SubmissionReview,
         models.Correction,
+        models.Essay,
         models.Verification,
         models.ChatSession,
     ):
         for index in model.__table__.indexes:
             index.create(bind=engine, checkfirst=True)
-    # 新的复合索引以 user_id 开头，覆盖旧单列索引的查询用途。
+    # 新的复合索引覆盖旧单列索引的查询用途。
     with engine.begin() as connection:
         connection.execute(text("DROP INDEX IF EXISTS ix_chat_sessions_user_id"))
+        connection.execute(text("DROP INDEX IF EXISTS ix_essays_student_id"))
     for index in models.ChatSessionMessage.__table__.indexes:
         index.create(bind=engine, checkfirst=True)
