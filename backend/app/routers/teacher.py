@@ -304,7 +304,18 @@ def list_errors(
 @router.post("/errors/{error_id}/correct", response_model=TeacherErrorItem, summary="教师一键纠错")
 def correct_error(error_id: int, body: ErrorCorrectIn,
                   db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    err = db.query(Error).filter(Error.id == error_id).first()
+    err = (
+        db.query(Error)
+        .options(
+            joinedload(Error.step),
+            joinedload(Error.submission).joinedload(Submission.student),
+            joinedload(Error.submission)
+            .joinedload(Submission.question)
+            .joinedload(Question.assignment),
+        )
+        .filter(Error.id == error_id)
+        .first()
+    )
     if not err:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "错误记录不存在")
     old_type = err.error_type
@@ -313,13 +324,14 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     err.teacher_corrected = True
     # v0.3.0：纠错成功后给被纠错的学生写一条站内提醒（主流程：AI 初批 → 老师干预 → 学生收到提醒去订正）
     # 待审核期间先不额外发纠错提醒，避免重复打扰；教师通过时统一提醒学生查看更新后的诊断。
-    sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
-    if sub is not None and review_svc.review_status(db, sub.id) != review_svc.PENDING:
-        question = db.query(Question).filter(Question.id == sub.question_id).first()
-        assignment = (
-            db.query(Assignment).filter(Assignment.id == question.assignment_id).first()
-            if question else None
-        )
+    sub = err.submission
+    question = sub.question if sub is not None else None
+    assignment = question.assignment if question is not None else None
+    rstatus = (
+        review_svc.review_status(db, sub.id)
+        if sub is not None else review_svc.APPROVED
+    )
+    if sub is not None and rstatus != review_svc.PENDING:
         title = assignment.title if assignment else ""
         content = (
             f"{current.name}调整了你《{title}》的批改结果："
@@ -331,9 +343,25 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
             content=content,
             related_submission_id=sub.id,
         ))
-    db.commit()
-    db.refresh(err)
-    return _teacher_error_item(err, db)
+    # 保留预加载关系，避免提交后为组装响应重新读取学生、题目和步骤。
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+        base = present_error(err, db, step=err.step)
+        vis = (
+            scoring_svc.visible_score(db, sub)
+            if sub is not None and rstatus != review_svc.PENDING else None
+        )
+        return _teacher_error_item(err, db, {
+            "student": sub.student if sub is not None else None,
+            "question": question,
+            "base": base,
+            "review_status": rstatus,
+            "visible_score": vis,
+        })
+    finally:
+        db.expire_on_commit = expire_on_commit
 
 
 # ---------- 提交审核（v0.9.0 新增）：低置信判断供教师复核，诊断与订正可并行 ----------
