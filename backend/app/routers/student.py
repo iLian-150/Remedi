@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func
-from sqlalchemy.orm import Session, joinedload, load_only
+from sqlalchemy.orm import Session, aliased, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_student
@@ -2069,17 +2069,17 @@ def unread_notification_count(db: Session = Depends(get_db), current: User = Dep
 
 @router.get("/notifications", response_model=NotificationListOut, summary="我的提醒列表")
 def my_notifications(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    unread_notification = aliased(Notification)
+    unread_count = db.query(func.count(unread_notification.id)).filter(
+        unread_notification.user_id == current.id,
+        unread_notification.is_read.is_(False),
+    ).scalar_subquery()
     rows = (
-        db.query(Notification)
+        db.query(Notification, unread_count.label("unread_count"))
         .filter(Notification.user_id == current.id)
         .order_by(Notification.created_at.desc(), Notification.id.desc())
         .limit(30)
         .all()
-    )
-    unread = (
-        db.query(Notification)
-        .filter(Notification.user_id == current.id, Notification.is_read.is_(False))
-        .count()
     )
     items = [
         NotificationItem(
@@ -2087,8 +2087,9 @@ def my_notifications(db: Session = Depends(get_db), current: User = Depends(requ
             related_submission_id=n.related_submission_id,
             is_read=n.is_read, created_at=n.created_at,
         )
-        for n in rows
+        for n, _ in rows
     ]
+    unread = int(rows[0].unread_count or 0) if rows else 0
     return {"unread_count": unread, "items": items}
 
 
