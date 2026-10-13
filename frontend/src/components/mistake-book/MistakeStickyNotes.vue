@@ -61,7 +61,7 @@
                   <p class="sticky-question-excerpt">{{ entry.question_stem }}</p>
                   <p class="sticky-question-diagnosis">{{ entry.detail || entry.error_type }}</p>
                 </div>
-                <div class="sticky-question-actions"><button type="button" @click.stop="selectQuestion(entry)">{{ entry.source_kind === 'student_saved' ? '继续复习' : '查看错题讲解' }} <AppIcon name="arrow-up-right" :size="13"/></button><button v-if="entry.source_kind !== 'student_saved'" type="button" @click.stop="$emit('review', entry)">查看原题 <AppIcon name="arrow-up-right" :size="13"/></button></div>
+                <div class="sticky-question-actions"><button type="button" @click.stop="selectQuestion(entry)">{{ entry.source_kind === 'student_saved' ? '继续复习' : '查看错题讲解' }} <AppIcon name="arrow-up-right" :size="13"/></button><button v-if="entry.source_kind !== 'student_saved'" type="button" @click.stop.prevent="$emit('review', entry)">查看原题 <AppIcon name="arrow-up-right" :size="13"/></button></div>
               </article>
             </div>
             <div class="sticky-assignment-actions">
