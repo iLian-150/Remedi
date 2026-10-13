@@ -747,19 +747,31 @@ def _teacher_assignments_out(
         )
 
     submission_counts = {}
-    essay_counts = {}
     weights = {}
     for question_id_chunk in id_chunks(question_ids):
-        submission_counts.update(dict(
-            db.query(Submission.question_id, func.count(Submission.id))
+        count_rows = (
+            db.query(
+                Submission.question_id.label("question_id"),
+                func.count(Submission.id).label("submission_count"),
+            )
             .filter(Submission.question_id.in_(question_id_chunk))
             .group_by(Submission.question_id)
-            .all()
-        ))
-        essay_counts.update(dict(
-            db.query(Essay.question_id, func.count(Essay.id))
-            .filter(Essay.question_id.in_(question_id_chunk))
-            .group_by(Essay.question_id)
+            .union_all(
+                db.query(
+                    Essay.question_id.label("question_id"),
+                    func.count(Essay.id).label("submission_count"),
+                )
+                .filter(Essay.question_id.in_(question_id_chunk))
+                .group_by(Essay.question_id)
+            )
+            .subquery()
+        )
+        submission_counts.update(dict(
+            db.query(
+                count_rows.c.question_id,
+                func.sum(count_rows.c.submission_count),
+            )
+            .group_by(count_rows.c.question_id)
             .all()
         ))
         weights.update({
@@ -820,10 +832,7 @@ def _teacher_assignments_out(
                 prompt=question.stem,
                 knowledge_point=question.knowledge_point,
                 standard_answer=question.standard_answer,
-                submission_count=(
-                    submission_counts.get(question.id, 0)
-                    + essay_counts.get(question.id, 0)
-                ),
+                submission_count=submission_counts.get(question.id, 0),
                 weight_pct=round(weight_pct, 2),
             ))
 
