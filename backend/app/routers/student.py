@@ -653,12 +653,26 @@ def my_mistakes(
 ):
     """List this student's active or archived error occurrences without deleting diagnosis history."""
     archive_filter = None if include_archived else archived
-    all_rows = (
-        db.query(Error, Submission, Question, Assignment, Step)
+    all_rows_with_archive = (
+        db.query(
+            Error,
+            Submission,
+            Question,
+            Assignment,
+            Step,
+            StudentMistakeArchive.archived_at,
+        )
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
         .join(Assignment, Question.assignment_id == Assignment.id)
         .outerjoin(Step, Error.step_id == Step.id)
+        .outerjoin(
+            StudentMistakeArchive,
+            and_(
+                StudentMistakeArchive.student_id == current.id,
+                StudentMistakeArchive.error_id == Error.id,
+            ),
+        )
         .options(
             load_only(
                 Error.id, Error.knowledge_point, Error.error_type,
@@ -677,15 +691,19 @@ def my_mistakes(
         .all()
     )
     # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
-    error_ids = [error.id for error, _, _, _, _ in all_rows]
     archived_at_by_error = {}
-    for start in range(0, len(error_ids), 500):
-        for error_id, archived_at in db.query(
-            StudentMistakeArchive.error_id, StudentMistakeArchive.archived_at
-        ).filter(
-            StudentMistakeArchive.student_id == current.id,
-            StudentMistakeArchive.error_id.in_(error_ids[start:start + 500]),
-        ).all():
+    all_rows = []
+    for (
+        error,
+        submission,
+        question,
+        assignment,
+        step,
+        archived_at,
+    ) in all_rows_with_archive:
+        all_rows.append((error, submission, question, assignment, step))
+        if archived_at is not None:
+            error_id = error.id
             archived_at_by_error[error_id] = archived_at
     rows = [
         row for row in all_rows
