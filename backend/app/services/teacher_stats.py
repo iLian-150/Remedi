@@ -3,7 +3,7 @@
 # 一份作业「全部完成」= 作业内每道题都已提交。
 from typing import Dict, List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 
 from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
 
@@ -35,11 +35,9 @@ def _submitted_question_pairs(db, assignment_id: int):
 
 def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
     """未提交全部题目的学生名单（提醒未交 + 教师 Agent 共用）。"""
-    question_count = db.query(func.count(Question.id)).filter(
+    question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
-    ).scalar() or 0
-    if not question_count:
-        return []
+    ).scalar_subquery()
     submitted_pairs = _submitted_question_pairs(db, assignment.id)
     done_counts = (
         select(
@@ -54,6 +52,7 @@ def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
         .outerjoin(done_counts, done_counts.c.student_id == User.id)
         .filter(
             User.role == "student",
+            question_count > 0,
             func.coalesce(done_counts.c.done_count, 0) != question_count,
         )
         .order_by(User.id)
@@ -63,9 +62,9 @@ def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
 
 def assignment_status(db, assignment: Assignment) -> Dict:
     """一份作业的提交情况：全部完成 / 部分完成 / 完全没交，三组学生名单。"""
-    question_count = db.query(func.count(Question.id)).filter(
+    question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
-    ).scalar() or 0
+    ).scalar_subquery()
     submitted_pairs = _submitted_question_pairs(db, assignment.id)
     done_counts = (
         select(
@@ -77,17 +76,24 @@ def assignment_status(db, assignment: Assignment) -> Dict:
     )
     students = (
         db.query(
-            User.id,
-            User.name,
-            func.coalesce(done_counts.c.done_count, 0),
+            question_count.label("question_count"),
+            User.id.label("student_id"),
+            User.name.label("student_name"),
+            func.coalesce(done_counts.c.done_count, 0).label("done_count"),
         )
+        .select_from(select(literal(1).label("singleton")).subquery())
+        .outerjoin(User, User.role == "student")
         .outerjoin(done_counts, done_counts.c.student_id == User.id)
-        .filter(User.role == "student")
         .order_by(User.id)
         .all()
     )
+    question_count = int(students[0].question_count or 0) if students else 0
     done_all, partial, none = [], [], []
-    for _, name, done_count in students:
+    for row in students:
+        if row.student_id is None:
+            continue
+        name = row.student_name
+        done_count = row.done_count
         if question_count and done_count == question_count:
             done_all.append(name)
         elif done_count:
