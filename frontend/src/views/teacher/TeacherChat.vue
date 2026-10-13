@@ -227,15 +227,26 @@ watch(
 )
 
 onMounted(async () => {
+  let initialViewSeq: number | null = null
+  let initialSessionId: number | null = null
   try {
-    const history = await teacher.fetchAgentHistory()
-    renderHistory(history)
-    // 当前会话定位（v0.6.2）：会话状态归 store 与侧栏共用；
-    // appliedViewSeq 对齐当前值，避免把挂载前的查看请求误当新切换
     await teacher.loadSessions()
-    appliedViewSeq = teacher.sessionView.seq
+    // 先复用侧栏的会话列表请求，避免 /agent/history 与 /agent/sessions
+    // 并发触发首次旧消息迁移；正文也读取侧栏当前激活会话的完整消息。
+    initialViewSeq = teacher.sessionView.seq
+    initialSessionId = teacher.activeSessionId
+    appliedViewSeq = initialViewSeq
+    const history = initialSessionId == null
+      ? []
+      : await teacher.fetchSessionMessages(initialSessionId)
+    // 加载期间用户可能已切换会话，不能让较早的响应覆盖新会话内容。
+    if (teacher.sessionView.seq === initialViewSeq && teacher.activeSessionId === initialSessionId) {
+      renderHistory(history)
+    }
   } catch (e) {
-    renderHistory([])
+    if (initialViewSeq == null || teacher.sessionView.seq === initialViewSeq) {
+      renderHistory([])
+    }
     console.error(e)
   } finally {
     loadingInit.value = false
