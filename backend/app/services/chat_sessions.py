@@ -102,6 +102,8 @@ def list_sessions(db: Session, user: User) -> List[dict]:
             ChatSessionMessage.session_id.label("session_id"),
             func.count(ChatSessionMessage.id).label("message_count"),
         )
+        .join(ChatSession, ChatSession.id == ChatSessionMessage.session_id)
+        .filter(ChatSession.user_id == user.id)
         .group_by(ChatSessionMessage.session_id)
         .subquery()
     )
