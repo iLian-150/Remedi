@@ -69,7 +69,7 @@ class Submission(Base):
     __tablename__ = "submissions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
     status = Column(String(16), nullable=False, default="submitted", comment="submitted | graded")
     submitted_at = Column(DateTime, nullable=False, default=datetime.now)
