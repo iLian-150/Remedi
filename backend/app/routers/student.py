@@ -1214,7 +1214,12 @@ def submit_essay(body: EssayCreate, db: Session = Depends(get_db),
 def list_essays(limit: int = Query(default=20, le=100), offset: int = Query(default=0, ge=0),
                 db: Session = Depends(get_db), current: User = Depends(require_student)):
     import json
-    query = db.query(Essay).filter(Essay.student_id == current.id)
+    query = db.query(Essay).options(load_only(
+        Essay.id,
+        Essay.question_id,
+        Essay.scores_json,
+        Essay.submitted_at,
+    )).filter(Essay.student_id == current.id)
     page_rows = query.add_columns(
         func.count(Essay.id).over().label("total")
     ).order_by(Essay.submitted_at.desc()).offset(offset).limit(limit).all()
