@@ -819,15 +819,15 @@ def class_repair_rate(db) -> Dict:
         db.query(
             Submission.student_id.label("student_id"),
             Error.knowledge_point.label("knowledge_point"),
-            func.count(func.distinct(Error.id)).label("error_count"),
-            func.count(func.distinct(case((
-                Error.is_stubborn.is_(True), Error.id,
-            )))).label(
+            func.count(Error.id).label("error_count"),
+            func.sum(case((
+                Error.is_stubborn.is_(True), 1,
+            ), else_=0)).label(
                 "stubborn_count"
             ),
-            func.count(func.distinct(case((
-                has_correct_correction, Error.id,
-            )))).label("fixed_count"),
+            func.sum(case((has_correct_correction, 1), else_=0)).label(
+                "fixed_count"
+            ),
         )
         .join(Error, Error.submission_id == Submission.id)
         .join(User, User.id == Submission.student_id)
