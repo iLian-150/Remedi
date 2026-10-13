@@ -16,9 +16,10 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from ..models import (
+    Assignment,
     AssignmentScoring,
     Question,
     QuestionWeight,
@@ -296,10 +297,16 @@ def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dic
     from . import reviews as review_svc
 
     total = assignment_total(db, assignment_id)
+    question_load = joinedload(Submission.question).load_only(
+        Question.id, Question.assignment_id,
+    )
     subs = (
         db.query(Submission)
         .join(Question, Submission.question_id == Question.id)
-        .options(joinedload(Submission.question))
+        .options(
+            load_only(Submission.id, Submission.question_id, Submission.submitted_at),
+            question_load,
+        )
         .filter(Submission.student_id == student_id,
                 Question.assignment_id == assignment_id,
                 Submission.status == "graded")
@@ -348,9 +355,15 @@ def student_score_report(db: Session, student) -> Dict:
     按作业聚合——每题取最新一次已通过提交的最终分求和；再算学科/总体平均得分率。"""
     from . import reviews as review_svc
 
+    question_load = joinedload(Submission.question).load_only(
+        Question.id, Question.assignment_id, Question.subject,
+    ).joinedload(Question.assignment).load_only(Assignment.id, Assignment.title)
     subs = (
         db.query(Submission)
-        .options(joinedload(Submission.question).joinedload(Question.assignment))
+        .options(
+            load_only(Submission.id, Submission.question_id, Submission.submitted_at),
+            question_load,
+        )
         .filter(Submission.student_id == student.id, Submission.status == "graded")
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
