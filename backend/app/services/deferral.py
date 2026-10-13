@@ -163,85 +163,88 @@ def _grade_due_batch(db: Session) -> int:
     if not deferred:
         return 0
 
-    submission_ids = [submission.id for submission in deferred]
-    steps_by_submission = {}
-    for step in db.query(Step).filter(
-        Step.submission_id.in_(submission_ids), Step.seq >= 1
-    ).order_by(Step.submission_id.asc(), Step.seq.asc()).all():
-        steps_by_submission.setdefault(step.submission_id, []).append(step.text)
-    images_by_submission = {
-        image.submission_id: image
-        for image in db.query(SubmissionImage).filter(
-            SubmissionImage.submission_id.in_(submission_ids)
-        ).all()
-    }
-
     graded = 0
     seen_pairs = set()
-    for sub in deferred:
-        pair = (sub.student_id, sub.question_id)
-        if pair in seen_pairs:
-            sub.status = SUPERSEDED  # 同题更早的修改版本不批改
-            continue
-        seen_pairs.add(pair)
-
-        student = sub.student
-        question = sub.question
-        step_texts = steps_by_submission.get(sub.id, [])
-        if student is None or question is None or not step_texts:
-            sub.status = SUPERSEDED
-            continue
-
-        image = images_by_submission.get(sub.id)
-        confidence_signals = []
-        if image is not None:
-            image_name = os.path.basename(image.file_path)
-            image_path = os.path.join(settings.UPLOAD_DIR, image_name)
-            try:
-                with open(image_path, "rb") as image_file:
-                    image_bytes = image_file.read()
-                content_type = mimetypes.guess_type(image_name)[0] or "image/jpeg"
-                vision = get_provider().diagnose_homework_image(
-                    image_bytes,
-                    content_type,
-                    f"学科：{question.subject}\n题目：{question.stem}\n"
-                    f"教师参考答案或步骤：{question.standard_answer or '未提供'}",
-                )
-            except Exception:
-                # 模型或文件暂时不可用时保留 deferred 状态，下轮继续重试。
-                logger.exception("延迟作业视觉批改失败，submission_id=%s", sub.id)
-                continue
-            visual_steps = vision.get("steps", [])
-            if vision.get("needs_image_review") or normalize_confidence(vision.get("confidence", 0.0)) < 0.45:
-                # 截止时图片仍无法确认，交由教师看原图复核，避免永久卡在延迟态。
-                visual_steps = [{
-                    "text": text,
-                    "result": "uncertain",
-                    "confidence": 0.3,
-                    "error_type": "无法解析",
-                    "detail": "截止后视觉模型仍无法可靠辨认该作答，已提交教师查看原图复核。",
-                } for text in step_texts]
-            elif not vision.get("student_work_detected", bool(visual_steps)) or not visual_steps:
-                visual_steps = [{
-                    "text": text,
-                    "result": "uncertain",
-                    "confidence": 0.3,
-                    "error_type": "无法解析",
-                    "detail": "图片中未能确认学生作答，已提交教师查看原图复核。",
-                } for text in step_texts]
-            confidence_signals = review_svc.visual_confidence_signals(
-                vision.get("confidence", 0.0), visual_steps
-            )
-            graded_sub, _, _ = diagnose_visual_submission(
-                db, student, question, visual_steps, reuse=sub
-            )
-        else:
-            graded_sub, _, _ = diagnose_submission(
-                db, student, question, step_texts, reuse=sub
-            )
-        review_svc.create_review_if_needed(
-            db, graded_sub, confidence_signals=confidence_signals
+    for batch_start in range(0, len(deferred), 500):
+        batch = deferred[batch_start:batch_start + 500]
+        submission_ids = [submission.id for submission in batch]
+        steps_by_submission = {}
+        for submission_id, step_text in db.query(
+            Step.submission_id, Step.text
+        ).filter(
+            Step.submission_id.in_(submission_ids), Step.seq >= 1
+        ).order_by(Step.submission_id.asc(), Step.seq.asc()).all():
+            steps_by_submission.setdefault(submission_id, []).append(step_text)
+        images_by_submission = dict(
+            db.query(SubmissionImage.submission_id, SubmissionImage.file_path)
+            .filter(SubmissionImage.submission_id.in_(submission_ids))
+            .all()
         )
-        graded += 1
+
+        for sub in batch:
+            pair = (sub.student_id, sub.question_id)
+            if pair in seen_pairs:
+                sub.status = SUPERSEDED  # 同题更早的修改版本不批改
+                continue
+            seen_pairs.add(pair)
+
+            student = sub.student
+            question = sub.question
+            step_texts = steps_by_submission.get(sub.id, [])
+            if student is None or question is None or not step_texts:
+                sub.status = SUPERSEDED
+                continue
+
+            image_file_path = images_by_submission.get(sub.id)
+            confidence_signals = []
+            if image_file_path is not None:
+                image_name = os.path.basename(image_file_path)
+                image_path = os.path.join(settings.UPLOAD_DIR, image_name)
+                try:
+                    with open(image_path, "rb") as image_file:
+                        image_bytes = image_file.read()
+                    content_type = mimetypes.guess_type(image_name)[0] or "image/jpeg"
+                    vision = get_provider().diagnose_homework_image(
+                        image_bytes,
+                        content_type,
+                        f"学科：{question.subject}\n题目：{question.stem}\n"
+                        f"教师参考答案或步骤：{question.standard_answer or '未提供'}",
+                    )
+                except Exception:
+                    # 模型或文件暂时不可用时保留 deferred 状态，下轮继续重试。
+                    logger.exception("延迟作业视觉批改失败，submission_id=%s", sub.id)
+                    continue
+                visual_steps = vision.get("steps", [])
+                if vision.get("needs_image_review") or normalize_confidence(vision.get("confidence", 0.0)) < 0.45:
+                    # 截止时图片仍无法确认，交由教师看原图复核，避免永久卡在延迟态。
+                    visual_steps = [{
+                        "text": text,
+                        "result": "uncertain",
+                        "confidence": 0.3,
+                        "error_type": "无法解析",
+                        "detail": "截止后视觉模型仍无法可靠辨认该作答，已提交教师查看原图复核。",
+                    } for text in step_texts]
+                elif not vision.get("student_work_detected", bool(visual_steps)) or not visual_steps:
+                    visual_steps = [{
+                        "text": text,
+                        "result": "uncertain",
+                        "confidence": 0.3,
+                        "error_type": "无法解析",
+                        "detail": "图片中未能确认学生作答，已提交教师查看原图复核。",
+                    } for text in step_texts]
+                confidence_signals = review_svc.visual_confidence_signals(
+                    vision.get("confidence", 0.0), visual_steps
+                )
+                graded_sub, _, _ = diagnose_visual_submission(
+                    db, student, question, visual_steps, reuse=sub
+                )
+            else:
+                graded_sub, _, _ = diagnose_submission(
+                    db, student, question, step_texts, reuse=sub
+                )
+            review_svc.create_review_if_needed(
+                db, graded_sub, confidence_signals=confidence_signals
+            )
+            graded += 1
     db.commit()
     return graded
