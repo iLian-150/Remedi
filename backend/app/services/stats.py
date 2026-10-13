@@ -198,7 +198,7 @@ def _student_stubborn_errors(db, student_id: int, visible_only: bool):
 
 
 def _student_briefing_stats(db, student_id: int, visible_only: bool):
-    """在一条 SQL 中合并简报所需的提交数与错因汇总。"""
+    """在一条 SQL 中合并简报提交、错因与待订正汇总。"""
     knowledge_point = case(
         (Question.id.is_(None), "未知"),
         else_=Question.knowledge_point,
@@ -210,6 +210,7 @@ def _student_briefing_stats(db, student_id: int, visible_only: bool):
             literal(0).label("error_count"),
             literal(None, type_=Error.created_at.type).label("last_error_at"),
             literal(0).label("stubborn_count"),
+            literal(0).label("pending_correction_count"),
         )
         .select_from(Submission)
         .outerjoin(Question, Question.id == Submission.question_id)
@@ -223,14 +224,30 @@ def _student_briefing_stats(db, student_id: int, visible_only: bool):
             func.coalesce(SubmissionReview.status, "approved") != "pending"
         )
 
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == student_id,
+        Correction.is_correct.is_(True),
+    ).exists()
+    visible_error = (
+        func.coalesce(SubmissionReview.status, "approved") != "pending"
+        if visible_only else literal(True)
+    )
     error_query = (
         db.query(
             Error.knowledge_point.label("knowledge_point"),
             literal(0).label("attempt_count"),
-            func.count(Error.id).label("error_count"),
-            func.max(Error.created_at).label("last_error_at"),
-            func.max(case((Error.is_stubborn.is_(True), 1), else_=0)).label(
+            func.sum(case((visible_error, 1), else_=0)).label("error_count"),
+            func.max(case((visible_error, Error.created_at), else_=None)).label(
+                "last_error_at"
+            ),
+            func.max(case((
+                and_(visible_error, Error.is_stubborn.is_(True)), 1,
+            ), else_=0)).label(
                 "stubborn_count"
+            ),
+            func.sum(case((~has_correct_correction, 1), else_=0)).label(
+                "pending_correction_count"
             ),
         )
         .select_from(Error)
@@ -241,8 +258,6 @@ def _student_briefing_stats(db, student_id: int, visible_only: bool):
         error_query = error_query.outerjoin(
             SubmissionReview,
             SubmissionReview.submission_id == Submission.id,
-        ).filter(
-            func.coalesce(SubmissionReview.status, "approved") != "pending"
         )
 
     combined_stats = attempt_query.group_by(knowledge_point).union_all(
@@ -254,10 +269,14 @@ def _student_briefing_stats(db, student_id: int, visible_only: bool):
         func.sum(combined_stats.c.error_count).label("error_count"),
         func.max(combined_stats.c.last_error_at).label("last_error_at"),
         func.max(combined_stats.c.stubborn_count).label("stubborn_count"),
+        func.sum(combined_stats.c.pending_correction_count).label(
+            "pending_correction_count"
+        ),
     ).group_by(combined_stats.c.knowledge_point).all()
 
     attempts_by_knowledge_point = {}
     errors_by_knowledge_point = {}
+    pending_corrections_by_knowledge_point = {}
     for row in rows:
         if row.attempt_count:
             attempts_by_knowledge_point[row.knowledge_point] = int(row.attempt_count)
@@ -265,7 +284,15 @@ def _student_briefing_stats(db, student_id: int, visible_only: bool):
             errors_by_knowledge_point[row.knowledge_point] = (
                 int(row.error_count), row.last_error_at, bool(row.stubborn_count)
             )
-    return attempts_by_knowledge_point, errors_by_knowledge_point
+        if row.pending_correction_count:
+            pending_corrections_by_knowledge_point[row.knowledge_point] = int(
+                row.pending_correction_count
+            )
+    return (
+        attempts_by_knowledge_point,
+        errors_by_knowledge_point,
+        pending_corrections_by_knowledge_point,
+    )
 
 
 def _profile_suggestion(student: User, knowledge_points: List[Dict],
@@ -370,7 +397,7 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
 def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     """学生首页待办简报：未完成作业 / 待订正 / 需要加固的知识点 / 最近一次批改摘要。
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
-    kp_attempts, kp_error_stats = _student_briefing_stats(
+    kp_attempts, kp_error_stats, pending_corrections_by_kp = _student_briefing_stats(
         db, student.id, visible_only,
     )
     latest_submission_query = db.query(
@@ -458,21 +485,9 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
                 "allow_revision": bool(setting.allow_revision) if setting else False,
             })
 
-    # 待订正仍统计待审核提交；分组计数并用 NOT EXISTS 排除已有正确订正。
-    has_correct_correction = db.query(Correction.id).filter(
-        Correction.error_id == Error.id,
-        Correction.student_id == student.id,
-        Correction.is_correct.is_(True),
-    ).exists()
-    pending_correction_rows = (
-        db.query(Error.knowledge_point, func.count(Error.id))
-        .join(Submission, Submission.id == Error.submission_id)
-        .filter(Submission.student_id == student.id, ~has_correct_correction)
-        .group_by(Error.knowledge_point)
-        .all()
-    )
-    pending_corrections_count = sum(count for _, count in pending_correction_rows)
-    pending_kps = sorted(kp for kp, count in pending_correction_rows if count)
+    # 待订正仍统计待审核提交；知识点计数已随错因汇总一并完成。
+    pending_corrections_count = sum(pending_corrections_by_kp.values())
+    pending_kps = sorted(pending_corrections_by_kp)
 
     # 需要加固的知识点：顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点
     # （聚合口径与 student_profile 一致；顽固的排前面）
