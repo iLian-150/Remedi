@@ -169,6 +169,57 @@ def _student_profile_errors(db, student_id: int, visible_only: bool):
     return query.order_by(Error.created_at.desc()).all()
 
 
+def _student_attempt_counts(db, student_id: int, visible_only: bool) -> Dict[str, int]:
+    """按知识点聚合提交数；学生自查口径会在数据库中排除待审核提交。"""
+    knowledge_point = case(
+        (Question.id.is_(None), "未知"),
+        else_=Question.knowledge_point,
+    )
+    query = (
+        db.query(knowledge_point.label("knowledge_point"), func.count(Submission.id))
+        .select_from(Submission)
+        .outerjoin(Question, Question.id == Submission.question_id)
+        .filter(Submission.student_id == student_id)
+    )
+    if visible_only:
+        query = query.outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
+            func.coalesce(SubmissionReview.status, "approved") != "pending"
+        )
+    return {
+        kp: int(attempts)
+        for kp, attempts in query.group_by(knowledge_point).all()
+    }
+
+
+def _student_error_stats(db, student_id: int, visible_only: bool):
+    """按知识点聚合错因数、最近时间与顽固标记。"""
+    query = (
+        db.query(
+            Error.knowledge_point,
+            func.count(Error.id),
+            func.max(Error.created_at),
+            func.max(case((Error.is_stubborn.is_(True), 1), else_=0)),
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .filter(Submission.student_id == student_id)
+    )
+    if visible_only:
+        query = query.outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
+            func.coalesce(SubmissionReview.status, "approved") != "pending"
+        )
+    return {
+        kp: (int(error_count), last_error_at, bool(has_stubborn))
+        for kp, error_count, last_error_at, has_stubborn
+        in query.group_by(Error.knowledge_point).all()
+    }
+
+
 def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
                         stubborn_errors: List[Dict], errors: List) -> str:
     """学习建议（v0.9.1 改本地模板生成，不再同步调 LLM）。
@@ -205,30 +256,7 @@ def _profile_suggestion(db, student: User, knowledge_points: List[Dict],
 def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
     # 按知识点聚合：attempts（提交数）、errors（错误数）
-    knowledge_point = case(
-        (Question.id.is_(None), "未知"),
-        else_=Question.knowledge_point,
-    )
-    attempts_query = (
-        db.query(
-            knowledge_point.label("knowledge_point"),
-            func.count(Submission.id),
-        )
-        .select_from(Submission)
-        .outerjoin(Question, Question.id == Submission.question_id)
-        .filter(Submission.student_id == student.id)
-    )
-    if visible_only:
-        attempts_query = attempts_query.outerjoin(
-            SubmissionReview,
-            SubmissionReview.submission_id == Submission.id,
-        ).filter(
-            func.coalesce(SubmissionReview.status, "approved") != "pending"
-        )
-    kp_attempts = {
-        kp: int(attempts)
-        for kp, attempts in attempts_query.group_by(knowledge_point).all()
-    }
+    kp_attempts = _student_attempt_counts(db, student.id, visible_only)
 
     kp_errors: Dict[str, int] = {}
     errors = _student_profile_errors(db, student.id, visible_only)
@@ -301,11 +329,21 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
 def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     """学生首页待办简报：未完成作业 / 待订正 / 需要加固的知识点 / 最近一次批改摘要。
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
-    submissions = _student_submissions(db, student, visible_only)
-    sub_ids = [s.id for s in submissions]
-    latest_submission = max(
-        submissions, key=lambda submission: (submission.submitted_at, submission.id)
-    ) if submissions else None
+    kp_attempts = _student_attempt_counts(db, student.id, visible_only)
+    latest_submission_query = db.query(Submission.id).filter(
+        Submission.student_id == student.id
+    )
+    if visible_only:
+        latest_submission_query = latest_submission_query.outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
+            func.coalesce(SubmissionReview.status, "approved") != "pending"
+        )
+    latest_submission_row = latest_submission_query.order_by(
+        Submission.submitted_at.desc(), Submission.id.desc()
+    ).first()
+    latest_submission_id = latest_submission_row[0] if latest_submission_row else None
 
     # 未完成作业：批量读取作业、题目数与扩展信息，避免按作业逐条查库。
     # 与学生作业列表保持相同可见范围：学生自主上传题目只归上传者练习，不进入班级作业简报。
@@ -376,42 +414,28 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
                 "allow_revision": bool(setting.allow_revision) if setting else False,
             })
 
-    # 已审核错误集合用于学习报告类统计；低置信度错题仍立即进入订正待办。
-    errors = _student_error_summaries(db, sub_ids)
-
-    correction_sub_ids = sub_ids
-    if visible_only:
-        correction_sub_ids = [
-            row[0] for row in db.query(Submission.id)
-            .filter(Submission.student_id == student.id).all()
-        ]
-    correction_errors = errors
-    if correction_sub_ids != sub_ids:
-        correction_errors = _student_error_summaries(db, correction_sub_ids)
-
-    # 待订正：尚无一条 is_correct=True 订正的 error；与老师复核并行统计。
-    fixed_ids = _fixed_error_ids(
-        db, student, [error.id for error in correction_errors]
+    # 待订正仍统计待审核提交；分组计数并用 NOT EXISTS 排除已有正确订正。
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == student.id,
+        Correction.is_correct.is_(True),
+    ).exists()
+    pending_correction_rows = (
+        db.query(Error.knowledge_point, func.count(Error.id))
+        .join(Submission, Submission.id == Error.submission_id)
+        .filter(Submission.student_id == student.id, ~has_correct_correction)
+        .group_by(Error.knowledge_point)
+        .all()
     )
-    pending_errors = [e for e in correction_errors if e.id not in fixed_ids]
-    pending_kps = sorted({e.knowledge_point for e in pending_errors})
+    pending_corrections_count = sum(count for _, count in pending_correction_rows)
+    pending_kps = sorted(kp for kp, count in pending_correction_rows if count)
 
     # 需要加固的知识点：顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点
     # （聚合口径与 student_profile 一致；顽固的排前面）
-    kp_attempts: Dict[str, int] = {}
-    for s in submissions:
-        kp = s.question.knowledge_point if s.question else "未知"
-        kp_attempts[kp] = kp_attempts.get(kp, 0) + 1
-    kp_errors: Dict[str, int] = {}
-    kp_last_error_at = {}
-    stubborn_kps = set()
-    for e in errors:
-        kp_errors[e.knowledge_point] = kp_errors.get(e.knowledge_point, 0) + 1
-        last_error_at = kp_last_error_at.get(e.knowledge_point)
-        if last_error_at is None or e.created_at > last_error_at:
-            kp_last_error_at[e.knowledge_point] = e.created_at
-        if e.is_stubborn:
-            stubborn_kps.add(e.knowledge_point)
+    kp_error_stats = _student_error_stats(db, student.id, visible_only)
+    kp_errors = {kp: stats[0] for kp, stats in kp_error_stats.items()}
+    kp_last_error_at = {kp: stats[1] for kp, stats in kp_error_stats.items()}
+    stubborn_kps = {kp for kp, stats in kp_error_stats.items() if stats[2]}
     weak_points = sorted(stubborn_kps)
     for kp, attempts in kp_attempts.items():
         if kp in stubborn_kps:
@@ -431,13 +455,13 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
 
     # 最近一次批改的一句话摘要
     recent_feedback = None
-    if latest_submission is not None:
+    if latest_submission_id is not None:
         feedback_row = (
             db.query(Question.stem, Error.detail, Error.error_type)
             .select_from(Submission)
             .outerjoin(Question, Question.id == Submission.question_id)
             .outerjoin(Error, Error.submission_id == Submission.id)
-            .filter(Submission.id == latest_submission.id)
+            .filter(Submission.id == latest_submission_id)
             .order_by(Error.created_at.desc())
             .first()
         )
@@ -450,7 +474,7 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
 
     return {
         "pending_assignments": pending_assignments,
-        "pending_corrections_count": len(pending_errors),
+        "pending_corrections_count": pending_corrections_count,
         "pending_corrections_knowledge_points": pending_kps,
         "weak_points": weak_points,
         "weak_point_details": weak_point_details,
