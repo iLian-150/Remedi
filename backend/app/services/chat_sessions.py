@@ -10,7 +10,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, literal, select
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -34,38 +34,41 @@ def ensure_migrated(db: Session, user: User) -> None:
     )
     if has_session:
         return
-    legacy = (
+    first_created_at, last_created_at = (
         db.query(
-            ChatMessage.id,
+            func.min(ChatMessage.created_at),
+            func.max(ChatMessage.created_at),
+        )
+        .filter(ChatMessage.user_id == user.id)
+        .one()
+    )
+    if first_created_at is None:
+        return
+    session = ChatSession(
+        user_id=user.id,
+        title=LEGACY_SESSION_TITLE,
+        created_at=first_created_at,
+        updated_at=last_created_at,
+    )
+    db.add(session)
+    db.flush()  # 先拿到 session.id 再挂消息
+
+    legacy_messages = (
+        db.query(
+            literal(session.id),
             ChatMessage.role,
             ChatMessage.content,
             ChatMessage.created_at,
         )
         .filter(ChatMessage.user_id == user.id)
         .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
-        .all()
+        .statement
     )
-    if not legacy:
-        return
-    session = ChatSession(
-        user_id=user.id,
-        title=LEGACY_SESSION_TITLE,
-        created_at=legacy[0].created_at,
-        updated_at=legacy[-1].created_at,
-    )
-    db.add(session)
-    db.flush()  # 先拿到 session.id 再挂消息
     db.execute(
-        insert(ChatSessionMessage),
-        [
-            {
-                "session_id": session.id,
-                "role": row.role,
-                "content": row.content,
-                "created_at": row.created_at,
-            }
-            for row in legacy
-        ],
+        insert(ChatSessionMessage).from_select(
+            ["session_id", "role", "content", "created_at"],
+            legacy_messages,
+        )
     )
     db.query(ChatMessage).filter(ChatMessage.user_id == user.id) \
         .delete(synchronize_session=False)
