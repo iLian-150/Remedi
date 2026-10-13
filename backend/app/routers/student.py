@@ -110,7 +110,6 @@ from ..services.related_mistakes import (
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
-    assignment_ext_fields,
     knowledge_point_errors,
     student_briefing,
     student_profile,
@@ -341,30 +340,44 @@ def list_assignments(
 @router.get("/assignments/{assignment_id}", response_model=AssignmentDetail, summary="作业详情")
 def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_student)):
-    a = db.query(Assignment).options(load_only(
-        Assignment.id, Assignment.created_by, Assignment.title, Assignment.description,
-    )).filter(Assignment.id == assignment_id).first()
-    creator_role = db.query(User.role).filter(
-        User.id == a.created_by
-    ).scalar() if a and a.created_by else None
-    if not a or creator_role == "student":
+    assignment_row = (
+        db.query(
+            Assignment,
+            User.role,
+            AssignmentExt,
+            AssignmentSetting,
+            Workbook.title,
+        )
+        .outerjoin(User, User.id == Assignment.created_by)
+        .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
+        .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
+        .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
+        .options(load_only(
+            Assignment.id, Assignment.created_by, Assignment.title, Assignment.description,
+        ))
+        .filter(Assignment.id == assignment_id)
+        .first()
+    )
+    if assignment_row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
-    questions = (
-        db.query(Question).options(load_only(
+    a, creator_role, ext, setting, workbook_title = assignment_row
+    if creator_role == "student":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    question_rows = (
+        db.query(Question, QuestionGroupMember.group_id)
+        .outerjoin(QuestionGroupMember, QuestionGroupMember.question_id == Question.id)
+        .options(load_only(
             Question.id, Question.subject, Question.knowledge_point,
             Question.stem, Question.order_num,
-        )).filter(Question.assignment_id == a.id)
+        ))
+        .filter(Question.assignment_id == a.id)
         .order_by(Question.order_num, Question.id).all()
     )
     # v0.13.1：大题分组（成员映射 + 大题列表）
-    members = (
-        db.query(QuestionGroupMember.question_id, QuestionGroupMember.group_id)
-        .join(Question, Question.id == QuestionGroupMember.question_id)
-        .filter(Question.assignment_id == a.id)
-        .all()
-        if questions else []
-    )
-    group_by_qid = {question_id: group_id for question_id, group_id in members}
+    questions = [question for question, _ in question_rows]
+    group_by_qid = {
+        question.id: group_id for question, group_id in question_rows
+    }
     groups = (
         db.query(QuestionGroup.id, QuestionGroup.stem, QuestionGroup.order_num)
         .filter(QuestionGroup.assignment_id == a.id)
@@ -383,7 +396,13 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
             {"id": group_id, "stem": stem, "order_num": order_num}
             for group_id, stem, order_num in groups
         ],
-        **assignment_ext_fields(db, a.id),
+        mode=(ext.mode or "online") if ext else "online",
+        workbook_title=(
+            workbook_title if ext and ext.workbook_id else None
+        ),
+        page_range=ext.page_range if ext else None,
+        deadline=ext.deadline if ext else None,
+        allow_revision=bool(setting.allow_revision) if setting else False,
     )
 
 
