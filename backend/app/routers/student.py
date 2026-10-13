@@ -740,19 +740,22 @@ def my_mistakes(
         if archive_filter is None
         or (row[0].id in archived_at_by_error) == archive_filter
     ]
-    assignment_ids = {assignment.id for _, _, _, assignment, _ in all_rows}
+    visible_assignment_ids = {assignment.id for _, _, _, assignment, _ in rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
     reviewed = set()
-    if assignment_ids:
-        reviewed = {
+    visible_assignment_id_list = list(visible_assignment_ids)
+    for start in range(0, len(visible_assignment_id_list), 500):
+        assignment_id_chunk = visible_assignment_id_list[start:start + 500]
+        reviewed.update(
             (assignment_id, category_key)
             for assignment_id, category_key in db.query(
                 StudentMistakeCategoryReview.assignment_id,
                 StudentMistakeCategoryReview.category_key,
             ).filter(
                 StudentMistakeCategoryReview.student_id == current.id,
+                StudentMistakeCategoryReview.assignment_id.in_(assignment_id_chunk),
             ).all()
-        }
+        )
     correction_by_error = {}
     verification_by_error = {}
     for start in range(0, len(visible_error_ids), 500):
