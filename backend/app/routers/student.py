@@ -58,6 +58,7 @@ from ..schemas import (
     EssayOut,
     NotificationItem,
     NotificationListOut,
+    NotificationUnreadCountOut,
     NotificationReadIn,
     NotificationReadOut,
     PhotoDiagnosisOut,
@@ -2055,6 +2056,16 @@ def agent_new_session(db: Session = Depends(get_db), current: User = Depends(req
 
 
 # ---------- 站内提醒（v0.3.0 新增） ----------
+
+@router.get("/notifications/unread-count", response_model=NotificationUnreadCountOut,
+            summary="我的提醒未读数（导航角标）")
+def unread_notification_count(db: Session = Depends(get_db), current: User = Depends(require_student)):
+    count = db.query(func.count(Notification.id)).filter(
+        Notification.user_id == current.id,
+        Notification.is_read.is_(False),
+    ).scalar()
+    return {"unread_count": int(count or 0)}
+
 
 @router.get("/notifications", response_model=NotificationListOut, summary="我的提醒列表")
 def my_notifications(db: Session = Depends(get_db), current: User = Depends(require_student)):

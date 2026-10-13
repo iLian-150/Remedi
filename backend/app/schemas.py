@@ -660,6 +660,10 @@ class NotificationListOut(BaseModel):
     items: List[NotificationItem]
 
 
+class NotificationUnreadCountOut(BaseModel):
+    unread_count: int
+
+
 class NotificationReadIn(BaseModel):
     ids: Optional[List[int]] = None   # 不传或为空 = 全部标已读
 

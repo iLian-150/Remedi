@@ -697,11 +697,17 @@ export const useStudentStore = defineStore('student', {
     /** 刷新未读数（v0.8.2）：只取计数不取列表，进任意学生页面时由 App.vue 调用 */
     async refreshUnread() {
       try {
-        const res = await this.fetchNotifications()
-        this.unreadCount = res.unread_count
+        await this.fetchUnreadCount()
       } catch (e) {
         console.error(e)
       }
+    },
+    async fetchUnreadCount(): Promise<number> {
+      const { data } = await api.get<{ unread_count: number }>(
+        '/api/student/notifications/unread-count'
+      )
+      this.unreadCount = data.unread_count
+      return data.unread_count
     },
     // 3.17 我的提醒列表（v0.3.0）：最近 30 条倒序 + 未读数（v0.8.2 起同步回写 unreadCount）
     async fetchNotifications(): Promise<NotificationList> {
