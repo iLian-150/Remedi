@@ -45,9 +45,17 @@ class Assignment(Base):
 
 class Question(Base):
     __tablename__ = "questions"
+    __table_args__ = (
+        Index(
+            "ix_questions_assignment_order_id",
+            "assignment_id",
+            "order_num",
+            "id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False)
     subject = Column(String(16), nullable=False, comment="学科代码，如 math、english、physics")
     knowledge_point = Column(String(64), nullable=False, comment="知识点")
     stem = Column(Text, nullable=False, comment="题干")
