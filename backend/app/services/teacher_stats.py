@@ -4,6 +4,7 @@
 from typing import Dict, List, Optional
 
 from sqlalchemy import func, literal, select
+from sqlalchemy.orm import load_only
 
 from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
 
@@ -117,7 +118,9 @@ def find_assignment_by_hint(db, hint: str) -> Optional[Assignment]:
     hint = (hint or "").strip().strip("《》\"' ")
     if not hint:
         return None
-    assignments = db.query(Assignment).order_by(Assignment.id).all()
+    assignments = db.query(Assignment).options(
+        load_only(Assignment.id, Assignment.title)
+    ).order_by(Assignment.id).all()
     for a in assignments:
         if hint in a.title or a.title in hint:
             return a
@@ -125,7 +128,9 @@ def find_assignment_by_hint(db, hint: str) -> Optional[Assignment]:
 
 
 def latest_assignment(db) -> Optional[Assignment]:
-    return db.query(Assignment).order_by(Assignment.id.desc()).first()
+    return db.query(Assignment).options(
+        load_only(Assignment.id, Assignment.title)
+    ).order_by(Assignment.id.desc()).first()
 
 
 def class_overview(db) -> Dict:
