@@ -45,6 +45,8 @@ export interface Assignment {
   page_range: string | null
   deadline: string | null
   photo_required?: boolean // v0.13.23：线下作业或非数学科目需要拍照提交
+  questions?: Question[] // v0.13.89：作业列表可按需携带题目，供多作业页面一次加载
+  groups?: { id: number; stem: string; order_num: number }[]
 }
 
 export interface Question {

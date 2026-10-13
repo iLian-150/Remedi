@@ -1237,15 +1237,17 @@ onMounted(async () => {
   window.addEventListener('keydown', onImagePreviewKeydown)
   try {
     const [list, subs] = await Promise.all([
-      student.fetchAssignments(),
+      student.fetchAssignments(true),
       student.fetchMySubmissions().catch(() => [])
     ])
     assignments.value = list
     subs.forEach((s) => doneQids.value.add(s.question_id))
-    const details = await Promise.all(list.map((a) => student.fetchAssignmentDetail(a.id)))
-    details.forEach((d) => {
-      questionsByAssignment.value[d.id] = d.questions
-      d.questions.forEach((q) => flatQuestions.value.push({ ...q, assignmentTitle: d.title }))
+    list.forEach((assignment) => {
+      const questions = assignment.questions ?? []
+      questionsByAssignment.value[assignment.id] = questions
+      questions.forEach((question) => {
+        flatQuestions.value.push({ ...question, assignmentTitle: assignment.title })
+      })
     })
     // 预选：优先用路由参数（简报/交作业页带过来），否则默认第一份作业的第一道数学题
     const presetAssignment = Number(route.query.assignment_id)

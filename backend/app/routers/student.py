@@ -153,7 +153,11 @@ def present_for_student(submission: Submission, db: Session) -> dict:
 # ---------- 作业 ----------
 
 @router.get("/assignments", summary="作业列表")
-def list_assignments(db: Session = Depends(get_db), current: User = Depends(require_student)):
+def list_assignments(
+    include_questions: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
     visible_assignment = (
         Assignment.created_by.is_(None)
         | (~Assignment.created_by.in_(
@@ -196,22 +200,80 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
                 assignment_id: (question_count, submitted_count)
                 for assignment_id, question_count, submitted_count in rows
             })
-            photo_required_assignment_ids.update(
-                assignment_id
-                for assignment_id, in db.query(Question.assignment_id)
-                .filter(
-                    Question.assignment_id.in_(assignment_id_chunk),
-                    Question.subject != "math",
+            if not include_questions:
+                photo_required_assignment_ids.update(
+                    assignment_id
+                    for assignment_id, in db.query(Question.assignment_id)
+                    .filter(
+                        Question.assignment_id.in_(assignment_id_chunk),
+                        Question.subject != "math",
+                    )
+                    .distinct()
+                    .all()
                 )
-                .distinct()
+
+    questions_by_assignment = {}
+    groups_by_assignment = {}
+    if include_questions and assignment_ids:
+        question_rows = []
+        for start in range(0, len(assignment_ids), 500):
+            question_rows.extend(
+                db.query(
+                    Question.id,
+                    Question.assignment_id,
+                    Question.subject,
+                    Question.knowledge_point,
+                    Question.stem,
+                    Question.order_num,
+                )
+                .filter(Question.assignment_id.in_(assignment_ids[start:start + 500]))
+                .order_by(Question.assignment_id, Question.order_num, Question.id)
                 .all()
             )
+
+        question_ids = [row.id for row in question_rows]
+        group_by_question = {}
+        for start in range(0, len(question_ids), 500):
+            group_by_question.update(dict(
+                db.query(QuestionGroupMember.question_id, QuestionGroupMember.group_id)
+                .filter(
+                    QuestionGroupMember.question_id.in_(question_ids[start:start + 500])
+                )
+                .all()
+            ))
+
+        for start in range(0, len(assignment_ids), 500):
+            for group_id, assignment_id, stem, order_num in db.query(
+                QuestionGroup.id,
+                QuestionGroup.assignment_id,
+                QuestionGroup.stem,
+                QuestionGroup.order_num,
+            ).filter(
+                QuestionGroup.assignment_id.in_(assignment_ids[start:start + 500])
+            ).order_by(QuestionGroup.assignment_id, QuestionGroup.order_num, QuestionGroup.id).all():
+                groups_by_assignment.setdefault(assignment_id, []).append({
+                    "id": group_id,
+                    "stem": stem,
+                    "order_num": order_num,
+                })
+
+        for row in question_rows:
+            questions_by_assignment.setdefault(row.assignment_id, []).append({
+                "id": row.id,
+                "subject": row.subject,
+                "knowledge_point": row.knowledge_point,
+                "stem": row.stem,
+                "order_num": row.order_num,
+                "group_id": group_by_question.get(row.id),
+            })
+            if row.subject != "math":
+                photo_required_assignment_ids.add(row.assignment_id)
 
     result = []
     for a, ext, setting, workbook_title in assignment_rows:
         question_count, submitted = question_stats.get(a.id, (0, 0))
         mode = (ext.mode or "online") if ext else "online"
-        result.append({
+        item = {
             "id": a.id, "title": a.title, "description": a.description,
             "question_count": question_count, "submitted_count": submitted,
             "created_at": a.created_at,
@@ -222,7 +284,11 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
             "page_range": ext.page_range if ext else None,
             "deadline": ext.deadline if ext else None,
             "allow_revision": bool(setting.allow_revision) if setting else False,
-        })
+        }
+        if include_questions:
+            item["questions"] = questions_by_assignment.get(a.id, [])
+            item["groups"] = groups_by_assignment.get(a.id, [])
+        result.append(item)
     return {"total": len(result), "items": result}
 
 

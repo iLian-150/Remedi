@@ -206,7 +206,7 @@ onMounted(async () => {
   loading.value = true
   try {
     const [list, subs] = await Promise.all([
-      student.fetchAssignments(),
+      student.fetchAssignments(true),
       student.fetchMySubmissions().catch(() => [])
     ])
     assignments.value = list
@@ -218,9 +218,9 @@ onMounted(async () => {
       seenLatest.add(s.question_id)
       if (s.review_status === 'pending') pendingQids.value.add(s.question_id)
     })
-    const details = await Promise.all(list.map((a) => student.fetchAssignmentDetail(a.id)))
-    details.forEach((d) => {
-      questionIdsByAssignment.value[d.id] = d.questions.map((q) => q.id)
+    list.forEach((assignment) => {
+      questionIdsByAssignment.value[assignment.id] =
+        (assignment.questions ?? []).map((question) => question.id)
     })
   } catch (e) {
     error.value = '作业列表加载失败，请确认后端已启动。'
