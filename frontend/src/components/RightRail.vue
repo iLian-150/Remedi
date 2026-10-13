@@ -300,7 +300,8 @@ async function loadMarks() {
   try {
     const m: Record<string, number> = {}
     if (isStudent.value) {
-      const list = await student.fetchAssignments()
+      // 与学生作业列表页请求相同的题目和提交状态字段，共享同一条在途请求。
+      const list = await student.fetchAssignments(true, true)
       for (const a of list) {
         const d = a.created_at.slice(0, 10)
         if (d) m[d] = (m[d] ?? 0) + 1

@@ -51,6 +51,26 @@ function persistActiveSessionId(id: number | null) {
 }
 
 const inFlightMistakeRequests = new Map<string, Promise<StudentMistake[]>>()
+const inFlightAssignmentRequests = new Map<string, Promise<Assignment[]>>()
+
+function coalesceAssignmentRequest(
+  userId: number | undefined,
+  includeQuestions: boolean,
+  includeSubmissionStatus: boolean,
+  load: () => Promise<Assignment[]>
+): Promise<Assignment[]> {
+  const key = `${userId ?? 'anonymous'}:${includeQuestions}:${includeSubmissionStatus}`
+  const existing = inFlightAssignmentRequests.get(key)
+  if (existing) return existing
+
+  const request = Promise.resolve().then(load).finally(() => {
+    if (inFlightAssignmentRequests.get(key) === request) {
+      inFlightAssignmentRequests.delete(key)
+    }
+  })
+  inFlightAssignmentRequests.set(key, request)
+  return request
+}
 
 function coalesceMistakeRequest(
   userId: number | undefined,
@@ -107,17 +127,20 @@ export const useStudentStore = defineStore('student', {
       this.correctionsDateFilter = date
     },
     // 3.1 作业列表
-    async fetchAssignments(
+    fetchAssignments(
       includeQuestions = false,
       includeSubmissionStatus = false
     ): Promise<Assignment[]> {
-      const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments', {
-        params: {
-          ...(includeQuestions ? { include_questions: true } : {}),
-          ...(includeSubmissionStatus ? { include_submission_status: true } : {})
-        }
+      const userId = useAuthStore().user?.id
+      return coalesceAssignmentRequest(userId, includeQuestions, includeSubmissionStatus, async () => {
+        const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments', {
+          params: {
+            ...(includeQuestions ? { include_questions: true } : {}),
+            ...(includeSubmissionStatus ? { include_submission_status: true } : {})
+          }
+        })
+        return data.items
       })
-      return data.items
     },
     // 3.2 作业详情（含题目，不含标准答案）
     async fetchAssignmentDetail(id: number): Promise<AssignmentDetail> {
