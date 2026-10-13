@@ -739,20 +739,16 @@ def my_mistakes(
     assignment_ids = {assignment.id for _, _, _, assignment, _ in all_rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
     reviewed = set()
-    assignment_id_list = list(assignment_ids)
-    for start in range(0, len(assignment_id_list), 500):
-        reviewed.update(
+    if assignment_ids:
+        reviewed = {
             (assignment_id, category_key)
             for assignment_id, category_key in db.query(
                 StudentMistakeCategoryReview.assignment_id,
                 StudentMistakeCategoryReview.category_key,
             ).filter(
                 StudentMistakeCategoryReview.student_id == current.id,
-                StudentMistakeCategoryReview.assignment_id.in_(
-                    assignment_id_list[start:start + 500]
-                ),
             ).all()
-        )
+        }
     correction_by_error = {}
     verification_by_error = {}
     for start in range(0, len(visible_error_ids), 500):
