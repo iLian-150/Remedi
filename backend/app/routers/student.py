@@ -174,37 +174,39 @@ def list_assignments(db: Session = Depends(get_db), current: User = Depends(requ
     question_stats = {}
     photo_required_assignment_ids = set()
     if assignment_ids:
-        rows = (
-            db.query(
-                Question.assignment_id,
-                func.count(func.distinct(Question.id)),
-                func.count(func.distinct(Submission.question_id)),
+        for start in range(0, len(assignment_ids), 500):
+            assignment_id_chunk = assignment_ids[start:start + 500]
+            rows = (
+                db.query(
+                    Question.assignment_id,
+                    func.count(func.distinct(Question.id)),
+                    func.count(func.distinct(Submission.question_id)),
+                )
+                .outerjoin(
+                    Submission,
+                    and_(
+                        Submission.question_id == Question.id,
+                        Submission.student_id == current.id,
+                    ),
+                )
+                .filter(Question.assignment_id.in_(assignment_id_chunk))
+                .group_by(Question.assignment_id)
+                .all()
             )
-            .outerjoin(
-                Submission,
-                and_(
-                    Submission.question_id == Question.id,
-                    Submission.student_id == current.id,
-                ),
+            question_stats.update({
+                assignment_id: (question_count, submitted_count)
+                for assignment_id, question_count, submitted_count in rows
+            })
+            photo_required_assignment_ids.update(
+                assignment_id
+                for assignment_id, in db.query(Question.assignment_id)
+                .filter(
+                    Question.assignment_id.in_(assignment_id_chunk),
+                    Question.subject != "math",
+                )
+                .distinct()
+                .all()
             )
-            .filter(Question.assignment_id.in_(assignment_ids))
-            .group_by(Question.assignment_id)
-            .all()
-        )
-        question_stats = {
-            assignment_id: (question_count, submitted_count)
-            for assignment_id, question_count, submitted_count in rows
-        }
-        photo_required_assignment_ids = {
-            assignment_id
-            for assignment_id, in db.query(Question.assignment_id)
-            .filter(
-                Question.assignment_id.in_(assignment_ids),
-                Question.subject != "math",
-            )
-            .distinct()
-            .all()
-        }
 
     result = []
     for a, ext, setting, workbook_title in assignment_rows:
