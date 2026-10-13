@@ -103,23 +103,29 @@ def assignment_accuracy_context(
     if question is None:
         return None
 
-    submissions = (
-        db.query(Submission)
+    latest_ranked = (
+        db.query(
+            Submission.id.label("submission_id"),
+            func.row_number().over(
+                partition_by=Submission.question_id,
+                order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+            ).label("rank"),
+        )
         .join(Question, Question.id == Submission.question_id)
         .filter(
             Submission.student_id == submission.student_id,
             Question.assignment_id == question.assignment_id,
             Submission.status == "graded",
         )
-        .order_by(
-            Question.id.asc(),
-            Submission.submitted_at.asc(),
-            Submission.id.asc(),
-        )
+        .subquery()
+    )
+    latest_submissions = (
+        db.query(Submission)
+        .join(latest_ranked, latest_ranked.c.submission_id == Submission.id)
+        .filter(latest_ranked.c.rank == 1)
+        .order_by(Submission.question_id.asc())
         .all()
     )
-    latest_by_question = {item.question_id: item for item in submissions}
-    latest_submissions = list(latest_by_question.values())
     step_counts = _step_counts_by_submission(
         db, (item.id for item in latest_submissions)
     )
