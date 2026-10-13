@@ -73,6 +73,15 @@ class Submission(Base):
     errors = relationship("Error", back_populates="submission", cascade="all, delete-orphan")
 
 
+Index(
+    "ix_submissions_student_question_latest",
+    Submission.student_id,
+    Submission.question_id,
+    Submission.submitted_at.desc(),
+    Submission.id.desc(),
+)
+
+
 class Step(Base):
     __tablename__ = "steps"
 
