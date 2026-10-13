@@ -660,12 +660,17 @@ def my_mistakes(
             Question,
             Assignment,
             Step,
+            SubmissionReview.status.label("review_status"),
             StudentMistakeArchive.archived_at,
         )
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
         .join(Assignment, Question.assignment_id == Assignment.id)
         .outerjoin(Step, Error.step_id == Step.id)
+        .outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        )
         .outerjoin(
             StudentMistakeArchive,
             and_(
@@ -692,6 +697,7 @@ def my_mistakes(
     )
     # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
     archived_at_by_error = {}
+    review_status_by_submission = {}
     all_rows = []
     for (
         error,
@@ -699,9 +705,12 @@ def my_mistakes(
         question,
         assignment,
         step,
+        review_status,
         archived_at,
     ) in all_rows_with_archive:
         all_rows.append((error, submission, question, assignment, step))
+        if review_status is not None:
+            review_status_by_submission[submission.id] = review_status
         if archived_at is not None:
             error_id = error.id
             archived_at_by_error[error_id] = archived_at
@@ -861,9 +870,6 @@ def my_mistakes(
             ]
 
     result = []
-    review_status_by_submission = review_svc.review_status_map(
-        db, [submission.id for _, submission, _, _, _ in rows]
-    )
     questions_by_id = {
         question.id: question
         for _, _, question, _, _ in rows
