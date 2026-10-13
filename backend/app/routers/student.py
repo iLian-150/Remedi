@@ -653,6 +653,14 @@ def my_mistakes(
 ):
     """List this student's active or archived error occurrences without deleting diagnosis history."""
     archive_filter = None if include_archived else archived
+    image_join_condition = SubmissionImage.submission_id == Submission.id
+    if archive_filter is not None:
+        archive_match = (
+            StudentMistakeArchive.archived_at.isnot(None)
+            if archive_filter
+            else StudentMistakeArchive.archived_at.is_(None)
+        )
+        image_join_condition = and_(image_join_condition, archive_match)
     all_rows_with_archive = (
         db.query(
             Error,
@@ -662,6 +670,7 @@ def my_mistakes(
             Step,
             SubmissionReview.status.label("review_status"),
             StudentMistakeArchive.archived_at,
+            SubmissionImage.file_path.label("image_path"),
         )
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
@@ -677,6 +686,10 @@ def my_mistakes(
                 StudentMistakeArchive.student_id == current.id,
                 StudentMistakeArchive.error_id == Error.id,
             ),
+        )
+        .outerjoin(
+            SubmissionImage,
+            image_join_condition,
         )
         .options(
             load_only(
@@ -698,6 +711,7 @@ def my_mistakes(
     # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
     archived_at_by_error = {}
     review_status_by_submission = {}
+    image_path_by_submission = {}
     all_rows = []
     for (
         error,
@@ -707,10 +721,13 @@ def my_mistakes(
         step,
         review_status,
         archived_at,
+        image_path,
     ) in all_rows_with_archive:
         all_rows.append((error, submission, question, assignment, step))
         if review_status is not None:
             review_status_by_submission[submission.id] = review_status
+        if image_path is not None:
+            image_path_by_submission[submission.id] = image_path
         if archived_at is not None:
             error_id = error.id
             archived_at_by_error[error_id] = archived_at
@@ -721,16 +738,6 @@ def my_mistakes(
     ]
     assignment_ids = {assignment.id for _, _, _, assignment, _ in all_rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
-    submission_ids = {submission.id for _, submission, _, _, _ in rows}
-    image_path_by_submission = {}
-    submission_id_list = list(submission_ids)
-    for start in range(0, len(submission_id_list), 500):
-        for submission_id, file_path in db.query(
-            SubmissionImage.submission_id, SubmissionImage.file_path
-        ).filter(
-            SubmissionImage.submission_id.in_(submission_id_list[start:start + 500])
-        ).all():
-            image_path_by_submission[submission_id] = file_path
     reviewed = set()
     assignment_id_list = list(assignment_ids)
     for start in range(0, len(assignment_id_list), 500):
