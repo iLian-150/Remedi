@@ -120,14 +120,38 @@ def _student_error_query(db, student_id: int, visible_only: bool):
     return query
 
 
-def _student_profile_error_stats(db, student_id: int, visible_only: bool):
-    """按知识点汇总画像所需错因数、最近时间、顽固数与正确订正数。"""
+def _student_profile_stats(db, student_id: int, visible_only: bool):
+    """在一条 SQL 中合并画像所需的提交数与错因汇总。"""
+    knowledge_point = case(
+        (Question.id.is_(None), "未知"),
+        else_=Question.knowledge_point,
+    )
+    attempt_query = (
+        db.query(
+            knowledge_point.label("knowledge_point"),
+            func.count(Submission.id).label("attempt_count"),
+        )
+        .select_from(Submission)
+        .outerjoin(Question, Question.id == Submission.question_id)
+        .filter(Submission.student_id == student_id)
+    )
+    if visible_only:
+        attempt_query = attempt_query.outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
+            func.coalesce(SubmissionReview.status, "approved") != "pending"
+        )
+    attempt_counts = attempt_query.group_by(knowledge_point).subquery()
+
     has_correct_correction = db.query(Correction.id).filter(
         Correction.error_id == Error.id,
         Correction.student_id == student_id,
         Correction.is_correct.is_(True),
     ).exists()
-    rows = _student_error_query(db, student_id, visible_only).with_entities(
+    error_stats = _student_error_query(
+        db, student_id, visible_only,
+    ).with_entities(
         Error.knowledge_point.label("knowledge_point"),
         func.count(Error.id).label("error_count"),
         func.max(Error.created_at).label("last_error_at"),
@@ -137,16 +161,45 @@ def _student_profile_error_stats(db, student_id: int, visible_only: bool):
         func.sum(case((has_correct_correction, 1), else_=0)).label(
             "corrected_count"
         ),
-    ).group_by(Error.knowledge_point).all()
-    return {
-        row.knowledge_point: (
-            int(row.error_count),
-            row.last_error_at,
-            bool(row.stubborn_count),
-            int(row.corrected_count or 0),
+    ).group_by(Error.knowledge_point).subquery()
+
+    knowledge_points = db.query(
+        attempt_counts.c.knowledge_point
+    ).union(
+        db.query(error_stats.c.knowledge_point)
+    ).subquery()
+    rows = (
+        db.query(
+            knowledge_points.c.knowledge_point,
+            func.coalesce(attempt_counts.c.attempt_count, 0).label("attempt_count"),
+            error_stats.c.error_count,
+            error_stats.c.last_error_at,
+            error_stats.c.stubborn_count,
+            error_stats.c.corrected_count,
         )
-        for row in rows
-    }
+        .select_from(knowledge_points)
+        .outerjoin(
+            attempt_counts,
+            attempt_counts.c.knowledge_point == knowledge_points.c.knowledge_point,
+        )
+        .outerjoin(
+            error_stats,
+            error_stats.c.knowledge_point == knowledge_points.c.knowledge_point,
+        )
+        .all()
+    )
+    attempts_by_knowledge_point = {}
+    errors_by_knowledge_point = {}
+    for row in rows:
+        attempts_by_knowledge_point[row.knowledge_point] = int(row.attempt_count or 0)
+        if row.error_count is not None:
+            errors_by_knowledge_point[row.knowledge_point] = (
+                int(row.error_count),
+                row.last_error_at,
+                bool(row.stubborn_count),
+                int(row.corrected_count or 0),
+            )
+    return attempts_by_knowledge_point, errors_by_knowledge_point
 
 
 def _student_stubborn_errors(db, student_id: int, visible_only: bool):
@@ -250,8 +303,9 @@ def _profile_suggestion(student: User, knowledge_points: List[Dict],
 def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
     # 按知识点聚合：attempts（提交数）、errors（错误数）
-    kp_attempts = _student_attempt_counts(db, student.id, visible_only)
-    kp_error_stats = _student_profile_error_stats(db, student.id, visible_only)
+    kp_attempts, kp_error_stats = _student_profile_stats(
+        db, student.id, visible_only,
+    )
     kp_errors = {kp: stats[0] for kp, stats in kp_error_stats.items()}
     total_errors = sum(stats[0] for stats in kp_error_stats.values())
     corrected_count = sum(stats[3] for stats in kp_error_stats.values())
