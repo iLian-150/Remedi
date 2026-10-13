@@ -66,6 +66,7 @@ from ..schemas import (
     ReviewApproveIn,
     ReviewApproveOut,
     ReviewDetailOut,
+    ReviewPendingCountOut,
     ReviewPendingItem,
     ReviewPendingOut,
     ReviewScoreOut,
@@ -409,9 +410,18 @@ def _review_pending_item(
     )
 
 
+@router.get("/reviews/pending/count", response_model=ReviewPendingCountOut,
+            summary="待审核数量（导航角标）")
+def reviews_pending_count(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    count = db.query(func.count(SubmissionReview.submission_id)).filter(
+        SubmissionReview.status == review_svc.PENDING
+    ).scalar()
+    return {"count": int(count or 0)}
+
+
 @router.get("/reviews/pending", response_model=ReviewPendingOut, summary="待审核队列（v0.9.0 新增）")
 def reviews_pending(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    """待审核提交列表（按提交时间正序）+ 总数，教师导航角标与待审核页共用。"""
+    """审核页待审核提交列表（按提交时间正序）及其总数。"""
     subs = review_svc.pending_reviews(db)
     submission_ids = [sub.id for sub in subs]
     step_statuses_by_submission = defaultdict(list)

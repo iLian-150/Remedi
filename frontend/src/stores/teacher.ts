@@ -434,10 +434,17 @@ export const useTeacherStore = defineStore('teacher', {
       this.pendingReviewCount = data.count
       return data.items
     },
+    async fetchPendingReviewCount(): Promise<number> {
+      const { data } = await api.get<{ count: number }>(
+        '/api/teacher/reviews/pending/count'
+      )
+      this.pendingReviewCount = data.count
+      return data.count
+    },
     /** 只刷新待审计数（导航角标用，App.vue 路由变化时调用） */
     async refreshPendingReviewCount() {
       try {
-        await this.fetchPendingReviews()
+        await this.fetchPendingReviewCount()
       } catch (e) {
         console.error(e)
       }

@@ -782,6 +782,10 @@ class ReviewPendingOut(BaseModel):
     items: List[ReviewPendingItem]
 
 
+class ReviewPendingCountOut(BaseModel):
+    count: int                  # 待审核总数（轻量导航角标接口）
+
+
 class ReviewScoreOut(BaseModel):
     """审核详情的评分信息（评分系统新增）：老师据此核对 AI 分、决定是否改分。"""
     question_max: float           # 本题满分 = 作业总分 × 分值占比
