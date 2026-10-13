@@ -226,6 +226,19 @@ class Notification(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+Index(
+    "ix_notifications_user_created_id",
+    Notification.user_id,
+    Notification.created_at.desc(),
+    Notification.id.desc(),
+)
+Index(
+    "ix_notifications_user_is_read",
+    Notification.user_id,
+    Notification.is_read,
+)
+
+
 class Verification(Base):
     """二次验证记录（v0.4.0 新增表）：学生订正后做一道同知识点变式题，
     通过验证才算该知识点「已修复」。variant_json 存变式题全量
