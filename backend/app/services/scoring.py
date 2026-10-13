@@ -295,31 +295,33 @@ def assignment_progress(db: Session, student_id: int, assignment_id: int) -> Dic
     分母是作业总分。只算学生可见口径（待审核的不计）。"""
     from . import reviews as review_svc
 
-    question_ids = [
-        q.id for q in db.query(Question).filter(
-            Question.assignment_id == assignment_id
-        ).all()
-    ]
     total = assignment_total(db, assignment_id)
-    if not question_ids:
-        return {"assignment_score": 0.0, "assignment_total": total}
     subs = (
         db.query(Submission)
+        .join(Question, Submission.question_id == Question.id)
+        .options(joinedload(Submission.question))
         .filter(Submission.student_id == student_id,
-                Submission.question_id.in_(question_ids),
+                Question.assignment_id == assignment_id,
                 Submission.status == "graded")
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
+    if not subs:
+        return {"assignment_score": 0.0, "assignment_total": total}
+
     pending = review_svc.pending_submission_ids(db, student_id)
-    latest: Dict[int, float] = {}
-    for sub in subs:
-        if sub.id in pending:
-            continue
-        row = ensure_score(db, sub)
-        latest[sub.question_id] = float(
-            row.final_score if row.final_score is not None else row.ai_score
+    visible_subs = [sub for sub in subs if sub.id not in pending]
+    scores_by_submission = {}
+    for start in range(0, len(visible_subs), 300):
+        scores_by_submission.update(
+            visible_scores(db, visible_subs[start:start + 300])
         )
+
+    latest: Dict[int, float] = {}
+    for sub in visible_subs:
+        score_info = scores_by_submission.get(sub.id)
+        if score_info is not None:
+            latest[sub.question_id] = float(score_info["score"])
     return {
         "assignment_score": round(sum(latest.values()), 1),
         "assignment_total": total,

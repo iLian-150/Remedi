@@ -23,7 +23,7 @@ sys.path.insert(0, ".")
 from app.database import SessionLocal, init_db, engine  # noqa: E402
 from app.models import (  # noqa: E402
     Assignment, AssignmentScoring, Base, Correction, Error, Essay, Question,
-    QuestionWeight, Step, Submission, User,
+    QuestionWeight, Step, Submission, SubmissionScore, User,
 )
 from app.services import scoring as scoring_svc  # noqa: E402
 from app.services.diagnosis import diagnose_submission  # noqa: E402
@@ -143,15 +143,18 @@ def main():
         else:
             print("历史错误2：已存在，跳过")
 
-        # ---- 评分回填（评分系统）：老库重跑 seed 时，给已有演示提交按同一公式补分，
-        # 保证报告成绩分析一打开就有数据（新提交在 diagnose 时已自动落分，这里只兜底）。
-        all_subs = db.query(Submission).all()
-        filled = 0
-        for sub in all_subs:
-            before = scoring_svc.get_score_row(db, sub.id)
-            scoring_svc.ensure_score(db, sub)
-            if before is None:
-                filled += 1
+        # ---- 只回填缺少评分行的历史提交。seed.py 每次容器启动都会运行，
+        # 不能逐条读取所有已评分提交，否则启动查询量会随历史数据线性增长。
+        missing_score_subs = (
+            db.query(Submission)
+            .outerjoin(SubmissionScore, SubmissionScore.submission_id == Submission.id)
+            .filter(SubmissionScore.submission_id.is_(None))
+            .all()
+        )
+        filled = len(missing_score_subs)
+        for sub in missing_score_subs:
+            # 反连接已确认分数行缺失，直接落分，避免 ensure_score 再查一次。
+            scoring_svc.persist_ai_score(db, sub)
         if filled:
             print(f"评分回填：为 {filled} 份已有提交补算了 AI 分")
 
