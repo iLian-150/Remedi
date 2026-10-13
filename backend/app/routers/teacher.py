@@ -729,13 +729,21 @@ def _teacher_assignments_out(
 
     assignment_ids = [assignment.id for assignment in assignments]
     questions = []
+    weights = {}
     for assignment_id_chunk in id_chunks(assignment_ids):
-        questions.extend(
-            db.query(Question)
+        for question, weight_pct in (
+            db.query(Question, QuestionWeight.weight_pct)
+            .outerjoin(
+                QuestionWeight,
+                QuestionWeight.question_id == Question.id,
+            )
             .filter(Question.assignment_id.in_(assignment_id_chunk))
             .order_by(Question.assignment_id, Question.order_num, Question.id)
             .all()
-        )
+        ):
+            questions.append(question)
+            if weight_pct is not None:
+                weights[question.id] = float(weight_pct)
     questions.sort(key=lambda question: (
         question.assignment_id, question.order_num, question.id
     ))
@@ -747,7 +755,6 @@ def _teacher_assignments_out(
         )
 
     submission_counts = {}
-    weights = {}
     for question_id_chunk in id_chunks(question_ids):
         count_rows = (
             db.query(
@@ -774,44 +781,46 @@ def _teacher_assignments_out(
             .group_by(count_rows.c.question_id)
             .all()
         ))
-        weights.update({
-            row.question_id: float(row.weight_pct)
-            for row in db.query(QuestionWeight).filter(
-                QuestionWeight.question_id.in_(question_id_chunk)
-            ).all()
-        })
-
     extensions = {}
     settings_by_assignment = {}
     total_scores = {}
-    for assignment_id_chunk in id_chunks(assignment_ids):
-        extensions.update({
-            row.assignment_id: row
-            for row in db.query(AssignmentExt).filter(
-                AssignmentExt.assignment_id.in_(assignment_id_chunk)
-            ).all()
-        })
-        settings_by_assignment.update({
-            row.assignment_id: row
-            for row in db.query(AssignmentSetting).filter(
-                AssignmentSetting.assignment_id.in_(assignment_id_chunk)
-            ).all()
-        })
-        total_scores.update({
-            row.assignment_id: float(row.total_score) if row.total_score else 100.0
-            for row in db.query(AssignmentScoring).filter(
-                AssignmentScoring.assignment_id.in_(assignment_id_chunk)
-            ).all()
-        })
-    workbook_ids = {row.workbook_id for row in extensions.values() if row.workbook_id}
     workbook_titles = {}
-    for workbook_id_chunk in id_chunks(sorted(workbook_ids)):
-        workbook_titles.update({
-            row.id: row.title
-            for row in db.query(Workbook).filter(
-                Workbook.id.in_(workbook_id_chunk)
-            ).all()
-        })
+    for assignment_id_chunk in id_chunks(assignment_ids):
+        config_rows = (
+            db.query(
+                AssignmentExt,
+                AssignmentSetting,
+                AssignmentScoring,
+                Workbook.title,
+            )
+            .select_from(Assignment)
+            .outerjoin(
+                AssignmentExt,
+                AssignmentExt.assignment_id == Assignment.id,
+            )
+            .outerjoin(
+                AssignmentSetting,
+                AssignmentSetting.assignment_id == Assignment.id,
+            )
+            .outerjoin(
+                AssignmentScoring,
+                AssignmentScoring.assignment_id == Assignment.id,
+            )
+            .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
+            .filter(Assignment.id.in_(assignment_id_chunk))
+            .all()
+        )
+        for extension, setting, scoring, workbook_title in config_rows:
+            if extension is not None:
+                extensions[extension.assignment_id] = extension
+                if extension.workbook_id and workbook_title is not None:
+                    workbook_titles[extension.workbook_id] = workbook_title
+            if setting is not None:
+                settings_by_assignment[setting.assignment_id] = setting
+            if scoring is not None:
+                total_scores[scoring.assignment_id] = (
+                    float(scoring.total_score) if scoring.total_score else 100.0
+                )
 
     questions_by_assignment = {}
     for question in questions:
