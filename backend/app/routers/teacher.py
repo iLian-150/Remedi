@@ -610,13 +610,22 @@ def _teacher_assignments_out(
     if not assignments:
         return []
 
+    def id_chunks(ids: List[int], size: int = 500):
+        for start in range(0, len(ids), size):
+            yield ids[start:start + size]
+
     assignment_ids = [assignment.id for assignment in assignments]
-    questions = (
-        db.query(Question)
-        .filter(Question.assignment_id.in_(assignment_ids))
-        .order_by(Question.assignment_id, Question.order_num, Question.id)
-        .all()
-    )
+    questions = []
+    for assignment_id_chunk in id_chunks(assignment_ids):
+        questions.extend(
+            db.query(Question)
+            .filter(Question.assignment_id.in_(assignment_id_chunk))
+            .order_by(Question.assignment_id, Question.order_num, Question.id)
+            .all()
+        )
+    questions.sort(key=lambda question: (
+        question.assignment_id, question.order_num, question.id
+    ))
     question_ids = [question.id for question in questions]
     question_counts = {}
     for question in questions:
@@ -627,49 +636,57 @@ def _teacher_assignments_out(
     submission_counts = {}
     essay_counts = {}
     weights = {}
-    if question_ids:
-        submission_counts = dict(
+    for question_id_chunk in id_chunks(question_ids):
+        submission_counts.update(dict(
             db.query(Submission.question_id, func.count(Submission.id))
-            .filter(Submission.question_id.in_(question_ids))
+            .filter(Submission.question_id.in_(question_id_chunk))
             .group_by(Submission.question_id)
             .all()
-        )
-        essay_counts = dict(
+        ))
+        essay_counts.update(dict(
             db.query(Essay.question_id, func.count(Essay.id))
-            .filter(Essay.question_id.in_(question_ids))
+            .filter(Essay.question_id.in_(question_id_chunk))
             .group_by(Essay.question_id)
             .all()
-        )
-        weights = {
+        ))
+        weights.update({
             row.question_id: float(row.weight_pct)
             for row in db.query(QuestionWeight).filter(
-                QuestionWeight.question_id.in_(question_ids)
+                QuestionWeight.question_id.in_(question_id_chunk)
             ).all()
-        }
+        })
 
-    extensions = {
-        row.assignment_id: row
-        for row in db.query(AssignmentExt).filter(
-            AssignmentExt.assignment_id.in_(assignment_ids)
-        ).all()
-    }
-    settings_by_assignment = {
-        row.assignment_id: row
-        for row in db.query(AssignmentSetting).filter(
-            AssignmentSetting.assignment_id.in_(assignment_ids)
-        ).all()
-    }
-    total_scores = {
-        row.assignment_id: float(row.total_score) if row.total_score else 100.0
-        for row in db.query(AssignmentScoring).filter(
-            AssignmentScoring.assignment_id.in_(assignment_ids)
-        ).all()
-    }
+    extensions = {}
+    settings_by_assignment = {}
+    total_scores = {}
+    for assignment_id_chunk in id_chunks(assignment_ids):
+        extensions.update({
+            row.assignment_id: row
+            for row in db.query(AssignmentExt).filter(
+                AssignmentExt.assignment_id.in_(assignment_id_chunk)
+            ).all()
+        })
+        settings_by_assignment.update({
+            row.assignment_id: row
+            for row in db.query(AssignmentSetting).filter(
+                AssignmentSetting.assignment_id.in_(assignment_id_chunk)
+            ).all()
+        })
+        total_scores.update({
+            row.assignment_id: float(row.total_score) if row.total_score else 100.0
+            for row in db.query(AssignmentScoring).filter(
+                AssignmentScoring.assignment_id.in_(assignment_id_chunk)
+            ).all()
+        })
     workbook_ids = {row.workbook_id for row in extensions.values() if row.workbook_id}
-    workbook_titles = {
-        row.id: row.title
-        for row in db.query(Workbook).filter(Workbook.id.in_(workbook_ids)).all()
-    } if workbook_ids else {}
+    workbook_titles = {}
+    for workbook_id_chunk in id_chunks(sorted(workbook_ids)):
+        workbook_titles.update({
+            row.id: row.title
+            for row in db.query(Workbook).filter(
+                Workbook.id.in_(workbook_id_chunk)
+            ).all()
+        })
 
     questions_by_assignment = {}
     for question in questions:
