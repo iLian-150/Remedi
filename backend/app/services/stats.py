@@ -606,13 +606,9 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     )
     if visible_only:
         attempt_query = attempt_query.filter(~pending_review)
-    attempt_rows = attempt_query.group_by(
+    attempt_counts = attempt_query.group_by(
         subject_expr, knowledge_point_expr,
-    ).all()
-    attempts = {
-        (row.subject, row.knowledge_point): int(row.attempt_count)
-        for row in attempt_rows
-    }
+    ).subquery()
 
     has_correct_correction = db.query(Correction.id).filter(
         Correction.error_id == Error.id,
@@ -638,9 +634,53 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     )
     if visible_only:
         error_query = error_query.filter(~pending_review)
-    error_rows = error_query.group_by(
+    error_stats = error_query.group_by(
         subject_expr, Error.knowledge_point,
-    ).order_by(func.max(Error.created_at).desc()).all()
+    ).subquery()
+
+    subject_knowledge_points = db.query(
+        attempt_counts.c.subject,
+        attempt_counts.c.knowledge_point,
+    ).union(
+        db.query(error_stats.c.subject, error_stats.c.knowledge_point)
+    ).subquery()
+    combined_rows = (
+        db.query(
+            subject_knowledge_points.c.subject,
+            subject_knowledge_points.c.knowledge_point,
+            func.coalesce(attempt_counts.c.attempt_count, 0).label("attempt_count"),
+            error_stats.c.error_count,
+            error_stats.c.stubborn_count,
+            error_stats.c.corrected_count,
+            error_stats.c.last_error_at,
+        )
+        .select_from(subject_knowledge_points)
+        .outerjoin(
+            attempt_counts,
+            and_(
+                attempt_counts.c.subject == subject_knowledge_points.c.subject,
+                attempt_counts.c.knowledge_point
+                == subject_knowledge_points.c.knowledge_point,
+            ),
+        )
+        .outerjoin(
+            error_stats,
+            and_(
+                error_stats.c.subject == subject_knowledge_points.c.subject,
+                error_stats.c.knowledge_point
+                == subject_knowledge_points.c.knowledge_point,
+            ),
+        )
+        .all()
+    )
+    attempts = {}
+    error_rows = []
+    for row in combined_rows:
+        if row.attempt_count:
+            attempts[(row.subject, row.knowledge_point)] = int(row.attempt_count)
+        if row.error_count is not None:
+            error_rows.append(row)
+    error_rows.sort(key=lambda row: row.last_error_at, reverse=True)
 
     error_knowledge_points = {row.knowledge_point for row in error_rows}
     passed_kps = set()
