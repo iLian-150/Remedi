@@ -238,18 +238,25 @@ def list_errors(
         query = query.filter(Error.error_type == error_type)
     if stubborn_only:
         query = query.filter(Error.is_stubborn.is_(True))
-    total = query.count()
-    errs = (
+    page_rows = (
         query.options(
             joinedload(Error.step),
             joinedload(Error.submission).joinedload(Submission.student),
             joinedload(Error.submission).joinedload(Submission.question),
         )
+        .add_columns(func.count(Error.id).over().label("total"))
         .order_by(Error.created_at.desc())
         .offset(offset)
         .limit(limit)
         .all()
     )
+    if page_rows:
+        total = int(page_rows[0].total or 0)
+        errs = [error for error, _ in page_rows]
+    else:
+        # 窗口计数在空页没有返回行；仅此时单独查询总数以保留越界分页语义。
+        total = query.count()
+        errs = []
     submission_by_id = {
         err.submission_id: err.submission
         for err in errs

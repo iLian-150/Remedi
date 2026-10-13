@@ -454,8 +454,7 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     query = db.query(Submission).filter(Submission.student_id == current.id)
     if question_id:
         query = query.filter(Submission.question_id == question_id)
-    total = query.count()
-    subs = query.options(
+    page_rows = query.options(
         load_only(
             Submission.id, Submission.question_id,
             Submission.status, Submission.submitted_at,
@@ -464,7 +463,15 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
             Question.id, Question.assignment_id, Question.stem,
             Question.knowledge_point,
         ),
+    ).add_columns(
+        func.count(Submission.id).over().label("total")
     ).order_by(Submission.submitted_at.desc()).offset(offset).limit(limit).all()
+    if page_rows:
+        total = int(page_rows[0].total or 0)
+        subs = [submission for submission, _ in page_rows]
+    else:
+        total = query.count()
+        subs = []
     status_by_id = review_svc.review_status_map(db, [s.id for s in subs])
     submission_ids = [s.id for s in subs]
     error_counts = dict(
@@ -1076,8 +1083,15 @@ def list_essays(limit: int = Query(default=20, le=100), offset: int = Query(defa
                 db: Session = Depends(get_db), current: User = Depends(require_student)):
     import json
     query = db.query(Essay).filter(Essay.student_id == current.id)
-    total = query.count()
-    essays = query.order_by(Essay.submitted_at.desc()).offset(offset).limit(limit).all()
+    page_rows = query.add_columns(
+        func.count(Essay.id).over().label("total")
+    ).order_by(Essay.submitted_at.desc()).offset(offset).limit(limit).all()
+    if page_rows:
+        total = int(page_rows[0].total or 0)
+        essays = [essay for essay, _ in page_rows]
+    else:
+        total = query.count()
+        essays = []
     items = [EssayBrief(
         essay_id=e.id, question_id=e.question_id,
         total=json.loads(e.scores_json).get("total", 0),
