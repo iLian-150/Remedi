@@ -426,9 +426,13 @@ def assignment_progress(
     return result
 
 
-def score_detail_for_teacher(db: Session, submission: Submission) -> Dict:
+def score_detail_for_teacher(
+    db: Session,
+    submission: Submission,
+    steps: Optional[List[Step]] = None,
+) -> Dict:
     """审核详情用：满分、AI 分、最终分与步骤明细（老师据此决定是否改分）。"""
-    info = compute_ai_score(db, submission)
+    info = compute_ai_score(db, submission, steps)
     row = get_score_row(db, submission.id)
     return {
         "question_max": info["max_score"],
