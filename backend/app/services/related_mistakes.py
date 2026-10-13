@@ -1,7 +1,7 @@
 """按学生、学科与知识点查找可回看的历史错题。"""
 from typing import Iterable
 
-from sqlalchemy import func
+from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session, load_only
 
 from ..models import (
@@ -127,29 +127,49 @@ def find_related_mistakes_for_questions(
     if not knowledge_keys_by_subject:
         return result
 
-    candidate_by_key = {}
-    for subject_key, knowledge_keys in knowledge_keys_by_subject.items():
+    candidate_columns = (
+        "error_id",
+        "knowledge_point",
+        "error_type",
+        "detail",
+        "created_at",
+        "submission_id",
+        "question_id",
+        "question_subject",
+        "question_stem",
+        "assignment_id",
+        "assignment_title",
+        "assignment_created_at",
+        "step_seq",
+        "step_text",
+    )
+    candidate_selects = []
+    for subject_key in knowledge_keys_by_subject:
         query = (
-            db.query(Error, Submission, Question, Assignment, Step)
+            db.query(
+                Error.id.label("error_id"),
+                Error.knowledge_point.label("knowledge_point"),
+                Error.error_type.label("error_type"),
+                Error.detail.label("detail"),
+                Error.created_at.label("created_at"),
+                Submission.id.label("submission_id"),
+                Question.id.label("question_id"),
+                Question.subject.label("question_subject"),
+                Question.stem.label("question_stem"),
+                Assignment.id.label("assignment_id"),
+                Assignment.title.label("assignment_title"),
+                Assignment.created_at.label("assignment_created_at"),
+                Step.seq.label("step_seq"),
+                Step.text.label("step_text"),
+            )
             .join(Submission, Error.submission_id == Submission.id)
             .join(Question, Submission.question_id == Question.id)
             .join(Assignment, Question.assignment_id == Assignment.id)
             .outerjoin(Step, Error.step_id == Step.id)
-            .options(
-                load_only(
-                    Error.id, Error.knowledge_point, Error.error_type,
-                    Error.detail, Error.created_at,
-                ),
-                load_only(Submission.id),
-                load_only(Question.id, Question.subject, Question.stem),
-                load_only(Assignment.id, Assignment.title, Assignment.created_at),
-                load_only(Step.id, Step.seq, Step.text),
-            )
             .filter(
                 Submission.student_id == student_id,
                 Question.subject == subject_key,
             )
-            .order_by(Error.created_at.desc(), Error.id.desc())
         )
         if exclude_assignment_id is not None:
             query = query.filter(Assignment.id != exclude_assignment_id)
@@ -158,15 +178,38 @@ def find_related_mistakes_for_questions(
             StudentMistakeArchive.student_id == student_id,
             StudentMistakeArchive.error_id == Error.id,
         ).exists()
-        for row in query.filter(~is_archived).limit(300).all():
-            key = (
-                subject_key,
-                "".join((row[0].knowledge_point or "").split()).casefold(),
-            )
-            if key[1] in knowledge_keys and key not in candidate_by_key:
-                candidate_by_key[key] = row
+        candidate_subquery = (
+            query.filter(~is_archived)
+            .order_by(Error.created_at.desc(), Error.id.desc())
+            .limit(300)
+            .subquery()
+        )
+        candidate_selects.append(select(*(
+            candidate_subquery.c[column] for column in candidate_columns
+        )))
 
-    error_ids = list(dict.fromkeys(row[0].id for row in candidate_by_key.values()))
+    candidate_union = union_all(*candidate_selects).subquery()
+    candidate_rows = db.execute(
+        select(candidate_union).order_by(
+            candidate_union.c.created_at.desc(),
+            candidate_union.c.error_id.desc(),
+        )
+    ).all()
+    candidate_by_key = {}
+    for row in candidate_rows:
+        subject_key = (row.question_subject or "").strip().casefold()
+        subject_key = normalized_subjects.get(subject_key, subject_key)
+        knowledge_key = "".join((row.knowledge_point or "").split()).casefold()
+        key = (subject_key, knowledge_key)
+        if (
+            knowledge_key in knowledge_keys_by_subject.get(subject_key, set())
+            and key not in candidate_by_key
+        ):
+            candidate_by_key[key] = row
+
+    error_ids = list(dict.fromkeys(
+        row.error_id for row in candidate_by_key.values()
+    ))
     correction_by_error = {}
     for start in range(0, len(error_ids), 500):
         error_id_chunk = error_ids[start:start + 500]
@@ -206,37 +249,36 @@ def find_related_mistakes_for_questions(
         })
 
     review_by_submission = review_svc.review_status_map(
-        db, {row[1].id for row in candidate_by_key.values()}
+        db, {row.submission_id for row in candidate_by_key.values()}
     )
     payload_by_error = {}
     payload_by_key = {}
     for key, row in candidate_by_key.items():
-        error, submission, question, assignment, step = row
-        payload = payload_by_error.get(error.id)
+        payload = payload_by_error.get(row.error_id)
         if payload is None:
             payload = {
-                "id": error.id,
-                "submission_id": submission.id,
+                "id": row.error_id,
+                "submission_id": row.submission_id,
                 "review_status": review_by_submission.get(
-                    submission.id, review_svc.APPROVED
+                    row.submission_id, review_svc.APPROVED
                 ),
-                "question_id": question.id,
-                "assignment_id": assignment.id,
-                "assignment_title": assignment.title,
-                "assignment_created_at": assignment.created_at,
-                "question_subject": question.subject,
-                "question_stem": question.stem,
-                "solution_steps": student_visible_solution_steps(question.stem)
-                if question.subject == "math" else [],
-                "knowledge_point": error.knowledge_point,
-                "error_type": error.error_type,
-                "detail": error.detail,
-                "step_seq": step.seq if step else None,
-                "step_text": step.text if step else None,
-                "created_at": error.created_at,
-                "latest_correction": correction_by_error.get(error.id),
+                "question_id": row.question_id,
+                "assignment_id": row.assignment_id,
+                "assignment_title": row.assignment_title,
+                "assignment_created_at": row.assignment_created_at,
+                "question_subject": row.question_subject,
+                "question_stem": row.question_stem,
+                "solution_steps": student_visible_solution_steps(row.question_stem)
+                if row.question_subject == "math" else [],
+                "knowledge_point": row.knowledge_point,
+                "error_type": row.error_type,
+                "detail": row.detail,
+                "step_seq": row.step_seq,
+                "step_text": row.step_text,
+                "created_at": row.created_at,
+                "latest_correction": correction_by_error.get(row.error_id),
             }
-            payload_by_error[error.id] = payload
+            payload_by_error[row.error_id] = payload
         payload_by_key[key] = payload
 
     for question_id, key in question_keys.items():
