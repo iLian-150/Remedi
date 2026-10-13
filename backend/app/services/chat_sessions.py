@@ -222,7 +222,7 @@ def append_message(db: Session, session: ChatSession, role: str, content: str) -
     db.add(msg)
     if role == "user" and session.title == DEFAULT_SESSION_TITLE:
         has_user_msg = (
-            db.query(ChatSessionMessage)
+            db.query(ChatSessionMessage.id)
             .filter(ChatSessionMessage.session_id == session.id,
                     ChatSessionMessage.role == "user")
             .first()
