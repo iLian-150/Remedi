@@ -1912,14 +1912,20 @@ def mark_notifications_read(body: NotificationReadIn, db: Session = Depends(get_
         Notification.user_id == current.id, Notification.is_read.is_(False)
     )
     if body.ids:
-        query = query.filter(Notification.id.in_(body.ids))
-    targets = query.all()
-    for n in targets:
-        n.is_read = True
+        notification_ids = list(dict.fromkeys(body.ids))
+        updated = 0
+        for start in range(0, len(notification_ids), 500):
+            updated += query.filter(
+                Notification.id.in_(notification_ids[start:start + 500])
+            ).update({Notification.is_read: True}, synchronize_session=False)
+    else:
+        updated = query.update(
+            {Notification.is_read: True}, synchronize_session=False
+        )
     db.commit()
     unread = (
         db.query(Notification)
         .filter(Notification.user_id == current.id, Notification.is_read.is_(False))
         .count()
     )
-    return {"updated": len(targets), "unread_count": unread}
+    return {"updated": updated, "unread_count": unread}
