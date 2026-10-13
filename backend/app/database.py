@@ -56,6 +56,7 @@ def init_db():
         models.QuestionGroup,
         models.Essay,
         models.Verification,
+        models.StudentMistakeArchive,
         models.StudentQuestionCapture,
         models.ChatSession,
     ):
@@ -68,6 +69,7 @@ def init_db():
         connection.execute(text("DROP INDEX IF EXISTS ix_essays_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_verifications_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_verifications_knowledge_point"))
+        connection.execute(text("DROP INDEX IF EXISTS ix_verifications_student_source_error_created"))
         connection.execute(text("DROP INDEX IF EXISTS ix_questions_assignment_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_steps_submission_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_question_groups_assignment_id"))

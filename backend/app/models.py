@@ -289,10 +289,6 @@ class Verification(Base):
     __tablename__ = "verifications"
     __table_args__ = (
         Index(
-            "ix_verifications_student_source_error_created",
-            "student_id", "source_error_id", "created_at", "id",
-        ),
-        Index(
             "ix_verifications_student_created_id",
             "student_id", "created_at", "id",
         ),
@@ -316,6 +312,15 @@ class Verification(Base):
     completed_at = Column(DateTime, nullable=True, comment="通过时间")
 
 
+Index(
+    "ix_verifications_source_error_student_created_latest",
+    Verification.source_error_id,
+    Verification.student_id,
+    Verification.created_at.desc(),
+    Verification.id.desc(),
+)
+
+
 class StudentMistakeCategoryReview(Base):
     """学生错题本中，某份作业的某类错因是否已学习。"""
     __tablename__ = "student_mistake_category_reviews"
@@ -329,6 +334,9 @@ class StudentMistakeCategoryReview(Base):
 class StudentMistakeArchive(Base):
     """逐条保存错题本移出状态，不删除原始诊断记录。"""
     __tablename__ = "student_mistake_archives"
+    __table_args__ = (
+        Index("ix_student_mistake_archives_error_id", "error_id"),
+    )
 
     student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     error_id = Column(Integer, ForeignKey("errors.id"), primary_key=True)
