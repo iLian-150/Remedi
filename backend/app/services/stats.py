@@ -220,55 +220,75 @@ def _student_stubborn_errors(db, student_id: int, visible_only: bool):
     )
 
 
-def _student_attempt_counts(db, student_id: int, visible_only: bool) -> Dict[str, int]:
-    """按知识点聚合提交数；学生自查口径会在数据库中排除待审核提交。"""
+def _student_briefing_stats(db, student_id: int, visible_only: bool):
+    """在一条 SQL 中合并简报所需的提交数与错因汇总。"""
     knowledge_point = case(
         (Question.id.is_(None), "未知"),
         else_=Question.knowledge_point,
     )
-    query = (
-        db.query(knowledge_point.label("knowledge_point"), func.count(Submission.id))
+    attempt_query = (
+        db.query(
+            knowledge_point.label("knowledge_point"),
+            func.count(Submission.id).label("attempt_count"),
+            literal(0).label("error_count"),
+            literal(None, type_=Error.created_at.type).label("last_error_at"),
+            literal(0).label("stubborn_count"),
+        )
         .select_from(Submission)
         .outerjoin(Question, Question.id == Submission.question_id)
         .filter(Submission.student_id == student_id)
     )
     if visible_only:
-        query = query.outerjoin(
+        attempt_query = attempt_query.outerjoin(
             SubmissionReview,
             SubmissionReview.submission_id == Submission.id,
         ).filter(
             func.coalesce(SubmissionReview.status, "approved") != "pending"
         )
-    return {
-        kp: int(attempts)
-        for kp, attempts in query.group_by(knowledge_point).all()
-    }
 
-
-def _student_error_stats(db, student_id: int, visible_only: bool):
-    """按知识点聚合错因数、最近时间与顽固标记。"""
-    query = (
+    error_query = (
         db.query(
-            Error.knowledge_point,
-            func.count(Error.id),
-            func.max(Error.created_at),
-            func.max(case((Error.is_stubborn.is_(True), 1), else_=0)),
+            Error.knowledge_point.label("knowledge_point"),
+            literal(0).label("attempt_count"),
+            func.count(Error.id).label("error_count"),
+            func.max(Error.created_at).label("last_error_at"),
+            func.max(case((Error.is_stubborn.is_(True), 1), else_=0)).label(
+                "stubborn_count"
+            ),
         )
+        .select_from(Error)
         .join(Submission, Submission.id == Error.submission_id)
         .filter(Submission.student_id == student_id)
     )
     if visible_only:
-        query = query.outerjoin(
+        error_query = error_query.outerjoin(
             SubmissionReview,
             SubmissionReview.submission_id == Submission.id,
         ).filter(
             func.coalesce(SubmissionReview.status, "approved") != "pending"
         )
-    return {
-        kp: (int(error_count), last_error_at, bool(has_stubborn))
-        for kp, error_count, last_error_at, has_stubborn
-        in query.group_by(Error.knowledge_point).all()
-    }
+
+    combined_stats = attempt_query.group_by(knowledge_point).union_all(
+        error_query.group_by(Error.knowledge_point)
+    ).subquery()
+    rows = db.query(
+        combined_stats.c.knowledge_point,
+        func.sum(combined_stats.c.attempt_count).label("attempt_count"),
+        func.sum(combined_stats.c.error_count).label("error_count"),
+        func.max(combined_stats.c.last_error_at).label("last_error_at"),
+        func.max(combined_stats.c.stubborn_count).label("stubborn_count"),
+    ).group_by(combined_stats.c.knowledge_point).all()
+
+    attempts_by_knowledge_point = {}
+    errors_by_knowledge_point = {}
+    for row in rows:
+        if row.attempt_count:
+            attempts_by_knowledge_point[row.knowledge_point] = int(row.attempt_count)
+        if row.error_count:
+            errors_by_knowledge_point[row.knowledge_point] = (
+                int(row.error_count), row.last_error_at, bool(row.stubborn_count)
+            )
+    return attempts_by_knowledge_point, errors_by_knowledge_point
 
 
 def _profile_suggestion(student: User, knowledge_points: List[Dict],
@@ -373,8 +393,12 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
 def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     """学生首页待办简报：未完成作业 / 待订正 / 需要加固的知识点 / 最近一次批改摘要。
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
-    kp_attempts = _student_attempt_counts(db, student.id, visible_only)
-    latest_submission_query = db.query(Submission.id).filter(
+    kp_attempts, kp_error_stats = _student_briefing_stats(
+        db, student.id, visible_only,
+    )
+    latest_submission_query = db.query(
+        Submission.id.label("id"),
+    ).filter(
         Submission.student_id == student.id
     )
     if visible_only:
@@ -384,10 +408,9 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
         ).filter(
             func.coalesce(SubmissionReview.status, "approved") != "pending"
         )
-    latest_submission_row = latest_submission_query.order_by(
+    latest_submission = latest_submission_query.order_by(
         Submission.submitted_at.desc(), Submission.id.desc()
-    ).first()
-    latest_submission_id = latest_submission_row[0] if latest_submission_row else None
+    ).limit(1).subquery()
 
     # 未完成作业：批量读取作业、题目数与扩展信息，避免按作业逐条查库。
     # 与学生作业列表保持相同可见范围：学生自主上传题目只归上传者练习，不进入班级作业简报。
@@ -476,7 +499,6 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
 
     # 需要加固的知识点：顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点
     # （聚合口径与 student_profile 一致；顽固的排前面）
-    kp_error_stats = _student_error_stats(db, student.id, visible_only)
     kp_errors = {kp: stats[0] for kp, stats in kp_error_stats.items()}
     kp_last_error_at = {kp: stats[1] for kp, stats in kp_error_stats.items()}
     stubborn_kps = {kp for kp, stats in kp_error_stats.items() if stats[2]}
@@ -499,18 +521,18 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
 
     # 最近一次批改的一句话摘要
     recent_feedback = None
-    if latest_submission_id is not None:
-        feedback_row = (
-            db.query(Question.stem, Error.detail, Error.error_type)
-            .select_from(Submission)
-            .outerjoin(Question, Question.id == Submission.question_id)
-            .outerjoin(Error, Error.submission_id == Submission.id)
-            .filter(Submission.id == latest_submission_id)
-            .order_by(Error.created_at.desc())
-            .first()
-        )
-        stem = (feedback_row.stem if feedback_row else None) or ""
-        if feedback_row is not None and feedback_row.error_type is not None:
+    feedback_row = (
+        db.query(Question.stem, Error.detail, Error.error_type)
+        .select_from(latest_submission)
+        .join(Submission, Submission.id == latest_submission.c.id)
+        .outerjoin(Question, Question.id == Submission.question_id)
+        .outerjoin(Error, Error.submission_id == Submission.id)
+        .order_by(Error.created_at.desc())
+        .first()
+    )
+    if feedback_row is not None:
+        stem = feedback_row.stem or ""
+        if feedback_row.error_type is not None:
             detail = feedback_row.detail or f"出现了「{feedback_row.error_type}」"
             recent_feedback = f"最近一次批改《{stem}》：{detail}"
         else:
