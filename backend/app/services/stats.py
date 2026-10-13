@@ -1,7 +1,7 @@
 # 班级聚合与学习画像：高频错题 TopN、知识点错误率排行、学生画像。
 from typing import Dict, List
 
-from sqlalchemy import func
+from sqlalchemy import case, func, tuple_
 from sqlalchemy.orm import joinedload, load_only
 
 from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
@@ -601,23 +601,23 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
 
 def class_repair_rate(db) -> Dict:
     """教师端：班级知识修复率 + 各知识点修复率（只读聚合，不改任何已有口径）。"""
-    # 只取聚合所需字段；Error 还有 detail/teacher_note 等长文本，
-    # Verification.variant_json 也可能很大，不能为计数把整行载入 ORM。
-    errors_by_student: Dict[int, List] = {}
-    for error in (
+    # 先在数据库按学生和知识点汇总，避免把每条错题及订正正文读入 Python。
+    error_summaries = (
         db.query(
             Submission.student_id.label("student_id"),
-            Error.id.label("id"),
             Error.knowledge_point.label("knowledge_point"),
-            Error.is_stubborn.label("is_stubborn"),
+            func.count(Error.id).label("error_count"),
+            func.sum(case((Error.is_stubborn.is_(True), 1), else_=0)).label(
+                "stubborn_count"
+            ),
         )
-        .join(Submission, Submission.id == Error.submission_id)
+        .join(Error, Error.submission_id == Submission.id)
         .join(User, User.id == Submission.student_id)
         .filter(User.role == "student")
+        .group_by(Submission.student_id, Error.knowledge_point)
         .all()
-    ):
-        errors_by_student.setdefault(error.student_id, []).append(error)
-    if not errors_by_student:
+    )
+    if not error_summaries:
         return {
             "class_repair_rate": 0.0,
             "students_with_errors": 0,
@@ -626,45 +626,70 @@ def class_repair_rate(db) -> Dict:
             "knowledge_points": [],
         }
 
-    fixed_by_student: Dict[int, set] = {}
-    for student_id, error_id in (
-        db.query(Correction.student_id, Correction.error_id)
-        .join(User, User.id == Correction.student_id)
-        .filter(User.role == "student", Correction.is_correct.is_(True))
-        .all()
-    ):
-        fixed_by_student.setdefault(student_id, set()).add(error_id)
+    # 仅统计这些错题组合中已有正确订正的错误；distinct 保留重复订正只计一次的口径。
+    fixed_counts = dict(
+        (
+            (student_id, knowledge_point),
+            int(fixed_count),
+        )
+        for student_id, knowledge_point, fixed_count in (
+            db.query(
+                Submission.student_id,
+                Error.knowledge_point,
+                func.count(func.distinct(Error.id)),
+            )
+            .join(Error, Error.submission_id == Submission.id)
+            .join(User, User.id == Submission.student_id)
+            .join(Correction, Correction.error_id == Error.id)
+            .filter(
+                User.role == "student",
+                Correction.student_id == Submission.student_id,
+                Correction.is_correct.is_(True),
+            )
+            .group_by(Submission.student_id, Error.knowledge_point)
+            .all()
+        )
+    )
 
-    passed_by_student: Dict[int, set] = {}
-    for student_id, knowledge_point in (
-        db.query(Verification.student_id, Verification.knowledge_point)
-        .join(User, User.id == Verification.student_id)
-        .filter(User.role == "student", Verification.status == "passed")
-        .all()
-    ):
-        passed_by_student.setdefault(student_id, set()).add(knowledge_point)
+    error_pairs = [
+        (summary.student_id, summary.knowledge_point)
+        for summary in error_summaries
+    ]
+    passed_pairs = set()
+    # 只加载有错题的学生-知识点组合，并分块控制 SQLite 的绑定参数数量。
+    for start in range(0, len(error_pairs), 400):
+        pair_chunk = error_pairs[start:start + 400]
+        for student_id, knowledge_point in (
+            db.query(Verification.student_id, Verification.knowledge_point)
+            .filter(
+                tuple_(Verification.student_id, Verification.knowledge_point).in_(pair_chunk),
+                Verification.status == "passed",
+            )
+            .distinct()
+            .all()
+        ):
+            passed_pairs.add((student_id, knowledge_point))
 
     total_pairs = 0
     fixed_pairs = 0
-    students_with_errors = 0
+    students_with_errors = {summary.student_id for summary in error_summaries}
     per_kp: Dict[str, Dict] = {}
-    for student_id, errs in errors_by_student.items():
-        students_with_errors += 1
-        fixed_ids = fixed_by_student.get(student_id, set())
-        passed_kps = passed_by_student.get(student_id, set())
-        by_kp: Dict[str, List] = {}
-        for e in errs:
-            by_kp.setdefault(e.knowledge_point, []).append(e)
-        for kp, kerrs in by_kp.items():
-            status = _knowledge_point_status(kerrs, fixed_ids, passed_kps, kp)
-            total_pairs += 1
-            cell = per_kp.setdefault(kp, {
-                "knowledge_point": kp, "students_errored": 0, "students_fixed": 0,
-            })
-            cell["students_errored"] += 1
-            if status == "fixed":
-                fixed_pairs += 1
-                cell["students_fixed"] += 1
+    for summary in error_summaries:
+        student_id = summary.student_id
+        kp = summary.knowledge_point
+        pair = (student_id, kp)
+        is_fixed = (
+            pair in passed_pairs
+            or fixed_counts.get(pair, 0) == summary.error_count
+        )
+        total_pairs += 1
+        cell = per_kp.setdefault(kp, {
+            "knowledge_point": kp, "students_errored": 0, "students_fixed": 0,
+        })
+        cell["students_errored"] += 1
+        if is_fixed:
+            fixed_pairs += 1
+            cell["students_fixed"] += 1
     kp_items = []
     for cell in per_kp.values():
         kp_items.append({
@@ -676,7 +701,7 @@ def class_repair_rate(db) -> Dict:
     kp_items.sort(key=lambda x: (x["repair_rate"], -x["students_errored"]))
     return {
         "class_repair_rate": round(fixed_pairs / total_pairs, 3) if total_pairs else 0.0,
-        "students_with_errors": students_with_errors,
+        "students_with_errors": len(students_with_errors),
         "total_knowledge_point_pairs": total_pairs,
         "fixed_knowledge_point_pairs": fixed_pairs,
         "knowledge_points": kp_items,
