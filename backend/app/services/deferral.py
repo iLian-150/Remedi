@@ -17,7 +17,16 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
-from ..models import AssignmentExt, AssignmentSetting, Question, Step, Submission, SubmissionImage, User
+from ..models import (
+    AssignmentExt,
+    AssignmentSetting,
+    Error,
+    Question,
+    Step,
+    Submission,
+    SubmissionImage,
+    User,
+)
 from .confidence import normalize_confidence
 from .diagnosis import diagnose_submission, diagnose_visual_submission
 from . import reviews as review_svc
@@ -138,6 +147,74 @@ def grade_due(db: Session) -> int:
         db.expire_on_commit = expire_on_commit
 
 
+def _enqueue_due_reviews(
+    db: Session,
+    submissions: List[Submission],
+    confidence_signals_by_submission: dict[int, List[float]],
+) -> None:
+    """批量计算本轮延迟批改的复核条件，避免逐提交重算整份作业上下文。"""
+    if not submissions:
+        return
+
+    assignment_contexts = review_svc.assignment_accuracy_contexts(db, submissions)
+    step_statuses_by_submission = {}
+    error_confidences_by_submission = {}
+    submission_ids = [submission.id for submission in submissions]
+    for start in range(0, len(submission_ids), 500):
+        id_chunk = submission_ids[start:start + 500]
+        for submission_id, step_status in db.query(
+            Step.submission_id, Step.status
+        ).filter(
+            Step.submission_id.in_(id_chunk),
+            Step.seq >= 1,
+            Step.status.in_(("ok", "error", "unparseable")),
+        ).all():
+            step_statuses_by_submission.setdefault(submission_id, []).append(
+                step_status
+            )
+        for submission_id, confidence in db.query(
+            Error.submission_id, Error.confidence
+        ).filter(Error.submission_id.in_(id_chunk)).all():
+            error_confidences_by_submission.setdefault(submission_id, []).append(
+                float(confidence)
+            )
+
+    submissions_to_review = {}
+    for submission in submissions:
+        question = submission.question
+        context = (
+            assignment_contexts.get((submission.student_id, question.assignment_id))
+            if question is not None else None
+        )
+        reasons = review_svc.review_reasons(
+            db,
+            submission,
+            confidence_signals_by_submission.get(submission.id, []),
+            assignment_context=context,
+            step_statuses=step_statuses_by_submission.get(submission.id, []),
+            error_confidences=error_confidences_by_submission.get(
+                submission.id, []
+            ),
+        )
+        if not reasons:
+            continue
+
+        targets = [submission]
+        if context:
+            latest_submissions, correct, total = context
+            if total > 0 and correct / total < review_svc.REVIEW_THRESHOLD:
+                targets = list(latest_submissions)
+                latest_ids = {item.id for item in targets}
+                if submission.id not in latest_ids:
+                    targets.append(submission)
+        submissions_to_review.update({
+            item.id: item for item in targets
+        })
+
+    if submissions_to_review:
+        review_svc.create_pending_reviews(db, submissions_to_review.values())
+
+
 def _grade_due_batch(db: Session) -> int:
     """到期统一批改：扫所有 allow_revision 作业，截止已过的，把每道题
     每个学生的最后一次延迟提交批改掉；返回本次批改的提交数。
@@ -165,6 +242,8 @@ def _grade_due_batch(db: Session) -> int:
 
     graded = 0
     seen_pairs = set()
+    graded_for_review = []
+    confidence_signals_by_submission = {}
     for batch_start in range(0, len(deferred), 500):
         batch = deferred[batch_start:batch_start + 500]
         submission_ids = [submission.id for submission in batch]
@@ -242,9 +321,11 @@ def _grade_due_batch(db: Session) -> int:
                 graded_sub, _, _ = diagnose_submission(
                     db, student, question, step_texts, reuse=sub
                 )
-            review_svc.create_review_if_needed(
-                db, graded_sub, confidence_signals=confidence_signals
-            )
+            graded_for_review.append(graded_sub)
+            confidence_signals_by_submission[graded_sub.id] = confidence_signals
             graded += 1
+    _enqueue_due_reviews(
+        db, graded_for_review, confidence_signals_by_submission
+    )
     db.commit()
     return graded
