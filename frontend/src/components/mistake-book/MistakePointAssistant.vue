@@ -85,7 +85,7 @@
         </div>
       </div>
       <article v-for="(message, index) in messages" :key="`${index}-${message.role}`" class="mistake-point-message" :class="message.role">
-        <template v-if="message.role === 'assistant'"><strong>知行 · 思路讲解</strong><p>{{ message.content || (sending ? '正在整理思路…' : '') }}</p></template>
+        <template v-if="message.role === 'assistant'"><strong>知行 · 思路讲解</strong><div class="mistake-point-message-content" v-html="renderAssistantMarkdown(message.content || (sending ? '正在整理思路…' : ''))"></div></template>
         <p v-else>{{ message.content }}</p>
       </article>
       <p v-if="error" class="mistake-point-chat-error" role="alert">{{ error }}</p>
@@ -100,6 +100,7 @@
 </template>
 
 <script setup lang="ts">
+import MarkdownIt from 'markdown-it'
 import { ref, watch } from 'vue'
 import { useStudentStore } from '../../stores/student'
 import type { StudentMistake } from '../../api/types'
@@ -130,6 +131,19 @@ const summaryCollapsed = ref(false)
 const error = ref('')
 /** v0.13.10：正确答案/解题过程默认不展示，学生点开才看；换一道错题自动收起 */
 const answerRevealed = ref(false)
+const assistantMarkdown = new MarkdownIt({
+  html: false,
+  breaks: false,
+  linkify: false,
+  typographer: false
+})
+
+function renderAssistantMarkdown(text: string) {
+  const normalized = (text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+  return assistantMarkdown.render(normalized)
+}
 
 watch(() => props.mistake.id, () => {
   question.value = ''
@@ -209,6 +223,14 @@ async function sendQuestion() {
 .mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:hover { border-color: var(--primary-dark, var(--primary)); background: var(--primary-dark, var(--primary)); }
 .mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 2px; }
 .mistake-point-transcript { overflow-y: auto; }
-.mistake-point-message p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mistake-point-message-content { margin-top: 6px; overflow-wrap: anywhere; }
+.mistake-point-message-content :deep(p) { margin: 0 0 8px; line-height: 1.7; }
+.mistake-point-message-content :deep(p:last-child) { margin-bottom: 0; }
+.mistake-point-message-content :deep(h1), .mistake-point-message-content :deep(h2), .mistake-point-message-content :deep(h3), .mistake-point-message-content :deep(h4) { margin: 12px 0 6px; font-size: 14px; line-height: 1.45; }
+.mistake-point-message-content :deep(ul), .mistake-point-message-content :deep(ol) { margin: 4px 0 10px; padding-left: 22px; line-height: 1.7; }
+.mistake-point-message-content :deep(li + li) { margin-top: 3px; }
+.mistake-point-message-content :deep(pre) { max-width: 100%; overflow-x: auto; padding: 9px 11px; border-radius: 8px; background: var(--bg-subtle); white-space: pre-wrap; }
+.mistake-point-message-content :deep(code) { overflow-wrap: anywhere; }
+.mistake-point-message-content :deep(hr) { margin: 12px 0; border: 0; border-top: 1px solid var(--border); }
 .mistake-point-composer textarea { resize: vertical; }
 </style>
