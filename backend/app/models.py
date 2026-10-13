@@ -348,7 +348,7 @@ class StudentQuestionCapture(Base):
     __tablename__ = "student_question_captures"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=True, index=True)
     subject = Column(String(32), nullable=False, default="math")
     question_text = Column(Text, nullable=False)
@@ -357,6 +357,14 @@ class StudentQuestionCapture(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     saved_at = Column(DateTime, nullable=True, index=True)
     archived_at = Column(DateTime, nullable=True)
+
+
+Index(
+    "ix_student_question_captures_student_created_id",
+    StudentQuestionCapture.student_id,
+    StudentQuestionCapture.created_at.desc(),
+    StudentQuestionCapture.id.desc(),
+)
 
 
 class SubmissionReview(Base):
