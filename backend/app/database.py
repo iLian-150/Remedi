@@ -56,6 +56,7 @@ def init_db():
         models.QuestionGroup,
         models.Essay,
         models.Verification,
+        models.StudentMistakeCategoryReview,
         models.StudentMistakeArchive,
         models.AssignmentExt,
         models.StudentQuestionCapture,

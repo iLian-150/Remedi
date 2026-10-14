@@ -324,6 +324,9 @@ Index(
 class StudentMistakeCategoryReview(Base):
     """学生错题本中，某份作业的某类错因是否已学习。"""
     __tablename__ = "student_mistake_category_reviews"
+    __table_args__ = (
+        Index("ix_student_mistake_category_reviews_assignment_id", "assignment_id"),
+    )
 
     student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     assignment_id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
