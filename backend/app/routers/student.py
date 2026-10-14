@@ -1014,11 +1014,11 @@ def my_mistake_count(subject: Optional[str] = Query(default=None),
         db.query(func.count(Error.id))
         .select_from(Error)
         .join(Submission, Submission.id == Error.submission_id)
-        .join(Question, Question.id == Submission.question_id)
         .filter(Submission.student_id == current.id)
     )
     if subject:
-        query = query.filter(Question.subject == subject)
+        query = query.join(Question, Question.id == Submission.question_id) \
+            .filter(Question.subject == subject)
     return {"count": int(query.scalar() or 0)}
 
 
