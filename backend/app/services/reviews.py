@@ -36,8 +36,9 @@ def create_pending_reviews(
     submissions: Iterable[Submission],
     *,
     existing_rows: Optional[Iterable[SubmissionReview]] = None,
+    commit: bool = True,
 ) -> dict[int, SubmissionReview]:
-    """幂等地为多条提交建待审行；已有记录按批读取，最后一次提交。"""
+    """幂等地为多条提交建待审行；commit=False 时由调用方负责提交。"""
     unique_submissions = {item.id: item for item in submissions if item.id is not None}
     if not unique_submissions:
         return {}
@@ -59,7 +60,7 @@ def create_pending_reviews(
             db.add(row)
             rows_by_id[submission_id] = row
             added = True
-    if added:
+    if added and commit:
         db.commit()
     return rows_by_id
 
@@ -270,9 +271,14 @@ def needs_teacher_review(db: Session, submission: Submission,
     ))
 
 
-def create_review_if_needed(db: Session, submission: Submission,
-                            confidence_signals: Iterable[float] = ()) -> Optional[SubmissionReview]:
-    """按作答与视觉置信度决定是否建立待审核记录。"""
+def create_review_if_needed(
+    db: Session,
+    submission: Submission,
+    confidence_signals: Iterable[float] = (),
+    *,
+    commit: bool = True,
+) -> Optional[SubmissionReview]:
+    """按作答与视觉置信度决定是否建立待审核记录；可交由调用方提交事务。"""
     assignment_context = assignment_accuracy_context(db, submission)
     if not needs_teacher_review(
         db, submission, confidence_signals, assignment_context=assignment_context
@@ -287,7 +293,9 @@ def create_review_if_needed(db: Session, submission: Submission,
             submissions_to_review = list(latest_submissions)
             if all(item.id != submission.id for item in submissions_to_review):
                 submissions_to_review.append(submission)
-    rows_by_id = create_pending_reviews(db, submissions_to_review)
+    rows_by_id = create_pending_reviews(
+        db, submissions_to_review, commit=commit,
+    )
     return rows_by_id[submission.id]
 
 

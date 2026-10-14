@@ -1468,14 +1468,14 @@ _PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",
 _PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 
-def _save_submission_image_link(db: Session, submission: Submission,
-                                file_path: str, file_name: str) -> None:
-    db.merge(SubmissionImage(
+def _add_submission_image_link(db: Session, submission: Submission,
+                               file_path: str, file_name: str) -> None:
+    """暂存图片关联，由调用方与审核记录一起提交。"""
+    db.add(SubmissionImage(
         submission_id=submission.id,
         file_path=file_path,
         file_name=file_name[:255],
     ))
-    db.commit()
 
 
 def _has_recognized_student_work(recognition: dict, step_texts: List[str]) -> bool:
@@ -1704,10 +1704,10 @@ async def photo_review(
             )
             with open(os.path.join(settings.UPLOAD_DIR, stored_image_path), "wb") as image_file:
                 image_file.write(data)
-        submission = deferral_svc.create_deferred(db, current, question, steps)
-        _save_submission_image_link(
-            db, submission, stored_image_path,
-            os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
+        image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
+        submission = deferral_svc.create_deferred(
+            db, current, question, steps,
+            image_path=stored_image_path, image_name=image_name,
         )
         related_mistake = find_related_mistake(
             db, current.id, question.subject, question.knowledge_point,
@@ -1735,7 +1735,7 @@ async def photo_review(
         )
         with open(os.path.join(settings.UPLOAD_DIR, stored_image_path), "wb") as image_file:
             image_file.write(data)
-    _save_submission_image_link(
+    _add_submission_image_link(
         db,
         submission,
         stored_image_path,
@@ -1746,7 +1746,9 @@ async def photo_review(
         confidence_signals=review_svc.visual_confidence_signals(
             _visual_review_confidence(confidence, recognition), visual_steps
         ),
+        commit=False,
     )
+    db.commit()
     related_mistake = find_related_mistake(
         db, current.id, question.subject, question.knowledge_point,
         exclude_assignment_id=question.assignment_id,
@@ -1896,8 +1898,10 @@ async def photo_diagnose(
     image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
 
     if deferred_mode:
-        submission = deferral_svc.create_deferred(db, current, question, steps)
-        _save_submission_image_link(db, submission, image_path, image_name)
+        submission = deferral_svc.create_deferred(
+            db, current, question, steps,
+            image_path=image_path, image_name=image_name,
+        )
         out = deferral_svc.deferred_out(submission)
         out.update({
             "recognized_question_text": recognition.get("question_text", ""),
@@ -1906,13 +1910,15 @@ async def photo_diagnose(
         })
         return out
     submission, _, _ = diagnose_visual_submission(db, current, question, visual_steps)
-    _save_submission_image_link(db, submission, image_path, image_name)
+    _add_submission_image_link(db, submission, image_path, image_name)
     review_svc.create_review_if_needed(
         db, submission,
         confidence_signals=review_svc.visual_confidence_signals(
             _visual_review_confidence(confidence, recognition), visual_steps
         ),
+        commit=False,
     )
+    db.commit()
     result = present_for_student(submission, db)
     result.update({
         "recognized_question_text": recognition.get("question_text", ""),

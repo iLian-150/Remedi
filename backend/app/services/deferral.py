@@ -110,13 +110,27 @@ def assert_can_submit(
     )
 
 
-def create_deferred(db: Session, student: User, question: Question, step_texts: List[str]) -> Submission:
+def create_deferred(
+    db: Session,
+    student: User,
+    question: Question,
+    step_texts: List[str],
+    *,
+    image_path: Optional[str] = None,
+    image_name: Optional[str] = None,
+) -> Submission:
     """落一份延迟提交：只存原始步骤（seq 从 1 开始，status=deferred 占位），不诊断。"""
     submission = Submission(student_id=student.id, question_id=question.id, status=DEFERRED)
     db.add(submission)
     db.flush()
     for i, raw in enumerate(step_texts, start=1):
         db.add(Step(submission_id=submission.id, seq=i, text=raw, status=DEFERRED))
+    if image_path:
+        db.add(SubmissionImage(
+            submission_id=submission.id,
+            file_path=image_path,
+            file_name=(image_name or "作业照片")[:255],
+        ))
     db.commit()
     db.refresh(submission)
     return submission
