@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from ..auth import require_teacher
 from ..config import settings
@@ -243,9 +243,24 @@ def list_errors(
         query = query.filter(Error.is_stubborn.is_(True))
     page_rows = (
         query.options(
-            joinedload(Error.step),
-            joinedload(Error.submission).joinedload(Submission.student),
-            joinedload(Error.submission).joinedload(Submission.question),
+            load_only(
+                Error.id, Error.submission_id, Error.step_id,
+                Error.knowledge_point, Error.error_type, Error.confidence,
+                Error.is_stubborn, Error.detail, Error.teacher_corrected,
+                Error.teacher_note, Error.created_at,
+            ),
+            joinedload(Error.step).load_only(Step.id, Step.seq, Step.text),
+            joinedload(Error.submission)
+            .load_only(Submission.id, Submission.student_id, Submission.question_id)
+            .options(
+                joinedload(Submission.student).load_only(
+                    User.id, User.name, User.student_no, User.role, User.created_at,
+                ),
+                joinedload(Submission.question).load_only(
+                    Question.id, Question.assignment_id, Question.subject,
+                    Question.knowledge_point, Question.stem, Question.order_num,
+                ),
+            ),
         )
         .add_columns(func.count(Error.id).over().label("total"))
         .order_by(Error.created_at.desc())
