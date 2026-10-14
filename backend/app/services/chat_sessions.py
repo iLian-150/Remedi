@@ -80,8 +80,12 @@ def ensure_migrated(db: Session, user: User) -> None:
 def create_session(db: Session, user: User, title: str = DEFAULT_SESSION_TITLE) -> ChatSession:
     session = ChatSession(user_id=user.id, title=title)
     db.add(session)
-    db.commit()
-    db.refresh(session)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     return session
 
 
