@@ -193,17 +193,13 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
             description="学生在学习助手中提交的数学作答。",
             created_by=student.id,
         )
-        db.add(assignment)
-        db.flush()
         question = Question(
-            assignment_id=assignment.id,
+            assignment=assignment,
             subject="math",
             knowledge_point=kp,
             stem=stem,
             order_num=1,
         )
-        db.add(question)
-        db.flush()
 
         submission, _, errors = diagnose_submission(db, student, question, student_steps)
         pending = review_svc.create_review_if_needed(db, submission) is not None

@@ -209,22 +209,23 @@ def classify_rule(prev: ParsedStep, prev_text: str,
 # ---------------------------------------------------------------- 顽固判定
 
 def check_stubborn(
-    db, student_id: int, knowledge_point: str, exclude_submission_id: int,
+    db, student_id: int, knowledge_point: str,
+    exclude_submission_id: Optional[int],
 ) -> bool:
     """同一学生的其他提交在过去 N 天内出现过该知识点错因 → 顽固误区。"""
     window_start = datetime.now() - timedelta(days=settings.STUBBORN_WINDOW_DAYS)
-    return (
+    query = (
         db.query(Error.id)
         .join(Submission, Error.submission_id == Submission.id)
         .filter(
             Submission.student_id == student_id,
             Error.knowledge_point == knowledge_point,
-            Submission.id != exclude_submission_id,
             Error.created_at >= window_start,
         )
-        .first()
-        is not None
     )
+    if exclude_submission_id is not None:
+        query = query.filter(Submission.id != exclude_submission_id)
+    return query.first() is not None
 
 
 def _commit_diagnosis_and_score(
@@ -255,31 +256,35 @@ def diagnose_submission(db, student: User, question: Question,
                         reuse: Optional[Submission] = None) -> Tuple[Submission, List[Step], List[Error]]:
     """执行一次数学诊断，落库 Submission/Step/Error，返回 ORM 对象。
 
-    reuse（v0.13.1）：延迟批改到期时复用原延迟提交行——先清掉它存着的
-    占位步骤/错误，再在同一 submission 上完成诊断，提交 id 与时间保持不变。"""
-    if reuse is not None:
-        submission = reuse
-        db.query(Step).filter(Step.submission_id == submission.id).delete()
-        db.query(Error).filter(Error.submission_id == submission.id).delete()
-        submission.status = "submitted"
-        db.flush()
-    else:
+    reuse（v0.13.1）：延迟批改到期时复用原延迟提交行——分析完成后替换占位
+    步骤/错误，提交 id 与时间保持不变。分析和模型请求阶段不写数据库。"""
+    if reuse is None:
         submission = Submission(
             student_id=student.id,
             question_id=question.id,
             question=question,
             status="submitted",
         )
-        db.add(submission)
-        db.flush()  # 拿到 submission.id
+    else:
+        submission = reuse
+    submission.question = question
+
+    def new_step(seq: int, text: str, status: str) -> Step:
+        if reuse is None:
+            return Step(submission=submission, seq=seq, text=text, status=status)
+        return Step(submission_id=submission.id, seq=seq, text=text, status=status)
+
+    def new_error(step: Step, **fields) -> Error:
+        if reuse is None:
+            return Error(submission=submission, step=step, **fields)
+        return Error(submission_id=submission.id, step=step, **fields)
 
     steps: List[Step] = []
     errors: List[Error] = []
     stubborn_history = None
 
     # seq=0：题干，仅参考
-    stem_step = Step(submission_id=submission.id, seq=0, text=question.stem, status="stem")
-    db.add(stem_step)
+    stem_step = new_step(0, question.stem, "stem")
     steps.append(stem_step)
 
     base: Optional[ParsedStep] = extract_equation(question.stem)
@@ -288,7 +293,7 @@ def diagnose_submission(db, student: User, question: Question,
 
     for i, raw in enumerate(step_texts, start=1):
         if stopped:
-            steps.append(Step(submission_id=submission.id, seq=i, text=raw, status="skipped"))
+            steps.append(new_step(i, raw, "skipped"))
             continue
         try:
             parsed = parse_step(raw)
@@ -297,33 +302,31 @@ def diagnose_submission(db, student: User, question: Question,
                 stubborn_history = check_stubborn(
                     db, student.id, question.knowledge_point, submission.id
                 )
-            step = Step(submission_id=submission.id, seq=i, text=raw, status="unparseable")
-            err = Error(
-                submission_id=submission.id,
-                step=step,
+            step = new_step(i, raw, "unparseable")
+            err = new_error(
+                step,
                 knowledge_point=question.knowledge_point,
                 error_type="无法解析",
                 confidence=CONF_UNPARSEABLE,
                 detail=f"该步骤无法解析为数学表达式（{e}），请检查格式",
                 is_stubborn=stubborn_history,
             )
-            db.add_all([step, err])
             steps.append(step)
             errors.append(err)
             continue  # 基准不变，流程继续（不停止）
 
         if base is None:
             base = parsed
-            steps.append(Step(submission_id=submission.id, seq=i, text=raw, status="ok"))
+            steps.append(new_step(i, raw, "ok"))
             continue
 
         if equivalent(base.expr, parsed.expr):
             base = parsed
-            steps.append(Step(submission_id=submission.id, seq=i, text=raw, status="ok"))
+            steps.append(new_step(i, raw, "ok"))
             continue
 
         # 首个不等价步骤 → 错因分类（先规则，后用 Provider 复核/改写）
-        step = Step(submission_id=submission.id, seq=i, text=raw, status="error")
+        step = new_step(i, raw, "error")
         rule_result = classify_rule(base, base.text, parsed, parsed.text)
         try:
             final = provider.classify_error(
@@ -339,9 +342,8 @@ def diagnose_submission(db, student: User, question: Question,
             stubborn_history = check_stubborn(
                 db, student.id, question.knowledge_point, submission.id
             )
-        err = Error(
-            submission_id=submission.id,
-            step=step,
+        err = new_error(
+            step,
             knowledge_point=question.knowledge_point,
             error_type=final.get("error_type", rule_result["error_type"]),
             confidence=normalize_confidence(
@@ -351,14 +353,16 @@ def diagnose_submission(db, student: User, question: Question,
             detail=final.get("detail", rule_result["detail"]),
             is_stubborn=stubborn_history,
         )
-        db.add_all([step, err])
         steps.append(step)
         errors.append(err)
         stopped = True  # 首个不等价步骤：停止，后续步骤记 skipped
 
-    for s in steps:
-        if s.id is None:
-            db.add(s)
+    if reuse is not None:
+        db.query(Step).filter(Step.submission_id == submission.id).delete()
+        db.query(Error).filter(Error.submission_id == submission.id).delete()
+    db.add(submission)
+    db.add_all(steps)
+    db.add_all(errors)
     submission.status = "graded"
     _commit_diagnosis_and_score(db, submission, steps)
     return submission, steps, errors
