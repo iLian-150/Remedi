@@ -730,7 +730,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
                 Verification.student_id == student.id,
                 Verification.status == "passed",
                 Verification.knowledge_point.in_(knowledge_point_list[start:start + 400]),
-            ).all()
+            ).distinct().all()
         )
 
     # 报告只下发聚合结果；提交数、错因状态与时间均由数据库按组返回。
