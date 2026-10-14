@@ -1015,7 +1015,6 @@ def my_mistake_count(subject: Optional[str] = Query(default=None),
         .select_from(Error)
         .join(Submission, Submission.id == Error.submission_id)
         .join(Question, Question.id == Submission.question_id)
-        .join(Assignment, Assignment.id == Question.assignment_id)
         .filter(Submission.student_id == current.id)
     )
     if subject:
