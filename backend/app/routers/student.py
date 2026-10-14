@@ -1261,12 +1261,32 @@ def essay_detail(essay_id: int, db: Session = Depends(get_db),
 @router.post("/corrections", response_model=CorrectionOut, summary="提交订正")
 def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
                       current: User = Depends(require_student)):
-    err = db.query(Error).filter(Error.id == body.error_id).first()
+    err = (
+        db.query(Error)
+        .options(
+            load_only(
+                Error.id, Error.submission_id, Error.step_id,
+                Error.knowledge_point,
+            ),
+            joinedload(Error.submission)
+            .load_only(
+                Submission.id, Submission.student_id, Submission.question_id,
+            )
+            .joinedload(Submission.question)
+            .load_only(Question.id, Question.subject),
+            joinedload(Error.step).load_only(
+                Step.id, Step.submission_id, Step.seq, Step.text,
+            ),
+        )
+        .filter(Error.id == body.error_id)
+        .first()
+    )
     if not err:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "错误记录不存在")
-    sub = db.query(Submission).filter(Submission.id == err.submission_id).first()
+    sub = err.submission
     if not sub or sub.student_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能订正自己的错误")
+    knowledge_point = err.knowledge_point
     is_correct, note = verify_correction(db, err, body.content.strip())
     c = Correction(error_id=err.id, student_id=current.id,
                    content=body.content.strip(), is_correct=is_correct, note=note)
@@ -1276,7 +1296,7 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
     out = CorrectionOut.model_validate(c)
     # v0.4.0：订正成功 → 提示可去做二次验证（通过验证才算知识点已修复）
     out.can_verify = is_correct is True
-    out.knowledge_point = err.knowledge_point
+    out.knowledge_point = knowledge_point
     return out
 
 

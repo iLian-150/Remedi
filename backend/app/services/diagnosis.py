@@ -453,19 +453,19 @@ def diagnose_visual_submission(db, student: User, question: Question,
 def verify_correction(db, error: Error, content: str) -> Tuple[Optional[bool], str]:
     """判定订正是否正确：订正内容应与"出错前一步"等价。
     返回 (is_correct, note)，is_correct 为 None 表示无法判定。"""
-    question = db.query(Question).join(Submission, Submission.question_id == Question.id)\
-        .filter(Submission.id == error.submission_id).first()
+    submission = error.submission
+    question = submission.question if submission is not None else None
     if question is None or question.subject != "math":
         return None, "非数学题，订正需教师人工确认"
     try:
         corrected = parse_step(content)
     except UnparseableError:
         return None, "订正内容无法解析，请检查格式（如 2x=4）"
-    step = db.query(Step).filter(Step.id == error.step_id).first()
+    step = error.step
     base_text = None
     if step is not None:
         prev = (
-            db.query(Step)
+            db.query(Step.text)
             .filter(Step.submission_id == error.submission_id,
                     Step.seq < step.seq,
                     Step.status.in_(["ok", "stem"]))
@@ -473,7 +473,7 @@ def verify_correction(db, error: Error, content: str) -> Tuple[Optional[bool], s
             .first()
         )
         if prev is not None:
-            base_text = prev.text
+            base_text = prev[0]
     if not base_text:
         return None, "缺少可用的参考步骤，需教师确认"
     try:
