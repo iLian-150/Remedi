@@ -232,8 +232,10 @@ def append_message(db: Session, session: ChatSession, role: str, content: str) -
     session.updated_at = datetime.now()
     # 用数据库原子递增，避免并发追加消息时把另一请求的计数覆盖掉。
     session.message_count = ChatSession.message_count + 1
+    db.flush()
+    # 返回对象只用于下游读取生成 ID/消息字段；先分离它，避免 commit 过期后再 refresh 查询。
+    db.expunge(msg)
     db.commit()
-    db.refresh(msg)
     return msg
 
 
