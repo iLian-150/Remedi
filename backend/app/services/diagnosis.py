@@ -227,6 +227,27 @@ def check_stubborn(
     )
 
 
+def _commit_diagnosis_and_score(
+    db, submission: Submission, steps: List[Step],
+) -> None:
+    """Commit diagnosis rows without refreshing every step and error separately.
+
+    Keep objects loaded across both commits so score calculation can use the
+    in-memory steps. Diagnosis stays committed if writing its score fails.
+    """
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+        try:
+            from .scoring import persist_ai_score
+            persist_ai_score(db, submission, steps)
+        except Exception:
+            db.rollback()
+    finally:
+        db.expire_on_commit = expire_on_commit
+
+
 # ---------------------------------------------------------------- 主流程
 
 def diagnose_submission(db, student: User, question: Question,
@@ -243,7 +264,12 @@ def diagnose_submission(db, student: User, question: Question,
         submission.status = "submitted"
         db.flush()
     else:
-        submission = Submission(student_id=student.id, question_id=question.id, status="submitted")
+        submission = Submission(
+            student_id=student.id,
+            question_id=question.id,
+            question=question,
+            status="submitted",
+        )
         db.add(submission)
         db.flush()  # 拿到 submission.id
 
@@ -340,20 +366,7 @@ def diagnose_submission(db, student: User, question: Question,
         if s.id is None:
             db.add(s)
     submission.status = "graded"
-    db.commit()
-    for s in steps:
-        db.refresh(s)
-    for e in errors:
-        db.refresh(e)
-    db.refresh(submission)
-    # 评分系统：批改落库的共用出口——拍照与在线提交都汇到这里，
-    # 在此按步骤对错折算 AI 初评分并落库（公式见 services/scoring.py）。
-    # 评分失败不能拖垮批改主流程，异常只记录不 raise。
-    try:
-        from .scoring import persist_ai_score
-        persist_ai_score(db, submission, steps)
-    except Exception:
-        db.rollback()
+    _commit_diagnosis_and_score(db, submission, steps)
     return submission, steps, errors
 
 
@@ -368,7 +381,12 @@ def diagnose_visual_submission(db, student: User, question: Question,
         submission.status = "submitted"
         db.flush()
     else:
-        submission = Submission(student_id=student.id, question_id=question.id, status="submitted")
+        submission = Submission(
+            student_id=student.id,
+            question_id=question.id,
+            question=question,
+            status="submitted",
+        )
         db.add(submission)
         db.flush()
 
@@ -431,17 +449,7 @@ def diagnose_visual_submission(db, student: User, question: Question,
         errors.append(error)
 
     submission.status = "graded"
-    db.commit()
-    for step in steps:
-        db.refresh(step)
-    for error in errors:
-        db.refresh(error)
-    db.refresh(submission)
-    try:
-        from .scoring import persist_ai_score
-        persist_ai_score(db, submission, steps)
-    except Exception:
-        db.rollback()
+    _commit_diagnosis_and_score(db, submission, steps)
     return submission, steps, errors
 
 
