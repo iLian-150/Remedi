@@ -214,21 +214,28 @@ def review_reasons(
     *,
     assignment_context: Optional[Tuple[List[Submission], int, int]] = None,
     step_statuses: Optional[Iterable[str]] = None,
+    step_counts: Optional[Tuple[int, int]] = None,
     error_confidences: Optional[Iterable[float]] = None,
+    has_low_error_confidence: Optional[bool] = None,
 ) -> List[str]:
     """返回触发教师复核的原因，统一步骤率、错因和视觉置信度口径。"""
     reasons = []
-    if step_statuses is None:
-        step_statuses = [row[0] for row in db.query(Step.status).filter(
-            Step.submission_id == submission.id,
-            Step.seq >= 1,
-            Step.status.in_(("ok", "error", "unparseable")),
-        ).all()]
-    else:
-        step_statuses = list(step_statuses)
-    if step_statuses:
-        correct = sum(1 for value in step_statuses if value == "ok")
-        accuracy = correct / len(step_statuses)
+    if step_counts is None:
+        if step_statuses is None:
+            step_statuses = [row[0] for row in db.query(Step.status).filter(
+                Step.submission_id == submission.id,
+                Step.seq >= 1,
+                Step.status.in_(("ok", "error", "unparseable")),
+            ).all()]
+        else:
+            step_statuses = list(step_statuses)
+        step_counts = (
+            sum(1 for value in step_statuses if value == "ok"),
+            len(step_statuses),
+        )
+    correct_steps, total_steps = step_counts
+    if total_steps:
+        accuracy = correct_steps / total_steps
         if accuracy < REVIEW_THRESHOLD:
             reasons.append("作答步骤正确率低于 60%")
 
@@ -239,15 +246,20 @@ def review_reasons(
         if assignment_total > 0 and assignment_correct / assignment_total < REVIEW_THRESHOLD:
             reasons.append("本次作业正确率低于 60%")
 
-    confidences = error_confidences
-    if confidences is None:
-        confidences = [
-            float(row[0])
-            for row in db.query(Error.confidence)
-            .filter(Error.submission_id == submission.id)
-            .all()
-        ]
-    if any(not math.isfinite(value) or value < REVIEW_THRESHOLD for value in confidences):
+    if has_low_error_confidence is None:
+        confidences = error_confidences
+        if confidences is None:
+            confidences = [
+                float(row[0])
+                for row in db.query(Error.confidence)
+                .filter(Error.submission_id == submission.id)
+                .all()
+            ]
+        has_low_error_confidence = any(
+            not math.isfinite(value) or value < REVIEW_THRESHOLD
+            for value in confidences
+        )
+    if has_low_error_confidence:
         reasons.append("错因判断置信度低于 60%")
 
     normalized_signals = []

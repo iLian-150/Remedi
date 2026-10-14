@@ -437,10 +437,17 @@ def _review_pending_item(
     if err_n is None:
         err_n = db.query(Error).filter(Error.submission_id == sub.id).count()
     step_statuses = preloaded.get("step_statuses")
-    if step_statuses is None:
+    step_counts = preloaded.get("step_counts")
+    if step_counts is not None:
+        correct_steps, total_steps = step_counts
+    elif step_statuses is None:
         answer_steps = db.query(Step).filter(Step.submission_id == sub.id).all()
+        step_statuses = [step.status for step in answer_steps if (
+            step.seq >= 1 and step.status in ("ok", "error", "unparseable")
+        )]
         correct_steps, total_steps = scoring_svc.step_counts(answer_steps)
     else:
+        step_statuses = list(step_statuses)
         correct_steps = sum(1 for value in step_statuses if value == "ok")
         total_steps = len(step_statuses)
     if assignment_context is None:
@@ -452,7 +459,9 @@ def _review_pending_item(
         sub,
         assignment_context=assignment_context,
         step_statuses=step_statuses,
+        step_counts=(correct_steps, total_steps),
         error_confidences=preloaded.get("error_confidences"),
+        has_low_error_confidence=preloaded.get("has_low_error_confidence"),
     )
     if not review_reasons:
         # 当前待审记录没有低步骤率或低错因置信度时，来源是视觉模型判断置信度。
@@ -516,21 +525,38 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
     """审核页待审核提交列表（按提交时间正序）及其总数。"""
     subs = review_svc.pending_reviews(db)
     submission_ids = [sub.id for sub in subs]
-    step_statuses_by_submission = defaultdict(list)
-    error_confidences_by_submission = defaultdict(list)
+    step_counts_by_submission = {}
+    error_summaries_by_submission = {}
     images_by_submission = {}
     for start in range(0, len(submission_ids), 500):
         submission_id_chunk = submission_ids[start:start + 500]
-        for submission_id, step_status in db.query(Step.submission_id, Step.status).filter(
+        for submission_id, correct_steps, total_steps in db.query(
+            Step.submission_id,
+            func.sum(case((Step.status == "ok", 1), else_=0)),
+            func.count(Step.id),
+        ).filter(
             Step.submission_id.in_(submission_id_chunk),
             Step.seq >= 1,
             Step.status.in_(("ok", "error", "unparseable")),
-        ).all():
-            step_statuses_by_submission[submission_id].append(step_status)
-        for submission_id, confidence in db.query(Error.submission_id, Error.confidence).filter(
+        ).group_by(Step.submission_id).all():
+            step_counts_by_submission[submission_id] = (
+                int(correct_steps or 0), int(total_steps or 0)
+            )
+        low_confidence = or_(
+            Error.confidence < review_svc.REVIEW_THRESHOLD,
+            Error.confidence > 1.0,
+            Error.confidence != Error.confidence,
+        )
+        for submission_id, error_count, has_low_confidence in db.query(
+            Error.submission_id,
+            func.count(Error.id),
+            func.max(case((low_confidence, 1), else_=0)),
+        ).filter(
             Error.submission_id.in_(submission_id_chunk)
-        ).all():
-            error_confidences_by_submission[submission_id].append(float(confidence))
+        ).group_by(Error.submission_id).all():
+            error_summaries_by_submission[submission_id] = (
+                int(error_count or 0), bool(has_low_confidence)
+            )
         images_by_submission.update({
             image.submission_id: image
             for image in db.query(SubmissionImage).filter(
@@ -547,10 +573,13 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
         else:
             key = (sub.student_id, question.assignment_id)
             assignment_context = assignment_contexts.get(key)
+        error_count, has_low_confidence = error_summaries_by_submission.get(
+            sub.id, (0, False)
+        )
         preloaded = {
-            "step_statuses": step_statuses_by_submission[sub.id],
-            "error_confidences": error_confidences_by_submission[sub.id],
-            "error_count": len(error_confidences_by_submission[sub.id]),
+            "step_counts": step_counts_by_submission.get(sub.id, (0, 0)),
+            "error_count": error_count,
+            "has_low_error_confidence": has_low_confidence,
             "submission_image": (
                 images_by_submission.get(sub.id)
                 or legacy_images_by_submission.get(sub.id)
