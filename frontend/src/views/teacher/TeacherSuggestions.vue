@@ -1,5 +1,5 @@
 <!-- 教师端：教学建议（新增页）
-     不新增后端接口：基于现有看板接口（4.1 错误列表 / 4.3 高频错题 / 4.4 知识点错误率 / 4.5 学生列表）
+     基于轻量错误摘要与现有看板接口生成分层辅导建议和课堂讲评建议。
      在前端用规则模板生成分层辅导建议与课堂讲评建议。
      页面明确注明「规则模板生成，待二期接模型」。 -->
 <template>
@@ -84,7 +84,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useTeacherStore } from '../../stores/teacher'
-import type { KnowledgePointStat, StudentSummary, TeacherErrorItem, TopQuestion } from '../../api/types'
+import type { KnowledgePointStat, StudentSummary, TeacherErrorSummary, TopQuestion } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
@@ -93,7 +93,7 @@ const loading = ref(false)
 const error = ref('')
 const ready = ref(false)
 
-const errors = ref<TeacherErrorItem[]>([])
+const errors = ref<TeacherErrorSummary[]>([])
 const topQuestions = ref<TopQuestion[]>([])
 const kpStats = ref<KnowledgePointStat[]>([])
 const students = ref<StudentSummary[]>([])
@@ -183,13 +183,13 @@ const reviewPlan = computed<ReviewItem[]>(() => {
 onMounted(async () => {
   loading.value = true
   try {
-    const [errRes, tq, kp, stu] = await Promise.all([
-      teacher.fetchErrors({ limit: 100, offset: 0 }),
+    const [errItems, tq, kp, stu] = await Promise.all([
+      teacher.fetchRecentErrorSummaries(100),
       teacher.fetchTopQuestions(10),
       teacher.fetchKnowledgePoints(),
       teacher.fetchStudents()
     ])
-    errors.value = errRes.items
+    errors.value = errItems
     topQuestions.value = tq
     kpStats.value = kp
     students.value = stu

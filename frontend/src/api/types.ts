@@ -275,6 +275,15 @@ export interface TeacherErrorItem extends GradingError {
   max_score?: number | null // 评分系统：本题满分
 }
 
+export interface TeacherErrorSummary {
+  id: number
+  knowledge_point: string
+  error_type: string
+  is_stubborn: boolean
+  student: { id: number; name: string }
+  question: { id: number }
+}
+
 // ---------- v0.9.0 新增：教师审核流 ----------
 // 契约见 docs/api-contract.md v0.9.0 第 4.23~4.26 节
 

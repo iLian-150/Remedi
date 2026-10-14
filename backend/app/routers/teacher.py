@@ -319,6 +319,45 @@ def list_errors(
     return {"total": total, "items": items}
 
 
+@router.get("/errors/summary", summary="最近错误记录轻量摘要")
+def recent_error_summaries(
+    limit: int = Query(default=100, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    """教学建议页只需这些字段，避免执行完整批改列表的审核与成绩统计。"""
+    rows = (
+        db.query(
+            Error.id,
+            Error.knowledge_point,
+            Error.error_type,
+            Error.is_stubborn,
+            User.id.label("student_id"),
+            User.name.label("student_name"),
+            Question.id.label("question_id"),
+        )
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(User, Submission.student_id == User.id)
+        .join(Question, Submission.question_id == Question.id)
+        .order_by(Error.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "knowledge_point": row.knowledge_point,
+                "error_type": row.error_type,
+                "is_stubborn": row.is_stubborn,
+                "student": {"id": row.student_id, "name": row.student_name},
+                "question": {"id": row.question_id},
+            }
+            for row in rows
+        ]
+    }
+
+
 @router.post("/errors/{error_id}/correct", response_model=TeacherErrorItem, summary="教师一键纠错")
 def correct_error(error_id: int, body: ErrorCorrectIn,
                   db: Session = Depends(get_db), current: User = Depends(require_teacher)):

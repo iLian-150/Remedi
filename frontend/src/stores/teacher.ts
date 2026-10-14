@@ -22,6 +22,7 @@ import type {
   TeachingSuggestion,
   TeacherAssignmentInput,
   TeacherErrorItem,
+  TeacherErrorSummary,
   TopQuestion,
   Workbook
 } from '../api/types'
@@ -87,6 +88,12 @@ export const useTeacherStore = defineStore('teacher', {
     async fetchErrors(filter: ErrorFilter = {}): Promise<PageResult<TeacherErrorItem>> {
       const { data } = await api.get<PageResult<TeacherErrorItem>>('/api/teacher/errors', { params: filter })
       return data
+    },
+    async fetchRecentErrorSummaries(limit = 100): Promise<TeacherErrorSummary[]> {
+      const { data } = await api.get<{ items: TeacherErrorSummary[] }>('/api/teacher/errors/summary', {
+        params: { limit }
+      })
+      return data.items
     },
     // 4.2 一键纠错：修正错因类型 + 备注
     async correctError(errorId: number, payload: { error_type: string; teacher_note?: string }): Promise<GradingError> {
