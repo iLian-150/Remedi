@@ -21,9 +21,10 @@ def score_and_save_essay(db, student: User, text: str,
         overall_comment=result.get("overall", ""),
     )
     db.add(essay)
+    db.flush()
+    out = present_essay(essay, with_text=False)
     db.commit()
-    db.refresh(essay)
-    return present_essay(essay, with_text=False)
+    return out
 
 
 def present_essay(essay: Essay, with_text: bool = False) -> Dict:

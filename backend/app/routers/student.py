@@ -1291,12 +1291,12 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
     c = Correction(error_id=err.id, student_id=current.id,
                    content=body.content.strip(), is_correct=is_correct, note=note)
     db.add(c)
-    db.commit()
-    db.refresh(c)
+    db.flush()
     out = CorrectionOut.model_validate(c)
     # v0.4.0：订正成功 → 提示可去做二次验证（通过验证才算知识点已修复）
     out.can_verify = is_correct is True
     out.knowledge_point = knowledge_point
+    db.commit()
     return out
 
 
@@ -1362,9 +1362,10 @@ def create_verification(body: VerificationCreate, db: Session = Depends(get_db),
         attempts=0,
     )
     db.add(v)
+    db.flush()
+    out = _verification_out(v)
     db.commit()
-    db.refresh(v)
-    return _verification_out(v)
+    return out
 
 
 @router.get("/verifications", response_model=List[VerificationOut], summary="我的验证列表")
@@ -1404,9 +1405,7 @@ def submit_verification(verification_id: int, body: VerificationSubmitIn,
         v.completed_at = datetime.now()
     else:
         v.status = "failed"
-    db.commit()
-    db.refresh(v)
-    return {
+    out = {
         "id": v.id,
         "knowledge_point": v.knowledge_point,
         "status": v.status,
@@ -1417,6 +1416,8 @@ def submit_verification(verification_id: int, body: VerificationSubmitIn,
         "detail": result["detail"],
         "steps": result["steps"],
     }
+    db.commit()
+    return out
 
 
 # ---------- 画像 ----------
