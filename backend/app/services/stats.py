@@ -464,6 +464,7 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
             func.coalesce(question_stats.c.question_count, 0),
             func.coalesce(question_stats.c.submitted_count, 0),
         )
+        .options(load_only(Assignment.id, Assignment.title, Assignment.created_at))
         .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
         .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
         .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
