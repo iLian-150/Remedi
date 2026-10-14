@@ -131,8 +131,12 @@ def create_deferred(
             file_path=image_path,
             file_name=(image_name or "作业照片")[:255],
         ))
-    db.commit()
-    db.refresh(submission)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     return submission
 
 
