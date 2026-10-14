@@ -7,9 +7,18 @@ import math
 from typing import Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy import case, func, tuple_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
-from ..models import Error, Notification, Question, Step, Submission, SubmissionReview
+from ..models import (
+    Assignment,
+    Error,
+    Notification,
+    Question,
+    Step,
+    Submission,
+    SubmissionReview,
+    User,
+)
 from .confidence import normalize_confidence
 
 PENDING = "pending"
@@ -520,8 +529,25 @@ def pending_reviews(db: Session) -> List[Submission]:
         db.query(Submission)
         .join(SubmissionReview, SubmissionReview.submission_id == Submission.id)
         .options(
-            joinedload(Submission.student),
-            joinedload(Submission.question).joinedload(Question.assignment),
+            load_only(
+                Submission.id,
+                Submission.student_id,
+                Submission.question_id,
+                Submission.submitted_at,
+            ),
+            joinedload(Submission.student).load_only(
+                User.id, User.name, User.student_no, User.role, User.created_at,
+            ),
+            joinedload(Submission.question)
+            .load_only(
+                Question.id,
+                Question.assignment_id,
+                Question.subject,
+                Question.knowledge_point,
+                Question.stem,
+            )
+            .joinedload(Question.assignment)
+            .load_only(Assignment.id, Assignment.title),
         )
         .filter(SubmissionReview.status == PENDING)
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
