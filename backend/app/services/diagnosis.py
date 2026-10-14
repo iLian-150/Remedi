@@ -293,24 +293,21 @@ def diagnose_submission(db, student: User, question: Question,
         try:
             parsed = parse_step(raw)
         except UnparseableError as e:
-            step = Step(submission_id=submission.id, seq=i, text=raw, status="unparseable")
-            db.add(step)
-            db.flush()
-            err = Error(
-                submission_id=submission.id,
-                step_id=step.id,
-                knowledge_point=question.knowledge_point,
-                error_type="无法解析",
-                confidence=CONF_UNPARSEABLE,
-                detail=f"该步骤无法解析为数学表达式（{e}），请检查格式",
-            )
-            db.add(err)
-            db.flush()
             if stubborn_history is None:
                 stubborn_history = check_stubborn(
                     db, student.id, question.knowledge_point, submission.id
                 )
-            err.is_stubborn = stubborn_history
+            step = Step(submission_id=submission.id, seq=i, text=raw, status="unparseable")
+            err = Error(
+                submission_id=submission.id,
+                step=step,
+                knowledge_point=question.knowledge_point,
+                error_type="无法解析",
+                confidence=CONF_UNPARSEABLE,
+                detail=f"该步骤无法解析为数学表达式（{e}），请检查格式",
+                is_stubborn=stubborn_history,
+            )
+            db.add_all([step, err])
             steps.append(step)
             errors.append(err)
             continue  # 基准不变，流程继续（不停止）
@@ -327,8 +324,6 @@ def diagnose_submission(db, student: User, question: Question,
 
         # 首个不等价步骤 → 错因分类（先规则，后用 Provider 复核/改写）
         step = Step(submission_id=submission.id, seq=i, text=raw, status="error")
-        db.add(step)
-        db.flush()
         rule_result = classify_rule(base, base.text, parsed, parsed.text)
         try:
             final = provider.classify_error(
@@ -340,9 +335,13 @@ def diagnose_submission(db, student: User, question: Question,
             ) or rule_result
         except Exception:
             final = rule_result  # Provider 异常时回退到规则结果，保证流程不中断
+        if stubborn_history is None:
+            stubborn_history = check_stubborn(
+                db, student.id, question.knowledge_point, submission.id
+            )
         err = Error(
             submission_id=submission.id,
-            step_id=step.id,
+            step=step,
             knowledge_point=question.knowledge_point,
             error_type=final.get("error_type", rule_result["error_type"]),
             confidence=normalize_confidence(
@@ -350,14 +349,9 @@ def diagnose_submission(db, student: User, question: Question,
                 rule_result["confidence"],
             ),
             detail=final.get("detail", rule_result["detail"]),
+            is_stubborn=stubborn_history,
         )
-        db.add(err)
-        db.flush()
-        if stubborn_history is None:
-            stubborn_history = check_stubborn(
-                db, student.id, question.knowledge_point, submission.id
-            )
-        err.is_stubborn = stubborn_history
+        db.add_all([step, err])
         steps.append(step)
         errors.append(err)
         stopped = True  # 首个不等价步骤：停止，后续步骤记 skipped
@@ -426,25 +420,22 @@ def diagnose_visual_submission(db, student: User, question: Question,
             text=text,
             status="unparseable" if uncertain else "error",
         )
-        db.add(step)
-        db.flush()
+        if stubborn_history is None:
+            stubborn_history = check_stubborn(
+                db, student.id, question.knowledge_point, submission.id
+            )
         error = Error(
             submission_id=submission.id,
-            step_id=step.id,
+            step=step,
             knowledge_point=question.knowledge_point,
             error_type=error_type,
             confidence=confidence,
             detail=(str(item.get("detail", "")).strip()[:1000]
                     or ("视觉模型无法确认该步骤是否正确，建议教师复核。"
                         if uncertain else "视觉模型判断该步骤有误。")),
+            is_stubborn=stubborn_history,
         )
-        db.add(error)
-        db.flush()
-        if stubborn_history is None:
-            stubborn_history = check_stubborn(
-                db, student.id, question.knowledge_point, submission.id
-            )
-        error.is_stubborn = stubborn_history
+        db.add_all([step, error])
         steps.append(step)
         errors.append(error)
 
