@@ -576,13 +576,6 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
         subs = []
         status_by_id = {}
         error_count_by_id = {}
-    question_text_by_id = {
-        s.id: (
-            s.question.stem if s.question else "",
-            s.question.knowledge_point if s.question else "",
-        )
-        for s in subs
-    }
     visible_subs = [
         s for s in subs
         if status_by_id.get(s.id, review_svc.APPROVED) != review_svc.PENDING
@@ -599,10 +592,11 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
             vis = scores_by_id.get(s.id)
             if vis:
                 score, max_score = vis["score"], vis["max_score"]
+        question = s.question
         items.append(SubmissionBrief(
             id=s.id, question_id=s.question_id,
-            question_stem=question_text_by_id[s.id][0],
-            knowledge_point=question_text_by_id[s.id][1],
+            question_stem=question.stem if question else "",
+            knowledge_point=question.knowledge_point if question else "",
             status=s.status, error_count=err_n, submitted_at=s.submitted_at,
             review_status=rstatus,
             score=score, max_score=max_score,
