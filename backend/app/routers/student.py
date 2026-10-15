@@ -1061,7 +1061,12 @@ def set_mistake_category_studied(body: MistakeCategoryStudyIn,
                                  db: Session = Depends(get_db),
                                  current: User = Depends(require_student)):
     category_rows = (
-        db.query(Error.error_type, Error.knowledge_point, Question.subject)
+        db.query(
+            Error.error_type,
+            Error.knowledge_point,
+            Question.subject,
+            StudentMistakeCategoryReview,
+        )
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
         .outerjoin(
@@ -1069,6 +1074,14 @@ def set_mistake_category_studied(body: MistakeCategoryStudyIn,
             and_(
                 StudentMistakeArchive.error_id == Error.id,
                 StudentMistakeArchive.student_id == current.id,
+            ),
+        )
+        .outerjoin(
+            StudentMistakeCategoryReview,
+            and_(
+                StudentMistakeCategoryReview.student_id == current.id,
+                StudentMistakeCategoryReview.assignment_id == body.assignment_id,
+                StudentMistakeCategoryReview.category_key == body.category_key,
             ),
         )
         .filter(
@@ -1081,16 +1094,15 @@ def set_mistake_category_studied(body: MistakeCategoryStudyIn,
     )
     valid_keys = {
         _mistake_category(subject, error_type, knowledge_point)[0]
-        for error_type, knowledge_point, subject in category_rows
+        for error_type, knowledge_point, subject, _ in category_rows
     }
     if body.category_key not in valid_keys:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业或错题类别不存在")
 
-    state = db.query(StudentMistakeCategoryReview).filter_by(
-        student_id=current.id,
-        assignment_id=body.assignment_id,
-        category_key=body.category_key,
-    ).first()
+    state = next(
+        (state for _, _, _, state in category_rows if state is not None),
+        None,
+    )
     if body.studied:
         if state:
             state.studied_at = datetime.now()
