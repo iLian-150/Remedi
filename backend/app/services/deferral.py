@@ -220,27 +220,68 @@ def _enqueue_due_reviews(
     step_counts_by_submission = {}
     low_confidence_by_submission = {}
     submission_ids = [submission.id for submission in submissions]
+    low_confidence = review_svc.low_error_confidence_predicate()
     for start in range(0, len(submission_ids), 500):
         id_chunk = submission_ids[start:start + 500]
-        for submission_id, correct_steps, total_steps in db.query(
-            Step.submission_id,
-            func.sum(case((Step.status == "ok", 1), else_=0)),
-            func.count(Step.id),
-        ).filter(
-            Step.submission_id.in_(id_chunk),
-            Step.seq >= 1,
-            Step.status.in_(("ok", "error", "unparseable")),
-        ).group_by(Step.submission_id).all():
+        batch_submission_ids = (
+            db.query(Submission.id.label("submission_id"))
+            .filter(Submission.id.in_(id_chunk))
+            .cte("batch_submission_ids")
+        )
+        step_counts = (
+            db.query(
+                Step.submission_id.label("submission_id"),
+                func.sum(case((Step.status == "ok", 1), else_=0)).label(
+                    "correct_steps"
+                ),
+                func.count(Step.id).label("total_steps"),
+            )
+            .join(
+                batch_submission_ids,
+                batch_submission_ids.c.submission_id == Step.submission_id,
+            )
+            .filter(
+                Step.seq >= 1,
+                Step.status.in_(("ok", "error", "unparseable")),
+            )
+            .group_by(Step.submission_id)
+            .subquery()
+        )
+        error_confidences = (
+            db.query(
+                Error.submission_id.label("submission_id"),
+                func.max(case((low_confidence, 1), else_=0)).label(
+                    "has_low_confidence"
+                ),
+            )
+            .join(
+                batch_submission_ids,
+                batch_submission_ids.c.submission_id == Error.submission_id,
+            )
+            .group_by(Error.submission_id)
+            .subquery()
+        )
+        summary_rows = db.query(
+            batch_submission_ids.c.submission_id,
+            step_counts.c.correct_steps,
+            step_counts.c.total_steps,
+            error_confidences.c.has_low_confidence,
+        ).outerjoin(
+            step_counts,
+            step_counts.c.submission_id == batch_submission_ids.c.submission_id,
+        ).outerjoin(
+            error_confidences,
+            error_confidences.c.submission_id == batch_submission_ids.c.submission_id,
+        ).all()
+        for (
+            submission_id,
+            correct_steps,
+            total_steps,
+            has_low_confidence,
+        ) in summary_rows:
             step_counts_by_submission[submission_id] = (
                 int(correct_steps or 0), int(total_steps or 0)
             )
-        low_confidence = review_svc.low_error_confidence_predicate()
-        for submission_id, has_low_confidence in db.query(
-            Error.submission_id,
-            func.max(case((low_confidence, 1), else_=0)),
-        ).filter(
-            Error.submission_id.in_(id_chunk)
-        ).group_by(Error.submission_id).all():
             low_confidence_by_submission[submission_id] = bool(
                 has_low_confidence
             )
