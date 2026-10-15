@@ -544,37 +544,84 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
     step_counts_by_submission = {}
     error_summaries_by_submission = {}
     images_by_submission = {}
+    low_confidence = review_svc.low_error_confidence_predicate()
     for start in range(0, len(submission_ids), 500):
         submission_id_chunk = submission_ids[start:start + 500]
-        for submission_id, correct_steps, total_steps in db.query(
-            Step.submission_id,
-            func.sum(case((Step.status == "ok", 1), else_=0)),
-            func.count(Step.id),
-        ).filter(
-            Step.submission_id.in_(submission_id_chunk),
-            Step.seq >= 1,
-            Step.status.in_(("ok", "error", "unparseable")),
-        ).group_by(Step.submission_id).all():
+        queue_submission_ids = (
+            db.query(SubmissionReview.submission_id.label("submission_id"))
+            .filter(SubmissionReview.submission_id.in_(submission_id_chunk))
+            .cte("queue_submission_ids")
+        )
+        step_counts = (
+            db.query(
+                Step.submission_id.label("submission_id"),
+                func.sum(case((Step.status == "ok", 1), else_=0)).label(
+                    "correct_steps"
+                ),
+                func.count(Step.id).label("total_steps"),
+            )
+            .join(
+                queue_submission_ids,
+                queue_submission_ids.c.submission_id == Step.submission_id,
+            )
+            .filter(
+                Step.seq >= 1,
+                Step.status.in_(("ok", "error", "unparseable")),
+            )
+            .group_by(Step.submission_id)
+            .subquery()
+        )
+        error_summaries = (
+            db.query(
+                Error.submission_id.label("submission_id"),
+                func.count(Error.id).label("error_count"),
+                func.max(case((low_confidence, 1), else_=0)).label(
+                    "has_low_confidence"
+                ),
+            )
+            .join(
+                queue_submission_ids,
+                queue_submission_ids.c.submission_id == Error.submission_id,
+            )
+            .group_by(Error.submission_id)
+            .subquery()
+        )
+        summary_rows = db.query(
+            Submission.id,
+            step_counts.c.correct_steps,
+            step_counts.c.total_steps,
+            error_summaries.c.error_count,
+            error_summaries.c.has_low_confidence,
+            SubmissionImage,
+        ).join(
+            queue_submission_ids,
+            queue_submission_ids.c.submission_id == Submission.id,
+        ).outerjoin(
+            step_counts,
+            step_counts.c.submission_id == Submission.id,
+        ).outerjoin(
+            error_summaries,
+            error_summaries.c.submission_id == Submission.id,
+        ).outerjoin(
+            SubmissionImage,
+            SubmissionImage.submission_id == Submission.id,
+        ).all()
+        for (
+            submission_id,
+            correct_steps,
+            total_steps,
+            error_count,
+            has_low_confidence,
+            image,
+        ) in summary_rows:
             step_counts_by_submission[submission_id] = (
                 int(correct_steps or 0), int(total_steps or 0)
             )
-        low_confidence = review_svc.low_error_confidence_predicate()
-        for submission_id, error_count, has_low_confidence in db.query(
-            Error.submission_id,
-            func.count(Error.id),
-            func.max(case((low_confidence, 1), else_=0)),
-        ).filter(
-            Error.submission_id.in_(submission_id_chunk)
-        ).group_by(Error.submission_id).all():
             error_summaries_by_submission[submission_id] = (
                 int(error_count or 0), bool(has_low_confidence)
             )
-        images_by_submission.update({
-            image.submission_id: image
-            for image in db.query(SubmissionImage).filter(
-                SubmissionImage.submission_id.in_(submission_id_chunk)
-            ).all()
-        })
+            if image is not None:
+                images_by_submission[submission_id] = image
     legacy_images_by_submission = _legacy_review_images(db, subs, images_by_submission)
     assignment_contexts = review_svc.assignment_accuracy_contexts(db, subs)
     items = []
