@@ -213,7 +213,12 @@ def visible_score(db: Session, submission: Submission) -> Optional[Dict]:
     return {"score": float(score), "max_score": question_max_score(db, question)}
 
 
-def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict]:
+def visible_scores(
+    db: Session,
+    submissions: List[Submission],
+    *,
+    commit: bool = True,
+) -> Dict[int, Dict]:
     """单次读取一页的成绩与评分配置；缺失的历史成绩按旧逻辑补算。"""
     question_data = {
         submission.id: (
@@ -315,13 +320,14 @@ def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict
                 ai_score=ai_score,
             ))
 
-        expire_on_commit = db.expire_on_commit
-        db.expire_on_commit = False
-        try:
-            db.add_all(rows_to_create)
-            db.commit()
-        finally:
-            db.expire_on_commit = expire_on_commit
+        db.add_all(rows_to_create)
+        if commit:
+            expire_on_commit = db.expire_on_commit
+            db.expire_on_commit = False
+            try:
+                db.commit()
+            finally:
+                db.expire_on_commit = expire_on_commit
 
     for submission in valid:
         score = score_values.get(submission.id)
@@ -350,7 +356,7 @@ def finalize_on_approve_many(
     # visible_scores 限定每批大小，避免 SQLite 绑定参数上限；缺失的历史成绩
     # 会按统一规则批量补算并写入，已有教师最终分仍由下面的逻辑保留。
     for start in range(0, len(items), 300):
-        visible_scores(db, items[start:start + 300])
+        visible_scores(db, items[start:start + 300], commit=False)
 
     scores_by_submission = {}
     submission_ids = list(unique_submissions)
