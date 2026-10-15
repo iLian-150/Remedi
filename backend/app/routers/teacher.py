@@ -371,8 +371,12 @@ def recent_error_summaries(
 @router.post("/errors/{error_id}/correct", response_model=TeacherErrorItem, summary="教师一键纠错")
 def correct_error(error_id: int, body: ErrorCorrectIn,
                   db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    err = (
-        db.query(Error)
+    row = (
+        db.query(Error, SubmissionReview.status)
+        .outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Error.submission_id,
+        )
         .options(
             joinedload(Error.step),
             joinedload(Error.submission).joinedload(Submission.student),
@@ -383,8 +387,9 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
         .filter(Error.id == error_id)
         .first()
     )
-    if not err:
+    if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "错误记录不存在")
+    err, review_status = row
     old_type = err.error_type
     err.error_type = body.error_type
     err.teacher_note = body.teacher_note
@@ -395,7 +400,7 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     question = sub.question if sub is not None else None
     assignment = question.assignment if question is not None else None
     rstatus = (
-        review_svc.review_status(db, sub.id)
+        (review_status or review_svc.APPROVED)
         if sub is not None else review_svc.APPROVED
     )
     if sub is not None and rstatus != review_svc.PENDING:
