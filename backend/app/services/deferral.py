@@ -353,7 +353,20 @@ def _grade_due_batch(db: Session) -> int:
     confidence_signals_by_submission = {}
     for batch_start in range(0, len(deferred), 500):
         batch = deferred[batch_start:batch_start + 500]
-        submission_ids = [submission.id for submission in batch]
+        latest_batch = []
+        for sub in batch:
+            pair = (sub.student_id, sub.question_id)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            latest_batch.append(sub)
+        if not latest_batch:
+            for sub in batch:
+                sub.status = SUPERSEDED  # 同题更早的修改版本不批改
+            continue
+
+        latest_ids = {sub.id for sub in latest_batch}
+        submission_ids = [submission.id for submission in latest_batch]
         steps_by_submission = {}
         for submission_id, step_text in db.query(
             Step.submission_id, Step.text
@@ -368,11 +381,9 @@ def _grade_due_batch(db: Session) -> int:
         )
 
         for sub in batch:
-            pair = (sub.student_id, sub.question_id)
-            if pair in seen_pairs:
+            if sub.id not in latest_ids:
                 sub.status = SUPERSEDED  # 同题更早的修改版本不批改
                 continue
-            seen_pairs.add(pair)
 
             student = sub.student
             question = sub.question
