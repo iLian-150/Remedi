@@ -85,7 +85,7 @@
         </div>
       </div>
       <article v-for="(message, index) in messages" :key="`${index}-${message.role}`" class="mistake-point-message" :class="message.role">
-        <template v-if="message.role === 'assistant'"><strong>知行 · 思路讲解</strong><div class="mistake-point-message-content" v-html="renderAssistantMarkdown(message.content || (sending ? '正在整理思路…' : ''))"></div></template>
+        <template v-if="message.role === 'assistant'"><strong>知行 · 思路讲解</strong><div class="mistake-point-message-content" v-html="renderAssistantMarkdown(message, message.content || (sending ? '正在整理思路…' : ''))"></div></template>
         <p v-else>{{ message.content }}</p>
       </article>
       <p v-if="error" class="mistake-point-chat-error" role="alert">{{ error }}</p>
@@ -100,11 +100,11 @@
 </template>
 
 <script setup lang="ts">
-import MarkdownIt from 'markdown-it'
 import { ref, watch } from 'vue'
 import { useStudentStore } from '../../stores/student'
 import type { StudentMistake } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
+import { createMarkdownRenderer } from '../../utils/markdownRenderer'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
@@ -125,25 +125,17 @@ defineEmits<{
 const student = useStudentStore()
 const prompts = ['为什么会错？', '这一步怎么想？', '出一道相似题']
 const question = ref('')
-const messages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+const messages = ref<ChatMessage[]>([])
 const sending = ref(false)
 const summaryCollapsed = ref(false)
 const error = ref('')
 /** v0.13.10：正确答案/解题过程默认不展示，学生点开才看；换一道错题自动收起 */
 const answerRevealed = ref(false)
-const assistantMarkdown = new MarkdownIt({
-  html: false,
-  breaks: false,
-  linkify: false,
-  typographer: false
-})
-
-function renderAssistantMarkdown(text: string) {
-  const normalized = (text || '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-  return assistantMarkdown.render(normalized)
-}
+const renderAssistantMarkdown = createMarkdownRenderer<ChatMessage>((message) => message.content)
 
 watch(() => props.mistake.id, () => {
   question.value = ''

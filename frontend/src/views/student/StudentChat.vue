@@ -213,7 +213,7 @@
               <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
               <div
                 class="ai-message-markdown"
-                v-html="renderAssistantMarkdown(msg.text)"
+                v-html="renderAssistantMarkdown(msg)"
               ></div>
             </div>
             <div v-if="msg.mistakeSync" class="photo-mistake-sync" :class="{ 'is-pending': msg.mistakeSync.pendingReview, 'is-deferred': msg.mistakeSync.deferred, 'is-empty': !msg.mistakeSync.errorCount && !msg.mistakeSync.deferred, 'is-error': Boolean(msg.mistakeSync.error) }">
@@ -425,7 +425,6 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import MarkdownIt from 'markdown-it'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
@@ -443,6 +442,7 @@ import type {
 } from '../../api/types'
 import { STEP_STATUS_TEXT } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
+import { createMarkdownRenderer } from '../../utils/markdownRenderer'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -452,21 +452,6 @@ const auth = useAuthStore()
 const student = useStudentStore()
 const route = useRoute()
 const router = useRouter()
-
-const assistantMarkdown = new MarkdownIt({
-  html: false,
-  // 单换行按 Markdown 软换行处理，避免模型自然换行被强制渲染成 <br>。
-  breaks: false,
-  linkify: false,
-  typographer: false
-})
-
-function renderAssistantMarkdown(text: string): string {
-  const normalized = (text || '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-  return assistantMarkdown.render(normalized)
-}
 
 // ---------- 对话消息 ----------
 interface ChatMsg {
@@ -497,6 +482,7 @@ interface ChatMsg {
   mistakeSync?: { errorCount: number; pendingReview: boolean; deferred: boolean; error?: string } | null
 }
 
+const renderAssistantMarkdown = createMarkdownRenderer<ChatMsg>((message) => message.text)
 const messages = ref<ChatMsg[]>([])
 let briefingRefreshGeneration = 0
 
