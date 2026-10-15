@@ -848,8 +848,12 @@ def teacher_dashboard(
 
 
 @router.get("/students", summary="学生列表")
-def students(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    items = list_students(db)
+def students(
+    steady_only: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    items = list_students(db, steady_only=steady_only)
     return {"total": len(items), "items": [StudentBrief(**it) for it in items]}
 
 

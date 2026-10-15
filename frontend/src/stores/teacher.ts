@@ -132,8 +132,10 @@ export const useTeacherStore = defineStore('teacher', {
       return data
     },
     // 4.5 学生列表
-    async fetchStudents(): Promise<StudentSummary[]> {
-      const { data } = await api.get<PageResult<StudentSummary>>('/api/teacher/students')
+    async fetchStudents(steadyOnly = false): Promise<StudentSummary[]> {
+      const { data } = await api.get<PageResult<StudentSummary>>('/api/teacher/students', {
+        params: steadyOnly ? { steady_only: true } : undefined
+      })
       return data.items
     },
     // 4.6 学生画像查询（结构同 3.10）

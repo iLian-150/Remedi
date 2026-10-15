@@ -547,8 +547,43 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     }
 
 
-def list_students(db) -> List[Dict]:
-    """学生提交数与错题数分别聚合，避免提交-错题联接按错误数展开。"""
+def list_students(db, steady_only: bool = False) -> List[Dict]:
+    """聚合学生提交与错题数；可选只返回已提交且没有错题的学生。"""
+    if steady_only:
+        submission_counts = (
+            db.query(
+                Submission.student_id.label("student_id"),
+                func.count(Submission.id).label("submission_count"),
+            )
+            .group_by(Submission.student_id)
+            .subquery()
+        )
+        has_errors = (
+            db.query(Error.id)
+            .join(Submission, Error.submission_id == Submission.id)
+            .filter(Submission.student_id == User.id)
+            .exists()
+        )
+        rows = (
+            db.query(
+                User.id,
+                User.name,
+                User.student_no,
+                submission_counts.c.submission_count,
+            )
+            .join(submission_counts, submission_counts.c.student_id == User.id)
+            .filter(User.role == "student", ~has_errors)
+            .order_by(User.id)
+            .all()
+        )
+        return [{
+            "id": student_id,
+            "name": name,
+            "student_no": student_no,
+            "submission_count": submission_count,
+            "error_count": 0,
+        } for student_id, name, student_no, submission_count in rows]
+
     submission_counts = (
         db.query(
             Submission.student_id.label("student_id"),

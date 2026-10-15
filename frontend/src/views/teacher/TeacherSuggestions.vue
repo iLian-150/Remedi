@@ -96,7 +96,7 @@ const ready = ref(false)
 const errors = ref<TeacherErrorSummary[]>([])
 const topQuestions = ref<TopQuestion[]>([])
 const kpStats = ref<KnowledgePointStat[]>([])
-const students = ref<StudentSummary[]>([])
+const steadyStudents = ref<StudentSummary[]>([])
 
 // ---------- 分层辅导：重点一对一（顽固误区学生名单） ----------
 interface OneOnOne {
@@ -142,10 +142,6 @@ const classReminders = computed<ClassReminder[]>(() => {
 })
 
 // ---------- 分层辅导：表现稳定 ----------
-const steadyStudents = computed<StudentSummary[]>(() =>
-  students.value.filter((s) => s.submission_count > 0 && s.error_count === 0)
-)
-
 // ---------- 课堂讲评：按高频错题排序的讲评重点 ----------
 const TYPE_ADVICE: Record<string, string> = {
   '概念混淆': '主要错因是概念混淆，建议从概念辨析入手，板书对比易混点，再配 2 道变式题巩固。',
@@ -187,12 +183,12 @@ onMounted(async () => {
       teacher.fetchRecentErrorSummaries(100),
       teacher.fetchTopQuestions(10),
       teacher.fetchKnowledgePoints(),
-      teacher.fetchStudents()
+      teacher.fetchStudents(true)
     ])
     errors.value = errItems
     topQuestions.value = tq
     kpStats.value = kp
-    students.value = stu
+    steadyStudents.value = stu
     ready.value = true
   } catch (e) {
     error.value = '教学建议生成失败，请确认后端已启动。'
