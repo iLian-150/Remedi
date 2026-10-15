@@ -110,52 +110,73 @@ const focusedMistakeId = ref<number | null>(null)
 const noteColors: Record<string, string> = { math: 'yellow', english: 'pink', english_exercise: 'peach', physics: 'blue', chemistry: 'lilac', biology: 'mint', history: 'peach', geography: 'blue', chinese: 'pink', politics: 'yellow', computer_science: 'mint', other: 'lilac' }
 const categoryColors = ['yellow', 'mint', 'pink', 'blue', 'peach', 'lilac']
 
-const subjects = computed<SubjectGroup[]>(() => {
+const stickyData = computed(() => {
   const groups = new Map<string, SubjectGroup>()
+  const categoriesBySubject = new Map<string, Map<string, Category>>()
+  const assignmentIdsByCategory = new Map<Category, Set<number>>()
+  const tagsByCategory = new Map<Category, Set<string>>()
+  const categoriesByAssignment = new Map<number, Map<string, boolean>>()
   for (const entry of props.mistakes) {
     const key = entry.question_subject === 'english_exercise' ? 'english' : entry.question_subject || 'other'
-    const subject = groups.get(key) ?? { key, entries: [], categories: [] }
+    let subject = groups.get(key)
+    if (!subject) {
+      subject = { key, entries: [], categories: [] }
+      groups.set(key, subject)
+      categoriesBySubject.set(key, new Map())
+    }
     subject.entries.push(entry)
-    let category = subject.categories.find((item) => item.key === entry.category_key)
+    const categoryIndex = categoriesBySubject.get(key)!
+    let category = categoryIndex.get(entry.category_key)
     if (!category) {
       category = { key: entry.category_key, label: entry.category_label || entry.error_type, entries: [], studied: true, assignmentCount: 0, tags: [] }
       subject.categories.push(category)
+      categoryIndex.set(entry.category_key, category)
+      assignmentIdsByCategory.set(category, new Set())
+      tagsByCategory.set(category, new Set())
     }
     category.entries.push(entry)
     category.studied = category.studied && entry.category_studied
-    groups.set(key, subject)
+    assignmentIdsByCategory.get(category)!.add(entry.assignment_id)
+    const tags = tagsByCategory.get(category)!
+    if (entry.knowledge_point && tags.size < 2) tags.add(entry.knowledge_point)
+
+    let assignmentCategories = categoriesByAssignment.get(entry.assignment_id)
+    if (!assignmentCategories) {
+      assignmentCategories = new Map()
+      categoriesByAssignment.set(entry.assignment_id, assignmentCategories)
+    }
+    assignmentCategories.set(
+      entry.category_key,
+      (assignmentCategories.get(entry.category_key) ?? true) && entry.category_studied,
+    )
   }
   for (const subject of groups.values()) {
     for (const category of subject.categories) {
       category.entries.sort((a, b) => b.assignment_created_at.localeCompare(a.assignment_created_at))
-      category.assignmentCount = new Set(category.entries.map((item) => item.assignment_id)).size
-      category.tags = Array.from(new Set(category.entries.map((item) => item.knowledge_point).filter(Boolean))).slice(0, 2)
+      category.assignmentCount = assignmentIdsByCategory.get(category)!.size
+      category.tags = Array.from(tagsByCategory.get(category)!)
     }
     subject.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.entries.length - a.entries.length || a.label.localeCompare(b.label, 'zh-CN'))
   }
-  return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key, 'zh-CN'))
-})
-const assignmentProgressById = computed(() => {
-  const categoriesByAssignment = new Map<number, Map<string, boolean>>()
-  for (const item of props.mistakes) {
-    const categories = categoriesByAssignment.get(item.assignment_id) ?? new Map<string, boolean>()
-    categories.set(
-      item.category_key,
-      (categories.get(item.category_key) ?? true) && item.category_studied,
-    )
-    categoriesByAssignment.set(item.assignment_id, categories)
-  }
   const progressByAssignment = new Map<number, AssignmentProgress>()
   for (const [assignmentId, categories] of categoriesByAssignment) {
-    const completed = Array.from(categories.values()).filter(Boolean).length
+    let completed = 0
+    for (const studied of categories.values()) {
+      if (studied) completed += 1
+    }
     progressByAssignment.set(assignmentId, {
       completed,
       total: categories.size,
       complete: categories.size > 0 && completed === categories.size,
     })
   }
-  return progressByAssignment
+  return {
+    subjects: Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key, 'zh-CN')),
+    assignmentProgressById: progressByAssignment,
+  }
 })
+const subjects = computed<SubjectGroup[]>(() => stickyData.value.subjects)
+const assignmentProgressById = computed(() => stickyData.value.assignmentProgressById)
 const selectedSubject = computed(() => subjects.value.find((item) => item.key === selectedSubjectKey.value))
 const selectedCategory = computed(() => selectedSubject.value?.categories.find((item) => item.key === selectedCategoryKey.value))
 const screen = computed(() => selectedCategory.value ? 'detail' : selectedSubject.value ? 'categories' : 'subjects')
