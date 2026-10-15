@@ -1,7 +1,7 @@
 """按学生、学科与知识点查找可回看的历史错题。"""
 from typing import Iterable
 
-from sqlalchemy import func, select, union_all
+from sqlalchemy import and_, func, select, union_all
 from sqlalchemy.orm import Session, load_only
 
 from ..models import (
@@ -12,6 +12,7 @@ from ..models import (
     Step,
     StudentMistakeArchive,
     Submission,
+    SubmissionReview,
 )
 from .answer_check import student_visible_solution_steps
 from . import reviews as review_svc
@@ -302,31 +303,20 @@ def find_related_mistakes_for_errors(
 
     for start in range(0, len(unique_ids), 500):
         batch_ids = unique_ids[start:start + 500]
-        rows = (
-            db.query(Error, Submission, Question, Assignment, Step)
+        is_archived = db.query(StudentMistakeArchive.error_id).filter(
+            StudentMistakeArchive.student_id == student_id,
+            StudentMistakeArchive.error_id == Error.id,
+        ).exists()
+        valid_error_ids = (
+            db.query(Error.id.label("error_id"))
             .join(Submission, Error.submission_id == Submission.id)
-            .join(Question, Submission.question_id == Question.id)
-            .join(Assignment, Question.assignment_id == Assignment.id)
-            .outerjoin(Step, Error.step_id == Step.id)
-            .filter(Error.id.in_(batch_ids), Submission.student_id == student_id)
-            .all()
+            .filter(
+                Error.id.in_(batch_ids),
+                Submission.student_id == student_id,
+                ~is_archived,
+            )
+            .cte("valid_related_error_ids")
         )
-        if not rows:
-            continue
-
-        archived_ids = {
-            error_id
-            for (error_id,) in db.query(StudentMistakeArchive.error_id).filter(
-                StudentMistakeArchive.student_id == student_id,
-                StudentMistakeArchive.error_id.in_(batch_ids),
-            ).all()
-        }
-        valid_rows = [
-            row for row in rows if row[0].id not in archived_ids
-        ]
-        if not valid_rows:
-            continue
-        valid_error_ids = {error.id for error, _, _, _, _ in valid_rows}
         ranked_corrections = (
             db.query(
                 Correction.error_id.label("error_id"),
@@ -340,40 +330,67 @@ def find_related_mistakes_for_errors(
                     order_by=(Correction.submitted_at.desc(), Correction.id.desc()),
                 ).label("rank"),
             )
-            .filter(
-                Correction.student_id == student_id,
-                Correction.error_id.in_(valid_error_ids),
+            .join(
+                valid_error_ids,
+                valid_error_ids.c.error_id == Correction.error_id,
             )
+            .filter(Correction.student_id == student_id)
             .subquery()
         )
         latest = ranked_corrections.c
-        correction_by_error = {
-            correction.error_id: {
-                "id": correction.id,
-                "content": correction.content,
-                "is_correct": correction.is_correct,
-                "note": correction.note,
-                "submitted_at": correction.submitted_at,
-            }
-            for correction in db.query(
-                latest.error_id,
-                latest.id,
-                latest.content,
-                latest.is_correct,
-                latest.note,
-                latest.submitted_at,
-            ).filter(latest.rank == 1).all()
-        }
-        review_by_submission = review_svc.review_status_map(
-            db, {submission.id for _, submission, _, _, _ in valid_rows}
+        rows = (
+            db.query(
+                Error,
+                Submission,
+                Question,
+                Assignment,
+                Step,
+                SubmissionReview.status.label("review_status"),
+                latest.id.label("correction_id"),
+                latest.content.label("correction_content"),
+                latest.is_correct.label("correction_is_correct"),
+                latest.note.label("correction_note"),
+                latest.submitted_at.label("correction_submitted_at"),
+            )
+            .join(valid_error_ids, valid_error_ids.c.error_id == Error.id)
+            .join(Submission, Error.submission_id == Submission.id)
+            .join(Question, Submission.question_id == Question.id)
+            .join(Assignment, Question.assignment_id == Assignment.id)
+            .outerjoin(Step, Error.step_id == Step.id)
+            .outerjoin(
+                SubmissionReview,
+                SubmissionReview.submission_id == Submission.id,
+            )
+            .outerjoin(
+                ranked_corrections,
+                and_(
+                    latest.error_id == Error.id,
+                    latest.rank == 1,
+                ),
+            )
+            .filter(Submission.student_id == student_id)
+            .all()
         )
 
-        for error, submission, question, assignment, step in valid_rows:
+        for (
+            error,
+            submission,
+            question,
+            assignment,
+            step,
+            review_status,
+            correction_id,
+            correction_content,
+            correction_is_correct,
+            correction_note,
+            correction_submitted_at,
+        ) in rows:
             result[error.id] = {
                 "id": error.id,
                 "submission_id": submission.id,
-                "review_status": review_by_submission.get(
-                    submission.id, review_svc.APPROVED
+                "review_status": (
+                    review_status
+                    if review_status is not None else review_svc.APPROVED
                 ),
                 "question_id": question.id,
                 "assignment_id": assignment.id,
@@ -389,6 +406,12 @@ def find_related_mistakes_for_errors(
                 "step_seq": step.seq if step else None,
                 "step_text": step.text if step else None,
                 "created_at": error.created_at,
-                "latest_correction": correction_by_error.get(error.id),
+                "latest_correction": ({
+                    "id": correction_id,
+                    "content": correction_content,
+                    "is_correct": correction_is_correct,
+                    "note": correction_note,
+                    "submitted_at": correction_submitted_at,
+                } if correction_id is not None else None),
             }
     return result
