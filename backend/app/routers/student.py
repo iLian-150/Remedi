@@ -700,7 +700,7 @@ def my_mistakes(
             else StudentMistakeArchive.archived_at.is_(None)
         )
         image_join_condition = and_(image_join_condition, archive_match)
-    all_rows_with_archive = (
+    all_rows_query = (
         db.query(
             Error,
             Submission,
@@ -745,13 +745,13 @@ def my_mistakes(
         )
         .filter(Submission.student_id == current.id)
         .order_by(Error.created_at.desc(), Error.id.desc())
-        .all()
     )
     # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
     archived_at_by_error = {}
     review_status_by_submission = {}
     image_path_by_submission = {}
     all_rows = []
+    rows = []
     for (
         error,
         submission,
@@ -761,20 +761,20 @@ def my_mistakes(
         review_status,
         archived_at,
         image_path,
-    ) in all_rows_with_archive:
-        all_rows.append((error, submission, question, assignment, step))
+    ) in all_rows_query.yield_per(500):
+        row = (error, submission, question, assignment, step)
+        all_rows.append(row)
+        if (
+            archive_filter is None
+            or (archived_at is not None) == archive_filter
+        ):
+            rows.append(row)
         if review_status is not None:
             review_status_by_submission[submission.id] = review_status
         if image_path is not None:
             image_path_by_submission[submission.id] = image_path
         if archived_at is not None:
-            error_id = error.id
-            archived_at_by_error[error_id] = archived_at
-    rows = [
-        row for row in all_rows
-        if archive_filter is None
-        or (row[0].id in archived_at_by_error) == archive_filter
-    ]
+            archived_at_by_error[error.id] = archived_at
     visible_assignment_ids = {assignment.id for _, _, _, assignment, _ in rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
     reviewed = set()
