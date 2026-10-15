@@ -3,7 +3,7 @@
 # 一份作业「全部完成」= 作业内每道题都已提交。
 from typing import Dict, List, Optional
 
-from sqlalchemy import func, literal, select
+from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import load_only
 
 from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
@@ -118,6 +118,28 @@ def find_assignment_by_hint(db, hint: str) -> Optional[Assignment]:
     hint = (hint or "").strip().strip("《》\"' ")
     if not hint:
         return None
+
+    dialect = db.get_bind().dialect.name
+    if dialect == "sqlite":
+        contains = func.instr
+    elif dialect == "postgresql":
+        contains = func.strpos
+    else:
+        contains = None
+
+    if contains is not None:
+        return (
+            db.query(Assignment)
+            .options(load_only(Assignment.id, Assignment.title))
+            .filter(or_(
+                contains(Assignment.title, hint) > 0,
+                contains(literal(hint), Assignment.title) > 0,
+            ))
+            .order_by(Assignment.id)
+            .first()
+        )
+
+    # 未知数据库方言沿用 Python 子串判断，保持原有大小写与特殊字符语义。
     assignments = db.query(Assignment).options(
         load_only(Assignment.id, Assignment.title)
     ).order_by(Assignment.id).all()
