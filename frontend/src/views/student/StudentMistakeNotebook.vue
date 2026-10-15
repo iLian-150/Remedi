@@ -108,7 +108,7 @@ import '../../assets/mistake-book-2.css'
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
 interface MistakeCategory { key: string; label: string; items: StudentMistake[]; studied: boolean; similar: StudentMistake['similar_occurrences'] }
-interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean }
+interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean; searchText: string }
 interface NotebookData {
   subjectOptions: Array<{ key: string; label: string }>
   subjectCountByKey: Map<string, number>
@@ -168,7 +168,7 @@ const visibleAssignments = computed(() => {
     if (subject.value !== 'all' && assignment.subject !== subject.value) return false
     if (status.value === 'pending' && assignment.ready || status.value === 'ready' && !assignment.ready) return false
     if (!needle) return true
-    return [assignment.title, ...assignment.categories.flatMap((category) => [category.label, ...category.items.flatMap((item) => [item.error_type, item.knowledge_point, item.question_stem, item.step_text, item.detail])])].filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
+    return assignment.searchText.includes(needle)
   }).sort((left, right) => {
     if (sort.value === 'oldest') return left.createdAt.localeCompare(right.createdAt)
     if (sort.value === 'priority') {
@@ -216,6 +216,7 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
         items: [],
         categories: [],
         ready: false,
+        searchText: '',
       }
       groups.set(item.assignment_id, group)
       categoriesByAssignment.set(item.assignment_id, new Map())
@@ -243,6 +244,14 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
     group.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.items.length - a.items.length || a.label.localeCompare(b.label, 'zh-CN'))
     group.items.sort((a, b) => b.created_at.localeCompare(a.created_at))
     group.ready = group.categories.length > 0 && group.categories.every((item) => item.studied)
+    const searchParts: Array<string | null | undefined> = [group.title]
+    for (const category of group.categories) {
+      searchParts.push(category.label)
+      for (const item of category.items) {
+        searchParts.push(item.error_type, item.knowledge_point, item.question_stem, item.step_text, item.detail)
+      }
+    }
+    group.searchText = searchParts.filter(Boolean).join(' ').toLocaleLowerCase()
     return group
   })
   let studiedCategoryCount = 0
