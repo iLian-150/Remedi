@@ -546,6 +546,9 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     query = db.query(Submission).filter(Submission.student_id == current.id)
     if question_id:
         query = query.filter(Submission.question_id == question_id)
+    error_count_query = db.query(func.count(Error.id)).filter(
+        Error.submission_id == Submission.id
+    ).correlate(Submission).scalar_subquery()
     page_rows = query.outerjoin(
         SubmissionReview,
         SubmissionReview.submission_id == Submission.id,
@@ -560,27 +563,24 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
         ),
     ).add_columns(
         SubmissionReview.status.label("review_status"),
+        error_count_query.label("error_count"),
         func.count(Submission.id).over().label("total")
     ).order_by(Submission.submitted_at.desc()).offset(offset).limit(limit).all()
     if page_rows:
         total = int(page_rows[0].total or 0)
         subs = []
         status_by_id = {}
-        for submission, review_status, _ in page_rows:
+        error_count_by_id = {}
+        for submission, review_status, error_count, _ in page_rows:
             subs.append(submission)
+            error_count_by_id[submission.id] = int(error_count or 0)
             if review_status is not None:
                 status_by_id[submission.id] = review_status
     else:
         total = query.count()
         subs = []
         status_by_id = {}
-    submission_ids = [s.id for s in subs]
-    error_counts = dict(
-        db.query(Error.submission_id, func.count(Error.id))
-        .filter(Error.submission_id.in_(submission_ids))
-        .group_by(Error.submission_id)
-        .all()
-    ) if submission_ids else {}
+        error_count_by_id = {}
     question_text_by_id = {
         s.id: (
             s.question.stem if s.question else "",
@@ -597,7 +597,7 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     for s in subs:
         rstatus = status_by_id.get(s.id, review_svc.APPROVED)
         # 错题同步进入错题本和订正区；低置信度提交即使待审核也显示错误数。
-        err_n = error_counts.get(s.id, 0)
+        err_n = error_count_by_id.get(s.id, 0)
         # 评分系统：待审核不给分
         score = max_score = None
         if rstatus != review_svc.PENDING:
