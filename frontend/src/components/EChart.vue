@@ -5,12 +5,7 @@
 
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { init, use, type ECharts } from 'echarts/core'
-import { BarChart, LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-
-use([BarChart, LineChart, PieChart, GridComponent, TooltipComponent, CanvasRenderer])
+import { init, type ECharts } from 'echarts/core'
 
 const props = defineProps<{
   option: Record<string, unknown>

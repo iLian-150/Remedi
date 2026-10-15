@@ -75,7 +75,7 @@ import { useTeacherStore } from '../../stores/teacher'
 import type { StudentProfile } from '../../api/types'
 import { errorTypeDotClass } from '../../utils/errorType'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
-import EChart from '../../components/AsyncEChart'
+import { AsyncEChartBar as EChart } from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const route = useRoute()

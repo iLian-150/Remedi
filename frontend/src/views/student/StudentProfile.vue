@@ -161,7 +161,7 @@ import type { GradingError, StudentProfile } from '../../api/types'
 import { errorTypePalette, sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
-import EChart from '../../components/AsyncEChart'
+import { AsyncEChartPie as EChart } from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const student = useStudentStore()
