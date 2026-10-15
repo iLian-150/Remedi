@@ -273,13 +273,14 @@ const tlScopeLabel = computed(() =>
   tlSubject.value ? `${TL_SUBJECT_TEXT[tlSubject.value] ?? tlSubject.value}错题` : '全部错题'
 )
 /** 时间线条目：按科目过滤 → 按错题产生时间倒序 → 附已订正标记（最新一次订正判对） */
-const timelineItems = computed(() =>
-  tlRaw.value
-    .filter((item) => !tlSubject.value || item.question_subject === tlSubject.value)
-    .slice()
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
-    .map((item) => ({ ...item, corrected: item.latest_correction?.is_correct === true }))
-)
+const timelineItems = computed(() => {
+  const items: Array<StudentMistake & { corrected: boolean }> = []
+  for (const item of tlRaw.value) {
+    if (tlSubject.value && item.question_subject !== tlSubject.value) continue
+    items.push({ ...item, corrected: item.latest_correction?.is_correct === true })
+  }
+  return items.sort((a, b) => b.created_at.localeCompare(a.created_at))
+})
 
 watch(tlSubject, () => {
   if (props.mode !== 'timeline') return
