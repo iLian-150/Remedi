@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
+from sqlalchemy import inspect as sa_inspect
 from sympy import Add, Eq, expand, simplify
 
 from ..config import settings
@@ -512,9 +513,14 @@ def present_diagnosis(
     submission: Submission,
     db,
     steps: Optional[List[Step]] = None,
+    errors: Optional[List[Error]] = None,
 ) -> dict:
+    if steps is not None and any(sa_inspect(step).expired for step in steps):
+        steps = None
+    if errors is not None and any(sa_inspect(error).expired for error in errors):
+        errors = None
     diagnosis, _ = present_diagnosis_with_process_check(
-        submission, db, steps=steps
+        submission, db, steps=steps, errors=errors
     )
     return diagnosis
 
@@ -524,6 +530,7 @@ def present_diagnosis_with_process_check(
     db,
     steps: Optional[List[Step]] = None,
     *,
+    errors: Optional[List[Error]] = None,
     strict_process_check: bool = False,
 ) -> Tuple[dict, dict]:
     if steps is None:
@@ -534,7 +541,13 @@ def present_diagnosis_with_process_check(
             .all()
         )
     steps_by_id = {step.id: step for step in steps}
-    errors = db.query(Error).filter(Error.submission_id == submission.id).order_by(Error.id).all()
+    if errors is None:
+        errors = (
+            db.query(Error)
+            .filter(Error.submission_id == submission.id)
+            .order_by(Error.id)
+            .all()
+        )
     # first_error_seq：首个 status=error（真正不等价）步骤的 seq；
     # 若只有无法解析，则取首个 unparseable 的 seq；全对则为 None
     seq_by_step_id = {s.id: s.seq for s in steps}

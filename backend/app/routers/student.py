@@ -138,9 +138,15 @@ def _student_accessible_question(db: Session, student: User, question_id: int) -
 # 低置信度诊断会同步进入教师审核队列，但错题和订正流程不等待审核；
 # 学生立即看到诊断并可订正，成绩仍等教师审核后放出。
 
-def present_for_student(submission: Submission, db: Session) -> dict:
+def present_for_student(
+    submission: Submission,
+    db: Session,
+    *,
+    steps: Optional[List[Step]] = None,
+    errors: Optional[List[Error]] = None,
+) -> dict:
     """学生侧诊断出参：诊断立即可见；待审核时只暂缓下发成绩。"""
-    out = present_diagnosis(submission, db)
+    out = present_diagnosis(submission, db, steps=steps, errors=errors)
     rstatus = review_svc.review_status(db, submission.id)
     out["review_status"] = rstatus
     if rstatus == review_svc.PENDING:
@@ -516,8 +522,13 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
         return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
     submission, steps, errors = diagnose_submission(db, current, q, data.steps)
     # 本次作答正确率或错因置信度低于 60% 时进入教师审核队列。
-    review_svc.create_review_if_needed(db, submission)
-    return present_for_student(submission, db)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        review_svc.create_review_if_needed(db, submission)
+    finally:
+        db.expire_on_commit = expire_on_commit
+    return present_for_student(submission, db, steps=steps, errors=errors)
 
 
 @router.get("/submissions", summary="我的提交记录")
@@ -1735,7 +1746,9 @@ async def photo_review(
             "related_mistake": related_mistake,
         }
 
-    submission, _, _ = diagnose_visual_submission(db, current, question, visual_steps)
+    submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
+        db, current, question, visual_steps
+    )
     if stored_image_path is None:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
         stored_image_path = "{}_{}{}".format(
@@ -1758,12 +1771,19 @@ async def photo_review(
         ),
         commit=False,
     )
-    db.commit()
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     related_mistake = find_related_mistake(
         db, current.id, question.subject, question.knowledge_point,
         exclude_assignment_id=question.assignment_id,
     )
-    diagnosis = present_for_student(submission, db)
+    diagnosis = present_for_student(
+        submission, db, steps=diagnosed_steps, errors=diagnosed_errors
+    )
     # 学习助手随后会基于识别出的题目和步骤流式回答，避免在对话历史里
     # 先保存一条“等待审核”的占位回复，再额外显示批改结果卡片。
     session_id = chat_session.id if chat_session is not None else None
@@ -1919,7 +1939,9 @@ async def photo_diagnose(
             "recognition_confidence": confidence,
         })
         return out
-    submission, _, _ = diagnose_visual_submission(db, current, question, visual_steps)
+    submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
+        db, current, question, visual_steps
+    )
     _add_submission_image_link(db, submission, image_path, image_name)
     review_svc.create_review_if_needed(
         db, submission,
@@ -1928,8 +1950,15 @@ async def photo_diagnose(
         ),
         commit=False,
     )
-    db.commit()
-    result = present_for_student(submission, db)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
+    result = present_for_student(
+        submission, db, steps=diagnosed_steps, errors=diagnosed_errors
+    )
     result.update({
         "recognized_question_text": recognition.get("question_text", ""),
         "recognized_steps": steps,
