@@ -30,7 +30,7 @@
       <div v-if="selectedDate" class="card filter-bar">
         <div class="filter-info">
           <span class="filter-title">正在看 {{ selectedDateLabel }} 的订正</span>
-          <span class="filter-progress-text tnum">共 {{ errorList.length }} 条 · 待订正 {{ pendingCount }} 条</span>
+          <span class="filter-progress-text tnum">共 {{ visibleMistakes.length }} 条 · 待订正 {{ pendingCount }} 条</span>
         </div>
         <button class="btn secondary small" @click="clearDateFilter">查看全部</button>
       </div>
@@ -170,7 +170,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import { useAuthStore } from '../../stores/auth'
-import type { CorrectionResult, GradingError, StepDiagnosis, StudentMistake } from '../../api/types'
+import type { CorrectionResult, StepDiagnosis, StudentMistake } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -213,7 +213,6 @@ const selectedDateLabel = computed(() => {
 const visibleMistakes = computed(() =>
   mistakes.value.filter((item) => !selectedDate.value || mistakeDateKey(item) === selectedDate.value)
 )
-const errorList = computed<GradingError[]>(() => visibleMistakes.value.map(toGradingError))
 
 /** 贴面日期文案：如「10月7日」 */
 function dateLabelOf(item: StudentMistake): string {
@@ -258,7 +257,13 @@ function backToWall() {
 }
 
 /** 筛选状态条的待订正计数（当前可见里还没订正对的） */
-const pendingCount = computed(() => errorList.value.filter((e) => !fixedIds.value.has(e.id)).length)
+const pendingCount = computed(() => {
+  let count = 0
+  for (const item of visibleMistakes.value) {
+    if (!fixedIds.value.has(item.id)) count++
+  }
+  return count
+})
 
 function clearDateFilter() {
   student.setCorrectionsDateFilter('')
@@ -269,7 +274,7 @@ function clearDateFilter() {
 watch(selectedDate, () => syncSelection())
 
 function syncSelection() {
-  if (view.value === 'work' && !errorList.value.some((e) => e.id === selectedErrorId.value)) {
+  if (view.value === 'work' && !visibleMistakes.value.some((item) => item.id === selectedErrorId.value)) {
     view.value = 'wall'
     selectedErrorId.value = ''
     onSelect()
@@ -277,7 +282,7 @@ function syncSelection() {
 }
 
 // v0.13.9：工作区直接消费错题原条目（StudentMistake）——题目回顾要用的原题、
-// 正确答案、标准解题过程、原图都在原条目上，经 toGradingError 映射后会丢掉
+// 正确答案、标准解题过程、原图都在原条目上，避免映射到 GradingError 时丢失
 const selectedError = computed(() => visibleMistakes.value.find((e) => e.id === selectedErrorId.value) ?? null)
 const correctionPlaceholder = computed(() => selectedError.value?.question_subject === 'math'
   ? '例如：2x=7-3'
@@ -409,7 +414,7 @@ onMounted(async () => {
     }
     // 深链带 error_id 时直接进该题修正工作区（沿用既有深链口径）；否则停在贴墙
     const requestedId = Number(route.query.error_id)
-    if (errorList.value.some((item) => item.id === requestedId)) {
+    if (visibleMistakes.value.some((item) => item.id === requestedId)) {
       selectedErrorId.value = requestedId
       view.value = 'work'
     }
@@ -421,22 +426,6 @@ onMounted(async () => {
   }
 })
 
-function toGradingError(item: StudentMistake): GradingError {
-  return {
-    id: item.id,
-    submission_id: item.submission_id,
-    step_seq: item.step_seq ?? 0,
-    step_text: item.step_text || item.question_stem,
-    knowledge_point: item.knowledge_point,
-    error_type: item.error_type,
-    confidence: 0,
-    is_stubborn: item.is_stubborn,
-    detail: item.detail ?? '',
-    teacher_corrected: false,
-    teacher_note: null,
-    created_at: item.created_at
-  }
-}
 </script>
 
 <style scoped>
