@@ -611,8 +611,12 @@ def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(r
 def review_detail(submission_id: int, db: Session = Depends(get_db),
                   current: User = Depends(require_teacher)):
     """一份提交的完整 AI 分步诊断（教师端全量可见）+ 审核状态，供审核详情页复核与纠错。"""
-    sub = (
-        db.query(Submission)
+    row = (
+        db.query(Submission, SubmissionReview.status)
+        .outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        )
         .options(
             joinedload(Submission.student),
             joinedload(Submission.question).joinedload(Question.assignment),
@@ -620,8 +624,9 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
         .filter(Submission.id == submission_id)
         .first()
     )
-    if not sub:
+    if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    sub, review_status = row
     student = sub.student
     question = sub.question
     assignment = question.assignment if question else None
@@ -634,7 +639,7 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
     diagnosis, process_check = present_diagnosis_with_process_check(
         sub, db, steps=steps, strict_process_check=True
     )
-    rstatus = review_svc.review_status(db, sub.id)
+    rstatus = review_status or review_svc.APPROVED
     diagnosis["review_status"] = rstatus
     # 评分系统：本题满分/AI 分/步骤明细，老师据此核对分数、决定是否改分
     score_info = scoring_svc.score_detail_for_teacher(db, sub, steps=steps)
