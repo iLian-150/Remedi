@@ -171,27 +171,49 @@ const loading = ref(false)
 const error = ref('')
 const fixedIds = ref<Set<number>>(new Set())
 
-const totalAttempts = computed(() => profile.value?.knowledge_points.reduce((s, k) => s + k.attempts, 0) ?? 0)
-const totalErrors = computed(() => profile.value?.knowledge_points.reduce((s, k) => s + k.errors, 0) ?? 0)
+// 一次汇总档案页的总量、去重时间线、奖状与问题类型，避免模板分别重复扫描。
+const profileSummary = computed(() => {
+  let totalAttempts = 0
+  let totalErrors = 0
+  for (const item of profile.value?.knowledge_points ?? []) {
+    totalAttempts += item.attempts
+    totalErrors += item.errors
+  }
 
-// 错误轨迹：需要加固的 + 最近错误去重，按时间倒序
-const timeline = computed(() => {
+  // 最近错误沿用原优先级：同 ID 时覆盖顽固错误列表中的记录。
   const map = new Map<number, GradingError>()
-  ;[...(profile.value?.stubborn_errors ?? []), ...(profile.value?.recent_errors ?? [])].forEach((e) => map.set(e.id, e))
-  return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
-})
+  for (const item of profile.value?.stubborn_errors ?? []) map.set(item.id, item)
+  for (const item of profile.value?.recent_errors ?? []) map.set(item.id, item)
+  const timeline = [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
 
-const reinforcingCount = computed(() => timeline.value.filter((e) => !fixedIds.value.has(e.id)).length)
+  const certificates: GradingError[] = []
+  const typeCounts = new Map<string, number>()
+  let reinforcingCount = 0
+  for (const item of timeline) {
+    if (fixedIds.value.has(item.id)) certificates.push(item)
+    else reinforcingCount++
+    typeCounts.set(item.error_type, (typeCounts.get(item.error_type) ?? 0) + 1)
+  }
+
+  return {
+    totalAttempts,
+    totalErrors,
+    timeline,
+    certificates,
+    reinforcingCount,
+    typeOptionData: [...typeCounts.entries()].map(([name, value]) => ({ name, value })),
+  }
+})
+const totalAttempts = computed(() => profileSummary.value.totalAttempts)
+const totalErrors = computed(() => profileSummary.value.totalErrors)
+const timeline = computed(() => profileSummary.value.timeline)
+const reinforcingCount = computed(() => profileSummary.value.reinforcingCount)
 
 // 奖状墙：已订正的错题（轨迹 ∩ 本机已订正集）
-const certificates = computed(() => timeline.value.filter((e) => fixedIds.value.has(e.id)))
+const certificates = computed(() => profileSummary.value.certificates)
 
 // 问题类型分布：三色统一
-const typeOptionData = computed(() => {
-  const counts = new Map<string, number>()
-  timeline.value.forEach((e) => counts.set(e.error_type, (counts.get(e.error_type) ?? 0) + 1))
-  return [...counts.entries()].map(([name, value]) => ({ name, value }))
-})
+const typeOptionData = computed(() => profileSummary.value.typeOptionData)
 
 const typeOption = computed(() => ({
   tooltip: { trigger: 'item', valueFormatter: (v: number) => `${v} 次` },
