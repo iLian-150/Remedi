@@ -242,7 +242,7 @@ class ChatSessionMessageImage(Base):
     __tablename__ = "chat_session_message_images"
 
     message_id = Column(Integer, ForeignKey("chat_session_messages.id"), primary_key=True)
-    file_path = Column(String(512), nullable=False)
+    file_path = Column(String(512), nullable=False, index=True)
     file_name = Column(String(255), nullable=False)
 
 
@@ -373,7 +373,7 @@ class StudentQuestionCapture(Base):
     question_id = Column(Integer, ForeignKey("questions.id"), nullable=True, index=True)
     subject = Column(String(32), nullable=False, default="math")
     question_text = Column(Text, nullable=False)
-    image_path = Column(String(256), nullable=False)
+    image_path = Column(String(256), nullable=False, index=True)
     explanation = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     saved_at = Column(DateTime, nullable=True)
@@ -416,7 +416,8 @@ class Workbook(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     title = Column(String(128), nullable=False, comment="练习册名（默认取 PDF 文件名）")
-    file_path = Column(String(256), nullable=False, comment="相对 UPLOAD_DIR 的文件路径")
+    file_path = Column(String(256), nullable=False, index=True,
+                        comment="相对 UPLOAD_DIR 的文件路径")
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
@@ -476,7 +477,7 @@ class SubmissionImage(Base):
     __tablename__ = "submission_images"
 
     submission_id = Column(Integer, ForeignKey("submissions.id"), primary_key=True)
-    file_path = Column(String(512), nullable=False)
+    file_path = Column(String(512), nullable=False, index=True)
     file_name = Column(String(255), nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
