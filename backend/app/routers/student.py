@@ -328,22 +328,16 @@ def list_assignments(
                     Question.knowledge_point,
                     Question.stem,
                     Question.order_num,
+                    QuestionGroupMember.group_id,
+                )
+                .outerjoin(
+                    QuestionGroupMember,
+                    QuestionGroupMember.question_id == Question.id,
                 )
                 .filter(Question.assignment_id.in_(assignment_ids[start:start + 500]))
                 .order_by(Question.assignment_id, Question.order_num, Question.id)
                 .all()
             )
-
-        question_ids = [row.id for row in question_rows]
-        group_by_question = {}
-        for start in range(0, len(question_ids), 500):
-            group_by_question.update(dict(
-                db.query(QuestionGroupMember.question_id, QuestionGroupMember.group_id)
-                .filter(
-                    QuestionGroupMember.question_id.in_(question_ids[start:start + 500])
-                )
-                .all()
-            ))
 
         for start in range(0, len(assignment_ids), 500):
             for group_id, assignment_id, stem, order_num in db.query(
@@ -367,7 +361,7 @@ def list_assignments(
                 "knowledge_point": row.knowledge_point,
                 "stem": row.stem,
                 "order_num": row.order_num,
-                "group_id": group_by_question.get(row.id),
+                "group_id": row.group_id,
             })
             if row.subject != "math":
                 photo_required_assignment_ids.add(row.assignment_id)
