@@ -530,10 +530,13 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
     expire_on_commit = db.expire_on_commit
     db.expire_on_commit = False
     try:
-        review_svc.create_review_if_needed(db, submission)
+        review = review_svc.create_review_if_needed(db, submission)
     finally:
         db.expire_on_commit = expire_on_commit
-    return present_for_student(submission, db, steps=steps, errors=errors)
+    return present_for_student(
+        submission, db, steps=steps, errors=errors,
+        review_status=review.status if review is not None else review_svc.APPROVED,
+    )
 
 
 @router.get("/submissions", summary="我的提交记录")
@@ -1787,7 +1790,7 @@ async def photo_review(
         stored_image_path,
         os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
     )
-    review_svc.create_review_if_needed(
+    review = review_svc.create_review_if_needed(
         db, submission,
         confidence_signals=review_svc.visual_confidence_signals(
             _visual_review_confidence(confidence, recognition), visual_steps
@@ -1805,7 +1808,8 @@ async def photo_review(
         exclude_assignment_id=question.assignment_id,
     )
     diagnosis = present_for_student(
-        submission, db, steps=diagnosed_steps, errors=diagnosed_errors
+        submission, db, steps=diagnosed_steps, errors=diagnosed_errors,
+        review_status=review.status if review is not None else review_svc.APPROVED,
     )
     # 学习助手随后会基于识别出的题目和步骤流式回答，避免在对话历史里
     # 先保存一条“等待审核”的占位回复，再额外显示批改结果卡片。
@@ -1976,7 +1980,7 @@ async def photo_diagnose(
         db, current, question, visual_steps
     )
     _add_submission_image_link(db, submission, image_path, image_name)
-    review_svc.create_review_if_needed(
+    review = review_svc.create_review_if_needed(
         db, submission,
         confidence_signals=review_svc.visual_confidence_signals(
             _visual_review_confidence(confidence, recognition), visual_steps
@@ -1990,7 +1994,8 @@ async def photo_diagnose(
     finally:
         db.expire_on_commit = expire_on_commit
     result = present_for_student(
-        submission, db, steps=diagnosed_steps, errors=diagnosed_errors
+        submission, db, steps=diagnosed_steps, errors=diagnosed_errors,
+        review_status=review.status if review is not None else review_svc.APPROVED,
     )
     result.update({
         "recognized_question_text": recognition.get("question_text", ""),
