@@ -179,7 +179,14 @@ const visibleAssignments = computed(() => {
   })
 })
 const filtersApplied = computed(() => subject.value !== 'all' || status.value !== 'all' || Boolean(query.value.trim()))
-const nextMistake = computed(() => visibleAssignments.value.flatMap((assignment) => assignment.categories.filter((category) => !category.studied).flatMap((category) => category.items))[0])
+const nextMistake = computed(() => {
+  for (const assignment of visibleAssignments.value) {
+    for (const category of assignment.categories) {
+      if (!category.studied && category.items.length) return category.items[0]
+    }
+  }
+  return undefined
+})
 const relatedMistakes = computed(() => selectedMistake.value ? allMistakes.value.filter((item) => item.question_subject === selectedMistake.value?.question_subject && item.knowledge_point === selectedMistake.value?.knowledge_point && item.category_key === selectedMistake.value?.category_key) : [])
 const assistantAssignment = computed(() => selectedMistake.value ? assignmentGroups.value.find((item) => item.id === selectedMistake.value?.assignment_id) : undefined)
 const assistantProgress = computed(() => ({ completed: assistantAssignment.value?.categories.filter((item) => item.studied).length ?? 0, total: assistantAssignment.value?.categories.length ?? 0, complete: Boolean(assistantAssignment.value?.ready) }))
