@@ -738,8 +738,8 @@ def my_mistakes(
     archived_at_by_error = {}
     review_status_by_submission = {}
     image_path_by_submission = {}
-    all_rows = []
     rows = []
+    latest_by_category_assignment = {}
     for (
         error,
         submission,
@@ -751,7 +751,6 @@ def my_mistakes(
         image_path,
     ) in all_rows_query.yield_per(500):
         row = (error, submission, question, assignment, step)
-        all_rows.append(row)
         if (
             archive_filter is None
             or (archived_at is not None) == archive_filter
@@ -763,6 +762,15 @@ def my_mistakes(
             image_path_by_submission[submission.id] = image_path
         if archived_at is not None:
             archived_at_by_error[error.id] = archived_at
+        # 查询按错题时间倒序；每个类别和作业只保存首次遇到的最新记录，
+        # 后续生成相似错题只需要这些代表项，无需在内存保留全部历史 ORM 行。
+        category_key, _ = _mistake_category(
+            question.subject, error.error_type, error.knowledge_point
+        )
+        category_assignments = latest_by_category_assignment.setdefault(
+            category_key, {}
+        )
+        category_assignments.setdefault(assignment.id, row)
     visible_assignment_ids = {assignment.id for _, _, _, assignment, _ in rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
     reviewed = set()
@@ -845,11 +853,6 @@ def my_mistakes(
             if row.verification_status is not None:
                 verification_by_error[row.error_id] = row.verification_status
 
-    history_by_category = {}
-    for error, submission, question, assignment, _ in all_rows:
-        key, _ = _mistake_category(question.subject, error.error_type, error.knowledge_point)
-        history_by_category.setdefault(key, []).append((error, submission, question, assignment))
-
     # 每个「类别 × 作业」只需保留最新一条错题。按作业时间扫描，并用堆按错题时间
     # 排序此前的作业；每条记录可直接取前 5 个相似错题，避免反复扫描全部历史记录。
     def datetime_order_key(value: datetime) -> int:
@@ -859,20 +862,13 @@ def my_mistakes(
         ) * 1_000_000 + value.microsecond
 
     similar_by_category_assignment = {}
-    for category_key, category_rows in history_by_category.items():
-        latest_by_assignment = {}
-        assignments_by_id = {}
-        for entry in category_rows:
-            assignment = entry[3]
-            latest_by_assignment.setdefault(assignment.id, entry)
-            assignments_by_id.setdefault(assignment.id, assignment)
-
+    for category_key, latest_by_assignment in latest_by_category_assignment.items():
         representatives = sorted(
             latest_by_assignment.values(),
             key=lambda entry: (entry[3].created_at, entry[3].id),
         )
         current_assignments = sorted(
-            assignments_by_id.values(),
+            (entry[3] for entry in latest_by_assignment.values()),
             key=lambda assignment: (assignment.created_at, assignment.id),
         )
         top_five = []
