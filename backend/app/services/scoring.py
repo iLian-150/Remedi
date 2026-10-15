@@ -63,9 +63,23 @@ def question_max_score(db: Session, question: Question) -> float:
 
 def set_assignment_scoring(db: Session, assignment_id: int,
                            total_score: Optional[float],
-                           weights: List[Tuple[int, Optional[float]]]) -> None:
+                           weights: List[Tuple[int, Optional[float]]], *,
+                           is_new: bool = False) -> None:
     """发布作业时落库分值配置（调用方负责 commit）：
     total_score 为 None 时不写总分行（走默认 100）；weights 里 pct 为 None 的题不写行（走均分）。"""
+    if is_new:
+        if total_score is not None:
+            db.add(AssignmentScoring(
+                assignment_id=assignment_id,
+                total_score=float(total_score),
+            ))
+        db.add_all(
+            QuestionWeight(question_id=question_id, weight_pct=float(pct))
+            for question_id, pct in weights
+            if pct is not None
+        )
+        return
+
     if total_score is not None:
         row = db.query(AssignmentScoring).filter(
             AssignmentScoring.assignment_id == assignment_id

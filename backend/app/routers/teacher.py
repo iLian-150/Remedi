@@ -986,10 +986,6 @@ def _teacher_assignments_out(
     return result
 
 
-def _teacher_assignment_out(a: Assignment, db: Session) -> TeacherAssignmentOut:
-    return _teacher_assignments_out([a], db)[0]
-
-
 @router.post("/assignments", response_model=TeacherAssignmentOut, summary="发布作业")
 def create_assignment(body: TeacherAssignmentCreate,
                       db: Session = Depends(get_db), current: User = Depends(require_teacher)):
@@ -1033,6 +1029,7 @@ def create_assignment(body: TeacherAssignmentCreate,
     scoring_svc.set_assignment_scoring(
         db, assignment.id, body.total_score,
         [(q.id, pct) for q, pct in created_questions],
+        is_new=True,
     )
     # v0.13.1：ext 行恒建（mode + deadline 两种模式都落，线上作业此前没 ext 行、
     # 截止时间会被静默丢弃）；练习册/页码仅线下有
@@ -1063,7 +1060,40 @@ def create_assignment(body: TeacherAssignmentCreate,
         db.commit()
     finally:
         db.expire_on_commit = expire_on_commit
-    return _teacher_assignment_out(assignment, db)
+
+    question_count = len(created_questions)
+    return TeacherAssignmentOut(
+        id=assignment.id,
+        title=assignment.title,
+        description=assignment.description,
+        created_at=assignment.created_at,
+        questions=[
+            TeacherAssignmentQuestionOut(
+                id=question.id,
+                type="math" if question.subject == "math" else "essay",
+                subject=question.subject,
+                prompt=question.stem,
+                knowledge_point=question.knowledge_point,
+                standard_answer=question.standard_answer,
+                submission_count=0,
+                weight_pct=round(
+                    float(weight_pct) if weight_pct is not None
+                    else 100.0 / question_count,
+                    2,
+                ),
+            )
+            for question, weight_pct in created_questions
+        ],
+        mode=body.mode,
+        workbook_title=workbook.title if body.mode == "offline" and workbook else None,
+        page_range=(
+            ((body.page_range or "").strip() or None)
+            if body.mode == "offline" else None
+        ),
+        deadline=body.deadline,
+        total_score=float(body.total_score) if body.total_score is not None else 100.0,
+        allow_revision=body.allow_revision,
+    )
 
 
 @router.get("/assignments", summary="已发布作业列表")
