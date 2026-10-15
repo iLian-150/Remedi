@@ -144,8 +144,12 @@ def persist_ai_score(db: Session, submission: Submission,
     else:
         row.ai_score = info["ai_score"]
         row.updated_at = datetime.now()
-    db.commit()
-    db.refresh(row)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     return row
 
 
@@ -177,8 +181,12 @@ def finalize_on_approve(db: Session, submission: Submission, teacher,
         row.final_score = row.ai_score
         row.updated_by = teacher.id
     row.updated_at = datetime.now()
-    db.commit()
-    db.refresh(row)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     return row
 
 

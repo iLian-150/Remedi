@@ -1031,8 +1031,12 @@ def create_assignment(body: TeacherAssignmentCreate,
     for (question, _pct), qin in zip(created_questions, body.questions):
         if qin.group_key and qin.group_key in group_id_by_key:
             db.add(QuestionGroupMember(question_id=question.id, group_id=group_id_by_key[qin.group_key]))
-    db.commit()
-    db.refresh(assignment)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     return _teacher_assignment_out(assignment, db)
 
 
@@ -1317,8 +1321,12 @@ async def upload_workbook(file: UploadFile = File(...),
         file_path=f"{_WORKBOOK_SUBDIR}/{stored_name}",
     )
     db.add(w)
-    db.commit()
-    db.refresh(w)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     # v0.6.0：上传成功后尝试把 PDF 第一页渲染成封面图（失败静默跳过，前端用书脊兜底）
     from ..services.covers import generate_cover
 

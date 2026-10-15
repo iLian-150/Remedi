@@ -1662,8 +1662,12 @@ async def photo_review(
             image_path=filename,
         )
         db.add(capture)
-        db.commit()
-        db.refresh(capture)
+        expire_on_commit = db.expire_on_commit
+        db.expire_on_commit = False
+        try:
+            db.commit()
+        finally:
+            db.expire_on_commit = expire_on_commit
         related_mistake = find_related_mistake(
             db, current.id, recognized_subject,
             question.knowledge_point if question else recognized_knowledge_point,
@@ -1812,7 +1816,12 @@ def save_photo_capture(capture_id: int, body: PhotoCaptureSaveIn,
     if body.explanation.strip():
         capture.explanation = body.explanation.strip()
     capture.archived_at = None
-    db.commit()
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     return {"capture_id": capture.id, "saved": True, "saved_at": capture.saved_at}
 
 
@@ -1823,18 +1832,23 @@ def save_text_question(body: StudentQuestionCaptureCreate,
     question_text = body.question_text.strip()
     if not question_text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "题目内容不能为空")
+    saved_at = datetime.now()
     capture = StudentQuestionCapture(
         student_id=current.id,
         subject=body.subject.strip() or "math",
         question_text=question_text,
         image_path="",
         explanation=body.explanation.strip() or None,
-        saved_at=datetime.now(),
+        saved_at=saved_at,
     )
     db.add(capture)
-    db.commit()
-    db.refresh(capture)
-    return {"capture_id": capture.id, "saved": True, "saved_at": capture.saved_at}
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
+    return {"capture_id": capture.id, "saved": True, "saved_at": saved_at}
 
 
 @router.post("/photo-transcribe", response_model=PhotoTranscribeOut, summary="拍照转写作业")

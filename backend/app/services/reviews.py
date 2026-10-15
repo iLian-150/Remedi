@@ -504,8 +504,12 @@ def approve_submission(db: Session, submission: Submission, teacher,
             ),
             related_submission_id=submission.id,
         ))
-    db.commit()
-    db.refresh(row)
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
     return row
 
 
