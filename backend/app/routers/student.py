@@ -2117,16 +2117,12 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
     if len(text) > _AGENT_MSG_MAX:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
 
-    if body.session_id is not None:
-        session = cs.get_own_session_or_migrate(
-            db, current, body.session_id
-        )
-        if session is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
-    else:
-        session = cs.get_or_create_current(db, current)
+    session, rows = cs.resolve_chat_session_history(
+        db, current, body.session_id, _AGENT_HISTORY_WINDOW
+    )
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
 
-    rows = cs.session_messages(db, session, limit=_AGENT_HISTORY_WINDOW)
     history = [
         HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
         for row in rows

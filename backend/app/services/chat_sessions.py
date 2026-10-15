@@ -179,6 +179,70 @@ def session_messages(db: Session, session: ChatSession,
     return list(reversed(rows))
 
 
+def _session_with_messages(
+    db: Session,
+    user: User,
+    session_id: Optional[int],
+    limit: Optional[int],
+) -> tuple[Optional[ChatSession], List[ChatSessionMessage]]:
+    query = db.query(ChatSession, ChatSessionMessage).outerjoin(
+        ChatSessionMessage,
+        ChatSessionMessage.session_id == ChatSession.id,
+    )
+    if session_id is None:
+        latest_session_id = (
+            db.query(ChatSession.id)
+            .filter(ChatSession.user_id == user.id)
+            .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        query = query.filter(
+            ChatSession.id == latest_session_id,
+            ChatSession.user_id == user.id,
+        )
+    else:
+        query = query.filter(
+            ChatSession.id == session_id,
+            ChatSession.user_id == user.id,
+        )
+    query = query.order_by(
+        ChatSessionMessage.created_at.desc(),
+        ChatSessionMessage.id.desc(),
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    rows = query.all()
+    if not rows:
+        return None, []
+    messages = [message for _, message in rows if message is not None]
+    messages.reverse()
+    return rows[0][0], messages
+
+
+def resolve_chat_session_history(
+    db: Session,
+    user: User,
+    session_id: Optional[int],
+    limit: int,
+) -> tuple[Optional[ChatSession], List[ChatSessionMessage]]:
+    """一次读取聊天会话和上下文；只在会话不存在时执行旧消息迁移。"""
+    session, messages = _session_with_messages(db, user, session_id, limit)
+    if session is not None:
+        return session, messages
+
+    if session_id is not None:
+        if not ensure_migrated(db, user):
+            return None, []
+        return _session_with_messages(db, user, session_id, limit)
+
+    if _migrate_legacy_messages(db, user):
+        session, messages = _session_with_messages(db, user, None, limit)
+        if session is not None:
+            return session, messages
+    return create_session(db, user), []
+
+
 def history_items(db: Session, user: User, session: ChatSession,
                   limit: Optional[int] = None) -> List[dict]:
     """批量组装会话历史，避免逐条查询图片和错题关联 ID。"""
