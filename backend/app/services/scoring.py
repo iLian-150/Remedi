@@ -222,6 +222,18 @@ def visible_score(db: Session, submission: Submission) -> Optional[Dict]:
     return visible_scores(db, [submission]).get(submission.id)
 
 
+def _commit_score_backfills(db: Session) -> None:
+    """把同一报告请求补算的历史分数集中提交一次。"""
+    if not any(isinstance(item, SubmissionScore) for item in db.new):
+        return
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
+
+
 def visible_scores(
     db: Session,
     submissions: List[Submission],
@@ -331,12 +343,7 @@ def visible_scores(
 
         db.add_all(rows_to_create)
         if commit:
-            expire_on_commit = db.expire_on_commit
-            db.expire_on_commit = False
-            try:
-                db.commit()
-            finally:
-                db.expire_on_commit = expire_on_commit
+            _commit_score_backfills(db)
 
     for submission in valid:
         score = score_values.get(submission.id)
@@ -469,8 +476,11 @@ def assignment_progress(
     scores_by_submission = {}
     for start in range(0, len(score_submissions), 300):
         scores_by_submission.update(
-            visible_scores(db, score_submissions[start:start + 300])
+            visible_scores(
+                db, score_submissions[start:start + 300], commit=False
+            )
         )
+    _commit_score_backfills(db)
 
     latest: Dict[int, float] = {}
     for sub in subs:
@@ -549,8 +559,9 @@ def student_score_report(db: Session, student) -> Dict:
     scores_by_submission = {}
     for start in range(0, len(subs), 300):
         scores_by_submission.update(
-            visible_scores(db, subs[start:start + 300])
+            visible_scores(db, subs[start:start + 300], commit=False)
         )
+    _commit_score_backfills(db)
     # assignment_id -> {question_id: (submitted_at, final, max)}，后写覆盖 = 取最新一次
     per_assignment: Dict[int, Dict[int, Tuple]] = {}
     meta: Dict[int, Dict] = {}
