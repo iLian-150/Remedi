@@ -33,7 +33,7 @@
           <strong class="sticky-note-title">{{ displaySubject(subject.key) }}</strong>
           <span class="sticky-note-rule" />
           <span class="sticky-note-stat"><b>{{ subject.categories.length }}</b> 类错误 · <b>{{ subject.entries.length }}</b> 道错题</span>
-          <span class="sticky-note-foot"><span>{{ subject.categories.filter((category) => !category.studied).length ? `还有 ${subject.categories.filter((category) => !category.studied).length} 类待学习` : '全部类别已学完' }}</span><AppIcon name="arrow-up-right" :size="13"/></span>
+          <span class="sticky-note-foot"><span>{{ subject.pendingCategoryCount ? `还有 ${subject.pendingCategoryCount} 类待学习` : '全部类别已学完' }}</span><AppIcon name="arrow-up-right" :size="13"/></span>
         </button>
       </div>
       <div v-else-if="screen === 'categories'" class="sticky-notes-grid" aria-label="错误类别便利贴">
@@ -47,11 +47,11 @@
         </button>
       </div>
       <div v-else class="sticky-notes-detail" :aria-label="`${selectedCategory!.label}错题`">
-        <div class="sticky-detail-summary"><span>这类错误的作业记录</span><strong>{{ assignments.filter((assignment) => assignment.studied).length }}<small> / {{ assignments.length }} 份已学完</small></strong></div>
+        <div class="sticky-detail-summary"><span>这类错误的作业记录</span><strong>{{ completedAssignmentCount }}<small> / {{ assignments.length }} 份已学完</small></strong></div>
         <div class="sticky-assignment-list">
           <article v-for="(assignment, assignmentIndex) in assignments" :key="`${assignment.assignmentId}:${assignment.categoryKey}`" class="sticky-assignment" :class="[`sticky-note-${categoryColors[assignmentIndex % categoryColors.length]}`, { 'is-studied': assignment.studied }]">
             <div class="sticky-assignment-head">
-              <div><span class="sticky-assignment-date">{{ formatDate(assignment.entries[0].assignment_created_at) }}</span><h2>{{ assignment.title }}</h2><p>{{ assignment.entries.every((entry) => entry.source_kind === 'student_saved') ? '你主动收录的复习题目' : `${assignment.entries.length} 道这类错题 · 本份作业已学 ${progressFor(assignment.assignmentId).completed}/${progressFor(assignment.assignmentId).total} 类错误` }}</p></div>
+              <div><span class="sticky-assignment-date">{{ formatDate(assignment.entries[0].assignment_created_at) }}</span><h2>{{ assignment.title }}</h2><p>{{ assignment.studentSavedOnly ? '你主动收录的复习题目' : `${assignment.entries.length} 道这类错题 · 本份作业已学 ${assignment.progress.completed}/${assignment.progress.total} 类错误` }}</p></div>
               <span class="sticky-assignment-state">{{ assignment.studied ? '此类已学完' : '待学习' }}</span>
             </div>
             <div class="sticky-assignment-questions">
@@ -65,9 +65,9 @@
               </article>
             </div>
             <div class="sticky-assignment-actions">
-              <button v-if="assignment.entries.some((entry) => entry.source_kind !== 'student_saved')" type="button" class="sticky-study-button" :disabled="Boolean(workingKey)" @click="toggleStudied(assignment)">{{ workingKey === studyKey(assignment) ? '保存中…' : assignment.studied ? '取消已学会' : '学完这类错误' }}</button>
-              <span>{{ assignment.entries.every((entry) => entry.source_kind === 'student_saved') ? '这是你主动收录的题目' : progressFor(assignment.assignmentId).complete ? '这份作业的错误类别已全部学完' : `还有 ${progressFor(assignment.assignmentId).total - progressFor(assignment.assignmentId).completed} 类待学习` }}</span>
-              <button type="button" class="sticky-archive-button" :disabled="!progressFor(assignment.assignmentId).complete || Boolean(workingKey)" @click="$emit('archive-assignment', assignment.assignmentId)">{{ workingKey === `archive:${assignment.assignmentId}` ? '正在移出…' : '整份作业移出错题本' }}</button>
+              <button v-if="!assignment.studentSavedOnly" type="button" class="sticky-study-button" :disabled="Boolean(workingKey)" @click="toggleStudied(assignment)">{{ workingKey === studyKey(assignment) ? '保存中…' : assignment.studied ? '取消已学会' : '学完这类错误' }}</button>
+              <span>{{ assignment.studentSavedOnly ? '这是你主动收录的题目' : assignment.progress.complete ? '这份作业的错误类别已全部学完' : `还有 ${assignment.progress.total - assignment.progress.completed} 类待学习` }}</span>
+              <button type="button" class="sticky-archive-button" :disabled="!assignment.progress.complete || Boolean(workingKey)" @click="$emit('archive-assignment', assignment.assignmentId)">{{ workingKey === `archive:${assignment.assignmentId}` ? '正在移出…' : '整份作业移出错题本' }}</button>
             </div>
           </article>
         </div>
@@ -83,8 +83,9 @@ import type { StudentMistake } from '../../api/types'
 import AppIcon from '../icons/AppIcon.vue'
 
 type Category = { key: string; label: string; entries: StudentMistake[]; studied: boolean; assignmentCount: number; tags: string[] }
-type SubjectGroup = { key: string; categories: Category[]; entries: StudentMistake[] }
-type StickyAssignment = { assignmentId: number; categoryKey: string; entries: StudentMistake[]; studied: boolean; title: string }
+type SubjectGroup = { key: string; categories: Category[]; entries: StudentMistake[]; pendingCategoryCount: number }
+type StickyAssignment = { assignmentId: number; categoryKey: string; entries: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; title: string; progress: AssignmentProgress }
+type StickyAssignmentGroup = Omit<StickyAssignment, 'progress'>
 type AssignmentProgress = { completed: number; total: number; complete: boolean }
 
 const props = defineProps<{
@@ -120,7 +121,7 @@ const stickyData = computed(() => {
     const key = entry.question_subject === 'english_exercise' ? 'english' : entry.question_subject || 'other'
     let subject = groups.get(key)
     if (!subject) {
-      subject = { key, entries: [], categories: [] }
+      subject = { key, entries: [], categories: [], pendingCategoryCount: 0 }
       groups.set(key, subject)
       categoriesBySubject.set(key, new Map())
     }
@@ -152,6 +153,7 @@ const stickyData = computed(() => {
   }
   for (const subject of groups.values()) {
     for (const category of subject.categories) {
+      if (!category.studied) subject.pendingCategoryCount += 1
       category.entries.sort((a, b) => b.assignment_created_at.localeCompare(a.assignment_created_at))
       category.assignmentCount = assignmentIdsByCategory.get(category)!.size
       category.tags = Array.from(tagsByCategory.get(category)!)
@@ -182,15 +184,17 @@ const selectedCategory = computed(() => selectedSubject.value?.categories.find((
 const screen = computed(() => selectedCategory.value ? 'detail' : selectedSubject.value ? 'categories' : 'subjects')
 const assignments = computed<StickyAssignment[]>(() => {
   if (!selectedCategory.value) return []
-  const grouped = new Map<number, StickyAssignment>()
+  const grouped = new Map<number, StickyAssignmentGroup>()
   for (const entry of selectedCategory.value.entries) {
-    const group = grouped.get(entry.assignment_id) ?? { assignmentId: entry.assignment_id, categoryKey: entry.category_key, entries: [], studied: true, title: entry.assignment_title }
+    const group = grouped.get(entry.assignment_id) ?? { assignmentId: entry.assignment_id, categoryKey: entry.category_key, entries: [], studied: true, studentSavedOnly: true, title: entry.assignment_title }
     group.entries.push(entry)
     group.studied = group.studied && entry.category_studied
+    group.studentSavedOnly = group.studentSavedOnly && entry.source_kind === 'student_saved'
     grouped.set(entry.assignment_id, group)
   }
-  return Array.from(grouped.values()).map((group) => ({ ...group, entries: group.entries.sort((a, b) => a.question_order - b.question_order) })).sort((a, b) => b.entries[0].assignment_created_at.localeCompare(a.entries[0].assignment_created_at))
+  return Array.from(grouped.values()).map((group) => ({ ...group, entries: group.entries.sort((a, b) => a.question_order - b.question_order), progress: progressFor(group.assignmentId) })).sort((a, b) => b.entries[0].assignment_created_at.localeCompare(a.entries[0].assignment_created_at))
 })
+const completedAssignmentCount = computed(() => assignments.value.reduce((count, assignment) => count + Number(assignment.studied), 0))
 
 watch(() => props.mistakes.map((item) => item.id).join(','), () => {
   if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) goToSubjects()
