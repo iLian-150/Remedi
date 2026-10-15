@@ -168,10 +168,24 @@ const doneQids = ref<Set<number>>(new Set())
 /** v0.9.0：最新一次提交还在等老师审核的题目（据此盖「待审核」琥珀章） */
 const pendingQids = ref<Set<number>>(new Set())
 
+/** 列表卡片和当天进度共用每份作业的完成 / 待审核计数，避免渲染时反复遍历题目 ID。 */
+const assignmentProgressById = computed(() => {
+  const progressById = new Map<number, { done: number; pending: number }>()
+  for (const assignment of assignments.value) {
+    let done = 0
+    let pending = 0
+    for (const id of questionIdsByAssignment.value[assignment.id] ?? []) {
+      if (doneQids.value.has(id)) done++
+      if (pendingQids.value.has(id)) pending++
+    }
+    progressById.set(assignment.id, { done, pending })
+  }
+  return progressById
+})
+
 /** 这份作业里有没有题目在等老师审核 */
 function hasPending(a: Assignment): boolean {
-  const qids = questionIdsByAssignment.value[a.id] ?? []
-  return qids.some((id) => pendingQids.value.has(id))
+  return (assignmentProgressById.value.get(a.id)?.pending ?? 0) > 0
 }
 
 function fmtTime(t: string): string {
@@ -179,8 +193,7 @@ function fmtTime(t: string): string {
 }
 
 function doneCount(a: Assignment): number {
-  const qids = questionIdsByAssignment.value[a.id] ?? []
-  return qids.filter((id) => doneQids.value.has(id)).length
+  return assignmentProgressById.value.get(a.id)?.done ?? 0
 }
 
 /** 大题号：中文数字（一、二、三……，支持到九十九） */
