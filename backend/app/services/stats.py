@@ -1,7 +1,7 @@
 # 班级聚合与学习画像：高频错题 TopN、知识点错误率排行、学生画像。
 from typing import Dict, List
 
-from sqlalchemy import and_, case, func, literal, tuple_
+from sqlalchemy import and_, case, func, literal
 from sqlalchemy.orm import joinedload, load_only
 
 from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
@@ -854,6 +854,12 @@ def class_repair_rate(db) -> Dict:
         Correction.student_id == Submission.student_id,
         Correction.is_correct.is_(True),
     ).exists()
+    passed_verification_pairs = (
+        db.query(Verification.student_id, Verification.knowledge_point)
+        .filter(Verification.status == "passed")
+        .group_by(Verification.student_id, Verification.knowledge_point)
+        .subquery()
+    )
     error_summaries = (
         db.query(
             Submission.student_id.label("student_id"),
@@ -867,9 +873,19 @@ def class_repair_rate(db) -> Dict:
             func.sum(case((has_correct_correction, 1), else_=0)).label(
                 "fixed_count"
             ),
+            func.max(case((
+                passed_verification_pairs.c.student_id.isnot(None), 1,
+            ), else_=0)).label("has_passed_verification"),
         )
         .join(Error, Error.submission_id == Submission.id)
         .join(User, User.id == Submission.student_id)
+        .outerjoin(
+            passed_verification_pairs,
+            and_(
+                passed_verification_pairs.c.student_id == Submission.student_id,
+                passed_verification_pairs.c.knowledge_point == Error.knowledge_point,
+            ),
+        )
         .filter(User.role == "student")
         .group_by(Submission.student_id, Error.knowledge_point)
         .all()
@@ -883,25 +899,6 @@ def class_repair_rate(db) -> Dict:
             "knowledge_points": [],
         }
 
-    error_pairs = [
-        (summary.student_id, summary.knowledge_point)
-        for summary in error_summaries
-    ]
-    passed_pairs = set()
-    # 只加载有错题的学生-知识点组合，并分块控制 SQLite 的绑定参数数量。
-    for start in range(0, len(error_pairs), 400):
-        pair_chunk = error_pairs[start:start + 400]
-        for student_id, knowledge_point in (
-            db.query(Verification.student_id, Verification.knowledge_point)
-            .filter(
-                tuple_(Verification.student_id, Verification.knowledge_point).in_(pair_chunk),
-                Verification.status == "passed",
-            )
-            .distinct()
-            .all()
-        ):
-            passed_pairs.add((student_id, knowledge_point))
-
     total_pairs = 0
     fixed_pairs = 0
     students_with_errors = {summary.student_id for summary in error_summaries}
@@ -909,9 +906,8 @@ def class_repair_rate(db) -> Dict:
     for summary in error_summaries:
         student_id = summary.student_id
         kp = summary.knowledge_point
-        pair = (student_id, kp)
         is_fixed = (
-            pair in passed_pairs
+            bool(summary.has_passed_verification)
             or int(summary.fixed_count or 0) == summary.error_count
         )
         total_pairs += 1
