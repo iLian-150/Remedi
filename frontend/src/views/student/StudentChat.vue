@@ -36,7 +36,7 @@
               <router-link class="welcome-briefing-book" to="/student/mistakes">打开错题本 <AppIcon name="chevron-right" :size="13" /></router-link>
             </div>
 
-            <div v-if="briefingAllDone(welcomeBriefing)" class="welcome-briefing-done">
+            <div v-if="briefingIsAllDone" class="welcome-briefing-done">
               <span class="welcome-done-mark"><AppIcon name="check" :size="17" /></span>
               <div>
                 <strong>太棒了，{{ auth.name }}！全部完成</strong>
@@ -84,16 +84,16 @@
                 </div>
 
                 <div
-                  v-if="briefWeakDetails(welcomeBriefing).length"
+                  v-if="weakPointDetails.length"
                   class="brief-stat-card brief-weakstat brief-clickable"
                   @click="router.push('/student/report')"
                 >
                   <div class="brief-stat-head">
-                    <span class="brief-big tnum">{{ briefWeakDetails(welcomeBriefing).length }}</span>
+                    <span class="brief-big tnum">{{ weakPointDetails.length }}</span>
                     <span class="brief-stat-label">个知识点需要加固</span>
                   </div>
                   <div class="brief-weak-list">
-                    <p v-for="d in briefWeakDetails(welcomeBriefing).slice(0, 3)" :key="d.knowledge_point" class="brief-weak-line">
+                    <p v-for="d in topWeakPointDetails" :key="d.knowledge_point" class="brief-weak-line">
                       <span class="brief-weak-name">{{ d.knowledge_point }}</span>
                       <span class="brief-weak-meta">出错 <span class="tnum">{{ d.error_count }}</span> 次</span>
                     </p>
@@ -112,7 +112,7 @@
         <div v-if="welcomeBriefing" class="brief-bar">
           <span class="brief-bar-icon"><AppIcon name="clipboard" :size="13" /></span>
           <span class="brief-bar-label">学习简报</span>
-          <span v-if="briefingAllDone(welcomeBriefing)" class="brief-bar-done">
+          <span v-if="briefingIsAllDone" class="brief-bar-done">
             <AppIcon name="check" :size="13" /> 今日待办已清空
           </span>
           <span v-else class="brief-bar-items">
@@ -133,7 +133,7 @@
             <p class="ai-card-title"><AppIcon name="clipboard" :size="17" /> 学习简报</p>
 
             <!-- 全部完成：鼓励卡 -->
-            <div v-if="briefingAllDone(welcomeBriefing)" class="brief-done">
+            <div v-if="briefingIsAllDone" class="brief-done">
               <span class="brief-done-icon"><AppIcon name="check" :size="22" /></span>
               <div>
                 <p class="brief-done-title">太棒了，{{ auth.name }}！全部完成</p>
@@ -182,10 +182,10 @@
               </div>
 
               <!-- 需加固知识点小卡 -->
-              <div v-if="briefWeakDetails(welcomeBriefing).length" class="brief-weak">
+              <div v-if="weakPointDetails.length" class="brief-weak">
                 <p class="brief-label">需要加固的知识点</p>
                 <div class="brief-weak-grid">
-                  <div v-for="d in briefWeakDetails(welcomeBriefing)" :key="d.knowledge_point" class="brief-weak-card">
+                  <div v-for="d in weakPointDetails" :key="d.knowledge_point" class="brief-weak-card">
                     <span class="brief-weak-name">{{ d.knowledge_point }}</span>
                     <span class="brief-weak-meta">
                       出错 <span class="tnum">{{ d.error_count }}</span> 次
@@ -585,6 +585,15 @@ const bodyRef = ref<HTMLElement | null>(null)
 let scrollFrame: number | null = null
 const loadingInit = ref(true)
 const welcomeBriefing = computed(() => messages.value.find((msg) => msg.kind === 'briefing')?.briefing ?? null)
+const weakPointDetails = computed(() => {
+  const briefing = welcomeBriefing.value
+  return briefing ? briefWeakDetails(briefing) : []
+})
+const topWeakPointDetails = computed(() => weakPointDetails.value.slice(0, 3))
+const briefingIsAllDone = computed(() => {
+  const briefing = welcomeBriefing.value
+  return briefing ? briefingAllDone(briefing) : false
+})
 const isWelcomeScreen = computed(
   () => !loadingInit.value && !messages.value.some((msg) => msg.side === 'user' || (msg.kind !== 'briefing' && msg.text.trim()))
 )
@@ -612,7 +621,7 @@ const briefSummaryItems = computed(() => {
     items.push({ key: 'assign', label: '未完成作业', count: b.pending_assignments.length, tone: '' })
   if (b.pending_corrections_count)
     items.push({ key: 'corr', label: '待订正', count: b.pending_corrections_count, tone: 'corr' })
-  const weak = briefWeakDetails(b).length
+  const weak = weakPointDetails.value.length
   if (weak) items.push({ key: 'weak', label: '需加固知识点', count: weak, tone: 'weak' })
   return items
 })
