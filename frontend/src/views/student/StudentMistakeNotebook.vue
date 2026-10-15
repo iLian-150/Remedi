@@ -108,7 +108,7 @@ import '../../assets/mistake-book-2.css'
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
 interface MistakeCategory { key: string; label: string; items: StudentMistake[]; studied: boolean; similar: StudentMistake['similar_occurrences'] }
-interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean; searchText: string }
+interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean; searchText: string; priority: number }
 interface NotebookData {
   subjectOptions: Array<{ key: string; label: string }>
   subjectCountByKey: Map<string, number>
@@ -172,8 +172,7 @@ const visibleAssignments = computed(() => {
   }).sort((left, right) => {
     if (sort.value === 'oldest') return left.createdAt.localeCompare(right.createdAt)
     if (sort.value === 'priority') {
-      const repeated = (group: AssignmentGroup) => group.items.reduce((count, item) => count + item.similar_occurrences.length + Number(item.is_stubborn), 0)
-      const difference = repeated(right) - repeated(left)
+      const difference = right.priority - left.priority
       if (difference) return difference
     }
     return right.createdAt.localeCompare(left.createdAt)
@@ -217,11 +216,13 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
         categories: [],
         ready: false,
         searchText: '',
+        priority: 0,
       }
       groups.set(item.assignment_id, group)
       categoriesByAssignment.set(item.assignment_id, new Map())
     }
     group.items.push(item)
+    group.priority += item.similar_occurrences.length + Number(item.is_stubborn)
     const categoryIndex = categoriesByAssignment.get(item.assignment_id)!
     let category = categoryIndex.get(item.category_key)
     if (!category) {
