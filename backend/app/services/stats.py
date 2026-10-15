@@ -147,9 +147,9 @@ def _student_profile_stats(db, student_id: int, visible_only: bool):
     ).group_by(Error.knowledge_point).subquery()
 
     knowledge_points = db.query(
-        attempt_counts.c.knowledge_point
+        attempt_counts.c.knowledge_point.label("knowledge_point")
     ).union(
-        db.query(error_stats.c.knowledge_point)
+        db.query(error_stats.c.knowledge_point.label("knowledge_point"))
     ).subquery()
     rows = (
         db.query(
