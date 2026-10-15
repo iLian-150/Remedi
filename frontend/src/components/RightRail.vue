@@ -223,8 +223,7 @@ interface ReviewCategory {
 const reviewRaw = ref<StudentMistake[]>([])
 const reviewLoading = ref(false)
 const reviewError = ref(false)
-const reviewTotalCount = computed(() => new Set(reviewRaw.value.filter((item) => item.source_kind !== 'student_saved').map((item) => `${item.assignment_id}:${item.category_key}`)).size)
-const reviewCategories = computed<ReviewCategory[]>(() => {
+const reviewSummary = computed(() => {
   const groups = new Map<string, ReviewCategory>()
   for (const item of reviewRaw.value) {
     if (item.source_kind === 'student_saved') continue
@@ -250,10 +249,15 @@ const reviewCategories = computed<ReviewCategory[]>(() => {
       studied: item.category_studied
     })
   }
-  return Array.from(groups.values())
-    .filter((item) => !item.studied)
-    .sort((left, right) => right.priority - left.priority || left.createdAt.localeCompare(right.createdAt))
+  return {
+    totalCount: groups.size,
+    categories: Array.from(groups.values())
+      .filter((item) => !item.studied)
+      .sort((left, right) => right.priority - left.priority || left.createdAt.localeCompare(right.createdAt))
+  }
 })
+const reviewTotalCount = computed(() => reviewSummary.value.totalCount)
+const reviewCategories = computed<ReviewCategory[]>(() => reviewSummary.value.categories)
 const reviewStudiedCount = computed(() => reviewTotalCount.value - reviewCategories.value.length)
 
 const TL_SUBJECT_TEXT: Record<string, string> = {
