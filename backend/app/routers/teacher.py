@@ -708,12 +708,17 @@ def teacher_dashboard(
         func.sum(case((Error.is_stubborn.is_(True), 1), else_=0)),
     ).join(Submission, Error.submission_id == Submission.id).one()
 
-    recent_error_types = db.query(Error.error_type).join(
+    recent_error_types = db.query(
+        Error.error_type.label("error_type")
+    ).join(
         Submission, Error.submission_id == Submission.id,
-    ).order_by(Error.created_at.desc()).limit(100).all()
-    counts_by_type = {}
-    for (error_type,) in recent_error_types:
-        counts_by_type[error_type] = counts_by_type.get(error_type, 0) + 1
+    ).order_by(
+        Error.created_at.desc()
+    ).limit(100).subquery()
+    counts_by_type = dict(db.query(
+        recent_error_types.c.error_type,
+        func.count(),
+    ).group_by(recent_error_types.c.error_type).all())
 
     top_questions = [
         TopQuestionItem(**item) for item in top_error_questions(db, n)
