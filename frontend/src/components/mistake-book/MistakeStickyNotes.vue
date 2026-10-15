@@ -85,6 +85,7 @@ import AppIcon from '../icons/AppIcon.vue'
 type Category = { key: string; label: string; entries: StudentMistake[]; studied: boolean; assignmentCount: number; tags: string[] }
 type SubjectGroup = { key: string; categories: Category[]; entries: StudentMistake[] }
 type StickyAssignment = { assignmentId: number; categoryKey: string; entries: StudentMistake[]; studied: boolean; title: string }
+type AssignmentProgress = { completed: number; total: number; complete: boolean }
 
 const props = defineProps<{
   mistakes: StudentMistake[]
@@ -134,6 +135,27 @@ const subjects = computed<SubjectGroup[]>(() => {
   }
   return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key, 'zh-CN'))
 })
+const assignmentProgressById = computed(() => {
+  const categoriesByAssignment = new Map<number, Map<string, boolean>>()
+  for (const item of props.mistakes) {
+    const categories = categoriesByAssignment.get(item.assignment_id) ?? new Map<string, boolean>()
+    categories.set(
+      item.category_key,
+      (categories.get(item.category_key) ?? true) && item.category_studied,
+    )
+    categoriesByAssignment.set(item.assignment_id, categories)
+  }
+  const progressByAssignment = new Map<number, AssignmentProgress>()
+  for (const [assignmentId, categories] of categoriesByAssignment) {
+    const completed = Array.from(categories.values()).filter(Boolean).length
+    progressByAssignment.set(assignmentId, {
+      completed,
+      total: categories.size,
+      complete: categories.size > 0 && completed === categories.size,
+    })
+  }
+  return progressByAssignment
+})
 const selectedSubject = computed(() => subjects.value.find((item) => item.key === selectedSubjectKey.value))
 const selectedCategory = computed(() => selectedSubject.value?.categories.find((item) => item.key === selectedCategoryKey.value))
 const screen = computed(() => selectedCategory.value ? 'detail' : selectedSubject.value ? 'categories' : 'subjects')
@@ -170,11 +192,11 @@ function goToCategories() { selectedCategoryKey.value = null }
 function selectQuestion(entry: StudentMistake) { focusedMistakeId.value = entry.id; emit('select-mistake', entry) }
 function studyKey(assignment: StickyAssignment) { return `study:${assignment.assignmentId}:${assignment.categoryKey}` }
 function progressFor(assignmentId: number) {
-  const items = props.mistakes.filter((item) => item.assignment_id === assignmentId)
-  const categories = new Map<string, boolean>()
-  for (const item of items) categories.set(item.category_key, (categories.get(item.category_key) ?? true) && item.category_studied)
-  const completed = Array.from(categories.values()).filter(Boolean).length
-  return { completed, total: categories.size, complete: categories.size > 0 && completed === categories.size }
+  return assignmentProgressById.value.get(assignmentId) ?? {
+    completed: 0,
+    total: 0,
+    complete: false,
+  }
 }
 function toggleStudied(assignment: StickyAssignment) {
   emit('study-category', { assignment_id: assignment.assignmentId, category_key: assignment.categoryKey, studied: !assignment.studied })
