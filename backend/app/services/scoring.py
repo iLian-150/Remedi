@@ -373,7 +373,11 @@ def assignment_progress(
     可选返回当前提交的成绩，供诊断页与作业累计分共用同一批成绩读取。"""
     from . import reviews as review_svc
 
-    total = assignment_total(db, assignment_id)
+    total_score_query = (
+        db.query(AssignmentScoring.total_score)
+        .filter(AssignmentScoring.assignment_id == assignment_id)
+        .scalar_subquery()
+    )
     latest_visible = (
         db.query(
             Submission.id.label("submission_id"),
@@ -399,8 +403,8 @@ def assignment_progress(
     question_load = joinedload(Submission.question).load_only(
         Question.id, Question.assignment_id,
     )
-    subs = (
-        db.query(Submission)
+    submission_rows = (
+        db.query(Submission, total_score_query.label("assignment_total"))
         .join(latest_visible, latest_visible.c.submission_id == Submission.id)
         .options(
             load_only(Submission.id, Submission.question_id, Submission.submitted_at),
@@ -410,6 +414,13 @@ def assignment_progress(
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
+    if submission_rows:
+        configured_total = submission_rows[0][1]
+        total = float(configured_total) if configured_total else DEFAULT_TOTAL
+        subs = [row[0] for row in submission_rows]
+    else:
+        total = assignment_total(db, assignment_id)
+        subs = []
     if not subs and current_submission is None:
         return {"assignment_score": 0.0, "assignment_total": total}
 
