@@ -96,9 +96,9 @@ const allRecords = computed(() => {
   return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
 })
 
-// 知识点按错误率降序，供图表与 tooltip 共用
+// 学生画像接口已按错误率降序，图表与 tooltip 直接复用接口数组。
 const sortedKps = computed(() =>
-  [...(profile.value?.knowledge_points ?? [])].sort((a, b) => b.error_rate - a.error_rate)
+  profile.value?.knowledge_points ?? []
 )
 
 const kpOption = computed(() => ({

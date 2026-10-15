@@ -132,13 +132,13 @@ const classReminders = computed<ClassReminder[]>(() => {
     if (e.is_stubborn) cur.stubborn += 1
     byKp.set(e.knowledge_point, cur)
   })
+  // 知识点排行接口已按错误率降序，过滤和映射会保留原有顺序。
   return kpStats.value
     .filter((k) => {
       const s = byKp.get(k.knowledge_point)
       return k.error_rate >= 0.3 && s && s.total >= 2 && s.stubborn === 0
     })
     .map((k) => ({ ...k, total: byKp.get(k.knowledge_point)?.total ?? 0 }))
-    .sort((a, b) => b.error_rate - a.error_rate)
 })
 
 // ---------- 分层辅导：表现稳定 ----------
@@ -160,20 +160,19 @@ const reviewPlan = computed<ReviewItem[]>(() => {
     m.set(e.error_type, (m.get(e.error_type) ?? 0) + 1)
     byQ.set(e.question.id, m)
   })
-  return [...topQuestions.value]
-    .sort((a, b) => b.error_count - a.error_count)
-    .map((q) => {
-      const dist = byQ.get(q.question_id)
-      let advice = '建议结合课堂观察补充讲评要点。'
-      if (dist && dist.size) {
-        const [topType, topCount] = [...dist.entries()].sort((a, b) => b[1] - a[1])[0]
-        const total = [...dist.values()].reduce((s, n) => s + n, 0)
-        const pct = Math.round((topCount / total) * 100)
-        const base = TYPE_ADVICE[topType] ?? '建议针对该错因设计专项讲解。'
-        advice = `样本中「${topType}」占比约 ${pct}%。${base}`
-      }
-      return { ...q, advice }
-    })
+  // 高频错题接口已按错误数降序并以题目 ID 稳定排序，直接沿用。
+  return topQuestions.value.map((q) => {
+    const dist = byQ.get(q.question_id)
+    let advice = '建议结合课堂观察补充讲评要点。'
+    if (dist && dist.size) {
+      const [topType, topCount] = [...dist.entries()].sort((a, b) => b[1] - a[1])[0]
+      const total = [...dist.values()].reduce((s, n) => s + n, 0)
+      const pct = Math.round((topCount / total) * 100)
+      const base = TYPE_ADVICE[topType] ?? '建议针对该错因设计专项讲解。'
+      advice = `样本中「${topType}」占比约 ${pct}%。${base}`
+    }
+    return { ...q, advice }
+  })
 })
 
 onMounted(async () => {
