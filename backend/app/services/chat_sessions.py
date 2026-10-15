@@ -27,13 +27,8 @@ DEFAULT_SESSION_TITLE = "新对话"
 TITLE_MAX_CHARS = 20
 
 
-def ensure_migrated(db: Session, user: User) -> None:
-    """把该用户在旧 chat_messages 的记录一次性迁入会话表（幂等，可重复调用）。"""
-    has_session = (
-        db.query(ChatSession.id).filter(ChatSession.user_id == user.id).first()
-    )
-    if has_session:
-        return
+def _migrate_legacy_messages(db: Session, user: User) -> bool:
+    """调用方已确认没有会话时，将旧消息迁入新会话表。"""
     legacy_count, first_created_at, last_created_at = (
         db.query(
             func.count(ChatMessage.id),
@@ -44,7 +39,7 @@ def ensure_migrated(db: Session, user: User) -> None:
         .one()
     )
     if not legacy_count:
-        return
+        return False
     session = ChatSession(
         user_id=user.id,
         title=LEGACY_SESSION_TITLE,
@@ -75,6 +70,17 @@ def ensure_migrated(db: Session, user: User) -> None:
     db.query(ChatMessage).filter(ChatMessage.user_id == user.id) \
         .delete(synchronize_session=False)
     db.commit()
+    return True
+
+
+def ensure_migrated(db: Session, user: User) -> bool:
+    """幂等迁移旧消息；仅本次实际迁移时返回 True。"""
+    has_session = (
+        db.query(ChatSession.id).filter(ChatSession.user_id == user.id).first()
+    )
+    if not has_session:
+        return _migrate_legacy_messages(db, user)
+    return False
 
 
 def create_session(db: Session, user: User, title: str = DEFAULT_SESSION_TITLE) -> ChatSession:
@@ -99,8 +105,18 @@ def current_session(db: Session, user: User) -> Optional[ChatSession]:
     )
 
 
-def get_or_create_current(db: Session, user: User) -> ChatSession:
+def current_session_or_migrate(db: Session, user: User) -> Optional[ChatSession]:
+    """读取当前会话；只有不存在会话时才检查并迁移旧版记录。"""
     session = current_session(db, user)
+    if session is not None:
+        return session
+    if not _migrate_legacy_messages(db, user):
+        return None
+    return current_session(db, user)
+
+
+def get_or_create_current(db: Session, user: User) -> ChatSession:
+    session = current_session_or_migrate(db, user)
     if session is None:
         session = create_session(db, user)
     return session
@@ -115,13 +131,27 @@ def get_own_session(db: Session, user: User, session_id: int) -> Optional[ChatSe
     )
 
 
+def get_own_session_or_migrate(
+    db: Session, user: User, session_id: int,
+) -> Optional[ChatSession]:
+    """读取指定会话；已有记录时跳过必然无效的迁移检查。"""
+    session = get_own_session(db, user, session_id)
+    if session is not None:
+        return session
+    if ensure_migrated(db, user):
+        return get_own_session(db, user, session_id)
+    return None
+
+
 def list_sessions(db: Session, user: User) -> List[dict]:
-    rows = (
+    query = (
         db.query(ChatSession)
         .filter(ChatSession.user_id == user.id)
         .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
-        .all()
     )
+    rows = query.all()
+    if not rows and _migrate_legacy_messages(db, user):
+        rows = query.all()
     return [
         {
             "id": s.id,
@@ -290,7 +320,7 @@ def related_mistake_for_message(db: Session, user: User,
 
 def delete_session(db: Session, user: User, session_id: int) -> bool:
     """删除本人的一条会话及其全部消息；不存在/非本人返回 False。"""
-    session = get_own_session(db, user, session_id)
+    session = get_own_session_or_migrate(db, user, session_id)
     if session is None:
         return False
     has_messages = db.query(ChatSessionMessage.id).filter(

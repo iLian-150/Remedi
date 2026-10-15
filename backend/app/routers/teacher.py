@@ -1402,7 +1402,6 @@ def teacher_agent_sessions(db: Session = Depends(get_db), current: User = Depend
     """历史对话列表：按最近更新倒序，含消息数。首次访问触发旧 chat_messages 迁移。"""
     from ..services import chat_sessions as cs
 
-    cs.ensure_migrated(db, current)
     return cs.list_sessions(db, current)
 
 
@@ -1425,8 +1424,7 @@ def teacher_agent_session_messages(session_id: int, db: Session = Depends(get_db
     """会话内全部消息时间正序；会话不存在或不是本人的统一 404。"""
     from ..services import chat_sessions as cs
 
-    cs.ensure_migrated(db, current)
-    session = cs.get_own_session(db, current, session_id)
+    session = cs.get_own_session_or_migrate(db, current, session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
     return [
@@ -1441,7 +1439,6 @@ def teacher_agent_delete_session(session_id: int, db: Session = Depends(get_db),
     """删除本人的一条会话及其全部消息；不存在或不是本人的统一 404。"""
     from ..services import chat_sessions as cs
 
-    cs.ensure_migrated(db, current)
     if not cs.delete_session(db, current, session_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
     return {"deleted": True}
@@ -1468,9 +1465,10 @@ def teacher_agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
     if len(text) > _AGENT_MSG_MAX:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
 
-    cs.ensure_migrated(db, current)
     if body.session_id is not None:
-        session = cs.get_own_session(db, current, body.session_id)
+        session = cs.get_own_session_or_migrate(
+            db, current, body.session_id
+        )
         if session is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
     else:
@@ -1526,8 +1524,7 @@ def teacher_agent_history(db: Session = Depends(get_db), current: User = Depends
     """兼容旧用法：返回「当前会话」最近 50 条消息（v0.6.0 起按会话隔离）。"""
     from ..services import chat_sessions as cs
 
-    cs.ensure_migrated(db, current)
-    session = cs.current_session(db, current)
+    session = cs.current_session_or_migrate(db, current)
     if session is None:
         return []
     return [
