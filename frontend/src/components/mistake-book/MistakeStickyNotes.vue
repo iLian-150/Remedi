@@ -196,7 +196,7 @@ const assignments = computed<StickyAssignment[]>(() => {
 })
 const completedAssignmentCount = computed(() => assignments.value.reduce((count, assignment) => count + Number(assignment.studied), 0))
 
-watch(() => props.mistakes.map((item) => item.id).join(','), () => {
+watch(() => props.mistakes, () => {
   if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) goToSubjects()
   else if (selectedCategoryKey.value && !selectedSubject.value?.categories.some((item) => item.key === selectedCategoryKey.value)) goToCategories()
 })
