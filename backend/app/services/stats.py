@@ -710,11 +710,15 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
         subject_expr, Error.knowledge_point,
     ).subquery()
 
+    # 显式标签确保 SQLAlchemy 2 的 Query.union 子查询保留可引用的列名。
     subject_knowledge_points = db.query(
-        attempt_counts.c.subject,
-        attempt_counts.c.knowledge_point,
+        attempt_counts.c.subject.label("subject"),
+        attempt_counts.c.knowledge_point.label("knowledge_point"),
     ).union(
-        db.query(error_stats.c.subject, error_stats.c.knowledge_point)
+        db.query(
+            error_stats.c.subject.label("subject"),
+            error_stats.c.knowledge_point.label("knowledge_point"),
+        )
     ).subquery()
     combined_rows = (
         db.query(
