@@ -180,178 +180,129 @@ def list_assignments(
     )
     assignment_query = (
         db.query(Assignment, AssignmentExt, AssignmentSetting, Workbook.title)
+        .options(
+            load_only(
+                Assignment.id, Assignment.title, Assignment.description,
+                Assignment.created_at,
+            ),
+            load_only(
+                AssignmentExt.assignment_id, AssignmentExt.mode,
+                AssignmentExt.workbook_id, AssignmentExt.page_range,
+                AssignmentExt.deadline,
+            ),
+            load_only(
+                AssignmentSetting.assignment_id,
+                AssignmentSetting.allow_revision,
+            ),
+        )
         .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
         .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
         .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
     )
-    if not include_submission_status:
-        has_submission = db.query(Submission.id).filter(
-            Submission.question_id == Question.id,
-            Submission.student_id == current.id,
-        ).exists()
-        question_stats_query = db.query(
-            Question.assignment_id.label("assignment_id"),
-            func.count(Question.id).label("question_count"),
-            func.sum(case((has_submission, 1), else_=0)).label(
-                "submitted_count"
-            ),
-        )
-        if not include_questions:
-            question_stats_query = question_stats_query.add_columns(
-                func.sum(case((Question.subject != "math", 1), else_=0)).label(
-                    "non_math_count"
-                )
+    has_submission = db.query(Submission.id).filter(
+        Submission.question_id == Question.id,
+        Submission.student_id == current.id,
+    ).exists()
+    question_stats_query = db.query(
+        Question.assignment_id.label("assignment_id"),
+        func.count(Question.id).label("question_count"),
+        func.sum(case((has_submission, 1), else_=0)).label(
+            "submitted_count"
+        ),
+    )
+    if not include_questions:
+        question_stats_query = question_stats_query.add_columns(
+            func.sum(case((Question.subject != "math", 1), else_=0)).label(
+                "non_math_count"
             )
-        question_stats_subquery = (
-            question_stats_query
+        )
+    question_stats_subquery = (
+        question_stats_query
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .filter(visible_assignment)
+        .group_by(Question.assignment_id)
+        .subquery()
+    )
+    assignment_query = assignment_query.outerjoin(
+        question_stats_subquery,
+        question_stats_subquery.c.assignment_id == Assignment.id,
+    ).add_columns(
+        question_stats_subquery.c.question_count,
+        question_stats_subquery.c.submitted_count,
+    )
+    if not include_questions:
+        assignment_query = assignment_query.add_columns(
+            question_stats_subquery.c.non_math_count
+        )
+
+    if include_submission_status:
+        latest_submissions = (
+            db.query(
+                Question.assignment_id.label("assignment_id"),
+                Submission.question_id.label("question_id"),
+                SubmissionReview.status.label("review_status"),
+                func.row_number().over(
+                    partition_by=Submission.question_id,
+                    order_by=(
+                        Submission.submitted_at.desc(),
+                        Submission.id.desc(),
+                    ),
+                ).label("row_num"),
+            )
+            .join(Question, Question.id == Submission.question_id)
             .join(Assignment, Assignment.id == Question.assignment_id)
-            .filter(visible_assignment)
-            .group_by(Question.assignment_id)
+            .outerjoin(
+                SubmissionReview,
+                SubmissionReview.submission_id == Submission.id,
+            )
+            .filter(Submission.student_id == current.id, visible_assignment)
             .subquery()
         )
         assignment_query = assignment_query.outerjoin(
-            question_stats_subquery,
-            question_stats_subquery.c.assignment_id == Assignment.id,
+            latest_submissions,
+            and_(
+                latest_submissions.c.assignment_id == Assignment.id,
+                latest_submissions.c.row_num == 1,
+            ),
         ).add_columns(
-            question_stats_subquery.c.question_count,
-            question_stats_subquery.c.submitted_count,
+            latest_submissions.c.question_id,
+            latest_submissions.c.review_status,
         )
-        if not include_questions:
-            assignment_query = assignment_query.add_columns(
-                question_stats_subquery.c.non_math_count
-            )
-    assignment_rows = (
+
+    query_rows = (
         assignment_query
         .filter(visible_assignment)
         .order_by(Assignment.id)
         .all()
     )
-    assignment_ids = [row[0].id for row in assignment_rows]
+    assignment_rows_by_id = {}
     question_stats = {}
     photo_required_assignment_ids = set()
     submitted_question_ids = {}
     pending_question_ids = {}
-    if assignment_ids and include_submission_status:
-        for start in range(0, len(assignment_ids), 500):
-            assignment_id_chunk = assignment_ids[start:start + 500]
-            has_submission = db.query(Submission.id).filter(
-                Submission.question_id == Question.id,
-                Submission.student_id == current.id,
-            ).exists()
-            question_stats_query = db.query(
-                Question.assignment_id.label("assignment_id"),
-                func.count(Question.id).label("question_count"),
-                func.sum(case((has_submission, 1), else_=0)).label(
-                    "submitted_count"
-                ),
-            )
-            if not include_questions:
-                question_stats_query = question_stats_query.add_columns(
-                    func.sum(case((Question.subject != "math", 1), else_=0)).label(
-                        "non_math_count"
-                    )
+    status_offset = 6 if include_questions else 7
+    for row in query_rows:
+        assignment_id = row[0].id
+        assignment_rows_by_id.setdefault(assignment_id, row[:4])
+        question_count = int(row[4] or 0)
+        submitted_count = int(row[5] or 0)
+        question_stats[assignment_id] = (question_count, submitted_count)
+        if not include_questions and int(row[6] or 0):
+            photo_required_assignment_ids.add(assignment_id)
+        if include_submission_status:
+            question_id = row[status_offset]
+            review_status = row[status_offset + 1]
+            if question_id is not None:
+                submitted_question_ids.setdefault(assignment_id, []).append(
+                    question_id
                 )
-            rows = (
-                question_stats_query
-                .filter(Question.assignment_id.in_(assignment_id_chunk))
-                .group_by(Question.assignment_id)
-            )
+                if review_status == review_svc.PENDING:
+                    pending_question_ids.setdefault(assignment_id, []).append(
+                        question_id
+                    )
 
-            if include_submission_status:
-                question_stats_subquery = rows.subquery()
-                latest_submissions = (
-                    db.query(
-                        Question.assignment_id.label("assignment_id"),
-                        Submission.question_id.label("question_id"),
-                        SubmissionReview.status.label("review_status"),
-                        func.row_number().over(
-                            partition_by=Submission.question_id,
-                            order_by=(
-                                Submission.submitted_at.desc(),
-                                Submission.id.desc(),
-                            ),
-                        ).label("row_num"),
-                    )
-                    .join(Question, Question.id == Submission.question_id)
-                    .outerjoin(
-                        SubmissionReview,
-                        SubmissionReview.submission_id == Submission.id,
-                    )
-                    .filter(
-                        Submission.student_id == current.id,
-                        Question.assignment_id.in_(assignment_id_chunk),
-                    )
-                    .subquery()
-                )
-                selected_stats = [
-                    question_stats_subquery.c.assignment_id,
-                    question_stats_subquery.c.question_count,
-                    question_stats_subquery.c.submitted_count,
-                ]
-                if not include_questions:
-                    selected_stats.append(
-                        question_stats_subquery.c.non_math_count
-                    )
-                rows = db.query(
-                    *selected_stats,
-                    latest_submissions.c.question_id,
-                    latest_submissions.c.review_status,
-                ).select_from(question_stats_subquery).outerjoin(
-                    latest_submissions,
-                    and_(
-                        latest_submissions.c.assignment_id
-                        == question_stats_subquery.c.assignment_id,
-                        latest_submissions.c.row_num == 1,
-                    ),
-                ).all()
-
-                for row in rows:
-                    assignment_id, question_count, submitted_count = row[:3]
-                    question_stats[assignment_id] = (
-                        question_count, submitted_count
-                    )
-                    status_offset = 3
-                    if not include_questions:
-                        if row[status_offset]:
-                            photo_required_assignment_ids.add(assignment_id)
-                        status_offset += 1
-                    question_id = row[status_offset]
-                    review_status = row[status_offset + 1]
-                    if question_id is not None:
-                        submitted_question_ids.setdefault(
-                            assignment_id, []
-                        ).append(question_id)
-                        if review_status == review_svc.PENDING:
-                            pending_question_ids.setdefault(
-                                assignment_id, []
-                            ).append(question_id)
-            else:
-                rows = rows.all()
-                if include_questions:
-                    question_stats.update({
-                        assignment_id: (question_count, submitted_count)
-                        for assignment_id, question_count, submitted_count in rows
-                    })
-                else:
-                    for (
-                        assignment_id,
-                        question_count,
-                        submitted_count,
-                        non_math_count,
-                    ) in rows:
-                        question_stats[assignment_id] = (
-                            question_count, submitted_count
-                        )
-                        if non_math_count:
-                            photo_required_assignment_ids.add(assignment_id)
-    elif assignment_ids:
-        for row in assignment_rows:
-            assignment_id = row[0].id
-            question_count = int(row[4] or 0)
-            submitted_count = int(row[5] or 0)
-            question_stats[assignment_id] = (question_count, submitted_count)
-            if not include_questions and int(row[6] or 0):
-                photo_required_assignment_ids.add(assignment_id)
+    assignment_rows = list(assignment_rows_by_id.values())
+    assignment_ids = list(assignment_rows_by_id)
 
     questions_by_assignment = {}
     groups_by_assignment = {}
