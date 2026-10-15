@@ -178,21 +178,60 @@ def list_assignments(
             db.query(User.id).filter(User.role == "student")
         ))
     )
-    assignment_rows = (
+    assignment_query = (
         db.query(Assignment, AssignmentExt, AssignmentSetting, Workbook.title)
         .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
         .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
         .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
+    )
+    if not include_submission_status:
+        has_submission = db.query(Submission.id).filter(
+            Submission.question_id == Question.id,
+            Submission.student_id == current.id,
+        ).exists()
+        question_stats_query = db.query(
+            Question.assignment_id.label("assignment_id"),
+            func.count(Question.id).label("question_count"),
+            func.sum(case((has_submission, 1), else_=0)).label(
+                "submitted_count"
+            ),
+        )
+        if not include_questions:
+            question_stats_query = question_stats_query.add_columns(
+                func.sum(case((Question.subject != "math", 1), else_=0)).label(
+                    "non_math_count"
+                )
+            )
+        question_stats_subquery = (
+            question_stats_query
+            .join(Assignment, Assignment.id == Question.assignment_id)
+            .filter(visible_assignment)
+            .group_by(Question.assignment_id)
+            .subquery()
+        )
+        assignment_query = assignment_query.outerjoin(
+            question_stats_subquery,
+            question_stats_subquery.c.assignment_id == Assignment.id,
+        ).add_columns(
+            question_stats_subquery.c.question_count,
+            question_stats_subquery.c.submitted_count,
+        )
+        if not include_questions:
+            assignment_query = assignment_query.add_columns(
+                question_stats_subquery.c.non_math_count
+            )
+    assignment_rows = (
+        assignment_query
         .filter(visible_assignment)
         .order_by(Assignment.id)
         .all()
     )
-    assignment_ids = [a.id for a, _, _, _ in assignment_rows]
+    assignment_ids = [row[0].id for row in assignment_rows]
     question_stats = {}
     photo_required_assignment_ids = set()
     submitted_question_ids = {}
     pending_question_ids = {}
-    if assignment_ids:
+    if assignment_ids and include_submission_status:
         for start in range(0, len(assignment_ids), 500):
             assignment_id_chunk = assignment_ids[start:start + 500]
             has_submission = db.query(Submission.id).filter(
@@ -305,6 +344,14 @@ def list_assignments(
                         )
                         if non_math_count:
                             photo_required_assignment_ids.add(assignment_id)
+    elif assignment_ids:
+        for row in assignment_rows:
+            assignment_id = row[0].id
+            question_count = int(row[4] or 0)
+            submitted_count = int(row[5] or 0)
+            question_stats[assignment_id] = (question_count, submitted_count)
+            if not include_questions and int(row[6] or 0):
+                photo_required_assignment_ids.add(assignment_id)
 
     questions_by_assignment = {}
     groups_by_assignment = {}
@@ -364,7 +411,8 @@ def list_assignments(
                 photo_required_assignment_ids.add(row.assignment_id)
 
     result = []
-    for a, ext, setting, workbook_title in assignment_rows:
+    for assignment_row in assignment_rows:
+        a, ext, setting, workbook_title = assignment_row[:4]
         question_count, submitted = question_stats.get(a.id, (0, 0))
         mode = (ext.mode or "online") if ext else "online"
         item = {
