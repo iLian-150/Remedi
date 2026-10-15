@@ -822,6 +822,14 @@ watch(
   }
 )
 
+function findLastMessage(predicate: (message: ChatMsg) => boolean): ChatMsg | undefined {
+  for (let index = messages.value.length - 1; index >= 0; index--) {
+    const message = messages.value[index]
+    if (predicate(message)) return message
+  }
+  return undefined
+}
+
 async function sendChat(raw?: string) {
   const text = (typeof raw === 'string' ? raw : chatInput.value).trim()
   const image = selectedImage.value
@@ -839,7 +847,7 @@ async function sendChat(raw?: string) {
   }
   chatInput.value = ''
   suggestions.value = []
-  const previousQuestion = [...messages.value].reverse().find((item) => item.side === 'user' && item.kind === 'text')?.text ?? ''
+  const previousQuestion = findLastMessage((item) => item.side === 'user' && item.kind === 'text')?.text ?? ''
   pushMsg({ side: 'user', kind: 'text', text })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
   chatSending.value = true
@@ -849,7 +857,7 @@ async function sendChat(raw?: string) {
     const refersToPrevious = /刚才|上一题|前面那题|之前那题/.test(text)
     const cleanedQuestion = text.replace(/[，,。 ]*(?:顺便)?(?:请)?(?:把)?(?:这道题|这题)?(?:加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏)(?:错题本|错题)(?:里|中)?[。！!]?/g, '').trim()
     const containsQuestion = /[=+\-×÷?？]/.test(cleanedQuestion) || cleanedQuestion.length > 10
-    const pendingCapture = [...messages.value].reverse().find((item) => item.captureId && !item.saved)
+    const pendingCapture = findLastMessage((item) => Boolean(item.captureId) && !item.saved)
     if (pendingCapture && saveIntent && !containsQuestion && !refersToPrevious) {
       await student.savePhotoCapture(pendingCapture.captureId!, pendingCapture.text)
       pendingCapture.saved = true
