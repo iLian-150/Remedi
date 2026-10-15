@@ -34,7 +34,7 @@
             <div class="notebook-section-head"><div><h2>从一份作业开始</h2><p>同类错误会合并显示，也会提醒你以前在哪份作业错过。</p></div><button class="notebook-review-button" type="button" :disabled="loading || !nextMistake" @click="nextMistake && openAssistant(nextMistake)">开始复习<AppIcon name="arrow-right" :size="13"/></button></div>
             <div class="notebook-subjects" role="group" aria-label="按学科筛选">
               <button type="button" :class="{ selected: subject === 'all' }" :aria-pressed="subject === 'all'" @click="subject = 'all'">全部学科<small>{{ allMistakes.length }}</small></button>
-              <button v-for="option in subjectOptions" :key="option.key" type="button" :class="{ selected: subject === option.key }" :aria-pressed="subject === option.key" @click="subject = option.key">{{ option.label }}<small>{{ allMistakes.filter((item) => item.question_subject === option.key).length }}</small></button>
+              <button v-for="option in subjectOptions" :key="option.key" type="button" :class="{ selected: subject === option.key }" :aria-pressed="subject === option.key" @click="subject = option.key">{{ option.label }}<small>{{ subjectCountByKey.get(option.key) ?? 0 }}</small></button>
             </div>
             <div class="notebook-filterbar">
               <div class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
@@ -140,6 +140,14 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
 const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
 
 const subjectOptions = computed(() => Array.from(new Set(allMistakes.value.map((item) => item.question_subject))).map((key) => ({ key, label: subjectName(key) })))
+const subjectCountByKey = computed(() => {
+  const counts = new Map<string, number>()
+  for (const item of allMistakes.value) {
+    counts.set(item.question_subject, (counts.get(item.question_subject) ?? 0) + 1)
+  }
+  return counts
+})
+const assignmentGroups = computed(() => buildAssignments(allMistakes.value))
 const categoryCount = computed(() => new Set(allMistakes.value.filter((item) => !isStudentSaved(item)).map((item) => `${item.assignment_id}:${item.category_key}`)).size)
 const studiedCategoryCount = computed(() => {
   const categories = new Map<string, boolean>()
@@ -150,9 +158,9 @@ const studiedCategoryCount = computed(() => {
   return Array.from(categories.values()).filter(Boolean).length
 })
 const studyPercent = computed(() => categoryCount.value ? Math.round(studiedCategoryCount.value / categoryCount.value * 100) : 0)
-const pendingAssignments = computed(() => buildAssignments(allMistakes.value).filter((item) => !item.ready))
+const pendingAssignments = computed(() => assignmentGroups.value.filter((item) => !item.ready))
 const statusOptions = computed(() => {
-  const groups = buildAssignments(allMistakes.value)
+  const groups = assignmentGroups.value
   return [
     { key: 'all' as const, label: '全部作业', count: groups.length },
     { key: 'pending' as const, label: '待学习', count: groups.filter((item) => !item.ready).length },
@@ -161,7 +169,7 @@ const statusOptions = computed(() => {
 })
 const visibleAssignments = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
-  return buildAssignments(allMistakes.value).filter((assignment) => {
+  return assignmentGroups.value.filter((assignment) => {
     if (subject.value !== 'all' && assignment.subject !== subject.value) return false
     if (status.value === 'pending' && assignment.ready || status.value === 'ready' && !assignment.ready) return false
     if (!needle) return true
@@ -179,7 +187,7 @@ const visibleAssignments = computed(() => {
 const filtersApplied = computed(() => subject.value !== 'all' || status.value !== 'all' || Boolean(query.value.trim()))
 const nextMistake = computed(() => visibleAssignments.value.flatMap((assignment) => assignment.categories.filter((category) => !category.studied).flatMap((category) => category.items))[0])
 const relatedMistakes = computed(() => selectedMistake.value ? allMistakes.value.filter((item) => item.question_subject === selectedMistake.value?.question_subject && item.knowledge_point === selectedMistake.value?.knowledge_point && item.category_key === selectedMistake.value?.category_key) : [])
-const assistantAssignment = computed(() => selectedMistake.value ? buildAssignments(allMistakes.value).find((item) => item.id === selectedMistake.value?.assignment_id) : undefined)
+const assistantAssignment = computed(() => selectedMistake.value ? assignmentGroups.value.find((item) => item.id === selectedMistake.value?.assignment_id) : undefined)
 const assistantProgress = computed(() => ({ completed: assistantAssignment.value?.categories.filter((item) => item.studied).length ?? 0, total: assistantAssignment.value?.categories.length ?? 0, complete: Boolean(assistantAssignment.value?.ready) }))
 const assistantStudyKey = computed(() => selectedMistake.value ? studyKey(selectedMistake.value.assignment_id, selectedMistake.value.category_key) : '')
 
