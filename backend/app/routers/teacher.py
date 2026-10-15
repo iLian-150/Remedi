@@ -241,6 +241,10 @@ def list_errors(
         query = query.filter(Error.error_type == error_type)
     if stubborn_only:
         query = query.filter(Error.is_stubborn.is_(True))
+    query = query.outerjoin(
+        SubmissionReview,
+        SubmissionReview.submission_id == Error.submission_id,
+    )
     page_rows = (
         query.options(
             load_only(
@@ -262,6 +266,7 @@ def list_errors(
                 ),
             ),
         )
+        .add_columns(SubmissionReview.status.label("review_status"))
         .add_columns(func.count(Error.id).over().label("total"))
         .order_by(Error.created_at.desc())
         .offset(offset)
@@ -270,17 +275,22 @@ def list_errors(
     )
     if page_rows:
         total = int(page_rows[0].total or 0)
-        errs = [error for error, _ in page_rows]
+        errs = []
+        status_by_id = {}
+        for error, review_status, _ in page_rows:
+            errs.append(error)
+            if review_status is not None:
+                status_by_id[error.submission_id] = review_status
     else:
         # 窗口计数在空页没有返回行；仅此时单独查询总数以保留越界分页语义。
         total = query.count()
         errs = []
+        status_by_id = {}
     submission_by_id = {
         err.submission_id: err.submission
         for err in errs
         if err.submission is not None
     }
-    status_by_id = review_svc.review_status_map(db, submission_by_id)
     approved_submissions = [
         submission
         for submission_id, submission in submission_by_id.items()
