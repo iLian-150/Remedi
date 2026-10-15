@@ -402,39 +402,40 @@ def list_assignments(
 @router.get("/assignments/{assignment_id}", response_model=AssignmentDetail, summary="作业详情")
 def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_student)):
-    assignment_row = (
+    assignment_rows = (
         db.query(
             Assignment,
             User.role,
             AssignmentExt,
             AssignmentSetting,
             Workbook.title,
+            Question,
+            QuestionGroupMember.group_id,
         )
         .outerjoin(User, User.id == Assignment.created_by)
         .outerjoin(AssignmentExt, AssignmentExt.assignment_id == Assignment.id)
         .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
         .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
-        .options(load_only(
-            Assignment.id, Assignment.created_by, Assignment.title, Assignment.description,
-        ))
-        .filter(Assignment.id == assignment_id)
-        .first()
-    )
-    if assignment_row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
-    a, creator_role, ext, setting, workbook_title = assignment_row
-    if creator_role == "student":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
-    question_rows = (
-        db.query(Question, QuestionGroupMember.group_id)
+        .outerjoin(Question, Question.assignment_id == Assignment.id)
         .outerjoin(QuestionGroupMember, QuestionGroupMember.question_id == Question.id)
         .options(load_only(
+            Assignment.id, Assignment.created_by, Assignment.title, Assignment.description,
+        ), load_only(
             Question.id, Question.subject, Question.knowledge_point,
             Question.stem, Question.order_num,
         ))
-        .filter(Question.assignment_id == a.id)
-        .order_by(Question.order_num, Question.id).all()
+        .filter(Assignment.id == assignment_id)
+        .order_by(Question.order_num, Question.id)
+        .all()
     )
+    if not assignment_rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    a, creator_role, ext, setting, workbook_title = assignment_rows[0][:5]
+    if creator_role == "student":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    question_rows = [
+        (row[5], row[6]) for row in assignment_rows if row[5] is not None
+    ]
     # v0.13.1：大题分组（成员映射 + 大题列表）
     questions = [question for question, _ in question_rows]
     group_by_qid = {
