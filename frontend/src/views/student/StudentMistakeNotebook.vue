@@ -25,7 +25,7 @@
 
           <div class="notebook-overview" aria-label="错题复习概览">
             <div class="notebook-stat total"><span class="notebook-stat-icon"><AppIcon name="clipboard" :size="18"/></span><div class="notebook-stat-copy"><span>收录错题</span><strong>{{ loading ? '—' : allMistakes.length }}<small>条</small></strong></div></div>
-            <div class="notebook-stat pending"><span class="notebook-stat-icon"><AppIcon name="history" :size="18"/></span><div class="notebook-stat-copy"><span>待学习作业</span><strong>{{ loading ? '—' : pendingAssignments.length }}<small>份</small></strong></div></div>
+            <div class="notebook-stat pending"><span class="notebook-stat-icon"><AppIcon name="history" :size="18"/></span><div class="notebook-stat-copy"><span>待学习作业</span><strong>{{ loading ? '—' : assignmentReadiness.pending }}<small>份</small></strong></div></div>
             <div class="notebook-stat repaired"><span class="notebook-stat-icon"><AppIcon name="check" :size="18"/></span><div class="notebook-stat-copy"><span>错误类别</span><strong>{{ loading ? '—' : `${studiedCategoryCount}/${categoryCount}` }}</strong></div></div>
             <div class="notebook-progress"><label><span>错误类别学习进度</span><b>{{ loading ? '—' : `${studyPercent}%` }}</b></label><div class="notebook-progress-track" role="progressbar" aria-label="错误类别学习进度" :aria-valuenow="loading ? undefined : studyPercent" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${loading ? 0 : studyPercent}%` }"/></div></div>
           </div>
@@ -157,13 +157,21 @@ const assignmentGroups = computed(() => notebookData.value.assignmentGroups)
 const categoryCount = computed(() => notebookData.value.categoryCount)
 const studiedCategoryCount = computed(() => notebookData.value.studiedCategoryCount)
 const studyPercent = computed(() => categoryCount.value ? Math.round(studiedCategoryCount.value / categoryCount.value * 100) : 0)
-const pendingAssignments = computed(() => assignmentGroups.value.filter((item) => !item.ready))
+const assignmentReadiness = computed(() => {
+  let pending = 0
+  let ready = 0
+  for (const assignment of assignmentGroups.value) {
+    if (assignment.ready) ready++
+    else pending++
+  }
+  return { pending, ready }
+})
 const statusOptions = computed(() => {
   const groups = assignmentGroups.value
   return [
     { key: 'all' as const, label: '全部作业', count: groups.length },
-    { key: 'pending' as const, label: '待学习', count: groups.filter((item) => !item.ready).length },
-    { key: 'ready' as const, label: '已学完', count: groups.filter((item) => item.ready).length },
+    { key: 'pending' as const, label: '待学习', count: assignmentReadiness.value.pending },
+    { key: 'ready' as const, label: '已学完', count: assignmentReadiness.value.ready },
   ]
 })
 const visibleAssignments = computed(() => {
