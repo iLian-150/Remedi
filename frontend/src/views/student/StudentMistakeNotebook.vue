@@ -109,6 +109,13 @@ import '../../assets/mistake-book-2.css'
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
 interface MistakeCategory { key: string; label: string; items: StudentMistake[]; studied: boolean; similar: StudentMistake['similar_occurrences'] }
 interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean }
+interface NotebookData {
+  subjectOptions: Array<{ key: string; label: string }>
+  subjectCountByKey: Map<string, number>
+  assignmentGroups: AssignmentGroup[]
+  categoryCount: number
+  studiedCategoryCount: number
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -139,24 +146,12 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
 ]
 const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
 
-const subjectOptions = computed(() => Array.from(new Set(allMistakes.value.map((item) => item.question_subject))).map((key) => ({ key, label: subjectName(key) })))
-const subjectCountByKey = computed(() => {
-  const counts = new Map<string, number>()
-  for (const item of allMistakes.value) {
-    counts.set(item.question_subject, (counts.get(item.question_subject) ?? 0) + 1)
-  }
-  return counts
-})
-const assignmentGroups = computed(() => buildAssignments(allMistakes.value))
-const categoryCount = computed(() => new Set(allMistakes.value.filter((item) => !isStudentSaved(item)).map((item) => `${item.assignment_id}:${item.category_key}`)).size)
-const studiedCategoryCount = computed(() => {
-  const categories = new Map<string, boolean>()
-  for (const item of allMistakes.value.filter((entry) => !isStudentSaved(entry))) {
-    const key = `${item.assignment_id}:${item.category_key}`
-    categories.set(key, (categories.get(key) ?? true) && item.category_studied)
-  }
-  return Array.from(categories.values()).filter(Boolean).length
-})
+const notebookData = computed(() => buildNotebookData(allMistakes.value))
+const subjectOptions = computed(() => notebookData.value.subjectOptions)
+const subjectCountByKey = computed(() => notebookData.value.subjectCountByKey)
+const assignmentGroups = computed(() => notebookData.value.assignmentGroups)
+const categoryCount = computed(() => notebookData.value.categoryCount)
+const studiedCategoryCount = computed(() => notebookData.value.studiedCategoryCount)
 const studyPercent = computed(() => categoryCount.value ? Math.round(studiedCategoryCount.value / categoryCount.value * 100) : 0)
 const pendingAssignments = computed(() => assignmentGroups.value.filter((item) => !item.ready))
 const statusOptions = computed(() => {
@@ -191,24 +186,76 @@ const assistantAssignment = computed(() => selectedMistake.value ? assignmentGro
 const assistantProgress = computed(() => ({ completed: assistantAssignment.value?.categories.filter((item) => item.studied).length ?? 0, total: assistantAssignment.value?.categories.length ?? 0, complete: Boolean(assistantAssignment.value?.ready) }))
 const assistantStudyKey = computed(() => selectedMistake.value ? studyKey(selectedMistake.value.assignment_id, selectedMistake.value.category_key) : '')
 
-function buildAssignments(items: StudentMistake[]): AssignmentGroup[] {
+function buildNotebookData(items: StudentMistake[]): NotebookData {
+  const subjectKeys = new Set<string>()
+  const subjectCountByKey = new Map<string, number>()
   const groups = new Map<number, AssignmentGroup>()
+  const categoriesByAssignment = new Map<number, Map<string, MistakeCategory>>()
+  const studiedByCategory = new Map<string, boolean>()
   for (const item of items) {
-    const group = groups.get(item.assignment_id) ?? { id: item.assignment_id, title: item.assignment_title, createdAt: item.assignment_created_at, subject: item.question_subject, items: [], categories: [], ready: false }
+    subjectKeys.add(item.question_subject)
+    subjectCountByKey.set(
+      item.question_subject,
+      (subjectCountByKey.get(item.question_subject) ?? 0) + 1,
+    )
+    if (!isStudentSaved(item)) {
+      const categoryKey = `${item.assignment_id}:${item.category_key}`
+      studiedByCategory.set(
+        categoryKey,
+        (studiedByCategory.get(categoryKey) ?? true) && item.category_studied,
+      )
+    }
+
+    let group = groups.get(item.assignment_id)
+    if (!group) {
+      group = {
+        id: item.assignment_id,
+        title: item.assignment_title,
+        createdAt: item.assignment_created_at,
+        subject: item.question_subject,
+        items: [],
+        categories: [],
+        ready: false,
+      }
+      groups.set(item.assignment_id, group)
+      categoriesByAssignment.set(item.assignment_id, new Map())
+    }
     group.items.push(item)
-    let category = group.categories.find((entry) => entry.key === item.category_key)
-    if (!category) { category = { key: item.category_key, label: item.category_label || item.error_type, items: [], studied: true, similar: item.similar_occurrences }; group.categories.push(category) }
+    const categoryIndex = categoriesByAssignment.get(item.assignment_id)!
+    let category = categoryIndex.get(item.category_key)
+    if (!category) {
+      category = {
+        key: item.category_key,
+        label: item.category_label || item.error_type,
+        items: [],
+        studied: true,
+        similar: item.similar_occurrences,
+      }
+      categoryIndex.set(item.category_key, category)
+      group.categories.push(category)
+    }
     category.items.push(item)
     category.studied = category.studied && item.category_studied
     if (item.similar_occurrences.length > category.similar.length) category.similar = item.similar_occurrences
-    groups.set(item.assignment_id, group)
   }
-  return Array.from(groups.values()).map((group) => {
+
+  const assignmentGroups = Array.from(groups.values()).map((group) => {
     group.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.items.length - a.items.length || a.label.localeCompare(b.label, 'zh-CN'))
     group.items.sort((a, b) => b.created_at.localeCompare(a.created_at))
     group.ready = group.categories.length > 0 && group.categories.every((item) => item.studied)
     return group
   })
+  let studiedCategoryCount = 0
+  for (const studied of studiedByCategory.values()) {
+    if (studied) studiedCategoryCount += 1
+  }
+  return {
+    subjectOptions: Array.from(subjectKeys, (key) => ({ key, label: subjectName(key) })),
+    subjectCountByKey,
+    assignmentGroups,
+    categoryCount: studiedByCategory.size,
+    studiedCategoryCount,
+  }
 }
 function subjectName(value: string) { return subjectNames[value] || value || '其他学科' }
 function formatDate(value?: string) { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '日期未记录' : date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }) }
@@ -305,7 +352,7 @@ async function archiveAssignment(assignment: AssignmentGroup) {
   finally { workingKey.value = '' }
 }
 async function archiveById(assignmentId: number) {
-  const assignment = buildAssignments(allMistakes.value).find((item) => item.id === assignmentId)
+  const assignment = assignmentGroups.value.find((item) => item.id === assignmentId)
   if (assignment) await archiveAssignment(assignment)
 }
 async function archiveSaved(mistake: StudentMistake) {
