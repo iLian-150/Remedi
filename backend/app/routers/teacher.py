@@ -623,8 +623,16 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
             SubmissionReview.submission_id == Submission.id,
         )
         .options(
-            joinedload(Submission.student),
-            joinedload(Submission.question).joinedload(Question.assignment),
+            joinedload(Submission.student).load_only(
+                User.id, User.name, User.student_no, User.role, User.created_at,
+            ),
+            joinedload(Submission.question)
+            .load_only(
+                Question.id, Question.assignment_id, Question.subject,
+                Question.knowledge_point, Question.stem, Question.order_num,
+            )
+            .joinedload(Question.assignment)
+            .load_only(Assignment.id, Assignment.title),
         )
         .filter(Submission.id == submission_id)
         .first()
