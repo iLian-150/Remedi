@@ -50,6 +50,15 @@ export interface Assignment {
   photo_required?: boolean // v0.13.23：线下作业或非数学科目需要拍照提交
   questions?: Question[] // v0.13.89：作业列表可按需携带题目，供多作业页面一次加载
   groups?: { id: number; stem: string; order_num: number }[]
+  chat_questions?: ChatQuestion[] // v0.13.260：聊天选题器使用的数学题轻量字段
+  submitted_chat_question_ids?: number[] // v0.13.260：聊天选题器所需的已提交数学题 ID
+}
+
+export interface ChatQuestion {
+  id: number
+  subject: 'math'
+  stem: string
+  order_num: number
 }
 
 export interface Question {

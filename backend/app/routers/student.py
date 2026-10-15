@@ -181,6 +181,7 @@ def list_assignments(
     include_questions: bool = Query(default=False),
     include_submission_status: bool = Query(default=False),
     include_pending_count: bool = Query(default=False),
+    include_chat_questions: bool = Query(default=False),
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
@@ -344,11 +345,14 @@ def list_assignments(
 
     questions_by_assignment = {}
     groups_by_assignment = {}
-    if include_questions and assignment_ids:
+    chat_questions_by_assignment = {}
+    submitted_chat_question_ids = {}
+    if (include_questions or include_chat_questions) and assignment_ids:
         question_rows = []
         for start in range(0, len(assignment_ids), 500):
-            question_rows.extend(
-                db.query(
+            assignment_batch = assignment_ids[start:start + 500]
+            if include_questions:
+                question_query = db.query(
                     Question.id,
                     Question.assignment_id,
                     Question.subject,
@@ -357,41 +361,87 @@ def list_assignments(
                     Question.order_num,
                     QuestionGroupMember.group_id,
                 )
-                .outerjoin(
-                    QuestionGroupMember,
-                    QuestionGroupMember.question_id == Question.id,
+                if include_chat_questions:
+                    question_query = question_query.add_columns(
+                        has_submission.label("is_submitted")
+                    )
+                question_rows.extend(
+                    question_query
+                    .outerjoin(
+                        QuestionGroupMember,
+                        QuestionGroupMember.question_id == Question.id,
+                    )
+                    .filter(Question.assignment_id.in_(assignment_batch))
+                    .order_by(Question.assignment_id, Question.order_num, Question.id)
+                    .all()
                 )
-                .filter(Question.assignment_id.in_(assignment_ids[start:start + 500]))
-                .order_by(Question.assignment_id, Question.order_num, Question.id)
-                .all()
-            )
+            else:
+                question_rows.extend(
+                    db.query(
+                        Question.id,
+                        Question.assignment_id,
+                        Question.stem,
+                        Question.order_num,
+                        has_submission.label("is_submitted"),
+                    )
+                    .filter(
+                        Question.assignment_id.in_(assignment_batch),
+                        Question.subject == "math",
+                    )
+                    .order_by(Question.assignment_id, Question.order_num, Question.id)
+                    .all()
+                )
 
-        for start in range(0, len(assignment_ids), 500):
-            for group_id, assignment_id, stem, order_num in db.query(
-                QuestionGroup.id,
-                QuestionGroup.assignment_id,
-                QuestionGroup.stem,
-                QuestionGroup.order_num,
-            ).filter(
-                QuestionGroup.assignment_id.in_(assignment_ids[start:start + 500])
-            ).order_by(QuestionGroup.assignment_id, QuestionGroup.order_num, QuestionGroup.id).all():
-                groups_by_assignment.setdefault(assignment_id, []).append({
-                    "id": group_id,
-                    "stem": stem,
-                    "order_num": order_num,
+        if include_questions:
+            for start in range(0, len(assignment_ids), 500):
+                for group_id, assignment_id, stem, order_num in db.query(
+                    QuestionGroup.id,
+                    QuestionGroup.assignment_id,
+                    QuestionGroup.stem,
+                    QuestionGroup.order_num,
+                ).filter(
+                    QuestionGroup.assignment_id.in_(assignment_ids[start:start + 500])
+                ).order_by(QuestionGroup.assignment_id, QuestionGroup.order_num, QuestionGroup.id).all():
+                    groups_by_assignment.setdefault(assignment_id, []).append({
+                        "id": group_id,
+                        "stem": stem,
+                        "order_num": order_num,
+                    })
+
+            for row in question_rows:
+                questions_by_assignment.setdefault(row.assignment_id, []).append({
+                    "id": row.id,
+                    "subject": row.subject,
+                    "knowledge_point": row.knowledge_point,
+                    "stem": row.stem,
+                    "order_num": row.order_num,
+                    "group_id": row.group_id,
                 })
-
-        for row in question_rows:
-            questions_by_assignment.setdefault(row.assignment_id, []).append({
-                "id": row.id,
-                "subject": row.subject,
-                "knowledge_point": row.knowledge_point,
-                "stem": row.stem,
-                "order_num": row.order_num,
-                "group_id": row.group_id,
-            })
-            if row.subject != "math":
-                photo_required_assignment_ids.add(row.assignment_id)
+                if row.subject != "math":
+                    photo_required_assignment_ids.add(row.assignment_id)
+                if include_chat_questions and row.subject == "math":
+                    chat_questions_by_assignment.setdefault(row.assignment_id, []).append({
+                        "id": row.id,
+                        "subject": "math",
+                        "stem": row.stem,
+                        "order_num": row.order_num,
+                    })
+                    if row.is_submitted:
+                        submitted_chat_question_ids.setdefault(row.assignment_id, []).append(
+                            row.id
+                        )
+        else:
+            for row in question_rows:
+                chat_questions_by_assignment.setdefault(row.assignment_id, []).append({
+                    "id": row.id,
+                    "subject": "math",
+                    "stem": row.stem,
+                    "order_num": row.order_num,
+                })
+                if row.is_submitted:
+                    submitted_chat_question_ids.setdefault(row.assignment_id, []).append(
+                        row.id
+                    )
 
     result = []
     for assignment_row in assignment_rows:
@@ -413,6 +463,9 @@ def list_assignments(
         if include_questions:
             item["questions"] = questions_by_assignment.get(a.id, [])
             item["groups"] = groups_by_assignment.get(a.id, [])
+        if include_chat_questions:
+            item["chat_questions"] = chat_questions_by_assignment.get(a.id, [])
+            item["submitted_chat_question_ids"] = submitted_chat_question_ids.get(a.id, [])
         if include_submission_status:
             item["submitted_question_ids"] = submitted_question_ids.get(a.id, [])
             item["pending_question_ids"] = pending_question_ids.get(a.id, [])

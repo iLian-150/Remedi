@@ -59,9 +59,10 @@ function coalesceAssignmentRequest(
   includeQuestions: boolean,
   includeSubmissionStatus: boolean,
   includePendingCount: boolean,
+  includeChatQuestions: boolean,
   load: () => Promise<Assignment[]>
 ): Promise<Assignment[]> {
-  const key = `${userId ?? 'anonymous'}:${includeQuestions}:${includeSubmissionStatus}:${includePendingCount}`
+  const key = `${userId ?? 'anonymous'}:${includeQuestions}:${includeSubmissionStatus}:${includePendingCount}:${includeChatQuestions}`
   const existing = inFlightAssignmentRequests.get(key)
   if (existing) return existing
 
@@ -132,7 +133,8 @@ export const useStudentStore = defineStore('student', {
     fetchAssignments(
       includeQuestions = false,
       includeSubmissionStatus = false,
-      includePendingCount = false
+      includePendingCount = false,
+      includeChatQuestions = false
     ): Promise<Assignment[]> {
       const userId = useAuthStore().user?.id
       return coalesceAssignmentRequest(
@@ -140,12 +142,14 @@ export const useStudentStore = defineStore('student', {
         includeQuestions,
         includeSubmissionStatus,
         includePendingCount,
+        includeChatQuestions,
         async () => {
           const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments', {
             params: {
               ...(includeQuestions ? { include_questions: true } : {}),
               ...(includeSubmissionStatus ? { include_submission_status: true } : {}),
-              ...(includePendingCount ? { include_pending_count: true } : {})
+              ...(includePendingCount ? { include_pending_count: true } : {}),
+              ...(includeChatQuestions ? { include_chat_questions: true } : {})
             }
           })
           return data.items

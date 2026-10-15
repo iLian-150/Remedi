@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.13.179（2026-10-14）
+> 版本：v0.13.260（2026-10-16）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -105,7 +105,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 权限：学生。
 
-可选查询参数：`include_questions=true` 时，每个作业项额外返回 `questions` 与 `groups`，字段结构与 3.2 作业详情一致；题目仍不返回标准答案。`include_submission_status=true` 时，每个作业项额外返回 `submitted_question_ids`（当前学生已有提交的题目 ID）和 `pending_question_ids`（每题最新提交仍待审核的题目 ID）；状态按题目最新提交确定，不受提交历史条数限制。`include_pending_count=true` 时，每个作业项额外返回 `pending_count`（每题最新提交仍待审核的题目数），适用于只需显示待审核数量的轻量列表。三个参数默认均为 `false`，普通作业列表保持轻量。
+可选查询参数：`include_questions=true` 时，每个作业项额外返回 `questions` 与 `groups`，字段结构与 3.2 作业详情一致；题目仍不返回标准答案。`include_submission_status=true` 时，每个作业项额外返回 `submitted_question_ids`（当前学生已有提交的题目 ID）和 `pending_question_ids`（每题最新提交仍待审核的题目 ID）；状态按题目最新提交确定，不受提交历史条数限制。`include_pending_count=true` 时，每个作业项额外返回 `pending_count`（每题最新提交仍待审核的题目数），适用于只需显示待审核数量的轻量列表。`include_chat_questions=true` 时，每个作业项额外返回 `chat_questions`（仅含数学题 ID、科目、题干和顺序）与 `submitted_chat_question_ids`（当前学生已提交的数学题 ID），供聊天选题器轻量加载。四个参数默认均为 `false`，普通作业列表保持轻量。
 
 响应 `200`（以下示例包含 `include_submission_status=true` 时新增的状态字段）：
 
@@ -1512,3 +1512,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.257 | 2026-10-16 | 学生聊天与错题讲解按消息缓存 Markdown 输出，历史文本未变化时跳过重复解析。 |
 | v0.13.258 | 2026-10-16 | 学生作业列表和日历共用轻量提交状态响应，省去题目详情查询与传输。 |
 | v0.13.259 | 2026-10-16 | 学生作业列表改收每份作业的待审核数，避免传输逐题提交 ID。 |
+| v0.13.260 | 2026-10-16 | 学生聊天只加载数学题与已提交状态，省去全科题目、大题分组及逐题审核状态传输。 |

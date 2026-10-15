@@ -430,10 +430,9 @@ import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type {
   AgentHistoryItem,
-  Assignment,
+  ChatQuestion,
   PendingAssignment,
   PhotoReviewResult,
-  Question,
   RelatedMistake,
   StepStatus,
   StudentBriefing,
@@ -528,11 +527,10 @@ function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
 }
 
 // ---------- 题目选择（仅数学题可拍照批改） ----------
-interface FlatQuestion extends Question {
+interface FlatQuestion extends ChatQuestion {
   assignmentTitle: string
 }
-const assignments = ref<Assignment[]>([])
-const questionsByAssignment = ref<Record<number, Question[]>>({})
+const questionsByAssignment = ref<Record<number, ChatQuestion[]>>({})
 const flatQuestions = ref<FlatQuestion[]>([])
 const flatQuestionsById = shallowRef(new Map<number, FlatQuestion>())
 const assignmentId = ref<number | ''>('')
@@ -545,7 +543,7 @@ const currentQuestions = computed(
 const selectedQuestion = computed(
   () => flatQuestionsById.value.get(Number(questionId.value)) ?? null
 )
-const allMathQuestions = computed(() => flatQuestions.value.filter((q) => q.subject === 'math'))
+const allMathQuestions = computed(() => flatQuestions.value)
 
 function onAssignmentChange() {
   const qs = currentQuestions.value
@@ -1249,7 +1247,7 @@ onMounted(async () => {
       (error) => ({ error } as const)
     )
   const [assignmentResult, briefingResult] = await Promise.allSettled([
-    student.fetchAssignments(true, true),
+    student.fetchAssignments(false, false, false, true),
     student.fetchBriefing()
   ])
 
@@ -1257,12 +1255,11 @@ onMounted(async () => {
     const list = assignmentResult.value
     const questionList: FlatQuestion[] = []
     const questionIndex = new Map<number, FlatQuestion>()
-    const assignmentQuestions: Record<number, Question[]> = {}
+    const assignmentQuestions: Record<number, ChatQuestion[]> = {}
     const submittedQuestionIds = new Set<number>()
-    assignments.value = list
     list.forEach((assignment) => {
-      assignment.submitted_question_ids?.forEach((id) => submittedQuestionIds.add(id))
-      const questions = assignment.questions ?? []
+      assignment.submitted_chat_question_ids?.forEach((id) => submittedQuestionIds.add(id))
+      const questions = assignment.chat_questions ?? []
       assignmentQuestions[assignment.id] = questions
       questions.forEach((question) => {
         const flatQuestion = { ...question, assignmentTitle: assignment.title }
