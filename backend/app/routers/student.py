@@ -1166,32 +1166,32 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
         return {"assignment_id": assignment_id, "archived_ids": [assignment_id],
                 "archived_at": capture.archived_at}
 
-    rows = (
+    rows_query = (
         db.query(Error.id, Error.error_type, Error.knowledge_point, Question.subject)
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
         .filter(Submission.student_id == current.id, Question.assignment_id == assignment_id)
-        .all()
     )
+    if body.archived:
+        rows_query = rows_query.outerjoin(
+            StudentMistakeArchive,
+            and_(
+                StudentMistakeArchive.error_id == Error.id,
+                StudentMistakeArchive.student_id == current.id,
+            ),
+        ).add_columns(
+            StudentMistakeArchive.error_id.label("archived_error_id")
+        )
+    rows = rows_query.all()
     if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业没有可整理的错题")
 
-    archived_error_ids = {
-        error_id
-        for error_id, in db.query(StudentMistakeArchive.error_id)
-        .join(Error, Error.id == StudentMistakeArchive.error_id)
-        .join(Submission, Submission.id == Error.submission_id)
-        .join(Question, Question.id == Submission.question_id)
-        .filter(
-            StudentMistakeArchive.student_id == current.id,
-            Submission.student_id == current.id,
-            Question.assignment_id == assignment_id,
-        )
-        .all()
-    }
-
     if body.archived:
-        active_rows = [row for row in rows if row[0] not in archived_error_ids]
+        active_rows = [
+            (error_id, error_type, knowledge_point, subject)
+            for error_id, error_type, knowledge_point, subject, archived_error_id in rows
+            if archived_error_id is None
+        ]
         if not active_rows:
             return {"assignment_id": assignment_id, "archived_ids": []}
         categories = {
