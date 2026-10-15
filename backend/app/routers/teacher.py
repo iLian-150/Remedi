@@ -912,9 +912,8 @@ def _teacher_assignments_out(
             questions.append(question)
             if weight_pct is not None:
                 weights[question.id] = float(weight_pct)
-    questions.sort(key=lambda question: (
-        question.assignment_id, question.order_num, question.id
-    ))
+    # 各批次查询已按作业、题目顺序和 ID 排序；同一作业不会跨批次，
+    # 后续按作业分组时保留该顺序即可，无需再次全局排序全部题目。
     question_ids = [question.id for question in questions]
     question_counts = {}
     for question in questions:
