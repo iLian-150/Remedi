@@ -528,7 +528,10 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     query = db.query(Submission).filter(Submission.student_id == current.id)
     if question_id:
         query = query.filter(Submission.question_id == question_id)
-    page_rows = query.options(
+    page_rows = query.outerjoin(
+        SubmissionReview,
+        SubmissionReview.submission_id == Submission.id,
+    ).options(
         load_only(
             Submission.id, Submission.question_id,
             Submission.status, Submission.submitted_at,
@@ -538,15 +541,21 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
             Question.knowledge_point,
         ),
     ).add_columns(
+        SubmissionReview.status.label("review_status"),
         func.count(Submission.id).over().label("total")
     ).order_by(Submission.submitted_at.desc()).offset(offset).limit(limit).all()
     if page_rows:
         total = int(page_rows[0].total or 0)
-        subs = [submission for submission, _ in page_rows]
+        subs = []
+        status_by_id = {}
+        for submission, review_status, _ in page_rows:
+            subs.append(submission)
+            if review_status is not None:
+                status_by_id[submission.id] = review_status
     else:
         total = query.count()
         subs = []
-    status_by_id = review_svc.review_status_map(db, [s.id for s in subs])
+        status_by_id = {}
     submission_ids = [s.id for s in subs]
     error_counts = dict(
         db.query(Error.submission_id, func.count(Error.id))
