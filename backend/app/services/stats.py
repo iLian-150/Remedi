@@ -601,24 +601,6 @@ def list_students(db) -> List[Dict]:
 # 必须再独立做对一道同知识点变式题（二次验证）才算修复。
 # 知识修复率 fixed_ratio = fixed 知识点数 / 出过错知识点数（与本口径配套）。
 
-def _fixed_error_ids(db, student: User, error_ids: List[int]):
-    """批量读取指定错题中该生已订正正确的 ID，不加载订正正文或无关历史行。"""
-    fixed_ids = set()
-    # SQLite 对单条语句的绑定变量数有限，分块查询以兼容学生的长历史记录。
-    for start in range(0, len(error_ids), 500):
-        rows = (
-            db.query(Correction.error_id)
-            .filter(
-                Correction.student_id == student.id,
-                Correction.is_correct.is_(True),
-                Correction.error_id.in_(error_ids[start:start + 500]),
-            )
-            .all()
-        )
-        fixed_ids.update(error_id for (error_id,) in rows)
-    return fixed_ids
-
-
 def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     """学生学习报告：按科目聚合提交/正确率/修复进度，并下钻到知识点状态。"""
     subject_expr = case(
@@ -797,8 +779,16 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
 def knowledge_point_errors(db, student: User, knowledge_point: str,
                            visible_only: bool = False) -> List[Dict]:
     """某知识点下该生的错题时间线（纵向学习记忆），按时间倒序。"""
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == student.id,
+        Correction.is_correct.is_(True),
+    ).exists()
     query = (
-        db.query(Error, Submission, Question, Assignment, Step)
+        db.query(
+            Error, Submission, Question, Assignment, Step,
+            has_correct_correction.label("corrected"),
+        )
         .join(Submission, Error.submission_id == Submission.id)
         .outerjoin(Question, Submission.question_id == Question.id)
         .outerjoin(Assignment, Question.assignment_id == Assignment.id)
@@ -829,18 +819,15 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
     rows = query.all()
     if not rows:
         return []
-    fixed_ids = _fixed_error_ids(
-        db, student, [error.id for error, _, _, _, _ in rows]
-    )
     items = []
-    for error, submission, question, assignment, step in rows:
+    for error, submission, question, assignment, step, corrected in rows:
         items.append({
             "created_at": error.created_at,
             "assignment_title": assignment.title if assignment else "",
             "question_prompt": question.stem if question else "",
             "first_error_seq": step.seq if step else None,
             "error_type": error.error_type,
-            "corrected": error.id in fixed_ids,
+            "corrected": bool(corrected),
             "submission_id": submission.id,
         })
     return items
