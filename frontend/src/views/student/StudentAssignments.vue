@@ -168,7 +168,7 @@ function clearFilter() {
 
 /** 这份作业里有没有题目在等老师审核 */
 function hasPending(a: Assignment): boolean {
-  return (a.pending_question_ids?.length ?? 0) > 0
+  return (a.pending_count ?? 0) > 0
 }
 
 function fmtTime(t: string): string {
@@ -201,7 +201,7 @@ function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string
 onMounted(async () => {
   loading.value = true
   try {
-    const list = await student.fetchAssignments(false, true)
+    const list = await student.fetchAssignments(false, false, true)
     assignments.value = list
   } catch (e) {
     error.value = '作业列表加载失败，请确认后端已启动。'

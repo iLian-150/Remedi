@@ -58,9 +58,10 @@ function coalesceAssignmentRequest(
   userId: number | undefined,
   includeQuestions: boolean,
   includeSubmissionStatus: boolean,
+  includePendingCount: boolean,
   load: () => Promise<Assignment[]>
 ): Promise<Assignment[]> {
-  const key = `${userId ?? 'anonymous'}:${includeQuestions}:${includeSubmissionStatus}`
+  const key = `${userId ?? 'anonymous'}:${includeQuestions}:${includeSubmissionStatus}:${includePendingCount}`
   const existing = inFlightAssignmentRequests.get(key)
   if (existing) return existing
 
@@ -130,18 +131,26 @@ export const useStudentStore = defineStore('student', {
     // 3.1 作业列表
     fetchAssignments(
       includeQuestions = false,
-      includeSubmissionStatus = false
+      includeSubmissionStatus = false,
+      includePendingCount = false
     ): Promise<Assignment[]> {
       const userId = useAuthStore().user?.id
-      return coalesceAssignmentRequest(userId, includeQuestions, includeSubmissionStatus, async () => {
-        const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments', {
-          params: {
-            ...(includeQuestions ? { include_questions: true } : {}),
-            ...(includeSubmissionStatus ? { include_submission_status: true } : {})
-          }
-        })
-        return data.items
-      })
+      return coalesceAssignmentRequest(
+        userId,
+        includeQuestions,
+        includeSubmissionStatus,
+        includePendingCount,
+        async () => {
+          const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments', {
+            params: {
+              ...(includeQuestions ? { include_questions: true } : {}),
+              ...(includeSubmissionStatus ? { include_submission_status: true } : {}),
+              ...(includePendingCount ? { include_pending_count: true } : {})
+            }
+          })
+          return data.items
+        }
+      )
     },
     // 3.2 作业详情（含题目，不含标准答案）
     async fetchAssignmentDetail(id: number): Promise<AssignmentDetail> {

@@ -180,6 +180,7 @@ def present_for_student(
 def list_assignments(
     include_questions: bool = Query(default=False),
     include_submission_status: bool = Query(default=False),
+    include_pending_count: bool = Query(default=False),
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
@@ -246,7 +247,8 @@ def list_assignments(
             question_stats_subquery.c.non_math_count
         )
 
-    if include_submission_status:
+    latest_submissions = None
+    if include_submission_status or include_pending_count:
         latest_submissions = (
             db.query(
                 Question.assignment_id.label("assignment_id"),
@@ -269,6 +271,8 @@ def list_assignments(
             .filter(Submission.student_id == current.id, visible_assignment)
             .subquery()
         )
+
+    if include_submission_status:
         assignment_query = assignment_query.outerjoin(
             latest_submissions,
             and_(
@@ -279,6 +283,23 @@ def list_assignments(
             latest_submissions.c.question_id,
             latest_submissions.c.review_status,
         )
+    if include_pending_count:
+        pending_counts = (
+            db.query(
+                latest_submissions.c.assignment_id.label("assignment_id"),
+                func.count(latest_submissions.c.question_id).label("pending_count"),
+            )
+            .filter(
+                latest_submissions.c.row_num == 1,
+                latest_submissions.c.review_status == review_svc.PENDING,
+            )
+            .group_by(latest_submissions.c.assignment_id)
+            .subquery()
+        )
+        assignment_query = assignment_query.outerjoin(
+            pending_counts,
+            pending_counts.c.assignment_id == Assignment.id,
+        ).add_columns(pending_counts.c.pending_count)
 
     query_rows = (
         assignment_query
@@ -291,7 +312,9 @@ def list_assignments(
     photo_required_assignment_ids = set()
     submitted_question_ids = {}
     pending_question_ids = {}
+    pending_count_by_assignment = {}
     status_offset = 6 if include_questions else 7
+    pending_count_offset = status_offset + (2 if include_submission_status else 0)
     for row in query_rows:
         assignment_id = row[0].id
         assignment_rows_by_id.setdefault(assignment_id, row[:4])
@@ -311,6 +334,10 @@ def list_assignments(
                     pending_question_ids.setdefault(assignment_id, []).append(
                         question_id
                     )
+        if include_pending_count:
+            pending_count_by_assignment[assignment_id] = int(
+                row[pending_count_offset] or 0
+            )
 
     assignment_rows = list(assignment_rows_by_id.values())
     assignment_ids = list(assignment_rows_by_id)
@@ -389,6 +416,8 @@ def list_assignments(
         if include_submission_status:
             item["submitted_question_ids"] = submitted_question_ids.get(a.id, [])
             item["pending_question_ids"] = pending_question_ids.get(a.id, [])
+        if include_pending_count:
+            item["pending_count"] = pending_count_by_assignment.get(a.id, 0)
         result.append(item)
     return {"total": len(result), "items": result}
 

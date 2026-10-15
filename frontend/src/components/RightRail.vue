@@ -320,7 +320,7 @@ async function loadMarks() {
     const m: Record<string, number> = {}
     if (isStudent.value) {
       // 与学生作业列表页共用轻量提交状态请求；日历只需要发布时间。
-      const list = await student.fetchAssignments(false, true)
+      const list = await student.fetchAssignments(false, false, true)
       for (const a of list) {
         const d = a.created_at.slice(0, 10)
         if (d) m[d] = (m[d] ?? 0) + 1

@@ -38,6 +38,7 @@ export interface Assignment {
   description: string
   question_count: number
   submitted_count?: number // v0.13.9：当前学生已提交的题数（交作业页下拉过滤已交完作业用）
+  pending_count?: number // v0.13.259：当前学生最新提交中仍待教师审核的题数
   submitted_question_ids?: number[] // v0.13.94：按题目返回当前学生是否已有提交
   pending_question_ids?: number[] // v0.13.94：每题最新提交仍待教师审核的题目 ID
   created_at: string
