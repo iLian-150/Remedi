@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, true
+from sqlalchemy import and_, case, func, or_, true
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
@@ -327,7 +327,7 @@ def _grade_due_batch(db: Session) -> int:
     每个学生的最后一次延迟提交批改掉；返回本次批改的提交数。
     幂等：已批改的提交不再是 deferred，不会重复处理。"""
     now = datetime.now()
-    deferred = (
+    deferred_query = (
         db.query(Submission)
         .join(Question, Question.id == Submission.question_id)
         .join(AssignmentSetting, AssignmentSetting.assignment_id == Question.assignment_id)
@@ -341,18 +341,35 @@ def _grade_due_batch(db: Session) -> int:
             AssignmentExt.deadline <= now,
             Submission.status == DEFERRED,
         )
-        .order_by(Submission.submitted_at.desc(), Submission.id.desc())
-        .all()
     )
-    if not deferred:
+
+    def load_batch(cursor=None):
+        query = deferred_query
+        if cursor is not None:
+            submitted_at, submission_id = cursor
+            query = query.filter(or_(
+                Submission.submitted_at < submitted_at,
+                and_(
+                    Submission.submitted_at == submitted_at,
+                    Submission.id < submission_id,
+                ),
+            ))
+        return query.order_by(
+            Submission.submitted_at.desc(), Submission.id.desc()
+        ).limit(500).all()
+
+    batch = load_batch()
+    if not batch:
         return 0
 
     graded = 0
     seen_pairs = set()
     graded_for_review = []
     confidence_signals_by_submission = {}
-    for batch_start in range(0, len(deferred), 500):
-        batch = deferred[batch_start:batch_start + 500]
+    cursor = None
+    while batch:
+        last = batch[-1]
+        cursor = (last.submitted_at, last.id)
         latest_batch = []
         for sub in batch:
             pair = (sub.student_id, sub.question_id)
@@ -363,6 +380,7 @@ def _grade_due_batch(db: Session) -> int:
         if not latest_batch:
             for sub in batch:
                 sub.status = SUPERSEDED  # 同题更早的修改版本不批改
+            batch = load_batch(cursor)
             continue
 
         latest_ids = {sub.id for sub in latest_batch}
@@ -442,6 +460,8 @@ def _grade_due_batch(db: Session) -> int:
             graded_for_review.append(graded_sub)
             confidence_signals_by_submission[graded_sub.id] = confidence_signals
             graded += 1
+
+        batch = load_batch(cursor)
     _enqueue_due_reviews(
         db, graded_for_review, confidence_signals_by_submission
     )

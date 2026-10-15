@@ -94,6 +94,12 @@ Index(
     Submission.submitted_at.desc(),
     Submission.id.desc(),
 )
+Index(
+    "ix_submissions_status_submitted_latest",
+    Submission.status,
+    Submission.submitted_at.desc(),
+    Submission.id.desc(),
+)
 
 
 class Step(Base):
