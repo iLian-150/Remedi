@@ -174,13 +174,17 @@ const stickyData = computed(() => {
   }
   return {
     subjects: Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key, 'zh-CN')),
+    subjectsByKey: groups,
+    categoriesBySubject,
     assignmentProgressById: progressByAssignment,
   }
 })
 const subjects = computed<SubjectGroup[]>(() => stickyData.value.subjects)
+const subjectsByKey = computed(() => stickyData.value.subjectsByKey)
+const categoriesBySubject = computed(() => stickyData.value.categoriesBySubject)
 const assignmentProgressById = computed(() => stickyData.value.assignmentProgressById)
-const selectedSubject = computed(() => subjects.value.find((item) => item.key === selectedSubjectKey.value))
-const selectedCategory = computed(() => selectedSubject.value?.categories.find((item) => item.key === selectedCategoryKey.value))
+const selectedSubject = computed(() => subjectsByKey.value.get(selectedSubjectKey.value ?? ''))
+const selectedCategory = computed(() => categoriesBySubject.value.get(selectedSubjectKey.value ?? '')?.get(selectedCategoryKey.value ?? ''))
 const screen = computed(() => selectedCategory.value ? 'detail' : selectedSubject.value ? 'categories' : 'subjects')
 const assignments = computed<StickyAssignment[]>(() => {
   if (!selectedCategory.value) return []
@@ -197,8 +201,8 @@ const assignments = computed<StickyAssignment[]>(() => {
 const completedAssignmentCount = computed(() => assignments.value.reduce((count, assignment) => count + Number(assignment.studied), 0))
 
 watch(() => props.mistakes, () => {
-  if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) goToSubjects()
-  else if (selectedCategoryKey.value && !selectedSubject.value?.categories.some((item) => item.key === selectedCategoryKey.value)) goToCategories()
+  if (selectedSubjectKey.value && !subjectsByKey.value.has(selectedSubjectKey.value)) goToSubjects()
+  else if (selectedCategoryKey.value && !categoriesBySubject.value.get(selectedSubjectKey.value ?? '')?.has(selectedCategoryKey.value)) goToCategories()
 })
 
 function displaySubject(value: string) {
