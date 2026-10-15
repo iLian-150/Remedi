@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
@@ -1183,16 +1183,17 @@ def _delete_unreferenced_submission_images(db: Session, file_paths: set[str]) ->
     )
     paths = list(safe_paths)
     try:
-        for start in range(0, len(paths), 500):
-            path_chunk = paths[start:start + 500]
-            for column in reference_columns:
-                referenced_paths.update(
-                    path
-                    for (path,) in db.query(column).filter(
-                        column.in_(path_chunk)
-                    ).all()
-                    if path
-                )
+        for start in range(0, len(paths), 200):
+            path_chunk = paths[start:start + 200]
+            reference_queries = [
+                select(column.label("file_path")).where(column.in_(path_chunk))
+                for column in reference_columns
+            ]
+            referenced_paths.update(
+                path
+                for (path,) in db.execute(union_all(*reference_queries)).all()
+                if path
+            )
     except Exception:
         db.rollback()
         logger.warning(
