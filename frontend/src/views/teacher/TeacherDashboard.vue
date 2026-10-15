@@ -77,21 +77,25 @@
           <h3><AppIcon name="alert" :size="18" /> 高频错题 Top{{ topN }}</h3>
           <div class="toolbar">
             <label style="font-size: 14px; color: var(--text-2)">Top N：</label>
-            <select v-model="topN" @change="loadStats(false)" style="width: auto">
+            <select v-model="topN" @change="loadTopQuestions" :disabled="topQuestionsLoading" style="width: auto">
               <option :value="5">5</option>
               <option :value="10">10</option>
               <option :value="20">20</option>
             </select>
           </div>
-          <EChart v-if="topQuestions.length" :option="topQuestionsOption" />
-          <div v-else class="empty">暂无数据。</div>
-          <div v-if="topQuestions.length" class="top-list">
-            <div v-for="q in topQuestions" :key="q.question_id" class="top-row">
-              <span class="top-main">{{ q.stem }}</span>
-              <span class="badge badge-blue">{{ q.knowledge_point }}</span>
-              <span class="top-meta tnum">错误 {{ q.error_count }} 次 · {{ q.student_count }} 名学生</span>
+          <div v-if="topQuestionsLoading" class="loading">更新高频错题…</div>
+          <div v-else-if="topQuestionsError" class="error-msg">{{ topQuestionsError }}</div>
+          <template v-else>
+            <EChart v-if="topQuestions.length" :option="topQuestionsOption" />
+            <div v-else class="empty">暂无数据。</div>
+            <div v-if="topQuestions.length" class="top-list">
+              <div v-for="q in topQuestions" :key="q.question_id" class="top-row">
+                <span class="top-main">{{ q.stem }}</span>
+                <span class="badge badge-blue">{{ q.knowledge_point }}</span>
+                <span class="top-meta tnum">错误 {{ q.error_count }} 次 · {{ q.student_count }} 名学生</span>
+              </div>
             </div>
-          </div>
+          </template>
         </div>
       </div>
 
@@ -140,6 +144,8 @@ const topQuestions = ref<TopQuestion[]>([])
 const kpStats = ref<KnowledgePointStat[]>([])
 const studentsList = ref<StudentSummary[]>([])
 const topN = ref(10)
+const topQuestionsLoading = ref(false)
+const topQuestionsError = ref('')
 const loading = ref(false)
 const error = ref('')
 
@@ -290,6 +296,19 @@ async function loadStats(includeSuggestions = false) {
     console.error(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadTopQuestions() {
+  topQuestionsLoading.value = true
+  topQuestionsError.value = ''
+  try {
+    topQuestions.value = await teacher.fetchTopQuestions(topN.value)
+  } catch (e) {
+    topQuestionsError.value = '高频错题加载失败，请稍后重试。'
+    console.error(e)
+  } finally {
+    topQuestionsLoading.value = false
   }
 }
 
