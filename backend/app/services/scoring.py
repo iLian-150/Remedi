@@ -195,7 +195,7 @@ def visible_score(db: Session, submission: Submission) -> Optional[Dict]:
 
 
 def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict]:
-    """批量读取一页已审核提交的可见成绩，缺失的历史成绩按旧逻辑补算。"""
+    """单次读取一页的成绩与评分配置；缺失的历史成绩按旧逻辑补算。"""
     question_data = {
         submission.id: (
             submission.question.id,
@@ -209,46 +209,61 @@ def visible_scores(db: Session, submissions: List[Submission]) -> Dict[int, Dict
         return {}
 
     submission_ids = [submission.id for submission in valid]
-    question_ids = {question_data[submission.id][0] for submission in valid}
     assignment_ids = {question_data[submission.id][1] for submission in valid}
-    score_values = {
-        row.submission_id: (
-            float(row.final_score) if row.final_score is not None else float(row.ai_score)
+    question_counts = (
+        db.query(
+            Question.assignment_id.label("assignment_id"),
+            func.count(Question.id).label("question_count"),
         )
-        for row in db.query(SubmissionScore).filter(
-            SubmissionScore.submission_id.in_(submission_ids)
-        ).all()
-    }
-
-    total_scores = {
-        row.assignment_id: float(row.total_score) if row.total_score else DEFAULT_TOTAL
-        for row in db.query(AssignmentScoring).filter(
-            AssignmentScoring.assignment_id.in_(assignment_ids)
-        ).all()
-    }
-    weights = {
-        row.question_id: float(row.weight_pct)
-        for row in db.query(QuestionWeight).filter(
-            QuestionWeight.question_id.in_(question_ids)
-        ).all()
-    }
-    question_counts = dict(
-        db.query(Question.assignment_id, func.count(Question.id))
         .filter(Question.assignment_id.in_(assignment_ids))
         .group_by(Question.assignment_id)
+        .subquery()
+    )
+    score_rows = (
+        db.query(
+            Submission.id.label("submission_id"),
+            SubmissionScore.submission_id.label("score_submission_id"),
+            SubmissionScore.final_score,
+            SubmissionScore.ai_score,
+            AssignmentScoring.total_score,
+            QuestionWeight.weight_pct,
+            question_counts.c.question_count,
+        )
+        .select_from(Submission)
+        .join(Question, Question.id == Submission.question_id)
+        .outerjoin(
+            SubmissionScore,
+            SubmissionScore.submission_id == Submission.id,
+        )
+        .outerjoin(
+            AssignmentScoring,
+            AssignmentScoring.assignment_id == Question.assignment_id,
+        )
+        .outerjoin(QuestionWeight, QuestionWeight.question_id == Question.id)
+        .outerjoin(
+            question_counts,
+            question_counts.c.assignment_id == Question.assignment_id,
+        )
+        .filter(Submission.id.in_(submission_ids))
         .all()
     )
+    score_values = {}
     max_scores = {}
-    for submission in valid:
-        question_id, assignment_id = question_data[submission.id]
-        question_count = question_counts.get(assignment_id, 0)
-        weight_pct = weights.get(
-            question_id, 100.0 / question_count if question_count else 100.0
-        )
-        max_scores[submission.id] = round(
-            total_scores.get(assignment_id, DEFAULT_TOTAL) * weight_pct / 100.0,
-            1,
-        )
+    for row in score_rows:
+        question_count = int(row.question_count or 0)
+        total_score = float(row.total_score) if row.total_score else DEFAULT_TOTAL
+        if row.weight_pct is not None:
+            weight_pct = float(row.weight_pct)
+        elif question_count:
+            weight_pct = 100.0 / question_count
+        else:
+            weight_pct = 100.0
+        max_scores[row.submission_id] = round(total_score * weight_pct / 100.0, 1)
+        if row.score_submission_id is not None:
+            score_values[row.submission_id] = (
+                float(row.final_score)
+                if row.final_score is not None else float(row.ai_score)
+            )
 
     # 历史记录可能缺少分数行：批量读取步骤、按统一公式补分并一次写回。
     missing = [submission for submission in valid if submission.id not in score_values]
