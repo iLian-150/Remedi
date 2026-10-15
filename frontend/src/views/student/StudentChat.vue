@@ -424,7 +424,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
@@ -548,6 +548,7 @@ interface FlatQuestion extends Question {
 const assignments = ref<Assignment[]>([])
 const questionsByAssignment = ref<Record<number, Question[]>>({})
 const flatQuestions = ref<FlatQuestion[]>([])
+const flatQuestionsById = shallowRef(new Map<number, FlatQuestion>())
 const assignmentId = ref<number | ''>('')
 const questionId = ref<number | ''>('')
 const doneQids = ref<Set<number>>(new Set())
@@ -556,7 +557,7 @@ const currentQuestions = computed(
   () => questionsByAssignment.value[Number(assignmentId.value)] ?? []
 )
 const selectedQuestion = computed(
-  () => flatQuestions.value.find((q) => q.id === Number(questionId.value)) ?? null
+  () => flatQuestionsById.value.get(Number(questionId.value)) ?? null
 )
 const allMathQuestions = computed(() => flatQuestions.value.filter((q) => q.subject === 'math'))
 
@@ -566,7 +567,7 @@ function onAssignmentChange() {
 }
 
 function questionStem(qid: number): string {
-  return flatQuestions.value.find((q) => q.id === qid)?.stem ?? ''
+  return flatQuestionsById.value.get(qid)?.stem ?? ''
 }
 
 // ---------- 输入区 ----------
@@ -1251,15 +1252,23 @@ onMounted(async () => {
 
   if (assignmentResult.status === 'fulfilled') {
     const list = assignmentResult.value
+    const questionList: FlatQuestion[] = []
+    const questionIndex = new Map<number, FlatQuestion>()
+    const assignmentQuestions: Record<number, Question[]> = {}
     assignments.value = list
     list.forEach((assignment) => {
       assignment.submitted_question_ids?.forEach((id) => doneQids.value.add(id))
       const questions = assignment.questions ?? []
-      questionsByAssignment.value[assignment.id] = questions
+      assignmentQuestions[assignment.id] = questions
       questions.forEach((question) => {
-        flatQuestions.value.push({ ...question, assignmentTitle: assignment.title })
+        const flatQuestion = { ...question, assignmentTitle: assignment.title }
+        questionList.push(flatQuestion)
+        if (!questionIndex.has(flatQuestion.id)) questionIndex.set(flatQuestion.id, flatQuestion)
       })
     })
+    questionsByAssignment.value = assignmentQuestions
+    flatQuestions.value = questionList
+    flatQuestionsById.value = questionIndex
     // 预选：优先用路由参数（简报/交作业页带过来），否则默认第一份作业的第一道数学题
     const presetAssignment = Number(route.query.assignment_id)
     const presetQuestion = Number(route.query.question_id)
