@@ -373,6 +373,11 @@ interface AssignmentGroup {
 
 const assignmentGroups = computed<AssignmentGroup[]>(() => {
   const map = new Map<string, AssignmentGroup>()
+  const indexes = new Map<string, {
+    students: Map<number, StudentGroup>
+    reasons: Set<string>
+    questionIds: Set<number>
+  }>()
   for (const it of items.value) {
     const key = String(it.assignment_id)
     let g = map.get(key)
@@ -393,11 +398,18 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
         imageUrl: null
       }
       map.set(key, g)
+      indexes.set(key, {
+        students: new Map(),
+        reasons: new Set(),
+        questionIds: new Set()
+      })
     }
-    let sg = g.students.find((s) => s.student.id === it.student.id)
+    const index = indexes.get(key)!
+    let sg = index.students.get(it.student.id)
     if (!sg) {
       sg = { student: it.student, items: [] }
       g.students.push(sg)
+      index.students.set(it.student.id, sg)
     }
     sg.items.push(it)
     g.total += 1
@@ -408,9 +420,13 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
       g.totalAnswerSteps += it.assignment_total_steps ?? it.total_steps ?? 0
     }
     for (const reason of (it.review_reason || '').split('；').filter(Boolean)) {
-      if (!g.reviewReasons.includes(reason)) g.reviewReasons.push(reason)
+      if (!index.reasons.has(reason)) {
+        index.reasons.add(reason)
+        g.reviewReasons.push(reason)
+      }
     }
-    if (!g.questionIds.includes(it.question_id)) {
+    if (!index.questionIds.has(it.question_id)) {
+      index.questionIds.add(it.question_id)
       g.questionIds.push(it.question_id)
       if (it.question_stem.trim()) g.questionStems.push(it.question_stem.trim())
     }
