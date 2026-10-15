@@ -14,11 +14,12 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func
+from sqlalchemy import case, func, true
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
 from ..models import (
+    Assignment,
     AssignmentExt,
     AssignmentSetting,
     Error,
@@ -85,22 +86,62 @@ def assert_can_submit(
     只有最新提交仍为 deferred 时才允许在截止前继续修改。截止后拒绝首次提交
     和修改。无截止时间的允许修改作业沿用立即批改口径。"""
     now = received_at or datetime.now()
-    revision_allowed = allow_revision(db, question.assignment_id)
-    deadline = assignment_deadline(db, question.assignment_id)
+    latest_submission = (
+        db.query(
+            Submission.id.label("submission_id"),
+            Submission.status.label("submission_status"),
+        )
+        .filter(
+            Submission.student_id == student.id,
+            Submission.question_id == question.id,
+        )
+        .order_by(Submission.submitted_at.desc(), Submission.id.desc())
+        .limit(1)
+        .subquery()
+    )
+    submission_rules = (
+        db.query(
+            AssignmentSetting.allow_revision.label("allow_revision"),
+            AssignmentExt.deadline.label("deadline"),
+            latest_submission.c.submission_id.label("latest_submission_id"),
+            latest_submission.c.submission_status.label("latest_submission_status"),
+        )
+        .select_from(Assignment)
+        .outerjoin(
+            AssignmentSetting,
+            AssignmentSetting.assignment_id == Assignment.id,
+        )
+        .outerjoin(
+            AssignmentExt,
+            AssignmentExt.assignment_id == Assignment.id,
+        )
+        .outerjoin(latest_submission, true())
+        .filter(Assignment.id == question.assignment_id)
+        .first()
+    )
+    revision_allowed = (
+        bool(submission_rules.allow_revision) if submission_rules else False
+    )
+    deadline = submission_rules.deadline if submission_rules else None
+    has_latest_submission = bool(
+        submission_rules and submission_rules.latest_submission_id is not None
+    )
+    latest_status = (
+        submission_rules.latest_submission_status if submission_rules else None
+    )
     deferred_window = bool(revision_allowed and deadline is not None and now < deadline)
-    latest = latest_submission(db, student.id, question.id)
 
     if revision_allowed and deadline is not None and now >= deadline:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "作业已过截止时间，不能继续修改；已提交内容会自动批改。"
-            if latest is not None and latest.status == DEFERRED
+            if has_latest_submission and latest_status == DEFERRED
             else "作业已过截止时间，不能再提交。",
         )
 
-    if latest is None:
+    if not has_latest_submission:
         return deferred_window
-    if latest.status == DEFERRED:
+    if latest_status == DEFERRED:
         if deferred_window:
             return True  # 截止前修改：新的延迟提交会成为最新一份
     if revision_allowed and deadline is None:
