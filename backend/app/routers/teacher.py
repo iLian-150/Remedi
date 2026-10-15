@@ -691,12 +691,15 @@ def review_approve(submission_id: int, body: Optional[ReviewApproveIn] = None,
                 status.HTTP_400_BAD_REQUEST,
                 f"分数不能超过本题满分 {max_score:g}",
             )
-    review_svc.approve_submission(db, sub, current)
+    submission_id = sub.id
+    review_svc.approve_submission(db, sub, current, commit=False)
     scoring_svc.finalize_on_approve(
         db, sub, current,
         final_score=body.final_score if body is not None else None,
+        commit=False,
     )
-    return {"submission_id": sub.id, "review_status": "approved"}
+    db.commit()
+    return {"submission_id": submission_id, "review_status": "approved"}
 
 
 @router.get("/stats/top-questions", summary="高频错题 TopN")

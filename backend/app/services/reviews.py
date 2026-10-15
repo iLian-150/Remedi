@@ -477,7 +477,8 @@ def visible_submissions(db: Session, submissions: List[Submission]) -> List[Subm
 
 
 def approve_submission(db: Session, submission: Submission, teacher,
-                       *, notify: bool = True) -> SubmissionReview:
+                       *, notify: bool = True,
+                       commit: bool = True) -> SubmissionReview:
     """把一条提交置为 approved 并给学生发审核通过提醒（幂等：
     已 approved 的不重复发提醒）。返回审核行。"""
     row = db.query(SubmissionReview).filter(
@@ -504,12 +505,13 @@ def approve_submission(db: Session, submission: Submission, teacher,
             ),
             related_submission_id=submission.id,
         ))
-    expire_on_commit = db.expire_on_commit
-    db.expire_on_commit = False
-    try:
-        db.commit()
-    finally:
-        db.expire_on_commit = expire_on_commit
+    if commit:
+        expire_on_commit = db.expire_on_commit
+        db.expire_on_commit = False
+        try:
+            db.commit()
+        finally:
+            db.expire_on_commit = expire_on_commit
     return row
 
 

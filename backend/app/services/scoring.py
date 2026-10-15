@@ -170,10 +170,20 @@ def get_score_row(db: Session, submission_id: int) -> Optional[SubmissionScore]:
 
 
 def finalize_on_approve(db: Session, submission: Submission, teacher,
-                        final_score: Optional[float] = None) -> SubmissionScore:
+                        final_score: Optional[float] = None,
+                        *, commit: bool = True) -> SubmissionScore:
     """教师审核通过时落定最终分：老师给了分就用老师的（调用方已做 0~满分校验），
     没给则 final = ai。已有 final 不覆盖老师先前定的分（除非本次显式给了新分）。"""
-    row = ensure_score(db, submission)
+    row = db.query(SubmissionScore).filter(
+        SubmissionScore.submission_id == submission.id
+    ).first()
+    if row is None:
+        info = compute_ai_score(db, submission)
+        row = SubmissionScore(
+            submission_id=submission.id,
+            ai_score=info["ai_score"],
+        )
+        db.add(row)
     if final_score is not None:
         row.final_score = round(float(final_score), 1)
         row.updated_by = teacher.id
@@ -181,12 +191,13 @@ def finalize_on_approve(db: Session, submission: Submission, teacher,
         row.final_score = row.ai_score
         row.updated_by = teacher.id
     row.updated_at = datetime.now()
-    expire_on_commit = db.expire_on_commit
-    db.expire_on_commit = False
-    try:
-        db.commit()
-    finally:
-        db.expire_on_commit = expire_on_commit
+    if commit:
+        expire_on_commit = db.expire_on_commit
+        db.expire_on_commit = False
+        try:
+            db.commit()
+        finally:
+            db.expire_on_commit = expire_on_commit
     return row
 
 
