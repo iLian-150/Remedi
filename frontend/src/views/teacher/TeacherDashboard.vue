@@ -155,10 +155,14 @@ const repairRate = ref<ClassRepairRate>({
   knowledge_points: []
 })
 function repairText(kpName: string): string {
-  const item = repairRate.value.knowledge_points.find((k) => k.knowledge_point === kpName)
-  if (!item) return ''
-  return `已修复率 ${Math.round(item.repair_rate * 100)}%（${item.students_fixed}/${item.students_errored} 名学生）`
+  return repairTextByKnowledgePoint.value.get(kpName) ?? ''
 }
+const repairTextByKnowledgePoint = computed(() => new Map(
+  repairRate.value.knowledge_points.map((item) => [
+    item.knowledge_point,
+    `已修复率 ${Math.round(item.repair_rate * 100)}%（${item.students_fixed}/${item.students_errored} 名学生）`
+  ])
+))
 
 // 教学建议（独立于看板主体加载，失败不报错、不拖垮页面）
 const suggestions = ref<TeachingSuggestion[]>([])
@@ -200,7 +204,8 @@ const subjectTotals = computed(() => {
 })
 
 const topQuestionsOption = computed(() => {
-  const list = [...topQuestions.value].sort((a, b) => b.error_count - a.error_count)
+  // 教师首页汇总接口已按错误数降序，图表直接复用以免再次复制和排序。
+  const list = topQuestions.value
   return {
     tooltip: {
       trigger: 'axis',
@@ -229,7 +234,8 @@ const topQuestionsOption = computed(() => {
 })
 
 const knowledgeOption = computed(() => {
-  const list = [...kpStats.value].sort((a, b) => b.error_rate - a.error_rate)
+  // 知识点排行接口已按错误率降序，沿用接口顺序即可。
+  const list = kpStats.value
   return {
     tooltip: {
       trigger: 'axis',
