@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, joinedload, load_only
+from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_teacher
 from ..config import settings
@@ -1328,6 +1329,11 @@ _WORKBOOK_MAX_BYTES = 30 * 1024 * 1024
 _WORKBOOK_SUBDIR = "workbooks"
 
 
+def _write_uploaded_file(path: str, data: bytes) -> None:
+    with open(path, "wb") as uploaded_file:
+        uploaded_file.write(data)
+
+
 def _workbook_out(w: Workbook, with_cover: bool = False) -> WorkbookOut:
     """练习册出参；with_cover 时走 services.covers 的懒生成（封面缺失补渲染一次）。"""
     cover = None
@@ -1358,7 +1364,7 @@ async def upload_workbook(file: UploadFile = File(...),
     is_pdf = file.content_type == "application/pdf" or filename.lower().endswith(".pdf")
     if not is_pdf:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只支持上传 PDF 文件")
-    data = await file.read()
+    data = await file.read(_WORKBOOK_MAX_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件内容为空，请重新上传")
     if len(data) > _WORKBOOK_MAX_BYTES:
@@ -1368,8 +1374,8 @@ async def upload_workbook(file: UploadFile = File(...),
     stored_name = "{}_{}.pdf".format(
         datetime.now().strftime("%Y%m%d%H%M%S"), secrets.token_hex(4)
     )
-    with open(os.path.join(target_dir, stored_name), "wb") as f:
-        f.write(data)
+    target_path = os.path.join(target_dir, stored_name)
+    await run_in_threadpool(_write_uploaded_file, target_path, data)
     base = os.path.splitext(os.path.basename(filename))[0].strip()
     w = Workbook(
         teacher_id=current.id,
@@ -1386,7 +1392,9 @@ async def upload_workbook(file: UploadFile = File(...),
     # v0.6.0：上传成功后尝试把 PDF 第一页渲染成封面图（失败静默跳过，前端用书脊兜底）
     from ..services.covers import generate_cover
 
-    generate_cover(w.id, os.path.join(settings.UPLOAD_DIR, w.file_path))
+    await run_in_threadpool(
+        generate_cover, w.id, os.path.join(settings.UPLOAD_DIR, w.file_path)
+    )
     return _workbook_out(w)
 
 
@@ -1622,7 +1630,7 @@ async def photo_recognize(file: UploadFile = File(...),
     注意：v1 直接复用学生作答转写能力（transcribe_image），未针对题目照片单独调 prompt。"""
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
-    data = await file.read()
+    data = await file.read(_PHOTO_MAX_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
@@ -1633,9 +1641,12 @@ async def photo_recognize(file: UploadFile = File(...),
         secrets.token_hex(4),
         _PHOTO_TYPES[file.content_type],
     )
-    with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
-        f.write(data)
-    result = get_provider().transcribe_image(data, file.content_type)
+    await run_in_threadpool(
+        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
+    )
+    result = await run_in_threadpool(
+        get_provider().transcribe_image, data, file.content_type
+    )
     return {
         "image_id": filename,
         "image_url": f"/api/uploads/{filename}",
@@ -1654,7 +1665,7 @@ async def photo_recognize_group(file: UploadFile = File(...),
     不再逐个小题拍照识别。图片规则与单题识别一致（jpg/png/webp、≤10MB）。"""
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
-    data = await file.read()
+    data = await file.read(_PHOTO_MAX_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
@@ -1665,9 +1676,12 @@ async def photo_recognize_group(file: UploadFile = File(...),
         secrets.token_hex(4),
         _PHOTO_TYPES[file.content_type],
     )
-    with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
-        f.write(data)
-    result = get_provider().transcribe_group_image(data, file.content_type)
+    await run_in_threadpool(
+        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
+    )
+    result = await run_in_threadpool(
+        get_provider().transcribe_group_image, data, file.content_type
+    )
     return {
         "image_id": filename,
         "image_url": f"/api/uploads/{filename}",

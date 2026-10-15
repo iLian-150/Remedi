@@ -1526,6 +1526,11 @@ _PHOTO_TYPES = {"image/jpeg": ".jpg", "image/jpg": ".jpg",
 _PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 
+def _write_uploaded_file(path: str, data: bytes) -> None:
+    with open(path, "wb") as image_file:
+        image_file.write(data)
+
+
 def _add_submission_image_link(db: Session, submission: Submission,
                                file_path: str, file_name: str) -> None:
     """暂存图片关联，由调用方与审核记录一起提交。"""
@@ -1576,7 +1581,7 @@ async def photo_review(
     request_started_at = perf_counter()
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
-    data = await file.read()
+    data = await file.read(_PHOTO_MAX_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
@@ -1586,7 +1591,7 @@ async def photo_review(
     if model_file is not None:
         if model_file.content_type not in _PHOTO_TYPES:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "模型处理图片格式无效")
-        model_data = await model_file.read()
+        model_data = await model_file.read(_PHOTO_MAX_BYTES + 1)
         if not model_data:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "模型处理图片为空，请重新上传")
         if len(model_data) > _PHOTO_MAX_BYTES:
@@ -1624,8 +1629,9 @@ async def photo_review(
         )
         stored_image_path = filename
         image_url = f"/api/uploads/{filename}"
-        with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as image_file:
-            image_file.write(data)
+        await run_in_threadpool(
+            _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
+        )
         chat_user_text = "上传了一张作业照片。"
         if chat_prompt.strip():
             chat_user_text += f"\n补充说明：{chat_prompt.strip()[:2000]}"
@@ -1689,8 +1695,9 @@ async def photo_review(
                 secrets.token_hex(8),
                 _PHOTO_TYPES[file.content_type],
             )
-            with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as image_file:
-                image_file.write(data)
+            await run_in_threadpool(
+                _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
+            )
             image_url = f"/api/uploads/{filename}"
         capture = StudentQuestionCapture(
             student_id=current.id,
@@ -1765,8 +1772,10 @@ async def photo_review(
                 secrets.token_hex(8),
                 _PHOTO_TYPES[file.content_type],
             )
-            with open(os.path.join(settings.UPLOAD_DIR, stored_image_path), "wb") as image_file:
-                image_file.write(data)
+            await run_in_threadpool(
+                _write_uploaded_file,
+                os.path.join(settings.UPLOAD_DIR, stored_image_path), data,
+            )
         image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
         submission = deferral_svc.create_deferred(
             db, current, question, steps,
@@ -1798,8 +1807,10 @@ async def photo_review(
             secrets.token_hex(8),
             _PHOTO_TYPES[file.content_type],
         )
-        with open(os.path.join(settings.UPLOAD_DIR, stored_image_path), "wb") as image_file:
-            image_file.write(data)
+        await run_in_threadpool(
+            _write_uploaded_file,
+            os.path.join(settings.UPLOAD_DIR, stored_image_path), data,
+        )
     _add_submission_image_link(
         db,
         submission,
@@ -1897,7 +1908,7 @@ async def photo_transcribe(file: UploadFile = File(...),
     图片只存本地文件（不落库）；学生确认/编辑后走 POST /submissions 完成诊断。"""
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
-    data = await file.read()
+    data = await file.read(_PHOTO_MAX_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
@@ -1908,8 +1919,9 @@ async def photo_transcribe(file: UploadFile = File(...),
         secrets.token_hex(4),
         _PHOTO_TYPES[file.content_type],
     )
-    with open(os.path.join(settings.UPLOAD_DIR, filename), "wb") as f:
-        f.write(data)
+    await run_in_threadpool(
+        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
+    )
     result = await run_in_threadpool(get_provider().transcribe_image, data, file.content_type)
     return {
         "image_id": filename,
@@ -1940,7 +1952,7 @@ async def photo_diagnose(
     """
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
-    data = await file.read()
+    data = await file.read(_PHOTO_MAX_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
@@ -1976,8 +1988,9 @@ async def photo_diagnose(
         secrets.token_hex(8),
         _PHOTO_TYPES[file.content_type],
     )
-    with open(os.path.join(settings.UPLOAD_DIR, image_path), "wb") as image_file:
-        image_file.write(data)
+    await run_in_threadpool(
+        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, image_path), data
+    )
     image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
 
     if deferred_mode:
@@ -2122,7 +2135,7 @@ async def agent_vision_chat_stream(
     """原图直接进入视觉模型，返回 SSE 文本块；不先 OCR 再交给文本模型。"""
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
-    image_bytes = await file.read()
+    image_bytes = await file.read(_PHOTO_MAX_BYTES + 1)
     if not image_bytes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(image_bytes) > _PHOTO_MAX_BYTES:
