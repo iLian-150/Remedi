@@ -658,7 +658,12 @@ def review_approve(submission_id: int, body: Optional[ReviewApproveIn] = None,
     """通过一份提交的 AI 批改结果：置 approved 并给学生发提醒。
     幂等：已通过的重复调用不重复发提醒。改错因走既有的一键纠错接口，保存后再调本接口即「改后通过」。
     评分系统：body 可带 final_score（老师改分，须在 0~本题满分之间）；不带 = 用 AI 初评分落定最终分。"""
-    sub = db.query(Submission).filter(Submission.id == submission_id).first()
+    sub = db.query(Submission).options(
+        joinedload(Submission.question)
+        .load_only(Question.id, Question.assignment_id)
+        .joinedload(Question.assignment)
+        .load_only(Assignment.id, Assignment.title)
+    ).filter(Submission.id == submission_id).first()
     if not sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
     if body is not None and body.final_score is not None:
