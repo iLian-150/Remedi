@@ -100,25 +100,37 @@ const subjectNames: Record<string, string> = { math: '数学', english: '英语'
 const colors = ['#1D4ED8', '#059669', '#D97706', '#DC2626', '#7C3AED', '#0284C7', '#DB2777', '#65A30D']
 const subjects = computed<SubjectGroup[]>(() => {
   const result = new Map<string, SubjectGroup>()
+  const topicsBySubject = new Map<string, Map<string, Topic>>()
+  const errorPointsByTopic = new Map<Topic, Map<string, ErrorPoint>>()
   for (const entry of props.mistakes) {
     const subjectKey = entry.question_subject || 'other'
-    const subject = result.get(subjectKey) ?? { key: subjectKey, label: subjectNames[subjectKey] || subjectKey, topics: [], recordCount: 0 }
-    let topic = subject.topics.find((item) => item.label === (entry.knowledge_point || '待归类'))
+    let subject = result.get(subjectKey)
+    if (!subject) {
+      subject = { key: subjectKey, label: subjectNames[subjectKey] || subjectKey, topics: [], recordCount: 0 }
+      result.set(subjectKey, subject)
+      topicsBySubject.set(subjectKey, new Map())
+    }
+    const topicLabel = entry.knowledge_point || '待归类'
+    const topicIndex = topicsBySubject.get(subjectKey)!
+    let topic = topicIndex.get(topicLabel)
     if (!topic) {
-      topic = { key: `${subjectKey}:${entry.knowledge_point || '待归类'}`, label: entry.knowledge_point || '待归类', entries: [], errorPoints: [], studied: true }
+      topic = { key: `${subjectKey}:${topicLabel}`, label: topicLabel, entries: [], errorPoints: [], studied: true }
       subject.topics.push(topic)
+      topicIndex.set(topicLabel, topic)
+      errorPointsByTopic.set(topic, new Map())
     }
     topic.entries.push(entry)
     topic.studied = topic.studied && entry.category_studied
-    let point = topic.errorPoints.find((item) => item.key === entry.category_key)
+    const pointIndex = errorPointsByTopic.get(topic)!
+    let point = pointIndex.get(entry.category_key)
     if (!point) {
       point = { key: entry.category_key, label: entry.category_label || entry.error_type, entries: [], studied: true }
       topic.errorPoints.push(point)
+      pointIndex.set(entry.category_key, point)
     }
     point.entries.push(entry)
     point.studied = point.studied && entry.category_studied
     subject.recordCount += 1
-    result.set(subjectKey, subject)
   }
   for (const subject of result.values()) {
     subject.topics.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
