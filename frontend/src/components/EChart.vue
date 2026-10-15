@@ -36,8 +36,7 @@ watch(
   () => props.option,
   (opt) => {
     chart?.setOption(opt, true)
-  },
-  { deep: true }
+  }
 )
 
 function handleResize() {
