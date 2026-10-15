@@ -1358,18 +1358,25 @@ def create_verification(body: VerificationCreate, db: Session = Depends(get_db),
 
     source_error_id = body.source_error_id
     if source_error_id is not None:
-        err = db.query(Error).filter(Error.id == source_error_id).first()
-        sub = db.query(Submission).filter(Submission.id == err.submission_id).first() if err else None
-        if not err or not sub or sub.student_id != current.id:
+        own_error = (
+            db.query(Error.id)
+            .join(Submission, Submission.id == Error.submission_id)
+            .filter(
+                Error.id == source_error_id,
+                Submission.student_id == current.id,
+            )
+            .first()
+        )
+        if own_error is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_error_id 不是你的错题记录")
     else:
         latest_query = (
-            db.query(Error)
+            db.query(Error.id)
             .join(Submission, Error.submission_id == Submission.id)
             .filter(Submission.student_id == current.id, Error.knowledge_point == kp)
         )
         latest = latest_query.order_by(Error.created_at.desc(), Error.id.desc()).first()
-        source_error_id = latest.id if latest else None
+        source_error_id = latest[0] if latest else None
 
     variant = variant_gen.generate_variant(kp)
     v = Verification(
