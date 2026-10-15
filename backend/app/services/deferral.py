@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
@@ -175,26 +176,32 @@ def _enqueue_due_reviews(
         return
 
     assignment_contexts = review_svc.assignment_accuracy_contexts(db, submissions)
-    step_statuses_by_submission = {}
-    error_confidences_by_submission = {}
+    step_counts_by_submission = {}
+    low_confidence_by_submission = {}
     submission_ids = [submission.id for submission in submissions]
     for start in range(0, len(submission_ids), 500):
         id_chunk = submission_ids[start:start + 500]
-        for submission_id, step_status in db.query(
-            Step.submission_id, Step.status
+        for submission_id, correct_steps, total_steps in db.query(
+            Step.submission_id,
+            func.sum(case((Step.status == "ok", 1), else_=0)),
+            func.count(Step.id),
         ).filter(
             Step.submission_id.in_(id_chunk),
             Step.seq >= 1,
             Step.status.in_(("ok", "error", "unparseable")),
-        ).all():
-            step_statuses_by_submission.setdefault(submission_id, []).append(
-                step_status
+        ).group_by(Step.submission_id).all():
+            step_counts_by_submission[submission_id] = (
+                int(correct_steps or 0), int(total_steps or 0)
             )
-        for submission_id, confidence in db.query(
-            Error.submission_id, Error.confidence
-        ).filter(Error.submission_id.in_(id_chunk)).all():
-            error_confidences_by_submission.setdefault(submission_id, []).append(
-                float(confidence)
+        low_confidence = review_svc.low_error_confidence_predicate()
+        for submission_id, has_low_confidence in db.query(
+            Error.submission_id,
+            func.max(case((low_confidence, 1), else_=0)),
+        ).filter(
+            Error.submission_id.in_(id_chunk)
+        ).group_by(Error.submission_id).all():
+            low_confidence_by_submission[submission_id] = bool(
+                has_low_confidence
             )
 
     submissions_to_review = {}
@@ -209,9 +216,9 @@ def _enqueue_due_reviews(
             submission,
             confidence_signals_by_submission.get(submission.id, []),
             assignment_context=context,
-            step_statuses=step_statuses_by_submission.get(submission.id, []),
-            error_confidences=error_confidences_by_submission.get(
-                submission.id, []
+            step_counts=step_counts_by_submission.get(submission.id, (0, 0)),
+            has_low_error_confidence=low_confidence_by_submission.get(
+                submission.id, False
             ),
         )
         if not reasons:

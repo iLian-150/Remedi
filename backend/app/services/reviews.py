@@ -6,7 +6,7 @@ from datetime import datetime
 import math
 from typing import Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import case, func, tuple_
+from sqlalchemy import case, func, or_, tuple_
 from sqlalchemy.orm import Session, joinedload, load_only
 
 from ..models import (
@@ -24,6 +24,16 @@ from .confidence import normalize_confidence
 PENDING = "pending"
 APPROVED = "approved"
 REVIEW_THRESHOLD = 0.60
+
+
+def low_error_confidence_predicate():
+    """SQL predicate matching review_reasons' finite, below-threshold check."""
+    return or_(
+        Error.confidence < REVIEW_THRESHOLD,
+        Error.confidence == math.inf,
+        Error.confidence == math.nan,
+        Error.confidence != Error.confidence,
+    )
 
 
 def create_pending_review(db: Session, submission: Submission) -> SubmissionReview:

@@ -542,11 +542,7 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             step_counts_by_submission[submission_id] = (
                 int(correct_steps or 0), int(total_steps or 0)
             )
-        low_confidence = or_(
-            Error.confidence < review_svc.REVIEW_THRESHOLD,
-            Error.confidence > 1.0,
-            Error.confidence != Error.confidence,
-        )
+        low_confidence = review_svc.low_error_confidence_predicate()
         for submission_id, error_count, has_low_confidence in db.query(
             Error.submission_id,
             func.count(Error.id),
