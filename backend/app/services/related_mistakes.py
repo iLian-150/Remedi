@@ -60,19 +60,54 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
     ).exists()
     query = query.filter(~is_archived)
 
-    for error, submission, question, assignment, step in query.limit(300).all():
+    for error, submission, question, assignment, step in query.limit(300).yield_per(50):
         if "".join((error.knowledge_point or "").split()).casefold() != knowledge_key:
             continue
-        correction = (
-            db.query(Correction)
+        latest_correction_id = (
+            db.query(Correction.id)
             .filter(Correction.student_id == student_id, Correction.error_id == error.id)
             .order_by(Correction.submitted_at.desc(), Correction.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        review_and_correction = (
+            db.query(
+                SubmissionReview.status.label("review_status"),
+                Correction.id.label("correction_id"),
+                Correction.content.label("correction_content"),
+                Correction.is_correct.label("correction_is_correct"),
+                Correction.note.label("correction_note"),
+                Correction.submitted_at.label("correction_submitted_at"),
+            )
+            .select_from(Submission)
+            .outerjoin(
+                SubmissionReview,
+                SubmissionReview.submission_id == Submission.id,
+            )
+            .outerjoin(Correction, Correction.id == latest_correction_id)
+            .filter(
+                Submission.id == submission.id,
+                Submission.student_id == student_id,
+            )
             .first()
+        )
+        review_status = review_and_correction.review_status
+        correction = (
+            {
+                "id": review_and_correction.correction_id,
+                "content": review_and_correction.correction_content,
+                "is_correct": review_and_correction.correction_is_correct,
+                "note": review_and_correction.correction_note,
+                "submitted_at": review_and_correction.correction_submitted_at,
+            }
+            if review_and_correction.correction_id is not None else None
         )
         return {
             "id": error.id,
             "submission_id": submission.id,
-            "review_status": review_svc.review_status(db, submission.id),
+            "review_status": (
+                review_status if review_status is not None else review_svc.APPROVED
+            ),
             "question_id": question.id,
             "assignment_id": assignment.id,
             "assignment_title": assignment.title,
@@ -87,13 +122,7 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
             "step_seq": step.seq if step else None,
             "step_text": step.text if step else None,
             "created_at": error.created_at,
-            "latest_correction": ({
-                "id": correction.id,
-                "content": correction.content,
-                "is_correct": correction.is_correct,
-                "note": correction.note,
-                "submitted_at": correction.submitted_at,
-            } if correction else None),
+            "latest_correction": correction,
         }
     return None
 
