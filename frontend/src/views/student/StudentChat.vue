@@ -484,6 +484,8 @@ interface ChatMsg {
 const renderAssistantMarkdown = createMarkdownRenderer<ChatMsg>((message) => message.text)
 const messages = ref<ChatMsg[]>([])
 let briefingRefreshGeneration = 0
+let briefingRequest: Promise<StudentBriefing> | null = null
+let initialBriefingRequest: Promise<StudentBriefing> | null = null
 
 type PendingPhotoRetry = {
   file: File
@@ -524,6 +526,46 @@ function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
   // 返回数组中的响应式代理；返回原始对象会让异步流式文本更新绕过 Vue，
   // 最终只在其他状态变化时整段刷新出来。
   return messages.value[messages.value.length - 1]
+}
+
+function fetchBriefingOnce(): Promise<StudentBriefing> {
+  if (initialBriefingRequest) return initialBriefingRequest
+  if (briefingRequest) return briefingRequest
+
+  const request = student.fetchBriefing()
+  briefingRequest = request
+  const clearRequest = () => {
+    if (briefingRequest === request) briefingRequest = null
+  }
+  void request.then(clearRequest, clearRequest)
+  return request
+}
+
+function showBriefing(briefing: StudentBriefing) {
+  const existing = messages.value.find((message) => message.kind === 'briefing')
+  if (existing) {
+    existing.briefing = briefing
+    return
+  }
+  messages.value.unshift({
+    id: ++seq,
+    side: 'ai',
+    kind: 'briefing',
+    text: '',
+    url: '',
+    briefing,
+    questionText: '',
+    steps: [],
+    questionId: null,
+    confirmed: false,
+    submitting: false,
+    pending: false,
+    result: null,
+    captureId: null,
+    saved: false,
+    savingCapture: false,
+    relatedMistake: null
+  })
 }
 
 // ---------- 题目选择（仅数学题可拍照批改） ----------
@@ -616,7 +658,7 @@ const visibleMessages = computed(() => messages.value.filter((m) => m.kind !== '
 async function refreshBriefing() {
   const generation = ++briefingRefreshGeneration
   try {
-    const b = await student.fetchBriefing()
+    const b = await fetchBriefingOnce()
     if (generation !== briefingRefreshGeneration) return
     const m = messages.value.find((x) => x.kind === 'briefing')
     if (m) m.briefing = b
@@ -740,26 +782,7 @@ const suggestions = ref<string[]>([])
 /** 把简报卡作为第一条消息放回对话区（新对话/切换会话后复用） */
 async function prependBriefing() {
   try {
-    const briefing = await student.fetchBriefing()
-    messages.value.unshift({
-      id: ++seq,
-      side: 'ai',
-      kind: 'briefing',
-      text: '',
-      url: '',
-      briefing,
-      questionText: '',
-      steps: [],
-      questionId: null,
-      confirmed: false,
-      submitting: false,
-      pending: false,
-      result: null,
-      captureId: null,
-      saved: false,
-      savingCapture: false,
-      relatedMistake: null
-    })
+    showBriefing(await fetchBriefingOnce())
   } catch (e) {
     console.error(e)
   }
@@ -1246,9 +1269,11 @@ onMounted(async () => {
       (history) => ({ history } as const),
       (error) => ({ error } as const)
     )
+  const briefingPromise = fetchBriefingOnce()
+  initialBriefingRequest = briefingPromise
   const [assignmentResult, briefingResult] = await Promise.allSettled([
     student.fetchChatContext(),
-    student.fetchBriefing()
+    briefingPromise
   ])
 
   if (assignmentResult.status === 'fulfilled') {
@@ -1287,31 +1312,13 @@ onMounted(async () => {
   }
 
   if (briefingResult.status === 'fulfilled') {
-    const briefing = briefingResult.value
-    // 简报作为第一条 AI 消息
-    messages.value.unshift({
-      id: ++seq,
-      side: 'ai',
-      kind: 'briefing',
-      text: '',
-      url: '',
-      briefing,
-      questionText: '',
-      steps: [],
-      questionId: null,
-      confirmed: false,
-      submitting: false,
-      pending: false,
-      result: null,
-      captureId: null,
-      saved: false,
-      savingCapture: false,
-      relatedMistake: null
-    })
+    // 简报作为第一条 AI 消息；会话同步若已插入则更新原卡片。
+    showBriefing(briefingResult.value)
   } else {
     pushMsg({ side: 'ai', kind: 'error', text: '学习简报加载失败，刷新页面可以重试。' })
     console.error(briefingResult.reason)
   }
+  initialBriefingRequest = null
   // 按上次选中的会话读取历史，避免刷新后跳到别的会话。
   const historyResult = await historyPromise
   if ('history' in historyResult) {
