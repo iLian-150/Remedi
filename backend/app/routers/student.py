@@ -144,10 +144,15 @@ def present_for_student(
     *,
     steps: Optional[List[Step]] = None,
     errors: Optional[List[Error]] = None,
+    review_status: Optional[str] = None,
 ) -> dict:
     """学生侧诊断出参：诊断立即可见；待审核时只暂缓下发成绩。"""
     out = present_diagnosis(submission, db, steps=steps, errors=errors)
-    rstatus = review_svc.review_status(db, submission.id)
+    rstatus = (
+        review_status
+        if review_status is not None
+        else review_svc.review_status(db, submission.id)
+    )
     out["review_status"] = rstatus
     if rstatus == review_svc.PENDING:
         out["status"] = "pending_review"
@@ -610,16 +615,23 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
 @router.get("/submissions/{submission_id}", response_model=DiagnosisOut, summary="提交详情")
 def submission_detail(submission_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_student)):
-    s = db.query(Submission).options(
+    row = db.query(Submission, SubmissionReview.status).outerjoin(
+        SubmissionReview,
+        SubmissionReview.submission_id == Submission.id,
+    ).options(
         joinedload(Submission.question).load_only(
             Question.id, Question.assignment_id, Question.subject, Question.stem,
         )
     ).filter(Submission.id == submission_id).first()
-    if not s:
+    if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    s, review_status = row
     if s.student_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能查看自己的提交记录")
-    return present_for_student(s, db)
+    return present_for_student(
+        s, db,
+        review_status=review_status or review_svc.APPROVED,
+    )
 
 
 def _mistake_category(subject: str, error_type: str, knowledge_point: str) -> tuple[str, str]:
