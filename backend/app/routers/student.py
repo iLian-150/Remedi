@@ -1120,13 +1120,16 @@ def set_mistake_archived(error_id: int, body: MistakeArchiveIn,
         db.commit()
         return {"id": error_id, "student_id": current.id, "archived_at": capture.archived_at}
 
-    error = (
-        db.query(Error).join(Submission, Error.submission_id == Submission.id)
+    target = (
+        db.query(Error.id, Question.assignment_id)
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
         .filter(Error.id == error_id, Submission.student_id == current.id)
         .first()
     )
-    if not error:
+    if not target:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这条错题记录")
+    _, assignment_id = target
     state = db.query(StudentMistakeArchive).filter_by(
         student_id=current.id, error_id=error_id
     ).first()
@@ -1143,7 +1146,7 @@ def set_mistake_archived(error_id: int, body: MistakeArchiveIn,
         db.delete(state)
         event_type = "mistake_restored"
         payload = {"occurrence_id": error_id, "student_id": current.id}
-    _record_mistake_event(db, current.id, error.submission.question.assignment_id, event_type, payload, now)
+    _record_mistake_event(db, current.id, assignment_id, event_type, payload, now)
     db.commit()
     return {"id": error_id, "student_id": current.id, "archived_at": now if body.archived else None}
 
