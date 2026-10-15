@@ -148,6 +148,7 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
   { key: 'network', label: '关联图谱', icon: 'target' },
 ]
 const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
+const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
 
 const notebookData = computed(() => buildNotebookData(allMistakes.value))
 const subjectOptions = computed(() => notebookData.value.subjectOptions)
@@ -308,7 +309,7 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
   }
 }
 function subjectName(value: string) { return subjectNames[value] || value || '其他学科' }
-function formatDate(value?: string) { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '日期未记录' : date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }) }
+function formatDate(value?: string) { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '日期未记录' : dateFormatter.format(date) }
 function safe(value: string) { return sanitizeStudentCopy(value) }
 function isStudentSaved(item: StudentMistake) { return item.source_kind === 'student_saved' }
 function assignmentSummary(assignment: AssignmentGroup) {

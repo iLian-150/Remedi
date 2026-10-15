@@ -156,8 +156,12 @@ watch(() => props.mistake?.submission_id, async (submissionId) => {
   }
 }, { immediate: true })
 
+const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    : dateFormatter.format(date)
 }
 
 function stepStatusLabel(status: string) {

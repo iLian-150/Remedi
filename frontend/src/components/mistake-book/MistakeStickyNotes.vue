@@ -110,6 +110,7 @@ const selectedCategoryKey = ref<string | null>(null)
 const focusedMistakeId = ref<number | null>(null)
 const noteColors: Record<string, string> = { math: 'yellow', english: 'pink', english_exercise: 'peach', physics: 'blue', chemistry: 'lilac', biology: 'mint', history: 'peach', geography: 'blue', chinese: 'pink', politics: 'yellow', computer_science: 'mint', other: 'lilac' }
 const categoryColors = ['yellow', 'mint', 'pink', 'blue', 'peach', 'lilac']
+const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
 
 const stickyData = computed(() => {
   const groups = new Map<string, SubjectGroup>()
@@ -211,7 +212,7 @@ function displaySubject(value: string) {
 }
 function formatDate(value?: string) {
   const date = new Date(value || '')
-  return Number.isNaN(date.getTime()) ? '日期未记录' : date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
+  return Number.isNaN(date.getTime()) ? '日期未记录' : dateFormatter.format(date)
 }
 function noteStyle(index: number) { return { '--sticky-tilt': `${[-1.8, 1.3, -.7, 1.7, -.9, 1.1][index % 6]}deg` } }
 function selectSubject(key: string) { selectedSubjectKey.value = key; selectedCategoryKey.value = null }
