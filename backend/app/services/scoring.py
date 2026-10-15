@@ -216,15 +216,10 @@ def finalize_on_approve(db: Session, submission: Submission, teacher,
 
 
 def visible_score(db: Session, submission: Submission) -> Optional[Dict]:
-    """学生侧可见分（调用方须先确认审核已通过）：{score, max_score}。
-    score 取 final（未落定则回退 ai，兼容无审核行的历史提交）。无分数行且
-    算不出（题目已删等）时返回 None。"""
-    question = submission.question
-    if question is None:
+    """单条调用兼容入口，复用批量评分读取与历史分数补算逻辑。"""
+    if submission.question is None:
         return None
-    row = ensure_score(db, submission)
-    score = row.final_score if row.final_score is not None else row.ai_score
-    return {"score": float(score), "max_score": question_max_score(db, question)}
+    return visible_scores(db, [submission]).get(submission.id)
 
 
 def visible_scores(
