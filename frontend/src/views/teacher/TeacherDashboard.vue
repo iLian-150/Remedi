@@ -12,7 +12,7 @@
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="!loading">
-      <!-- 教学建议（独立加载：失败只隐藏本区，不影响看板主体） -->
+      <!-- 教学建议与看板复用同一批统计；建议生成失败时只隐藏本区。 -->
       <div v-if="suggestions.length || suggestionsLoaded" class="card suggest-card" style="margin-bottom: 16px">
         <h3><AppIcon name="lightbulb" :size="18" /> 教学建议</h3>
         <p class="card-sub">按班级修复率、知识点错误率、顽固错题与成绩自动生成，供备课参考。</p>
@@ -77,7 +77,7 @@
           <h3><AppIcon name="alert" :size="18" /> 高频错题 Top{{ topN }}</h3>
           <div class="toolbar">
             <label style="font-size: 14px; color: var(--text-2)">Top N：</label>
-            <select v-model="topN" @change="loadStats" style="width: auto">
+            <select v-model="topN" @change="loadStats(false)" style="width: auto">
               <option :value="5">5</option>
               <option :value="10">10</option>
               <option :value="20">20</option>
@@ -185,15 +185,6 @@ function suggestKindText(kind: TeachingSuggestion['kind']): string {
 function suggestBadgeClass(kind: TeachingSuggestion['kind']): string {
   return SUGGEST_BADGE_CLASS[kind] ?? 'badge-gray'
 }
-async function loadSuggestions() {
-  try {
-    suggestions.value = await teacher.fetchSuggestions()
-    suggestionsLoaded.value = true
-  } catch (e) {
-    console.error(e)
-  }
-}
-
 // 科目层汇总（数学）：提交总数取知识点排行的提交合计，整体错误率与学生画像同口径（上限 1.0）
 const subjectTotals = computed(() => {
   const submissions = kpStats.value.reduce((sum, k) => sum + k.submissions, 0)
@@ -276,11 +267,11 @@ const typeOption = computed(() => ({
   ]
 }))
 
-async function loadStats() {
+async function loadStats(includeSuggestions = false) {
   loading.value = true
   error.value = ''
   try {
-    const summary = await teacher.fetchDashboardSummary(topN.value)
+    const summary = await teacher.fetchDashboardSummary(topN.value, includeSuggestions)
     topQuestions.value = summary.top_questions
     kpStats.value = summary.knowledge_points
     studentsList.value = summary.students
@@ -290,6 +281,10 @@ async function loadStats() {
     overview.studentCount = summary.students.length
     overview.kpCount = summary.knowledge_points.length
     typeOptionData.value = summary.recent_error_types
+    if (includeSuggestions) {
+      suggestions.value = summary.suggestions ?? []
+      suggestionsLoaded.value = true
+    }
   } catch (e) {
     error.value = '班级看板加载失败，请确认后端已启动。'
     console.error(e)
@@ -299,8 +294,7 @@ async function loadStats() {
 }
 
 onMounted(() => {
-  loadStats()
-  loadSuggestions()
+  loadStats(true)
 })
 </script>
 

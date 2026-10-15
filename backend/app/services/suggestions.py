@@ -30,23 +30,38 @@ def _pct(rate: Optional[float]) -> int:
     return round((rate or 0.0) * 100)
 
 
-def build_teaching_suggestions(db: Session) -> List[Dict]:
+def build_teaching_suggestions(
+    db: Session,
+    precomputed_stats: Optional[Dict] = None,
+) -> List[Dict]:
     """生成教学建议列表。数据为空返回 []；统计异常逐项收敛为跳过。"""
     repair_map: Dict[str, Dict] = {}
     ranking_map: Dict[str, Dict] = {}
     samples_map: Dict[str, List[str]] = {}
     try:
-        for kp in class_repair_rate(db).get("knowledge_points", []):
+        repair_data = (
+            precomputed_stats.get("repair_rate") or {}
+            if precomputed_stats is not None else class_repair_rate(db)
+        )
+        for kp in repair_data.get("knowledge_points", []):
             repair_map[kp["knowledge_point"]] = kp
     except Exception:
         repair_map = {}
     try:
-        for it in knowledge_point_ranking(db):
+        ranking_data = (
+            precomputed_stats.get("knowledge_points", [])
+            if precomputed_stats is not None else knowledge_point_ranking(db)
+        )
+        for it in ranking_data:
             ranking_map[it["knowledge_point"]] = it
     except Exception:
         ranking_map = {}
     try:
-        for q in top_error_questions(db, 50):
+        question_data = (
+            precomputed_stats.get("top_questions", [])
+            if precomputed_stats is not None else top_error_questions(db, 50)
+        )
+        for q in question_data:
             bucket = samples_map.setdefault(q["knowledge_point"], [])
             if q.get("stem") and len(bucket) < 2:
                 bucket.append(q["stem"])

@@ -652,6 +652,7 @@ export interface TeacherDashboardSummary {
   stubborn_errors: number
   repair_rate: ClassRepairRate | null
   recent_error_types: Array<{ name: string; value: number }>
+  suggestions?: TeachingSuggestion[] | null
 }
 
 // 教学建议（GET /api/teacher/suggestions）：规则模板生成，按严重度排序

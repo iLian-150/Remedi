@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.13.262（2026-10-16）
+> 版本：v0.13.263（2026-10-16）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -1183,7 +1183,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.27 GET /api/teacher/dashboard —— 教师首页看板汇总
 
-权限：教师。可选参数 `n` 为高频错题数量（默认 10，范围 1–50）。一次返回 `top_questions`、`knowledge_points`、`students`、`total_errors`、`stubborn_errors`、`repair_rate` 与 `recent_error_types`。错因类型分布与原首页保持一致，统计最近 100 条错误记录，但仅加载类别字段；`repair_rate` 在计算失败时为 `null`，其余数据仍正常返回。
+权限：教师。可选参数 `n` 为高频错题数量（默认 10，范围 1–50）；`include_suggestions=true` 时还返回教学建议。响应包含 `top_questions`、`knowledge_points`、`students`、`total_errors`、`stubborn_errors`、`repair_rate`、`recent_error_types` 与 `suggestions`（未请求时为 `null`）。错因类型分布与原首页保持一致，统计最近 100 条错误记录，但仅加载类别字段；`repair_rate` 在计算失败时为 `null`，其余数据仍正常返回。启用建议时，服务复用同次请求已经计算的修复率、知识点排行与高频错题统计，避免重复聚合。
 
 响应 `200`：包含上述字段的看板汇总对象，`recent_error_types` 项结构为 `{ "name": 错因类型, "value": 数量 }`。
 
@@ -1515,3 +1515,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.260 | 2026-10-16 | 学生聊天只加载数学题与已提交状态，省去全科题目、大题分组及逐题审核状态传输。 |
 | v0.13.261 | 2026-10-16 | 教师作业列表复用数据库已排序结果，移除题目分组前的全量重复排序。 |
 | v0.13.262 | 2026-10-16 | 教师首页复用统计接口的排序结果，并索引修复率文案以减少重复排序和线性查找。 |
+| v0.13.263 | 2026-10-16 | 教师首页初次加载将教学建议与看板合并请求，并复用修复率、知识点和高频题统计。 |

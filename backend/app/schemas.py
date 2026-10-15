@@ -753,6 +753,15 @@ class ErrorTypeCountOut(BaseModel):
     value: int
 
 
+class TeachingSuggestionOut(BaseModel):
+    kind: str
+    title: str
+    knowledge_point: Optional[str] = None
+    evidence: str
+    action: str
+    sample_questions: List[str] = Field(default_factory=list)
+
+
 class TeacherDashboardOut(BaseModel):
     top_questions: List[TopQuestionItem]
     knowledge_points: List[KnowledgePointRankItem]
@@ -761,6 +770,7 @@ class TeacherDashboardOut(BaseModel):
     stubborn_errors: int
     repair_rate: Optional[ClassRepairRateOut] = None
     recent_error_types: List[ErrorTypeCountOut]
+    suggestions: Optional[List[TeachingSuggestionOut]] = None
 
 
 # ---------- 教师：提交审核流（v0.9.0 新增） ----------

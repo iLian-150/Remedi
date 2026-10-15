@@ -117,9 +117,12 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.get<ClassRepairRate>('/api/teacher/stats/repair-rate')
       return data
     },
-    async fetchDashboardSummary(n = 10): Promise<TeacherDashboardSummary> {
+    async fetchDashboardSummary(
+      n = 10,
+      includeSuggestions = false
+    ): Promise<TeacherDashboardSummary> {
       const { data } = await api.get<TeacherDashboardSummary>('/api/teacher/dashboard', {
-        params: { n }
+        params: { n, ...(includeSuggestions ? { include_suggestions: true } : {}) }
       })
       return data
     },

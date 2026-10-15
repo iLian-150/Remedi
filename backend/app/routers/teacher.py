@@ -773,6 +773,7 @@ def stats_repair_rate(db: Session = Depends(get_db), current: User = Depends(req
 @router.get("/dashboard", response_model=TeacherDashboardOut, summary="教师首页看板汇总")
 def teacher_dashboard(
     n: int = Query(default=10, ge=1, le=50),
+    include_suggestions: bool = Query(default=False),
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
@@ -794,21 +795,42 @@ def teacher_dashboard(
         func.count(),
     ).group_by(recent_error_types.c.error_type).all())
 
+    # 建议生成也需要前 50 道高频题；一次取回并复用统计结果，避免重复执行聚合查询。
+    top_question_rows = top_error_questions(
+        db, max(n, 50) if include_suggestions else n
+    )
+    knowledge_point_rows = knowledge_point_ranking(db)
     top_questions = [
-        TopQuestionItem(**item) for item in top_error_questions(db, n)
+        TopQuestionItem(**item) for item in top_question_rows[:n]
     ]
     knowledge_points = [
-        KnowledgePointRankItem(**item) for item in knowledge_point_ranking(db)
+        KnowledgePointRankItem(**item) for item in knowledge_point_rows
     ]
     students_list = [StudentBrief(**item) for item in list_students(db)]
 
+    repair_rate_data = None
     try:
-        repair_rate = ClassRepairRateOut(**class_repair_rate(db))
+        repair_rate_data = class_repair_rate(db)
+        repair_rate = ClassRepairRateOut(**repair_rate_data)
     except Exception:
         # 和旧看板单独请求修复率时的降级口径一致：该卡为空值，其余统计仍可展示。
         db.rollback()
         logger.exception("教师首页班级知识修复率统计失败")
         repair_rate = None
+
+    suggestions = None
+    if include_suggestions:
+        try:
+            from ..services.suggestions import build_teaching_suggestions
+
+            suggestions = build_teaching_suggestions(db, precomputed_stats={
+                "repair_rate": repair_rate_data or {},
+                "knowledge_points": knowledge_point_rows,
+                "top_questions": top_question_rows,
+            })
+        except Exception:
+            logger.exception("教师首页教学建议生成失败")
+            suggestions = []
 
     return TeacherDashboardOut(
         top_questions=top_questions,
@@ -821,6 +843,7 @@ def teacher_dashboard(
             ErrorTypeCountOut(name=name, value=count)
             for name, count in counts_by_type.items()
         ],
+        suggestions=suggestions,
     )
 
 

@@ -24,7 +24,7 @@ def top_error_questions(db, n: int = 10) -> List[Dict]:
             Question.knowledge_point,
         ))
         .group_by(Question.id)
-        .order_by(func.count(Error.id).desc())
+        .order_by(func.count(Error.id).desc(), Question.id.asc())
         .limit(n)
         .all()
     )
