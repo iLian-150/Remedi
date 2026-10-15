@@ -61,6 +61,13 @@ export interface ChatQuestion {
   order_num: number
 }
 
+export interface ChatAssignmentContext {
+  id: number
+  title: string
+  chat_questions: ChatQuestion[]
+  submitted_chat_question_ids: number[]
+}
+
 export interface Question {
   id: number
   subject: QuestionSubject

@@ -9,6 +9,7 @@ import type {
   AgentHistoryItem,
   Assignment,
   AssignmentDetail,
+  ChatAssignmentContext,
   ChatSession,
   CorrectionResult,
   EssayResult,
@@ -155,6 +156,12 @@ export const useStudentStore = defineStore('student', {
           return data.items
         }
       )
+    },
+    async fetchChatContext(): Promise<ChatAssignmentContext[]> {
+      const { data } = await api.get<PageResult<ChatAssignmentContext>>(
+        '/api/student/chat/context'
+      )
+      return data.items
     },
     // 3.2 作业详情（含题目，不含标准答案）
     async fetchAssignmentDetail(id: number): Promise<AssignmentDetail> {

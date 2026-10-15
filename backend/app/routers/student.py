@@ -176,6 +176,64 @@ def present_for_student(
 
 # ---------- 作业 ----------
 
+@router.get("/chat/context", summary="聊天选题器轻量上下文")
+def student_chat_context(
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """只返回聊天选题器实际需要的作业标题、数学题与已提交题目 ID。"""
+    visible_assignment = (
+        Assignment.created_by.is_(None)
+        | (~Assignment.created_by.in_(
+            db.query(User.id).filter(User.role == "student")
+        ))
+    )
+    has_submission = db.query(Submission.id).filter(
+        Submission.question_id == Question.id,
+        Submission.student_id == current.id,
+    ).exists()
+    rows = (
+        db.query(
+            Assignment.id,
+            Assignment.title,
+            Question.id,
+            Question.stem,
+            Question.order_num,
+            has_submission.label("is_submitted"),
+        )
+        .outerjoin(
+            Question,
+            and_(
+                Question.assignment_id == Assignment.id,
+                Question.subject == "math",
+            ),
+        )
+        .filter(visible_assignment)
+        .order_by(Assignment.id, Question.order_num, Question.id)
+        .all()
+    )
+    items_by_assignment = {}
+    for assignment_id, title, question_id, stem, order_num, is_submitted in rows:
+        item = items_by_assignment.setdefault(assignment_id, {
+            "id": assignment_id,
+            "title": title,
+            "chat_questions": [],
+            "submitted_chat_question_ids": [],
+        })
+        if question_id is None:
+            continue
+        item["chat_questions"].append({
+            "id": question_id,
+            "subject": "math",
+            "stem": stem,
+            "order_num": order_num,
+        })
+        if is_submitted:
+            item["submitted_chat_question_ids"].append(question_id)
+    items = list(items_by_assignment.values())
+    return {"total": len(items), "items": items}
+
+
 @router.get("/assignments", summary="作业列表")
 def list_assignments(
     include_questions: bool = Query(default=False),

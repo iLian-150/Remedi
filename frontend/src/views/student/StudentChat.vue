@@ -1247,7 +1247,7 @@ onMounted(async () => {
       (error) => ({ error } as const)
     )
   const [assignmentResult, briefingResult] = await Promise.allSettled([
-    student.fetchAssignments(false, false, false, true),
+    student.fetchChatContext(),
     student.fetchBriefing()
   ])
 
