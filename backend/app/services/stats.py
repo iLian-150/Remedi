@@ -653,6 +653,15 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
         Correction.student_id == student.id,
         Correction.is_correct.is_(True),
     ).exists()
+    passed_verification_knowledge_points = (
+        db.query(Verification.knowledge_point.label("knowledge_point"))
+        .filter(
+            Verification.student_id == student.id,
+            Verification.status == "passed",
+        )
+        .group_by(Verification.knowledge_point)
+        .subquery()
+    )
     error_query = (
         db.query(
             subject_expr.label("subject"),
@@ -665,9 +674,17 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
                 "corrected_count"
             ),
             func.max(Error.created_at).label("last_error_at"),
+            func.max(case((
+                passed_verification_knowledge_points.c.knowledge_point.isnot(None), 1,
+            ), else_=0)).label("has_passed_verification"),
         )
         .join(Submission, Submission.id == Error.submission_id)
         .outerjoin(Question, Question.id == Submission.question_id)
+        .outerjoin(
+            passed_verification_knowledge_points,
+            passed_verification_knowledge_points.c.knowledge_point
+            == Error.knowledge_point,
+        )
         .filter(Submission.student_id == student.id)
     )
     if visible_only:
@@ -691,6 +708,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
             error_stats.c.stubborn_count,
             error_stats.c.corrected_count,
             error_stats.c.last_error_at,
+            error_stats.c.has_passed_verification,
         )
         .select_from(subject_knowledge_points)
         .outerjoin(
@@ -720,19 +738,6 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
             error_rows.append(row)
     error_rows.sort(key=lambda row: row.last_error_at, reverse=True)
 
-    error_knowledge_points = {row.knowledge_point for row in error_rows}
-    passed_kps = set()
-    knowledge_point_list = list(error_knowledge_points)
-    for start in range(0, len(knowledge_point_list), 400):
-        passed_kps.update(
-            knowledge_point
-            for (knowledge_point,) in db.query(Verification.knowledge_point).filter(
-                Verification.student_id == student.id,
-                Verification.status == "passed",
-                Verification.knowledge_point.in_(knowledge_point_list[start:start + 400]),
-            ).distinct().all()
-        )
-
     # 报告只下发聚合结果；提交数、错因状态与时间均由数据库按组返回。
     by_subject: Dict[str, Dict] = {}
     for (subject, _knowledge_point), attempt_count in attempts.items():
@@ -747,7 +752,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     for row in error_rows:
         error_count = int(row.error_count)
         corrected_count = int(row.corrected_count or 0)
-        if row.knowledge_point in passed_kps:
+        if bool(row.has_passed_verification):
             status = "fixed"
         elif corrected_count == error_count:
             status = "awaiting_verify"
