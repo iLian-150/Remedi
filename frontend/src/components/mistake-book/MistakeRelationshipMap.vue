@@ -140,8 +140,9 @@ const subjects = computed<SubjectGroup[]>(() => {
 })
 const activeSubject = computed(() => subjects.value.find((item) => item.key === selectedSubjectKey.value))
 const activeBranch = computed(() => branches.value.find((item) => item.key === activeSubject.value?.key))
-const activeTopic = computed(() => activeSubject.value?.topics.find((item) => item.key === selectedTopicKey.value))
-const activeTopicPoint = computed<Point | undefined>(() => topicPoints.value[activeSubject.value?.topics.findIndex((item) => item.key === activeTopic.value?.key) ?? -1])
+const activeTopicIndex = computed(() => activeSubject.value?.topics.findIndex((item) => item.key === selectedTopicKey.value) ?? -1)
+const activeTopic = computed(() => activeSubject.value?.topics[activeTopicIndex.value])
+const activeTopicPoint = computed<Point | undefined>(() => topicPoints.value[activeTopicIndex.value])
 const recordCount = computed(() => subjects.value.reduce((total, item) => total + item.recordCount, 0))
 const canvasHeight = computed(() => Math.max(620, (Math.ceil(subjects.value.length / 2) - 1) * 114 + 620, (activeSubject.value?.topics.length || 0) * 68 + 220, (activeTopic.value?.errorPoints.length || 0) * 58 + 220))
 const root = computed<Point>(() => ({ x: 840, y: canvasHeight.value / 2 }))
@@ -151,7 +152,7 @@ const branches = computed(() => subjects.value.map((subject, index) => {
   return { ...subject, side, x: side === 'left' ? 655 : 1025, y: root.value.y + (Math.floor(index / 2) - (count - 1) / 2) * 114, color: colors[index % colors.length] }
 }))
 const topicPoints = computed<Point[]>(() => activeSubject.value?.topics.map((_, index) => ({ x: (activeBranch.value?.x || 840) + (activeBranch.value?.side === 'left' ? -175 : 175), y: root.value.y + (index - ((activeSubject.value?.topics.length || 1) - 1) / 2) * 68 })) || [])
-const leafPoints = computed<Point[]>(() => activeTopic.value?.errorPoints.map((_, index) => ({ x: (topicPoints.value[activeSubject.value?.topics.findIndex((item) => item.key === activeTopic.value?.key) ?? 0]?.x || 840) + (activeBranch.value?.side === 'left' ? -170 : 170), y: root.value.y + (index - ((activeTopic.value?.errorPoints.length || 1) - 1) / 2) * 58 })) || [])
+const leafPoints = computed<Point[]>(() => activeTopic.value?.errorPoints.map((_, index) => ({ x: (topicPoints.value[activeTopicIndex.value]?.x || 840) + (activeBranch.value?.side === 'left' ? -170 : 170), y: root.value.y + (index - ((activeTopic.value?.errorPoints.length || 1) - 1) / 2) * 58 })) || [])
 
 const networkWidth = computed(() => 2400 + Math.max(0, Math.ceil((activeSubject.value?.topics.length || 0) / 8) - 1) * 360)
 const networkHeight = computed(() => 1650 + Math.max(0, Math.ceil((activeSubject.value?.topics.length || 0) / 8) - 1) * 260)
@@ -167,7 +168,6 @@ const networkTopicPoints = computed(() => activeSubject.value?.topics.map((_, in
   const angle = subjectAngle(Math.max(0, activeSubjectIndex.value), subjects.value.length) + (count === 1 ? 0 : -0.65 + index * 1.3 / (count - 1))
   return ringPoint(hub.value, radii.value.topicX, radii.value.topicY, angle)
 }) || [])
-const activeTopicIndex = computed(() => activeSubject.value?.topics.findIndex((item) => item.key === activeTopic.value?.key) ?? -1)
 const networkActiveTopicPoint = computed(() => networkTopicPoints.value[activeTopicIndex.value])
 const pointPoints = computed(() => activeTopic.value?.errorPoints.map((_, index) => {
   const count = activeTopic.value?.errorPoints.length || 1
