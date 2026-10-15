@@ -34,8 +34,8 @@ def _submitted_question_pairs(db, assignment_id: int):
     return submission_pairs.union(essay_pairs).subquery()
 
 
-def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
-    """未提交全部题目的学生名单（提醒未交 + 教师 Agent 共用）。"""
+def students_not_fully_submitted(db, assignment: Assignment) -> List[int]:
+    """未提交全部题目的学生 ID（提醒未交 + 教师 Agent 共用）。"""
     question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
     ).scalar_subquery()
@@ -48,17 +48,17 @@ def students_not_fully_submitted(db, assignment: Assignment) -> List[User]:
         .group_by(submitted_pairs.c.student_id)
         .subquery()
     )
-    return (
-        db.query(User)
+    return db.execute(
+        select(User.id)
+        .select_from(User)
         .outerjoin(done_counts, done_counts.c.student_id == User.id)
-        .filter(
+        .where(
             User.role == "student",
             question_count > 0,
             func.coalesce(done_counts.c.done_count, 0) != question_count,
         )
         .order_by(User.id)
-        .all()
-    )
+    ).scalars().all()
 
 
 def assignment_status(db, assignment: Assignment) -> Dict:

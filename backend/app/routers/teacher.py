@@ -1360,9 +1360,9 @@ def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     targets = students_not_fully_submitted(db, assignment)
-    for st in targets:
+    for student_id in targets:
         db.add(Notification(
-            user_id=st.id,
+            user_id=student_id,
             type="teacher_reminder",
             content=f"{current.name}提醒你：《{assignment.title}》还没有完成，记得及时提交哦",
             related_submission_id=None,
