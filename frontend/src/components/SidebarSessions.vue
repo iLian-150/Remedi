@@ -88,11 +88,18 @@ function groupOf(iso: string): GroupKey {
 }
 
 const groups = computed<{ key: GroupKey; label: string; items: ChatSession[] }[]>(() => {
-  const all = store.value.sessions
+  const itemsByGroup: Record<GroupKey, ChatSession[]> = {
+    today: [],
+    yesterday: [],
+    earlier: []
+  }
+  for (const session of store.value.sessions) {
+    itemsByGroup[groupOf(session.updated_at)].push(session)
+  }
   return [
-    { key: 'today' as const, label: '今天', items: all.filter((s) => groupOf(s.updated_at) === 'today') },
-    { key: 'yesterday' as const, label: '昨天', items: all.filter((s) => groupOf(s.updated_at) === 'yesterday') },
-    { key: 'earlier' as const, label: '更早', items: all.filter((s) => groupOf(s.updated_at) === 'earlier') }
+    { key: 'today', label: '今天', items: itemsByGroup.today },
+    { key: 'yesterday', label: '昨天', items: itemsByGroup.yesterday },
+    { key: 'earlier', label: '更早', items: itemsByGroup.earlier }
   ]
 })
 

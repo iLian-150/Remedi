@@ -1190,7 +1190,11 @@ async function submit() {
     }
     const suspects = withAnswer.filter((q) => q.check_status === 'suspect')
     if (suspects.length) {
-      const nums = suspects.map((q) => entries.find((e) => e.q === q)?.label ?? '某题').join('、')
+      const labelByQuestion = new Map<(typeof entries)[number]['q'], string>()
+      for (const entry of entries) {
+        if (!labelByQuestion.has(entry.q)) labelByQuestion.set(entry.q, entry.label)
+      }
+      const nums = suspects.map((q) => labelByQuestion.get(q) ?? '某题').join('、')
       const go = window.confirm(
         `有 ${suspects.length} 道题的参考答案可能有误（${nums}），验算说明已标在对应题目下方。\n` +
         'AI 验算只是提醒，确认仍要发布吗？'
