@@ -449,8 +449,16 @@ const submittingMap = ref<Record<number, boolean>>({})
 const answerErrors = ref<Record<number, string>>({})
 const submittedNotes = ref<Record<number, 'pending' | 'approved' | 'deferred'>>({})
 const gutterScroll = ref<Record<number, number>>({})
+const loadedDraftQids = new Set<number>()
 
 const draftKey = (qid: number) => `remedi-answer-draft-${qid}`
+
+function restoreDraft(qid: number) {
+  if (loadedDraftQids.has(qid)) return
+  loadedDraftQids.add(qid)
+  const saved = localStorage.getItem(draftKey(qid))
+  if (saved) drafts.value[qid] = saved
+}
 
 function onDraftInput(qid: number, e: Event) {
   const text = (e.target as HTMLTextAreaElement).value
@@ -548,6 +556,7 @@ function gotoQuestion(i: number) {
   currentIdx.value = idx
   cardOpen.value = false
   const q = mathQuestions.value[idx]
+  if (q) restoreDraft(q.id)
   // 还没提交过的题直接展开编辑器；已提交的先看状态卡（可再交一次）
   if (q && !noteKind(q)) editorOpen.value[q.id] = true
 }
@@ -645,13 +654,7 @@ async function loadQuestions(id: number, loadToken: number) {
     if (mistake) related[Number(questionId)] = mistake
   })
   relatedByQid.value = related
-  // 恢复本机草稿（按题目），并为线上作业自动展开第一道未完成题的编辑器
-  const restored: Record<number, string> = {}
-  detail.questions.forEach((q) => {
-    const saved = localStorage.getItem(draftKey(q.id))
-    if (saved) restored[q.id] = saved
-  })
-  Object.assign(drafts.value, restored)
+  // 在线作业只在题目首次进入做题板时读取本机草稿，避免逐题同步访问存储。
   if (detail.mode !== 'offline') {
     // 做题板初始定位：优先地址栏 ?q=<题目 id>（AI 简报「去完成」跳入时带），
     // 其次第一道未完成题；定位到的题若还没提交过，直接展开编辑器
@@ -676,6 +679,7 @@ async function loadQuestions(id: number, loadToken: number) {
     const idx = requestedIndex >= 0 ? requestedIndex : firstUnfinishedIndex
     currentIdx.value = idx >= 0 ? idx : 0
     const q = qs[currentIdx.value]
+    if (q) restoreDraft(q.id)
     if (q && !noteKind(q)) editorOpen.value[q.id] = true
   }
   return detail
@@ -691,6 +695,7 @@ async function selectAssignment(id: number) {
   pendingPhotoQuestion = null
   flowActive.value = {}
   collapsedQids.value = new Set()
+  loadedDraftQids.clear()
   editorOpen.value = {}
   submittedNotes.value = {}
   answerErrors.value = {}
