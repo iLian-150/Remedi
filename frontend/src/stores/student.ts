@@ -54,6 +54,51 @@ function persistActiveSessionId(id: number | null) {
 
 const inFlightMistakeRequests = new Map<string, Promise<StudentMistake[]>>()
 const inFlightAssignmentRequests = new Map<string, Promise<Assignment[]>>()
+const STUDENT_REPORT_CACHE_TTL_MS = 15_000
+const studentReportCache = new Map<string, { data: SubjectReport[]; expiresAt: number }>()
+const inFlightStudentReportRequests = new Map<string, Promise<SubjectReport[]>>()
+const studentReportGenerations = new Map<string, number>()
+
+// 报告页之间短暂复用聚合结果；报告相关写入会立即清除缓存并淘汰进行中的读取。
+function invalidateStudentReport(userId: number | undefined) {
+  if (userId == null) return
+  const key = String(userId)
+  studentReportCache.delete(key)
+  inFlightStudentReportRequests.delete(key)
+  studentReportGenerations.set(key, (studentReportGenerations.get(key) ?? 0) + 1)
+}
+
+function coalesceStudentReportRequest(
+  userId: number | undefined,
+  load: () => Promise<SubjectReport[]>
+): Promise<SubjectReport[]> {
+  if (userId == null) return load()
+
+  const key = String(userId)
+  const cached = studentReportCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data)
+  if (cached) studentReportCache.delete(key)
+
+  const existing = inFlightStudentReportRequests.get(key)
+  if (existing) return existing
+
+  const generation = studentReportGenerations.get(key) ?? 0
+  const request = Promise.resolve()
+    .then(load)
+    .then((data) => {
+      if ((studentReportGenerations.get(key) ?? 0) === generation) {
+        studentReportCache.set(key, { data, expiresAt: Date.now() + STUDENT_REPORT_CACHE_TTL_MS })
+      }
+      return data
+    })
+    .finally(() => {
+      if (inFlightStudentReportRequests.get(key) === request) {
+        inFlightStudentReportRequests.delete(key)
+      }
+    })
+  inFlightStudentReportRequests.set(key, request)
+  return request
+}
 
 function coalesceAssignmentRequest(
   userId: number | undefined,
@@ -179,6 +224,7 @@ export const useStudentStore = defineStore('student', {
     // 3.3 提交数学作业并诊断（诊断同步返回）
     async submitMath(payload: { question_id: number; steps: string[] }): Promise<SubmissionResult> {
       const { data } = await api.post<SubmissionResult>('/api/student/submissions', payload)
+      invalidateStudentReport(useAuthStore().user?.id)
       return data
     },
     // 3.4 我的提交记录（可按 question_id 过滤）
@@ -265,6 +311,7 @@ export const useStudentStore = defineStore('student', {
     // 3.9 提交订正（针对某条 error）
     async submitCorrection(payload: { error_id: number; content: string }): Promise<CorrectionResult> {
       const { data } = await api.post<CorrectionResult>('/api/student/corrections', payload)
+      invalidateStudentReport(useAuthStore().user?.id)
       return data
     },
     // 3.10 我的学习画像
@@ -446,8 +493,11 @@ export const useStudentStore = defineStore('student', {
     },
     // 3.13 学习报告（v0.2.1）：按科目聚合 + 知识点状态
     async fetchReport(): Promise<SubjectReport[]> {
-      const { data } = await api.get<SubjectReport[]>('/api/student/report')
-      return data
+      const userId = useAuthStore().user?.id
+      return coalesceStudentReportRequest(userId, async () => {
+        const { data } = await api.get<SubjectReport[]>('/api/student/report')
+        return data
+      })
     },
     // 评分系统：报告成绩分析（历次作业得分序列 + 学科/总体平均得分率）
     async fetchReportScores(): Promise<ReportScores> {
@@ -819,6 +869,7 @@ export const useStudentStore = defineStore('student', {
         `/api/student/verifications/${id}/submit`,
         { steps }
       )
+      invalidateStudentReport(useAuthStore().user?.id)
       return data
     }
   }
