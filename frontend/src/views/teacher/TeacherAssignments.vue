@@ -22,12 +22,12 @@
 
       <!-- 日期筛选状态栏（右侧栏日历选中某天时出现） -->
       <div v-if="dateFilter" class="filter-bar">
-        <span class="filter-title">{{ dateFilterLabel }} 发布的作业 · 共 {{ visibleAssignments.length }} 份</span>
+        <span class="filter-title">{{ dateFilterLabel }} 发布的作业 · 共 {{ assignments.length }} 份</span>
         <button class="btn secondary small" @click="clearFilter">返回查看全部作业</button>
       </div>
 
       <!-- 作业（全部或按所选日期筛选后） -->
-      <div v-for="a in visibleAssignments" :key="a.id" class="card">
+      <div v-for="a in assignments" :key="a.id" class="card">
         <div class="card-head-row">
           <div>
             <h3>
@@ -69,7 +69,7 @@
         </table>
       </div>
 
-      <div v-if="!visibleAssignments.length && dateFilter" class="card">
+      <div v-if="!assignments.length && dateFilter" class="card">
         <div class="empty">这一天没有发布的作业，点上方「返回查看全部作业」看全部。</div>
       </div>
 
@@ -127,12 +127,6 @@ const dateFilter = computed(() => teacher.assignmentDateFilter)
 watch(dateFilter, () => {
   void reload().catch((e) => console.error(e))
 })
-
-const visibleAssignments = computed(() =>
-  dateFilter.value
-    ? assignments.value.filter((a) => a.created_at.slice(0, 10) === dateFilter.value)
-    : assignments.value
-)
 
 const dateFilterLabel = computed(() => {
   if (!dateFilter.value) return ''
