@@ -489,7 +489,12 @@ def _review_pending_item(
     image_name = submission_image.file_name if submission_image else None
     # 兼容关联表新增之前的自主上传记录：当时原图只挂在学生对话消息上，
     # 用该学生提交前 15 分钟内最近一张图片补出缩略图。
-    if image_url is None and assignment and assignment.title.startswith("自主上传题目"):
+    if (
+        image_url is None
+        and assignment
+        and assignment.title.startswith("自主上传题目")
+        and not preloaded.get("legacy_image_lookup_complete")
+    ):
         legacy_image = (
             db.query(ChatSessionMessageImage)
             .join(ChatSessionMessage, ChatSessionMessage.id == ChatSessionMessageImage.message_id)
@@ -643,6 +648,7 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
                 images_by_submission.get(sub.id)
                 or legacy_images_by_submission.get(sub.id)
             ),
+            "legacy_image_lookup_complete": True,
         }
         items.append(_review_pending_item(sub, db, assignment_context, preloaded))
     return {"count": len(items), "items": items}
