@@ -49,13 +49,13 @@
       <div v-else class="sticky-notes-detail" :aria-label="`${selectedCategory!.label}错题`">
         <div class="sticky-detail-summary"><span>这类错误的作业记录</span><strong>{{ completedAssignmentCount }}<small> / {{ assignments.length }} 份已学完</small></strong></div>
         <div class="sticky-assignment-list">
-          <article v-for="(assignment, assignmentIndex) in assignments" :key="`${assignment.assignmentId}:${assignment.categoryKey}`" class="sticky-assignment" :class="[`sticky-note-${categoryColors[assignmentIndex % categoryColors.length]}`, { 'is-studied': assignment.studied }]">
+          <article v-for="(assignment, assignmentIndex) in visibleAssignments" :key="`${assignment.assignmentId}:${assignment.categoryKey}`" class="sticky-assignment" :class="[`sticky-note-${categoryColors[assignmentIndex % categoryColors.length]}`, { 'is-studied': assignment.studied }]">
             <div class="sticky-assignment-head">
               <div><span class="sticky-assignment-date">{{ formatDate(assignment.entries[0].assignment_created_at) }}</span><h2>{{ assignment.title }}</h2><p>{{ assignment.studentSavedOnly ? '你主动收录的复习题目' : `${assignment.entries.length} 道这类错题 · 本份作业已学 ${assignment.progress.completed}/${assignment.progress.total} 类错误` }}</p></div>
               <span class="sticky-assignment-state">{{ assignment.studied ? '此类已学完' : '待学习' }}</span>
             </div>
             <div class="sticky-assignment-questions">
-              <article v-for="(entry, entryIndex) in assignment.entries" :key="entry.id" class="sticky-question" :class="[`sticky-note-${categoryColors[(assignmentIndex + entryIndex + 1) % categoryColors.length]}`, { 'is-current': focusedMistakeId === entry.id }]" :style="noteStyle(entryIndex)" @click="selectQuestion(entry)">
+              <article v-for="(entry, entryIndex) in visibleEntries(assignment)" :key="entry.id" class="sticky-question" :class="[`sticky-note-${categoryColors[(assignmentIndex + entryIndex + 1) % categoryColors.length]}`, { 'is-current': focusedMistakeId === entry.id }]" :style="noteStyle(entryIndex)" @click="selectQuestion(entry)">
                 <div class="sticky-question-main" role="button" tabindex="0" :aria-pressed="focusedMistakeId === entry.id" :aria-label="entry.source_kind === 'student_saved' ? '查看自主收录题目' : `查看第 ${entry.question_order} 题错题详情`" title="单击查看题目详情" @keydown.enter.prevent="selectQuestion(entry)" @keydown.space.prevent="selectQuestion(entry)">
                   <div class="sticky-question-head"><strong>{{ entry.source_kind === 'student_saved' ? '自主收录题目' : `第 ${entry.question_order} 题${entry.step_seq ? ` · 第 ${entry.step_seq} 步` : ''}` }}</strong><span>{{ entry.knowledge_point }}</span></div>
                   <p class="sticky-question-excerpt">{{ entry.question_stem }}</p>
@@ -64,6 +64,7 @@
                 <div class="sticky-question-actions"><button type="button" @click.stop="selectQuestion(entry)">{{ entry.source_kind === 'student_saved' ? '继续复习' : '查看错题讲解' }} <AppIcon name="arrow-up-right" :size="13"/></button><button v-if="entry.source_kind !== 'student_saved'" type="button" @click.stop.prevent="$emit('review', entry)">查看原题 <AppIcon name="arrow-up-right" :size="13"/></button></div>
               </article>
             </div>
+            <button v-if="visibleEntryCount(assignment) < assignment.entries.length" type="button" class="sticky-list-more" @click="showMoreEntries(assignment)">再显示 {{ Math.min(questionPageSize, assignment.entries.length - visibleEntryCount(assignment)) }} 道题</button>
             <div class="sticky-assignment-actions">
               <button v-if="!assignment.studentSavedOnly" type="button" class="sticky-study-button" :disabled="Boolean(workingKey)" @click="toggleStudied(assignment)">{{ workingKey === studyKey(assignment) ? '保存中…' : assignment.studied ? '取消已学会' : '学完这类错误' }}</button>
               <span>{{ assignment.studentSavedOnly ? '这是你主动收录的题目' : assignment.progress.complete ? '这份作业的错误类别已全部学完' : `还有 ${assignment.progress.total - assignment.progress.completed} 类待学习` }}</span>
@@ -71,6 +72,7 @@
             </div>
           </article>
         </div>
+        <button v-if="visibleAssignments.length < assignments.length" type="button" class="sticky-list-more sticky-assignment-more" @click="showMoreAssignments">继续显示作业（{{ visibleAssignments.length }} / {{ assignments.length }}）</button>
       </div>
     </div>
     <slot name="assistant" />
@@ -111,6 +113,10 @@ const focusedMistakeId = ref<number | null>(null)
 const noteColors: Record<string, string> = { math: 'yellow', english: 'pink', english_exercise: 'peach', physics: 'blue', chemistry: 'lilac', biology: 'mint', history: 'peach', geography: 'blue', chinese: 'pink', politics: 'yellow', computer_science: 'mint', other: 'lilac' }
 const categoryColors = ['yellow', 'mint', 'pink', 'blue', 'peach', 'lilac']
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
+const assignmentPageSize = 8
+const questionPageSize = 6
+const visibleAssignmentLimit = ref(assignmentPageSize)
+const visibleQuestionLimits = ref<Record<number, number>>({})
 
 const stickyData = computed(() => {
   const groups = new Map<string, SubjectGroup>()
@@ -199,6 +205,7 @@ const assignments = computed<StickyAssignment[]>(() => {
   }
   return Array.from(grouped.values()).map((group) => ({ ...group, entries: group.entries.sort((a, b) => a.question_order - b.question_order), progress: progressFor(group.assignmentId) })).sort((a, b) => b.entries[0].assignment_created_at.localeCompare(a.entries[0].assignment_created_at))
 })
+const visibleAssignments = computed(() => assignments.value.slice(0, visibleAssignmentLimit.value))
 const completedAssignmentCount = computed(() => assignments.value.reduce((count, assignment) => count + Number(assignment.studied), 0))
 
 watch(() => props.mistakes, () => {
@@ -215,10 +222,20 @@ function formatDate(value?: string) {
   return Number.isNaN(date.getTime()) ? '日期未记录' : dateFormatter.format(date)
 }
 function noteStyle(index: number) { return { '--sticky-tilt': `${[-1.8, 1.3, -.7, 1.7, -.9, 1.1][index % 6]}deg` } }
-function selectSubject(key: string) { selectedSubjectKey.value = key; selectedCategoryKey.value = null }
-function openCategory(category: Category) { selectedCategoryKey.value = category.key }
-function goToSubjects() { selectedSubjectKey.value = null; selectedCategoryKey.value = null }
-function goToCategories() { selectedCategoryKey.value = null }
+function resetDetailPagination() { visibleAssignmentLimit.value = assignmentPageSize; visibleQuestionLimits.value = {} }
+function selectSubject(key: string) { selectedSubjectKey.value = key; selectedCategoryKey.value = null; resetDetailPagination() }
+function openCategory(category: Category) { selectedCategoryKey.value = category.key; resetDetailPagination() }
+function goToSubjects() { selectedSubjectKey.value = null; selectedCategoryKey.value = null; resetDetailPagination() }
+function goToCategories() { selectedCategoryKey.value = null; resetDetailPagination() }
+function visibleEntryCount(assignment: StickyAssignment) { return Math.min(visibleQuestionLimits.value[assignment.assignmentId] ?? questionPageSize, assignment.entries.length) }
+function visibleEntries(assignment: StickyAssignment) { return assignment.entries.slice(0, visibleEntryCount(assignment)) }
+function showMoreEntries(assignment: StickyAssignment) {
+  visibleQuestionLimits.value = {
+    ...visibleQuestionLimits.value,
+    [assignment.assignmentId]: visibleEntryCount(assignment) + questionPageSize,
+  }
+}
+function showMoreAssignments() { visibleAssignmentLimit.value += assignmentPageSize }
 function selectQuestion(entry: StudentMistake) { focusedMistakeId.value = entry.id; emit('select-mistake', entry) }
 function studyKey(assignment: StickyAssignment) { return `study:${assignment.assignmentId}:${assignment.categoryKey}` }
 function progressFor(assignmentId: number) {
@@ -236,4 +253,7 @@ function toggleStudied(assignment: StickyAssignment) {
 <style scoped>
 .sticky-question-diagnosis { display: -webkit-box; max-height: 40px; margin-top: 7px; overflow: hidden; color: inherit; opacity: .72; font-size: 11px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .sticky-assignment-questions > article { min-width: 0; }
+.sticky-list-more { display: block; min-height: 36px; margin: -12px auto 21px; padding: 7px 14px; border: 1px solid rgba(31, 41, 55, .18); border-radius: 7px; color: var(--green); background: rgba(255, 255, 255, .68); cursor: pointer; font-size: 12px; font-weight: 600; }
+.sticky-list-more:hover { border-color: var(--text-2); background: var(--border); }
+.sticky-assignment-more { margin: 0 auto 22px; }
 </style>
