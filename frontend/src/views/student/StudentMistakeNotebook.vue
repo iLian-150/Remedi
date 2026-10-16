@@ -194,20 +194,22 @@ const statusOptions = computed(() => {
     { key: 'ready' as const, label: '已学完', count: assignmentReadiness.value.ready },
   ]
 })
+// 排序只依赖类别顺序与排序选项；搜索输入变化时复用这份结果。
+const sortedAssignments = computed(() => [...assignmentGroups.value].sort((left, right) => {
+  if (sort.value === 'oldest') return left.createdAt.localeCompare(right.createdAt)
+  if (sort.value === 'priority') {
+    const difference = right.priority - left.priority
+    if (difference) return difference
+  }
+  return right.createdAt.localeCompare(left.createdAt)
+}))
 const visibleAssignments = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
-  return assignmentGroups.value.filter((assignment) => {
+  return sortedAssignments.value.filter((assignment) => {
     if (subject.value !== 'all' && assignment.subject !== subject.value) return false
     if (status.value === 'pending' && assignment.ready || status.value === 'ready' && !assignment.ready) return false
     if (!needle) return true
     return assignmentSearchText(assignment).includes(needle)
-  }).sort((left, right) => {
-    if (sort.value === 'oldest') return left.createdAt.localeCompare(right.createdAt)
-    if (sort.value === 'priority') {
-      const difference = right.priority - left.priority
-      if (difference) return difference
-    }
-    return right.createdAt.localeCompare(left.createdAt)
   })
 })
 const displayedAssignments = computed(() =>
