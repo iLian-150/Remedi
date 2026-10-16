@@ -93,7 +93,10 @@ const filter = reactive({
   stubborn_only: false
 })
 
+let listRequestToken = 0
+
 async function load(newOffset: number) {
+  const requestToken = ++listRequestToken
   offset.value = newOffset
   loading.value = true
   error.value = ''
@@ -103,15 +106,17 @@ async function load(newOffset: number) {
       error_type: filter.error_type || undefined,
       stubborn_only: filter.stubborn_only || undefined,
       limit: pageSize,
-      offset: offset.value
+      offset: newOffset
     })
+    if (requestToken !== listRequestToken) return
     items.value = res.items
     total.value = res.total
   } catch (e) {
+    if (requestToken !== listRequestToken) return
     error.value = '批改列表加载失败，请确认后端已启动。'
     console.error(e)
   } finally {
-    loading.value = false
+    if (requestToken === listRequestToken) loading.value = false
   }
 }
 
