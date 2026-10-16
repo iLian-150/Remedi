@@ -621,13 +621,28 @@ async function loadQuestions(id: number, loadToken: number) {
     if (saved) restored[q.id] = saved
   })
   drafts.value = { ...drafts.value, ...restored }
-  if (detail.mode !== 'offline' && detail.questions.some((q) => q.subject === 'math')) {
+  if (detail.mode !== 'offline') {
     // 做题板初始定位：优先地址栏 ?q=<题目 id>（AI 简报「去完成」跳入时带），
     // 其次第一道未完成题；定位到的题若还没提交过，直接展开编辑器
-    const qs = detail.questions.filter((q) => q.subject === 'math')
+    const qs = mathQuestions.value
     const wantQid = Number(route.query.q)
-    let idx = qs.findIndex((q) => q.id === wantQid)
-    if (idx < 0) idx = qs.findIndex((q) => !doneQids.value.has(q.id) && !pendingQids.value.has(q.id))
+    let requestedIndex = -1
+    let firstUnfinishedIndex = -1
+    for (let index = 0; index < qs.length; index++) {
+      const question = qs[index]
+      if (question.id === wantQid) {
+        requestedIndex = index
+        break
+      }
+      if (
+        firstUnfinishedIndex < 0 &&
+        !doneQids.value.has(question.id) &&
+        !pendingQids.value.has(question.id)
+      ) {
+        firstUnfinishedIndex = index
+      }
+    }
+    const idx = requestedIndex >= 0 ? requestedIndex : firstUnfinishedIndex
     currentIdx.value = idx >= 0 ? idx : 0
     const q = qs[currentIdx.value]
     if (q && !noteKind(q)) editorOpen.value = { ...editorOpen.value, [q.id]: true }
