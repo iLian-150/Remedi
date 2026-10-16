@@ -12,6 +12,7 @@
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
 from sympy import Poly, simplify, solve
@@ -273,6 +274,8 @@ def _sympy_check(stem: str, reference_answer: str) -> Optional[Dict]:
     return _check_expression_answer(stem, reference_answer)
 
 
+# 错题本重新加载时会反复验算相同题目；缓存纯计算结果，避免重复运行 SymPy。
+@lru_cache(maxsize=1024)
 def student_visible_reference_answer(stem: str, reference_answer: Optional[str]) -> Optional[str]:
     """Return a safe reference answer for a student's own mistake review.
 
@@ -308,6 +311,7 @@ def student_visible_reference_answer(stem: str, reference_answer: Optional[str])
     return answer if checked and checked.get("status") == "ok" else None
 
 
+@lru_cache(maxsize=1024)
 def _student_linear_equation(stem: str):
     """Return verified symbolic data for a one-variable linear equation."""
     stem = (stem or "").strip()
@@ -418,6 +422,7 @@ def student_visible_solution_steps(stem: str) -> List[str]:
     return steps
 
 
+@lru_cache(maxsize=1024)
 def student_visible_linear_error_detail(stem: str, step_text: Optional[str],
                                         step_seq: Optional[int]) -> Optional[str]:
     """Explain a bare numeric first answer by checking it in the original equation."""
