@@ -9,7 +9,7 @@
       <header class="sticky-notes-header">
         <div class="sticky-notes-kicker"><span aria-hidden="true"><AppIcon name="sparkles" :size="15"/></span>{{ studentName ? `${studentName} · 学习记录` : '把错因贴在眼前' }}</div>
         <h1>{{ selectedCategory ? selectedCategory.label : selectedSubject ? displaySubject(selectedSubject.key) : '错题便利贴' }}</h1>
-        <p>{{ screen === 'subjects' ? '选一个科目，从最需要复习的错误类别开始。' : screen === 'categories' ? '每张便利贴是一类错误；同类错题会放在一起。' : `${selectedCategory!.entries.length} 道错题，来自 ${selectedCategory!.assignmentCount} 份作业。` }}</p>
+        <p>{{ screen === 'subjects' ? '选一个科目，从最需要复习的错误类别开始。' : screen === 'categories' ? '每张便利贴是一类错误；同类错题会放在一起。' : `${selectedCategory!.itemCount} 道错题，来自 ${selectedCategory!.assignmentCount} 份作业。` }}</p>
       </header>
 
       <nav v-if="screen !== 'subjects'" class="sticky-notes-breadcrumb" aria-label="便利贴层级">
@@ -32,7 +32,7 @@
           <span class="sticky-note-index">科目 {{ String(index + 1).padStart(2, '0') }}</span>
           <strong class="sticky-note-title">{{ displaySubject(subject.key) }}</strong>
           <span class="sticky-note-rule" />
-          <span class="sticky-note-stat"><b>{{ subject.categories.length }}</b> 类错误 · <b>{{ subject.entries.length }}</b> 道错题</span>
+          <span class="sticky-note-stat"><b>{{ subject.categories.length }}</b> 类错误 · <b>{{ subject.itemCount }}</b> 道错题</span>
           <span class="sticky-note-foot"><span>{{ subject.pendingCategoryCount ? `还有 ${subject.pendingCategoryCount} 类待学习` : '全部类别已学完' }}</span><AppIcon name="arrow-up-right" :size="13"/></span>
         </button>
       </div>
@@ -41,7 +41,7 @@
           <span class="sticky-note-index">错误类别 {{ String(index + 1).padStart(2, '0') }}</span>
           <strong class="sticky-note-title">{{ category.label }}</strong>
           <span class="sticky-note-rule" />
-          <span class="sticky-note-stat"><b>{{ category.entries.length }}</b> 道错题 · <b>{{ category.assignmentCount }}</b> 份作业</span>
+          <span class="sticky-note-stat"><b>{{ category.itemCount }}</b> 道错题 · <b>{{ category.assignmentCount }}</b> 份作业</span>
           <span v-if="category.tags.length" class="sticky-note-tags">{{ category.tags.join(' · ') }}</span>
           <span class="sticky-note-foot"><span>{{ category.studied ? '已学完' : category.assignmentCount > 1 ? '在多份作业中出现' : '继续复习' }}</span><AppIcon name="arrow-up-right" :size="13"/></span>
         </button>
@@ -84,8 +84,8 @@ import { computed, ref, watch } from 'vue'
 import type { StudentMistake } from '../../api/types'
 import AppIcon from '../icons/AppIcon.vue'
 
-type Category = { key: string; label: string; entries: StudentMistake[]; studied: boolean; assignmentCount: number; tags: string[] }
-type SubjectGroup = { key: string; categories: Category[]; entries: StudentMistake[]; pendingCategoryCount: number }
+type Category = { key: string; label: string; itemCount: number; studied: boolean; assignmentCount: number; tags: string[] }
+type SubjectGroup = { key: string; categories: Category[]; itemCount: number; pendingCategoryCount: number }
 type StickyAssignment = { assignmentId: number; categoryKey: string; entries: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; title: string; progress: AssignmentProgress }
 type StickyAssignmentGroup = Omit<StickyAssignment, 'progress'>
 type AssignmentProgress = { completed: number; total: number; complete: boolean }
@@ -128,21 +128,21 @@ const stickyData = computed(() => {
     const key = entry.question_subject === 'english_exercise' ? 'english' : entry.question_subject || 'other'
     let subject = groups.get(key)
     if (!subject) {
-      subject = { key, entries: [], categories: [], pendingCategoryCount: 0 }
+      subject = { key, itemCount: 0, categories: [], pendingCategoryCount: 0 }
       groups.set(key, subject)
       categoriesBySubject.set(key, new Map())
     }
-    subject.entries.push(entry)
+    subject.itemCount += 1
     const categoryIndex = categoriesBySubject.get(key)!
     let category = categoryIndex.get(entry.category_key)
     if (!category) {
-      category = { key: entry.category_key, label: entry.category_label || entry.error_type, entries: [], studied: true, assignmentCount: 0, tags: [] }
+      category = { key: entry.category_key, label: entry.category_label || entry.error_type, itemCount: 0, studied: true, assignmentCount: 0, tags: [] }
       subject.categories.push(category)
       categoryIndex.set(entry.category_key, category)
       assignmentIdsByCategory.set(category, new Set())
       tagsByCategory.set(category, new Set())
     }
-    category.entries.push(entry)
+    category.itemCount += 1
     category.studied = category.studied && entry.category_studied
     assignmentIdsByCategory.get(category)!.add(entry.assignment_id)
     const tags = tagsByCategory.get(category)!
@@ -161,11 +161,10 @@ const stickyData = computed(() => {
   for (const subject of groups.values()) {
     for (const category of subject.categories) {
       if (!category.studied) subject.pendingCategoryCount += 1
-      category.entries.sort((a, b) => b.assignment_created_at.localeCompare(a.assignment_created_at))
       category.assignmentCount = assignmentIdsByCategory.get(category)!.size
       category.tags = Array.from(tagsByCategory.get(category)!)
     }
-    subject.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.entries.length - a.entries.length || a.label.localeCompare(b.label, 'zh-CN'))
+    subject.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.itemCount - a.itemCount || a.label.localeCompare(b.label, 'zh-CN'))
   }
   const progressByAssignment = new Map<number, AssignmentProgress>()
   for (const [assignmentId, categories] of categoriesByAssignment) {
@@ -194,9 +193,13 @@ const selectedSubject = computed(() => subjectsByKey.value.get(selectedSubjectKe
 const selectedCategory = computed(() => categoriesBySubject.value.get(selectedSubjectKey.value ?? '')?.get(selectedCategoryKey.value ?? ''))
 const screen = computed(() => selectedCategory.value ? 'detail' : selectedSubject.value ? 'categories' : 'subjects')
 const assignments = computed<StickyAssignment[]>(() => {
-  if (!selectedCategory.value) return []
+  const category = selectedCategory.value
+  const subjectKey = selectedSubjectKey.value
+  if (!category || !subjectKey) return []
   const grouped = new Map<number, StickyAssignmentGroup>()
-  for (const entry of selectedCategory.value.entries) {
+  for (const entry of props.mistakes) {
+    const entrySubjectKey = entry.question_subject === 'english_exercise' ? 'english' : entry.question_subject || 'other'
+    if (entrySubjectKey !== subjectKey || entry.category_key !== category.key) continue
     const group = grouped.get(entry.assignment_id) ?? { assignmentId: entry.assignment_id, categoryKey: entry.category_key, entries: [], studied: true, studentSavedOnly: true, title: entry.assignment_title }
     group.entries.push(entry)
     group.studied = group.studied && entry.category_studied
