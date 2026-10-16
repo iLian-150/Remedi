@@ -158,6 +158,22 @@ export interface StudentMistakeCount {
   count: number
 }
 
+export interface StudentMistakeTimelineItem {
+  id: number
+  submission_id: number
+  question_subject: string
+  created_at: string
+  question_stem: string
+  knowledge_point: string
+  error_type: ErrorType | string
+  corrected: boolean
+}
+
+export interface StudentMistakeTimelinePage {
+  items: StudentMistakeTimelineItem[]
+  has_more: boolean
+}
+
 export interface RelatedMistake {
   id: number
   submission_id: number

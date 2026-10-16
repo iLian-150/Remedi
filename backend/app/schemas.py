@@ -230,6 +230,22 @@ class StudentMistakeCountOut(BaseModel):
     count: int
 
 
+class StudentMistakeTimelineItemOut(BaseModel):
+    id: int
+    submission_id: int
+    question_subject: str
+    created_at: datetime
+    question_stem: str
+    knowledge_point: str
+    error_type: str
+    corrected: bool
+
+
+class StudentMistakeTimelinePageOut(BaseModel):
+    items: List[StudentMistakeTimelineItemOut]
+    has_more: bool
+
+
 class RelatedMistakeOut(BaseModel):
     id: int
     submission_id: int

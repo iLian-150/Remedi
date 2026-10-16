@@ -11,8 +11,7 @@
        报告页右栏不再是信箱；面板默认收起，只露标题行（图标+「错题时间线」+条数+
        展开箭头），点开才展开纵向时间线（全局 .timeline 样式复用）；科目详情路由下
        按 question_subject 只显示本科目；点条目跳 /student/diagnosis?submission_id=。
-       数据同走 store.fetchCorrectableMistakes（源头是 /student/mistakes 响应，
-       只读复用，不新造接口）。
+       数据通过后端轻量游标接口按科目分页，避免下载完整错题详情。
      收起/展开由 App.vue 控制（收起态 FAB 图标随场景变：notes=邮件、mistakes=错题本、calendar/corrections=日历）。
      通知唯一来源：教师在教师端一键纠错 → 后端落库 → 这里 GET 拉取展示，学生端不本地伪造。 -->
 <template>
@@ -104,11 +103,11 @@
       </button>
       <div v-if="tlExpanded" class="tl-body">
         <div v-if="tlLoading" class="loading" style="padding: 18px 0">加载错题时间线…</div>
-        <p v-else-if="!timelineItems.length" class="hint" style="padding: 6px 0">还没有错题记录，继续保持。</p>
+        <p v-else-if="!timelineRows.length" class="hint" style="padding: 6px 0">还没有错题记录，继续保持。</p>
         <div v-else class="tl-list">
           <div class="timeline">
             <div
-              v-for="item in visibleTimelineItems"
+              v-for="item in timelineRows"
               :key="item.id"
               class="timeline-item tl-item"
               @click="gotoSubmission(item.submission_id)"
@@ -126,7 +125,7 @@
               </div>
             </div>
           </div>
-          <button v-if="visibleTimelineItems.length < timelineItems.length" type="button" class="tl-more" @click="showMoreTimeline">继续显示错题（{{ visibleTimelineItems.length }} / {{ timelineItems.length }}）</button>
+          <button v-if="timelineHasMore" type="button" class="tl-more" :disabled="tlLoadingMore" @click="loadMoreTimeline">{{ tlLoadingMore ? '正在加载…' : `继续显示错题（${timelineRows.length} / ${tlCount ?? '…'}）` }}</button>
         </div>
       </div>
     </template>
@@ -147,7 +146,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
-import type { ErrorType, NotificationItem, StudentMistake } from '../api/types'
+import type { ErrorType, NotificationItem, StudentMistake, StudentMistakeTimelineItem } from '../api/types'
 import { errorTypeDotClass } from '../utils/errorType'
 import AppIcon from './icons/AppIcon.vue'
 import AssignmentCalendar from './AssignmentCalendar.vue'
@@ -204,16 +203,21 @@ const marks = ref<Record<string, number>>({})
 /** 订正日历标记（v0.9.1）：yyyy-mm-dd → 当天提交里产生的可订正错题条数 */
 const correctionMarks = ref<Record<string, number>>({})
 
-/** 错题时间线（报告页）：原始错题（诊断产生，源头 /student/mistakes）与展开态（默认收起） */
-type MistakeTimelineEntry = Pick<StudentMistake, 'id' | 'submission_id' | 'question_subject' | 'created_at' | 'question_stem' | 'knowledge_point' | 'error_type'> & { corrected: boolean }
-const timelineRows = ref<MistakeTimelineEntry[]>([])
+/** 错题时间线只保留当前科目的已加载页，接口在数据库内投影详情字段。 */
+const timelineRows = ref<StudentMistakeTimelineItem[]>([])
 const tlLoading = ref(false)
+const tlLoadingMore = ref(false)
 const tlExpanded = ref(false)
 const tlCount = ref<number | null>(null)
 const tlLoaded = ref(false)
 const timelinePageSize = 40
-const timelineVisibleLimit = ref(timelinePageSize)
+const timelineHasMore = ref(false)
+const timelineCursor = ref<{ createdAt: string; id: number } | null>(null)
+let timelineLoadedSubject: string | null = null
+let timelineCountSubject: string | null = null
+let timelineRequestGeneration = 0
 let tlLoadPromise: Promise<void> | null = null
+let tlLoadPromiseSubject: string | null = null
 
 interface ReviewCategory {
   key: string
@@ -283,28 +287,30 @@ const tlSubject = computed(() =>
 const tlScopeLabel = computed(() =>
   tlSubject.value ? `${TL_SUBJECT_TEXT[tlSubject.value] ?? tlSubject.value}错题` : '全部错题'
 )
-/** 时间线只留列表需要的字段；已按时间倒序，在切换科目时只过滤轻量记录。 */
-const timelineItems = computed(() => timelineRows.value.filter(
-  (item) => !tlSubject.value || item.question_subject === tlSubject.value,
-))
-const visibleTimelineItems = computed(() => timelineItems.value.slice(0, timelineVisibleLimit.value))
-
 watch(tlSubject, () => {
   if (props.mode !== 'timeline') return
-  timelineVisibleLimit.value = timelinePageSize
-  if (tlLoaded.value) {
-    tlCount.value = timelineItems.value.length
-  } else if (!tlExpanded.value) {
-    void loadTimelineCount()
-  }
+  resetTimelineRows()
+  void loadTimelineCount()
+  if (tlExpanded.value) void loadTimeline()
 })
 
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
-function showMoreTimeline() {
-  timelineVisibleLimit.value += timelinePageSize
+function resetTimelineRows() {
+  timelineRequestGeneration += 1
+  timelineRows.value = []
+  timelineHasMore.value = false
+  timelineCursor.value = null
+  timelineLoadedSubject = null
+  timelineCountSubject = null
+  tlLoaded.value = false
+  tlCount.value = null
+  tlLoading.value = false
+  tlLoadingMore.value = false
+  tlLoadPromise = null
+  tlLoadPromiseSubject = null
 }
 
 function onSelectDay(date: string) {
@@ -372,49 +378,86 @@ async function loadCorrectionMarks() {
 async function loadTimelineCount() {
   const subject = tlSubject.value
   tlCount.value = null
+  timelineCountSubject = null
   try {
     const count = await student.fetchMistakeCount(subject || undefined)
-    if (props.mode === 'timeline' && tlSubject.value === subject && !tlLoaded.value) {
+    if (props.mode === 'timeline' && tlSubject.value === subject) {
       tlCount.value = count
+      timelineCountSubject = subject
     }
   } catch (e) {
     console.error(e)
   }
 }
 
-/** 错题时间线仅在展开时加载完整错题本数据；折叠标题使用轻量计数接口。 */
+/** 错题时间线展开时只加载当前科目的首批轻量记录；折叠标题使用轻量计数接口。 */
 async function loadTimeline() {
-  if (tlLoaded.value) {
-    tlCount.value = timelineItems.value.length
+  const subject = tlSubject.value
+  if (tlLoaded.value && timelineLoadedSubject === subject) {
+    if (timelineCountSubject !== subject) void loadTimelineCount()
     return
   }
-  if (tlLoadPromise) return tlLoadPromise
+  if (tlLoadPromise && tlLoadPromiseSubject === subject) return tlLoadPromise
+  if (timelineLoadedSubject != null && timelineLoadedSubject !== subject) resetTimelineRows()
 
+  const generation = timelineRequestGeneration
   tlLoading.value = true
   const request = (async () => {
     try {
-      const mistakes = await student.fetchCorrectableMistakes()
-      timelineRows.value = mistakes.map((item) => ({
-        id: item.id,
-        submission_id: item.submission_id,
-        question_subject: item.question_subject,
-        created_at: item.created_at,
-        question_stem: item.question_stem,
-        knowledge_point: item.knowledge_point,
-        error_type: item.error_type,
-        corrected: item.latest_correction?.is_correct === true,
-      })).sort((a, b) => b.created_at.localeCompare(a.created_at))
+      const page = await student.fetchMistakeTimeline({
+        subject: subject || undefined,
+        limit: timelinePageSize,
+      })
+      if (generation !== timelineRequestGeneration || subject !== tlSubject.value || props.mode !== 'timeline') return
+      timelineRows.value = page.items
+      timelineHasMore.value = page.has_more
+      const lastItem = page.items[page.items.length - 1]
+      timelineCursor.value = page.has_more && lastItem
+        ? { createdAt: lastItem.created_at, id: lastItem.id }
+        : null
       tlLoaded.value = true
-      tlCount.value = timelineItems.value.length
+      timelineLoadedSubject = subject
     } catch (e) {
       console.error(e)
     } finally {
-      tlLoading.value = false
-      tlLoadPromise = null
+      if (generation === timelineRequestGeneration) {
+        tlLoading.value = false
+        tlLoadPromise = null
+        tlLoadPromiseSubject = null
+      }
     }
   })()
   tlLoadPromise = request
+  tlLoadPromiseSubject = subject
   return request
+}
+
+async function loadMoreTimeline() {
+  const subject = tlSubject.value
+  const cursor = timelineCursor.value
+  if (!timelineHasMore.value || !cursor || tlLoadingMore.value || !tlLoaded.value) return
+
+  const generation = timelineRequestGeneration
+  tlLoadingMore.value = true
+  try {
+    const page = await student.fetchMistakeTimeline({
+      subject: subject || undefined,
+      limit: timelinePageSize,
+      beforeCreatedAt: cursor.createdAt,
+      beforeId: cursor.id,
+    })
+    if (generation !== timelineRequestGeneration || subject !== tlSubject.value || timelineLoadedSubject !== subject) return
+    timelineRows.value.push(...page.items)
+    timelineHasMore.value = page.has_more
+    const lastItem = page.items[page.items.length - 1]
+    timelineCursor.value = page.has_more && lastItem
+      ? { createdAt: lastItem.created_at, id: lastItem.id }
+      : null
+  } catch (e) {
+    console.error(e)
+  } finally {
+    if (generation === timelineRequestGeneration) tlLoadingMore.value = false
+  }
 }
 
 function toggleTimeline() {
@@ -480,10 +523,11 @@ async function loadForMode() {
   } else if (props.mode === 'corrections') {
     await loadCorrectionMarks()
   } else if (props.mode === 'timeline') {
-    tlLoaded.value = false
-    timelineVisibleLimit.value = timelinePageSize
-    if (tlExpanded.value) await loadTimeline()
-    else await loadTimelineCount()
+    resetTimelineRows()
+    if (tlExpanded.value) {
+      void loadTimelineCount()
+      await loadTimeline()
+    } else await loadTimelineCount()
   } else {
     await loadMarks()
   }

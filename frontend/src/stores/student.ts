@@ -28,6 +28,7 @@ import type {
   StudentMistakeCount,
   StudentProfile,
   StudentMistake,
+  StudentMistakeTimelinePage,
   SubjectReport,
   ReportScores,
   SubmissionResult,
@@ -412,6 +413,22 @@ export const useStudentStore = defineStore('student', {
     },
     async fetchCorrectionCalendarMarks(): Promise<Record<string, number>> {
       const { data } = await api.get<Record<string, number>>('/api/student/corrections/calendar-marks')
+      return data
+    },
+    async fetchMistakeTimeline(options: {
+      subject?: string
+      limit?: number
+      beforeCreatedAt?: string
+      beforeId?: number
+    } = {}): Promise<StudentMistakeTimelinePage> {
+      const { data } = await api.get<StudentMistakeTimelinePage>('/api/student/mistakes/timeline', {
+        params: {
+          subject: options.subject,
+          limit: options.limit,
+          before_created_at: options.beforeCreatedAt,
+          before_id: options.beforeId,
+        },
+      })
       return data
     },
     async fetchMistakeCount(subject?: string): Promise<number> {

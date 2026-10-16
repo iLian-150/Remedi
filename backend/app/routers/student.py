@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import and_, case, func
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, aliased, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
@@ -80,6 +80,7 @@ from ..schemas import (
     SubmissionCreate,
     StudentMistakeOut,
     StudentMistakeCountOut,
+    StudentMistakeTimelinePageOut,
     StudentQuestionCaptureCreate,
     VerificationCreate,
     VerificationOut,
@@ -1226,6 +1227,79 @@ def correction_calendar_marks(db: Session = Depends(get_db),
         str(day): int(count)
         for day, count in rows
         if day is not None
+    }
+
+
+@router.get("/mistakes/timeline", response_model=StudentMistakeTimelinePageOut,
+            summary="分页读取错题时间线")
+def student_mistake_timeline(
+    subject: Optional[str] = Query(default=None),
+    limit: int = Query(default=40, ge=1, le=100),
+    before_created_at: Optional[datetime] = Query(default=None),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """只读取时间线展示字段，按错题时间和 ID 使用游标分页。"""
+    if (before_created_at is None) != (before_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="before_created_at 与 before_id 必须同时提供",
+        )
+
+    latest_correction = (
+        db.query(Correction.is_correct)
+        .filter(
+            Correction.error_id == Error.id,
+            Correction.student_id == current.id,
+        )
+        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
+        .limit(1)
+        .correlate(Error)
+        .scalar_subquery()
+    )
+    query = (
+        db.query(
+            Error.id,
+            Error.submission_id,
+            Question.subject.label("question_subject"),
+            Error.created_at,
+            Question.stem.label("question_stem"),
+            Error.knowledge_point,
+            Error.error_type,
+            latest_correction.label("corrected"),
+        )
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .filter(Submission.student_id == current.id)
+    )
+    if subject:
+        query = query.filter(Question.subject == subject)
+    if before_created_at is not None and before_id is not None:
+        query = query.filter(or_(
+            Error.created_at < before_created_at,
+            and_(Error.created_at == before_created_at, Error.id < before_id),
+        ))
+
+    rows = query.order_by(
+        Error.created_at.desc(), Error.id.desc()
+    ).limit(limit + 1).all()
+    has_more = len(rows) > limit
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "submission_id": row.submission_id,
+                "question_subject": row.question_subject,
+                "created_at": row.created_at,
+                "question_stem": row.question_stem,
+                "knowledge_point": row.knowledge_point,
+                "error_type": row.error_type,
+                "corrected": row.corrected is True,
+            }
+            for row in rows[:limit]
+        ],
+        "has_more": has_more,
     }
 
 
