@@ -170,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { CorrectionResult, StepDiagnosis, StudentCorrectionWallItem } from '../../api/types'
@@ -198,7 +198,7 @@ const pendingCount = ref(0)
 const hasMoreMistakes = ref(false)
 const loadingMoreMistakes = ref(false)
 const correctionCursor = ref<{ created_at: string; id: number } | null>(null)
-const loadedMistakeIds = new Set<number>()
+const loadedMistakesById = reactive(new Map<number, StudentCorrectionWallItem>())
 let correctionRequestGeneration = 0
 const content = ref('')
 const result = ref<CorrectionResult | null>(null)
@@ -273,7 +273,7 @@ async function loadCorrectionWall(reset = true, includeId?: number) {
   if (reset) {
     generation = ++correctionRequestGeneration
     mistakes.value = []
-    loadedMistakeIds.clear()
+    loadedMistakesById.clear()
     totalMistakeCount.value = 0
     pendingCount.value = 0
     hasMoreMistakes.value = false
@@ -299,17 +299,18 @@ async function loadCorrectionWall(reset = true, includeId?: number) {
 
     if (reset) {
       mistakes.value = page.items
-      loadedMistakeIds.clear()
-      for (const item of page.items) loadedMistakeIds.add(item.id)
+      loadedMistakesById.clear()
+      for (const item of mistakes.value) loadedMistakesById.set(item.id, item)
       // 首屏可能额外包含深链错题，先统一排序；后续页由联合游标保证顺序。
       mistakes.value.sort((a, b) =>
         b.created_at.localeCompare(a.created_at) || b.id - a.id,
       )
     } else {
       for (const item of page.items) {
-        if (loadedMistakeIds.has(item.id)) continue
-        loadedMistakeIds.add(item.id)
+        if (loadedMistakesById.has(item.id)) continue
         mistakes.value.push(item)
+        const loadedItem = mistakes.value[mistakes.value.length - 1]
+        loadedMistakesById.set(loadedItem.id, loadedItem)
       }
     }
     if (page.total_count != null) totalMistakeCount.value = page.total_count
@@ -347,7 +348,7 @@ watch(selectedDate, () => {
 })
 
 function syncSelection() {
-  if (view.value === 'work' && !visibleMistakes.value.some((item) => item.id === selectedErrorId.value)) {
+  if (view.value === 'work' && !loadedMistakesById.has(Number(selectedErrorId.value))) {
     view.value = 'wall'
     selectedErrorId.value = ''
     onSelect()
@@ -356,7 +357,7 @@ function syncSelection() {
 
 // 工作区消费当前页的轻量错题记录；完整作答步骤仍按提交 ID 按需读取，避免
 // 首屏请求携带错题本不需要的标准答案、相似错题和订正正文。
-const selectedError = computed(() => visibleMistakes.value.find((e) => e.id === selectedErrorId.value) ?? null)
+const selectedError = computed(() => loadedMistakesById.get(Number(selectedErrorId.value)) ?? null)
 const correctionPlaceholder = computed(() => selectedError.value?.question_subject === 'math'
   ? '例如：2x=7-3'
   : '写出订正后的正确步骤、结论或答案')
@@ -461,7 +462,7 @@ async function submit() {
     })
     // 订正成功后同步当前页状态和跨页汇总计数；后续页面读取以服务端记录为准。
     if (result.value.is_correct === true) {
-      const fixedMistake = mistakes.value.find((item) => item.id === Number(selectedErrorId.value))
+      const fixedMistake = loadedMistakesById.get(Number(selectedErrorId.value))
       if (fixedMistake && !fixedMistake.corrected) {
         fixedMistake.corrected = true
         pendingCount.value = Math.max(0, pendingCount.value - 1)
@@ -487,7 +488,7 @@ onMounted(async () => {
   // 待验证知识点名单（墙上方 KP 维度入口的数据来源，失败不挡页面）
   void loadAwaitingVerifyKps()
   // 深链错误 ID 通过轻量接口额外带回，避免为了定位一题下载完整错题本。
-  if (includeId && visibleMistakes.value.some((item) => item.id === includeId)) {
+  if (includeId && loadedMistakesById.has(includeId)) {
     selectedErrorId.value = includeId
     view.value = 'work'
   }
