@@ -102,6 +102,7 @@
     >
       <RightRail
         :mode="railMode === 'mistakes' ? 'mistakes' : railMode === 'calendar' ? 'calendar' : railMode === 'corrections' ? 'corrections' : railMode === 'timeline' ? 'timeline' : 'notes'"
+        :open="railOpen"
         @close="setRail(false)"
       />
     </aside>

@@ -155,6 +155,7 @@ const props = defineProps<{
    * corrections：订正日历（v0.9.1，与订正页筛选联动）；
    * timeline：错题时间线（学习报告页，默认收起，点开才展开） */
   mode: 'notes' | 'mistakes' | 'calendar' | 'corrections' | 'timeline'
+  open: boolean
 }>()
 
 // v0.8.2：未读数改由 student store 持有（fetchNotifications / markNotificationsRead 内部回写），
@@ -315,6 +316,14 @@ async function loadNotes() {
   }
 }
 
+async function loadUnreadCount() {
+  try {
+    unread.value = await student.fetchUnreadCount()
+  } catch (e) {
+    console.error(e)
+  }
+}
+
 async function loadMarks() {
   try {
     const m: Record<string, number> = {}
@@ -429,8 +438,14 @@ function onMistakeReviewChanged() {
 async function loadForMode() {
   if (!auth.user) return
   if (props.mode === 'notes') {
-    if (isStudent.value) await loadNotes()
-  } else if (props.mode === 'mistakes') {
+    if (!isStudent.value) return
+    if (props.open) await loadNotes()
+    else await loadUnreadCount()
+    return
+  }
+  // 收起时右栏内容不可见；错题复习例外，它还要维护入口角标。
+  if (!props.open && props.mode !== 'mistakes') return
+  if (props.mode === 'mistakes') {
     await loadMistakeReview()
   } else if (props.mode === 'corrections') {
     await loadCorrectionMarks()
@@ -444,11 +459,11 @@ async function loadForMode() {
 }
 
 // 模式随路由切换（学生主页↔作业列表等），切回来时重新拉数据保证新鲜
-watch(() => props.mode, loadForMode)
+watch(() => [props.mode, props.open] as const, loadForMode)
 
 // 教师在作业列表页发布/删除作业后，日历标记同步刷新
 function onAssignmentsChanged() {
-  if (props.mode === 'calendar') void loadMarks()
+  if (props.mode === 'calendar' && props.open) void loadMarks()
 }
 
 onMounted(() => {
