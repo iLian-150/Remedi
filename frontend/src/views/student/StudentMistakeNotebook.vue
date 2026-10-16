@@ -218,7 +218,8 @@ const displayedAssignments = computed(() =>
 watch([subject, status, query, sort], () => {
   visibleAssignmentLimit.value = notebookAssignmentPageSize
 })
-watch(visibleAssignments, (assignments, previous) => {
+watch(() => view.value === 'notebook' ? visibleAssignments.value : null, (assignments, previous) => {
+  if (!assignments) return
   const visibleIds = new Set(assignments.map((assignment) => assignment.id))
   const next = new Set([...expandedAssignmentIds.value].filter((id) => visibleIds.has(id)))
   const firstId = assignments[0]?.id
