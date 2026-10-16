@@ -84,7 +84,7 @@ import { computed, ref, watch } from 'vue'
 import type { StudentMistake } from '../../api/types'
 import AppIcon from '../icons/AppIcon.vue'
 
-type Category = { key: string; label: string; itemCount: number; studied: boolean; assignmentCount: number; tags: string[] }
+type Category = { key: string; label: string; itemCount: number; studied: boolean; assignmentCount: number; tags: string[]; entries: StudentMistake[] }
 type SubjectGroup = { key: string; categories: Category[]; itemCount: number; pendingCategoryCount: number }
 type StickyAssignment = { assignmentId: number; categoryKey: string; entries: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; title: string; progress: AssignmentProgress }
 type StickyAssignmentGroup = Omit<StickyAssignment, 'progress'>
@@ -136,13 +136,14 @@ const stickyData = computed(() => {
     const categoryIndex = categoriesBySubject.get(key)!
     let category = categoryIndex.get(entry.category_key)
     if (!category) {
-      category = { key: entry.category_key, label: entry.category_label || entry.error_type, itemCount: 0, studied: true, assignmentCount: 0, tags: [] }
+      category = { key: entry.category_key, label: entry.category_label || entry.error_type, itemCount: 0, studied: true, assignmentCount: 0, tags: [], entries: [] }
       subject.categories.push(category)
       categoryIndex.set(entry.category_key, category)
       assignmentIdsByCategory.set(category, new Set())
       tagsByCategory.set(category, new Set())
     }
     category.itemCount += 1
+    category.entries.push(entry)
     category.studied = category.studied && entry.category_studied
     assignmentIdsByCategory.get(category)!.add(entry.assignment_id)
     const tags = tagsByCategory.get(category)!
@@ -194,12 +195,9 @@ const selectedCategory = computed(() => categoriesBySubject.value.get(selectedSu
 const screen = computed(() => selectedCategory.value ? 'detail' : selectedSubject.value ? 'categories' : 'subjects')
 const assignments = computed<StickyAssignment[]>(() => {
   const category = selectedCategory.value
-  const subjectKey = selectedSubjectKey.value
-  if (!category || !subjectKey) return []
+  if (!category) return []
   const grouped = new Map<number, StickyAssignmentGroup>()
-  for (const entry of props.mistakes) {
-    const entrySubjectKey = entry.question_subject === 'english_exercise' ? 'english' : entry.question_subject || 'other'
-    if (entrySubjectKey !== subjectKey || entry.category_key !== category.key) continue
+  for (const entry of category.entries) {
     const group = grouped.get(entry.assignment_id) ?? { assignmentId: entry.assignment_id, categoryKey: entry.category_key, entries: [], studied: true, studentSavedOnly: true, title: entry.assignment_title }
     group.entries.push(entry)
     group.studied = group.studied && entry.category_studied
