@@ -587,10 +587,11 @@ async function submitAnswer(q: Question) {
 /* ---------- 作业装载与状态 ---------- */
 
 async function loadQuestions(id: number) {
+  const relatedPromise = student.fetchRelatedMistakesForAssignment(id).catch(() => ({}))
   const detail = await student.fetchAssignmentDetail(id)
   questions.value = detail.questions
   currentDetail.value = detail
-  const relatedByQuestion = await student.fetchRelatedMistakesForAssignment(id).catch(() => ({}))
+  const relatedByQuestion = await relatedPromise
   const related: Record<number, RelatedMistake> = {}
   Object.entries(relatedByQuestion).forEach(([questionId, mistake]) => {
     if (mistake) related[Number(questionId)] = mistake
