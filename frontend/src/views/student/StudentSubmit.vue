@@ -398,19 +398,17 @@ function setFlowRef(qid: number, el: unknown) {
 
 /** 点「拍照批改」的当下就打开图库，不再先展开一层中间面板 */
 function pickPhoto(qid: number) {
-  collapsedQids.value = new Set([...collapsedQids.value].filter((x) => x !== qid))
+  collapsedQids.value.delete(qid)
   flowRefs.get(qid)?.openPicker()
 }
 
 function onFlowActive(qid: number, active: boolean) {
-  flowActive.value = { ...flowActive.value, [qid]: active }
+  flowActive.value[qid] = active
 }
 
 function toggleCollapse(qid: number) {
-  const next = new Set(collapsedQids.value)
-  if (next.has(qid)) next.delete(qid)
-  else next.add(qid)
-  collapsedQids.value = next
+  if (collapsedQids.value.has(qid)) collapsedQids.value.delete(qid)
+  else collapsedQids.value.add(qid)
 }
 
 /* ---------- 线上在线作答（v0.9.2） ---------- */
@@ -434,30 +432,28 @@ function stepCount(qid: number): number {
 
 function onDraftInput(qid: number, e: Event) {
   const text = (e.target as HTMLTextAreaElement).value
-  drafts.value = { ...drafts.value, [qid]: text }
+  drafts.value[qid] = text
   // 草稿按题目存本机，交完清除（见 submitAnswer）
   if (text) localStorage.setItem(draftKey(qid), text)
   else localStorage.removeItem(draftKey(qid))
 }
 
 function onEditorScroll(qid: number, e: Event) {
-  gutterScroll.value = { ...gutterScroll.value, [qid]: (e.target as HTMLTextAreaElement).scrollTop }
+  gutterScroll.value[qid] = (e.target as HTMLTextAreaElement).scrollTop
 }
 
 function clearDraft(qid: number) {
-  drafts.value = { ...drafts.value, [qid]: '' }
+  drafts.value[qid] = ''
   localStorage.removeItem(draftKey(qid))
-  answerErrors.value = { ...answerErrors.value, [qid]: '' }
+  answerErrors.value[qid] = ''
 }
 
 function toggleEditor(qid: number) {
   const opening = !editorOpen.value[qid]
-  editorOpen.value = { ...editorOpen.value, [qid]: opening }
+  editorOpen.value[qid] = opening
   if (opening) {
     // 重新作答时收起上次提交的状态卡，避免与编辑器同时出现
-    const notes = { ...submittedNotes.value }
-    delete notes[qid]
-    submittedNotes.value = notes
+    delete submittedNotes.value[qid]
   }
 }
 
@@ -503,10 +499,8 @@ function reviseQuestion(q: Question) {
   const idx = mathQuestions.value.findIndex((x) => x.id === q.id)
   if (idx >= 0) gotoQuestion(idx)
   // 强制重开编辑器（清掉状态卡），改完重新提交即成为最新版本
-  const notes = { ...submittedNotes.value }
-  delete notes[q.id]
-  submittedNotes.value = notes
-  editorOpen.value = { ...editorOpen.value, [q.id]: true }
+  delete submittedNotes.value[q.id]
+  editorOpen.value[q.id] = true
 }
 
 function gotoQuestion(i: number) {
@@ -515,7 +509,7 @@ function gotoQuestion(i: number) {
   cardOpen.value = false
   const q = mathQuestions.value[idx]
   // 还没提交过的题直接展开编辑器；已提交的先看状态卡（可再交一次）
-  if (q && !noteKind(q)) editorOpen.value = { ...editorOpen.value, [q.id]: true }
+  if (q && !noteKind(q)) editorOpen.value[q.id] = true
 }
 
 /** 符号栏：只放后端解析器认得的符号（× ÷ · ² ³ 归一化在 mathparse，
@@ -546,7 +540,7 @@ function insertSymbol(s: SymbolDef) {
   const start = ta ? ta.selectionStart : cur.length
   const end = ta ? ta.selectionEnd : cur.length
   const next = cur.slice(0, start) + s.text + cur.slice(end)
-  drafts.value = { ...drafts.value, [q.id]: next }
+  drafts.value[q.id] = next
   if (next) localStorage.setItem(draftKey(q.id), next)
   else localStorage.removeItem(draftKey(q.id))
   void nextTick(() => {
@@ -554,7 +548,7 @@ function insertSymbol(s: SymbolDef) {
     ta.focus()
     const pos = start + s.text.length - (s.caretBack ?? 0)
     ta.setSelectionRange(pos, pos)
-    gutterScroll.value = { ...gutterScroll.value, [q.id]: ta.scrollTop }
+    gutterScroll.value[q.id] = ta.scrollTop
   })
 }
 
@@ -571,31 +565,28 @@ function fmtScore(v: number): string {
 async function submitAnswer(q: Question) {
   const steps = (drafts.value[q.id] ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
   if (!steps.length) {
-    answerErrors.value = { ...answerErrors.value, [q.id]: '先写下你的解题步骤再提交。' }
+    answerErrors.value[q.id] = '先写下你的解题步骤再提交。'
     return
   }
   if (steps.length > MAX_STEPS) {
-    answerErrors.value = { ...answerErrors.value, [q.id]: `步骤最多 ${MAX_STEPS} 步，请把几步合并一下再提交。` }
+    answerErrors.value[q.id] = `步骤最多 ${MAX_STEPS} 步，请把几步合并一下再提交。`
     return
   }
-  answerErrors.value = { ...answerErrors.value, [q.id]: '' }
-  submittingMap.value = { ...submittingMap.value, [q.id]: true }
+  answerErrors.value[q.id] = ''
+  submittingMap.value[q.id] = true
   try {
     const res = await student.submitMath({ question_id: q.id, steps })
     clearDraft(q.id)
-    editorOpen.value = { ...editorOpen.value, [q.id]: false }
-    submittedNotes.value = {
-      ...submittedNotes.value,
-      [q.id]: res.status === 'deferred' || res.review_status === 'deferred'
-        ? 'deferred'
-        : res.status === 'pending_review' || res.review_status === 'pending' ? 'pending' : 'approved'
-    }
+    editorOpen.value[q.id] = false
+    submittedNotes.value[q.id] = res.status === 'deferred' || res.review_status === 'deferred'
+      ? 'deferred'
+      : res.status === 'pending_review' || res.review_status === 'pending' ? 'pending' : 'approved'
     onGraded(q.id, res)
   } catch (e) {
-    answerErrors.value = { ...answerErrors.value, [q.id]: '提交失败：' + (errDetail(e) || '请稍后重试。') }
+    answerErrors.value[q.id] = '提交失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
   } finally {
-    submittingMap.value = { ...submittingMap.value, [q.id]: false }
+    submittingMap.value[q.id] = false
   }
 }
 
@@ -620,7 +611,7 @@ async function loadQuestions(id: number, loadToken: number) {
     const saved = localStorage.getItem(draftKey(q.id))
     if (saved) restored[q.id] = saved
   })
-  drafts.value = { ...drafts.value, ...restored }
+  Object.assign(drafts.value, restored)
   if (detail.mode !== 'offline') {
     // 做题板初始定位：优先地址栏 ?q=<题目 id>（AI 简报「去完成」跳入时带），
     // 其次第一道未完成题；定位到的题若还没提交过，直接展开编辑器
@@ -645,7 +636,7 @@ async function loadQuestions(id: number, loadToken: number) {
     const idx = requestedIndex >= 0 ? requestedIndex : firstUnfinishedIndex
     currentIdx.value = idx >= 0 ? idx : 0
     const q = qs[currentIdx.value]
-    if (q && !noteKind(q)) editorOpen.value = { ...editorOpen.value, [q.id]: true }
+    if (q && !noteKind(q)) editorOpen.value[q.id] = true
   }
   return detail
 }
@@ -683,31 +674,24 @@ async function onAssignmentChange() {
 function onGraded(qid: number, result: SubmissionResult) {
   if (result.status === 'deferred' || result.review_status === 'deferred') {
     // v0.13.1：延迟批改——只落库不诊断，进「已提交待统一批改」集
-    deferredQids.value = new Set(deferredQids.value).add(qid)
-    pendingQids.value = new Set([...pendingQids.value].filter((x) => x !== qid))
-    doneQids.value = new Set([...doneQids.value].filter((x) => x !== qid))
-    const scores = { ...scoreByQid.value }
-    delete scores[qid]
-    scoreByQid.value = scores
+    deferredQids.value.add(qid)
+    pendingQids.value.delete(qid)
+    doneQids.value.delete(qid)
+    delete scoreByQid.value[qid]
     return
   }
   if (result.status === 'pending_review' || result.review_status === 'pending') {
-    pendingQids.value = new Set(pendingQids.value).add(qid)
-    doneQids.value = new Set([...doneQids.value].filter((x) => x !== qid))
-    deferredQids.value = new Set([...deferredQids.value].filter((x) => x !== qid))
+    pendingQids.value.add(qid)
+    doneQids.value.delete(qid)
+    deferredQids.value.delete(qid)
     // 重新提交后旧分数作废（新分要等老师审核通过才有）
-    const scores = { ...scoreByQid.value }
-    delete scores[qid]
-    scoreByQid.value = scores
+    delete scoreByQid.value[qid]
   } else {
-    doneQids.value = new Set(doneQids.value).add(qid)
-    pendingQids.value = new Set([...pendingQids.value].filter((x) => x !== qid))
-    deferredQids.value = new Set([...deferredQids.value].filter((x) => x !== qid))
+    doneQids.value.add(qid)
+    pendingQids.value.delete(qid)
+    deferredQids.value.delete(qid)
     if (result.score) {
-      scoreByQid.value = {
-        ...scoreByQid.value,
-        [qid]: { score: result.score.score, max: result.score.max_score }
-      }
+      scoreByQid.value[qid] = { score: result.score.score, max: result.score.max_score }
     }
   }
 }
