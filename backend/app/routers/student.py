@@ -22,6 +22,7 @@ from ..models import (
     AssignmentExt,
     AssignmentSetting,
     ChatMessage,
+    ChatSessionMessageImage,
     Correction,
     Error,
     Essay,
@@ -1655,6 +1656,50 @@ def _write_uploaded_file(path: str, data: bytes) -> None:
         image_file.write(data)
 
 
+def _remove_unreferenced_upload(db: Session, file_path: str) -> None:
+    """Remove a newly generated upload after failure only if no record references it."""
+    upload_dir = os.path.realpath(settings.UPLOAD_DIR)
+    absolute_path = os.path.realpath(os.path.join(upload_dir, file_path))
+    try:
+        if absolute_path == upload_dir or os.path.commonpath(
+            (upload_dir, absolute_path)
+        ) != upload_dir:
+            return
+    except ValueError:
+        return
+
+    db.rollback()
+    reference_columns = (
+        ChatSessionMessageImage.file_path,
+        SubmissionImage.file_path,
+        StudentQuestionCapture.image_path,
+        Workbook.file_path,
+    )
+    try:
+        for column in reference_columns:
+            if db.query(column).filter(column == file_path).first() is not None:
+                return
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "上传失败后检查图片引用失败，保留原图（file_path=%s）",
+            file_path,
+            exc_info=True,
+        )
+        return
+
+    try:
+        os.remove(absolute_path)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        logger.warning(
+            "上传失败后清理图片失败（file_path=%s）",
+            file_path,
+            exc_info=True,
+        )
+
+
 def _add_submission_image_link(db: Session, submission: Submission,
                                file_path: str, file_name: str) -> None:
     """暂存图片关联，由调用方与审核记录一起提交。"""
@@ -1753,19 +1798,23 @@ async def photo_review(
         )
         stored_image_path = filename
         image_url = f"/api/uploads/{filename}"
-        await run_in_threadpool(
-            _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
-        )
         chat_user_text = "上传了一张作业照片。"
         if chat_prompt.strip():
             chat_user_text += f"\n补充说明：{chat_prompt.strip()[:2000]}"
-        chat_user_message = cs.append_message(db, chat_session, "user", chat_user_text)
-        cs.attach_image(
-            db,
-            chat_user_message,
-            stored_image_path,
-            os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
-        )
+        try:
+            await run_in_threadpool(
+                _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
+            )
+            chat_user_message = cs.append_message(db, chat_session, "user", chat_user_text)
+            cs.attach_image(
+                db,
+                chat_user_message,
+                stored_image_path,
+                os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
+            )
+        except Exception:
+            _remove_unreferenced_upload(db, stored_image_path)
+            raise
 
     # 诊断错误由聊天页和并行的视觉讲解流共同呈现；这里不写助手占位消息，
     # 避免视觉讲解成功后历史会话仍残留一条误导性的“识别失败”回复。
@@ -1819,9 +1868,13 @@ async def photo_review(
                 secrets.token_hex(8),
                 _PHOTO_TYPES[file.content_type],
             )
-            await run_in_threadpool(
-                _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
-            )
+            try:
+                await run_in_threadpool(
+                    _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
+                )
+            except Exception:
+                _remove_unreferenced_upload(db, filename)
+                raise
             image_url = f"/api/uploads/{filename}"
         capture = StudentQuestionCapture(
             student_id=current.id,
@@ -1835,6 +1888,9 @@ async def photo_review(
         db.expire_on_commit = False
         try:
             db.commit()
+        except Exception:
+            _remove_unreferenced_upload(db, filename)
+            raise
         finally:
             db.expire_on_commit = expire_on_commit
         related_mistake = find_related_mistake(
@@ -1896,15 +1952,23 @@ async def photo_review(
                 secrets.token_hex(8),
                 _PHOTO_TYPES[file.content_type],
             )
-            await run_in_threadpool(
-                _write_uploaded_file,
-                os.path.join(settings.UPLOAD_DIR, stored_image_path), data,
-            )
+            try:
+                await run_in_threadpool(
+                    _write_uploaded_file,
+                    os.path.join(settings.UPLOAD_DIR, stored_image_path), data,
+                )
+            except Exception:
+                _remove_unreferenced_upload(db, stored_image_path)
+                raise
         image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
-        submission = deferral_svc.create_deferred(
-            db, current, question, steps,
-            image_path=stored_image_path, image_name=image_name,
-        )
+        try:
+            submission = deferral_svc.create_deferred(
+                db, current, question, steps,
+                image_path=stored_image_path, image_name=image_name,
+            )
+        except Exception:
+            _remove_unreferenced_upload(db, stored_image_path)
+            raise
         related_mistake = find_related_mistake(
             db, current.id, question.subject, question.knowledge_point,
             exclude_assignment_id=question.assignment_id,
@@ -1931,29 +1995,37 @@ async def photo_review(
             secrets.token_hex(8),
             _PHOTO_TYPES[file.content_type],
         )
-        await run_in_threadpool(
-            _write_uploaded_file,
-            os.path.join(settings.UPLOAD_DIR, stored_image_path), data,
-        )
-    _add_submission_image_link(
-        db,
-        submission,
-        stored_image_path,
-        os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
-    )
-    review = review_svc.create_review_if_needed(
-        db, submission,
-        confidence_signals=review_svc.visual_confidence_signals(
-            _visual_review_confidence(confidence, recognition), visual_steps
-        ),
-        commit=False,
-    )
-    expire_on_commit = db.expire_on_commit
-    db.expire_on_commit = False
+        try:
+            await run_in_threadpool(
+                _write_uploaded_file,
+                os.path.join(settings.UPLOAD_DIR, stored_image_path), data,
+            )
+        except Exception:
+            _remove_unreferenced_upload(db, stored_image_path)
+            raise
     try:
-        db.commit()
-    finally:
-        db.expire_on_commit = expire_on_commit
+        _add_submission_image_link(
+            db,
+            submission,
+            stored_image_path,
+            os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片",
+        )
+        review = review_svc.create_review_if_needed(
+            db, submission,
+            confidence_signals=review_svc.visual_confidence_signals(
+                _visual_review_confidence(confidence, recognition), visual_steps
+            ),
+            commit=False,
+        )
+        expire_on_commit = db.expire_on_commit
+        db.expire_on_commit = False
+        try:
+            db.commit()
+        finally:
+            db.expire_on_commit = expire_on_commit
+    except Exception:
+        _remove_unreferenced_upload(db, stored_image_path)
+        raise
     related_mistake = find_related_mistake(
         db, current.id, question.subject, question.knowledge_point,
         exclude_assignment_id=question.assignment_id,
@@ -2119,16 +2191,24 @@ async def photo_diagnose(
         secrets.token_hex(8),
         _PHOTO_TYPES[file.content_type],
     )
-    await run_in_threadpool(
-        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, image_path), data
-    )
+    try:
+        await run_in_threadpool(
+            _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, image_path), data
+        )
+    except Exception:
+        _remove_unreferenced_upload(db, image_path)
+        raise
     image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作业照片"
 
     if deferred_mode:
-        submission = deferral_svc.create_deferred(
-            db, current, question, steps,
-            image_path=image_path, image_name=image_name,
-        )
+        try:
+            submission = deferral_svc.create_deferred(
+                db, current, question, steps,
+                image_path=image_path, image_name=image_name,
+            )
+        except Exception:
+            _remove_unreferenced_upload(db, image_path)
+            raise
         out = deferral_svc.deferred_out(submission)
         out.update({
             "recognized_question_text": recognition.get("question_text", ""),
@@ -2136,23 +2216,27 @@ async def photo_diagnose(
             "recognition_confidence": confidence,
         })
         return out
-    submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
-        db, current, question, visual_steps
-    )
-    _add_submission_image_link(db, submission, image_path, image_name)
-    review = review_svc.create_review_if_needed(
-        db, submission,
-        confidence_signals=review_svc.visual_confidence_signals(
-            _visual_review_confidence(confidence, recognition), visual_steps
-        ),
-        commit=False,
-    )
-    expire_on_commit = db.expire_on_commit
-    db.expire_on_commit = False
     try:
-        db.commit()
-    finally:
-        db.expire_on_commit = expire_on_commit
+        submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
+            db, current, question, visual_steps
+        )
+        _add_submission_image_link(db, submission, image_path, image_name)
+        review = review_svc.create_review_if_needed(
+            db, submission,
+            confidence_signals=review_svc.visual_confidence_signals(
+                _visual_review_confidence(confidence, recognition), visual_steps
+            ),
+            commit=False,
+        )
+        expire_on_commit = db.expire_on_commit
+        db.expire_on_commit = False
+        try:
+            db.commit()
+        finally:
+            db.expire_on_commit = expire_on_commit
+    except Exception:
+        _remove_unreferenced_upload(db, image_path)
+        raise
     result = present_for_student(
         submission, db, steps=diagnosed_steps, errors=diagnosed_errors,
         review_status=review.status if review is not None else review_svc.APPROVED,
