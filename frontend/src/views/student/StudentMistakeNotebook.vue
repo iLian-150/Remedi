@@ -61,11 +61,12 @@
                   <section v-for="category in assignment.categories" :key="category.key" class="notebook-category" :class="{ studied: category.studied }">
                     <header class="notebook-category-head"><div><span class="notebook-category-dot"/><div><h4>{{ category.label }}</h4><small>{{ category.itemCount }} 条记录</small></div></div><button v-if="!category.studentSavedOnly" type="button" :class="{ studied: category.studied }" :disabled="workingKey === studyKey(assignment.id, category.key)" @click="toggleCategory(assignment, category)">{{ workingKey === studyKey(assignment.id, category.key) ? '保存中…' : category.studied ? '已学会 · 撤销' : '标记已学会' }}</button></header>
                     <div v-if="category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in category.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
-                    <div class="notebook-category-questions"><article v-for="mistake in categoryItems(category)" :key="mistake.id">
+                    <div class="notebook-category-questions"><article v-for="mistake in categoryItems(category, assignment.id)" :key="mistake.id">
                       <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.id === mistake.id }" @click="openAssistant(mistake)"><strong>{{ isStudentSaved(mistake) ? '自主收录题目' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</strong><small>{{ mistake.knowledge_point }} · {{ mistake.error_type }}<span v-if="mistake.review_status === 'pending'" class="badge badge-amber">老师复核中</span></small><span class="notebook-question-excerpt">{{ mistake.question_stem }}</span><span class="notebook-question-detail">{{ safe(mistake.detail || '') }}</span></button>
                       <button v-if="!isStudentSaved(mistake)" type="button" @click.stop.prevent="openOriginalQuestion(mistake)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
                       <button v-else type="button" :disabled="workingKey === `archive:${mistake.assignment_id}`" @click="archiveSaved(mistake)">{{ workingKey === `archive:${mistake.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
                     </article></div>
+                    <button v-if="displayedCategoryItemCount(assignment.id, category) < category.itemCount" type="button" class="notebook-more-category-items" @click="showMoreCategoryItems(assignment.id, category)">继续显示错题（{{ displayedCategoryItemCount(assignment.id, category) }} / {{ category.itemCount }}）</button>
                   </section>
                   <footer v-if="!assignment.studentSavedOnly" class="notebook-assignment-footer"><span>{{ assignment.ready ? '这份作业的错误类别都已学完。' : `还需学完 ${assignment.categories.length - assignment.studiedCategoryCount} 类，才能移出整份作业。` }}</span><button type="button" :disabled="!assignment.ready || workingKey === `archive:${assignment.id}`" @click="archiveAssignment(assignment)">{{ workingKey === `archive:${assignment.id}` ? '正在移出…' : '整份作业移出错题本' }}</button></footer>
                 </div>
@@ -146,7 +147,9 @@ const workingKey = ref('')
 const selectedMistake = ref<StudentMistake | null>(null)
 const expandedAssignmentIds = ref<Set<number>>(new Set())
 const notebookAssignmentPageSize = 30
+const notebookCategoryPageSize = 25
 const visibleAssignmentLimit = ref(notebookAssignmentPageSize)
+const categoryItemLimits = ref<Record<string, number>>({})
 const assistantOnLeft = ref(false)
 const assistantFullscreen = ref(false)
 const removedAssignment = ref<{
@@ -307,8 +310,21 @@ function assignmentSearchText(assignment: AssignmentGroup): string {
   return index.get(assignment.id) ?? assignment.title.toLocaleLowerCase()
 }
 
-function categoryItems(category: MistakeCategory): StudentMistake[] {
-  return category.items
+function displayedCategoryItemCount(assignmentId: number, category: MistakeCategory): number {
+  return Math.min(
+    category.itemCount,
+    categoryItemLimits.value[studyKey(assignmentId, category.key)] ?? notebookCategoryPageSize,
+  )
+}
+function categoryItems(category: MistakeCategory, assignmentId: number): StudentMistake[] {
+  return category.items.slice(0, displayedCategoryItemCount(assignmentId, category))
+}
+function showMoreCategoryItems(assignmentId: number, category: MistakeCategory) {
+  const key = studyKey(assignmentId, category.key)
+  categoryItemLimits.value[key] = Math.min(
+    category.itemCount,
+    displayedCategoryItemCount(assignmentId, category) + notebookCategoryPageSize,
+  )
 }
 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
@@ -475,6 +491,7 @@ async function loadMistakes(): Promise<boolean> {
   actionError.value = ''
   try {
     allMistakes.value = await student.fetchMyMistakes(false)
+    categoryItemLimits.value = {}
     mistakesLoaded.value = true
     if (selectedMistake.value) selectedMistake.value = allMistakes.value.find((item) => item.id === selectedMistake.value?.id) || null
     openRequestedReview()
