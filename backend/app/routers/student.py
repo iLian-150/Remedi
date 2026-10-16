@@ -48,6 +48,7 @@ from ..schemas import (
     AgentHistoryPageOut,
     AssignmentScoreItem,
     ChatSessionOut,
+    ChatSessionPageOut,
     AssignmentDetail,
     BriefingOut,
     CorrectionCreate,
@@ -2251,6 +2252,28 @@ def agent_sessions(db: Session = Depends(get_db), current: User = Depends(requir
     from ..services import chat_sessions as cs
 
     return [_session_out(s) for s in cs.list_sessions(db, current)]
+
+
+@router.get("/agent/sessions/page", response_model=ChatSessionPageOut,
+            summary="分页读取我的对话会话")
+def agent_session_page(
+    limit: int = Query(default=50, ge=1, le=100),
+    before_updated_at: Optional[datetime] = Query(default=None),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    include_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    if (before_updated_at is None) != (before_id is None):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "before_updated_at 和 before_id 必须同时提供",
+        )
+    from ..services import chat_sessions as cs
+
+    return cs.list_sessions_page(
+        db, current, limit, before_updated_at, before_id, include_id
+    )
 
 
 @router.post("/agent/sessions", response_model=ChatSessionOut, summary="新建对话会话（v0.6.0 新增）")

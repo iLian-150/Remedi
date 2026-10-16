@@ -165,6 +165,56 @@ def list_sessions(db: Session, user: User) -> List[dict]:
     ]
 
 
+def list_sessions_page(
+    db: Session,
+    user: User,
+    limit: int,
+    before_updated_at: Optional[datetime] = None,
+    before_id: Optional[int] = None,
+    include_id: Optional[int] = None,
+) -> dict:
+    """Return a descending keyset page and optionally include the active session."""
+    query = db.query(ChatSession).filter(ChatSession.user_id == user.id)
+    if before_updated_at is not None and before_id is not None:
+        query = query.filter(or_(
+            ChatSession.updated_at < before_updated_at,
+            and_(
+                ChatSession.updated_at == before_updated_at,
+                ChatSession.id < before_id,
+            ),
+        ))
+    query = query.order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+    rows = query.limit(limit + 1).all()
+    if not rows and before_updated_at is None and before_id is None:
+        if _migrate_legacy_messages(db, user):
+            rows = query.limit(limit + 1).all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    cursor_row = page_rows[-1] if page_rows else None
+    if include_id is not None and not any(row.id == include_id for row in page_rows):
+        included = get_own_session(db, user, include_id)
+        if included is not None:
+            page_rows.append(included)
+            page_rows.sort(key=lambda row: (row.updated_at, row.id), reverse=True)
+
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "title": row.title,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+                "message_count": row.message_count,
+            }
+            for row in page_rows
+        ],
+        "has_more": has_more,
+        "before_updated_at": cursor_row.updated_at if cursor_row else None,
+        "before_id": cursor_row.id if cursor_row else None,
+    }
+
+
 def session_messages(db: Session, session: ChatSession,
                      limit: Optional[int] = None,
                      before_created_at: Optional[datetime] = None,

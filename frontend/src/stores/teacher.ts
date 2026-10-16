@@ -9,6 +9,8 @@ import type {
   AgentHistoryItem,
   AgentHistoryPage,
   ChatSession,
+  ChatSessionCursor,
+  ChatSessionPage,
   ClassRepairRate,
   GradingError,
   KnowledgePointStat,
@@ -71,6 +73,10 @@ export const useTeacherStore = defineStore('teacher', {
     activeSessionId: null as number | null,
     sessionsLoading: false,
     sessionsLoaded: false,
+    sessionsHasMore: false,
+    sessionsCursor: null as ChatSessionCursor | null,
+    sessionsPageLoading: false,
+    sessionsPageError: '',
     sessionsError: '',
     sessionsLoadPromise: null as Promise<void> | null,
     sessionsRefreshPromise: null as Promise<void> | null,
@@ -300,8 +306,10 @@ export const useTeacherStore = defineStore('teacher', {
       return data
     },
     // 4.19 教师对话会话列表（v0.6.0）：按最近更新倒序，含消息数
-    async fetchSessions(): Promise<ChatSession[]> {
-      const { data } = await api.get<ChatSession[]>('/api/teacher/agent/sessions')
+    async fetchSessions(cursor?: ChatSessionCursor): Promise<ChatSessionPage> {
+      const { data } = await api.get<ChatSessionPage>('/api/teacher/agent/sessions/page', {
+        params: { ...cursor, include_id: this.activeSessionId ?? undefined }
+      })
       return data
     },
     // 4.20 新建教师对话会话（v0.6.0）
@@ -376,9 +384,14 @@ export const useTeacherStore = defineStore('teacher', {
       this.sessionsError = ''
       const generation = this.sessionsGeneration
       const task = (async () => {
-        const sessions = await this.fetchSessions()
+        const page = await this.fetchSessions()
         if (generation !== this.sessionsGeneration) return
-        this.sessions = sessions
+        this.sessions = page.items
+        this.sessionsHasMore = page.has_more
+        this.sessionsCursor = page.before_updated_at && page.before_id != null
+          ? { before_updated_at: page.before_updated_at, before_id: page.before_id }
+          : null
+        this.sessionsPageError = ''
         this.sessionsLoaded = true
         const activeExists = this.sessions.some((session) => session.id === this.activeSessionId)
         if (this.activeSessionId == null || !activeExists) {
@@ -398,6 +411,32 @@ export const useTeacherStore = defineStore('teacher', {
           this.sessionsLoadPromise = null
           this.sessionsLoading = false
         }
+      }
+    },
+    async loadMoreSessions() {
+      if (!this.sessionsHasMore || this.sessionsPageLoading || !this.sessionsCursor) return
+      const generation = this.sessionsGeneration
+      this.sessionsPageLoading = true
+      this.sessionsPageError = ''
+      try {
+        const page = await this.fetchSessions(this.sessionsCursor)
+        if (generation !== this.sessionsGeneration) return
+        const sessionsById = new Map(this.sessions.map((session) => [session.id, session]))
+        for (const session of page.items) sessionsById.set(session.id, session)
+        this.sessions = [...sessionsById.values()].sort((a, b) =>
+          Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id
+        )
+        this.sessionsHasMore = page.has_more
+        this.sessionsCursor = page.before_updated_at && page.before_id != null
+          ? { before_updated_at: page.before_updated_at, before_id: page.before_id }
+          : null
+      } catch (e) {
+        if (generation === this.sessionsGeneration) {
+          this.sessionsPageError = '更多历史对话加载失败，请重试。'
+        }
+        console.error(e)
+      } finally {
+        if (generation === this.sessionsGeneration) this.sessionsPageLoading = false
       }
     },
     setActiveSession(id: number | null) {
@@ -445,6 +484,10 @@ export const useTeacherStore = defineStore('teacher', {
       this.activeSessionId = null
       this.sessionsLoading = false
       this.sessionsLoaded = false
+      this.sessionsHasMore = false
+      this.sessionsCursor = null
+      this.sessionsPageLoading = false
+      this.sessionsPageError = ''
       this.sessionsError = ''
       this.sessionsLoadPromise = null
       this.sessionsRefreshPromise = null

@@ -43,6 +43,17 @@
             </template>
           </div>
         </template>
+        <div v-if="store.sessionsPageError" class="sb-page-error" role="alert">
+          {{ store.sessionsPageError }}
+        </div>
+        <button
+          v-if="store.sessionsHasMore || store.sessionsPageLoading || store.sessionsPageError"
+          class="sb-load-more"
+          :disabled="store.sessionsPageLoading"
+          @click="store.loadMoreSessions()"
+        >
+          {{ store.sessionsPageLoading ? '加载中…' : store.sessionsPageError ? '重试加载' : '加载更早对话' }}
+        </button>
       </template>
     </div>
   </section>
@@ -155,6 +166,13 @@ async function onRemove(id: number) {
 .sb-new-btn .app-icon { color: var(--primary); }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
+.sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
+.sb-load-more {
+  width: calc(100% - 12px); margin: 8px 6px 10px; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+  color: var(--primary); font: 12px var(--font); cursor: pointer;
+}
+.sb-load-more:disabled { opacity: 0.6; cursor: wait; }
 .sb-error { display: flex; align-items: center; gap: 8px; color: var(--red); }
 .sb-error span { min-width: 0; }
 .sb-error button { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--primary); font: inherit; cursor: pointer; }

@@ -659,6 +659,13 @@ class ChatSessionOut(BaseModel):
     message_count: int
 
 
+class ChatSessionPageOut(BaseModel):
+    items: List[ChatSessionOut]
+    has_more: bool
+    before_updated_at: Optional[datetime] = None
+    before_id: Optional[int] = None
+
+
 # ---------- 站内提醒（v0.3.0 新增） ----------
 
 class NotificationItem(BaseModel):

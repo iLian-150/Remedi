@@ -13,6 +13,8 @@ import type {
   AssignmentDetail,
   ChatAssignmentContext,
   ChatSession,
+  ChatSessionCursor,
+  ChatSessionPage,
   CorrectionResult,
   EssayResult,
   EssaySummary,
@@ -52,6 +54,13 @@ function throwIfAborted(signal?: AbortSignal): void {
 function activeSessionStorageKey(): string | null {
   const userId = useAuthStore().user?.id
   return userId == null ? null : `remedi_student_active_session_${userId}`
+}
+
+function readSavedActiveSessionId(): number | undefined {
+  const key = activeSessionStorageKey()
+  if (!key) return undefined
+  const id = Number(localStorage.getItem(key))
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined
 }
 
 function persistActiveSessionId(id: number | null) {
@@ -279,6 +288,10 @@ export const useStudentStore = defineStore('student', {
     activeSessionId: null as number | null,
     sessionsLoading: false,
     sessionsLoaded: false,
+    sessionsHasMore: false,
+    sessionsCursor: null as ChatSessionCursor | null,
+    sessionsPageLoading: false,
+    sessionsPageError: '',
     sessionsError: '',
     sessionsLoadPromise: null as Promise<void> | null,
     sessionsRefreshPromise: null as Promise<void> | null,
@@ -781,8 +794,11 @@ export const useStudentStore = defineStore('student', {
       return data
     },
     // 3.23 我的对话会话列表（v0.6.0）：按最近更新倒序，含消息数
-    async fetchSessions(): Promise<ChatSession[]> {
-      const { data } = await api.get<ChatSession[]>('/api/student/agent/sessions')
+    async fetchSessions(cursor?: ChatSessionCursor): Promise<ChatSessionPage> {
+      const includeId = this.activeSessionId ?? readSavedActiveSessionId()
+      const { data } = await api.get<ChatSessionPage>('/api/student/agent/sessions/page', {
+        params: { ...cursor, include_id: includeId }
+      })
       return data
     },
     // 3.24 新建对话会话（v0.6.0）
@@ -857,9 +873,14 @@ export const useStudentStore = defineStore('student', {
       this.sessionsError = ''
       const generation = this.sessionsGeneration
       const task = (async () => {
-        const sessions = await this.fetchSessions()
+        const page = await this.fetchSessions()
         if (generation !== this.sessionsGeneration) return
-        this.sessions = sessions
+        this.sessions = page.items
+        this.sessionsHasMore = page.has_more
+        this.sessionsCursor = page.before_updated_at && page.before_id != null
+          ? { before_updated_at: page.before_updated_at, before_id: page.before_id }
+          : null
+        this.sessionsPageError = ''
         this.sessionsLoaded = true
         const activeExists = this.sessions.some((session) => session.id === this.activeSessionId)
         if (this.activeSessionId == null || !activeExists) {
@@ -884,6 +905,32 @@ export const useStudentStore = defineStore('student', {
           this.sessionsLoadPromise = null
           this.sessionsLoading = false
         }
+      }
+    },
+    async loadMoreSessions() {
+      if (!this.sessionsHasMore || this.sessionsPageLoading || !this.sessionsCursor) return
+      const generation = this.sessionsGeneration
+      this.sessionsPageLoading = true
+      this.sessionsPageError = ''
+      try {
+        const page = await this.fetchSessions(this.sessionsCursor)
+        if (generation !== this.sessionsGeneration) return
+        const sessionsById = new Map(this.sessions.map((session) => [session.id, session]))
+        for (const session of page.items) sessionsById.set(session.id, session)
+        this.sessions = [...sessionsById.values()].sort((a, b) =>
+          Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id
+        )
+        this.sessionsHasMore = page.has_more
+        this.sessionsCursor = page.before_updated_at && page.before_id != null
+          ? { before_updated_at: page.before_updated_at, before_id: page.before_id }
+          : null
+      } catch (e) {
+        if (generation === this.sessionsGeneration) {
+          this.sessionsPageError = '更多历史对话加载失败，请重试。'
+        }
+        console.error(e)
+      } finally {
+        if (generation === this.sessionsGeneration) this.sessionsPageLoading = false
       }
     },
     /** 首次发送消息时提前准备会话，让左侧历史列表在 AI 长耗时处理期间也能显示当前对话。 */
@@ -954,6 +1001,10 @@ export const useStudentStore = defineStore('student', {
       persistActiveSessionId(null)
       this.sessionsLoading = false
       this.sessionsLoaded = false
+      this.sessionsHasMore = false
+      this.sessionsCursor = null
+      this.sessionsPageLoading = false
+      this.sessionsPageError = ''
       this.sessionsError = ''
       this.sessionsLoadPromise = null
       this.sessionsRefreshPromise = null

@@ -562,6 +562,18 @@ export interface ChatSession {
   message_count: number
 }
 
+export interface ChatSessionCursor {
+  before_updated_at: string
+  before_id: number
+}
+
+export interface ChatSessionPage {
+  items: ChatSession[]
+  has_more: boolean
+  before_updated_at: string | null
+  before_id: number | null
+}
+
 // SSE done 事件数据：回复 + 建议追问 + 实际写入的会话
 export interface AgentChatResult {
   reply: string
