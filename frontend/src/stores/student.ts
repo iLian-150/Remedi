@@ -490,6 +490,7 @@ export const useStudentStore = defineStore('student', {
         subject,
         explanation
       })
+      invalidateStudentMistakes(useAuthStore().user?.id)
     },
     async agentVisionChatStream(
       file: File,
