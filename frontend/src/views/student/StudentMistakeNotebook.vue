@@ -91,20 +91,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type { RelatedMistake, StudentMistake } from '../../api/types'
 import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
-import MistakePointAssistant from '../../components/mistake-book/MistakePointAssistant.vue'
-import MistakeRelationshipMap from '../../components/mistake-book/MistakeRelationshipMap.vue'
-import MistakeStickyNotes from '../../components/mistake-book/MistakeStickyNotes.vue'
 import type { IconName } from '../../components/icons/paths'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import '../../assets/mistake-book.css'
 import '../../assets/mistake-book-2.css'
+
+const MistakePointAssistant = defineAsyncComponent(
+  () => import('../../components/mistake-book/MistakePointAssistant.vue'),
+)
+const MistakeRelationshipMap = defineAsyncComponent(
+  () => import('../../components/mistake-book/MistakeRelationshipMap.vue'),
+)
+const MistakeStickyNotes = defineAsyncComponent(
+  () => import('../../components/mistake-book/MistakeStickyNotes.vue'),
+)
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
 interface MistakeCategory { key: string; label: string; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
