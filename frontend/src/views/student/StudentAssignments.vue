@@ -1,7 +1,7 @@
 <!-- 学生端：作业列表 —— 交作业的统一入口
      数据源：GET /api/student/assignments（契约 3.1）
      v0.2.1 曾在页内放作业日历；v0.3.0 日历迁至右侧栏；v0.3.1 日历只在本页右栏出现，
-     点选日期 → store.assignmentDateFilter 生效 → 本页按发布日期筛选并显示当天完成进度，
+     点选日期 → store.assignmentDateFilter 生效 → 服务端按发布日期筛选并显示当天完成进度，
      「返回查看全部作业」清掉筛选。卡片按钮按作业模式分文案（v0.9.2：线上作业=
      「在线作答」、线下练习册=「拍照批改」），均进入 /student/submit?assignment_id=
      v0.9.3 试卷化：列表区整张做成「钉好的试卷」——纸面+订书钉+装订线+试卷头，
@@ -57,9 +57,9 @@
 
         <!-- 试卷正文：key 随筛选变化 → 轻翻页过渡；盖章只在首次加载（intro）时播 -->
         <div :key="dateFilter || 'all'" class="paper-body">
-          <template v-if="visibleAssignments.length">
+          <template v-if="assignments.length">
             <section
-              v-for="(a, i) in visibleAssignments"
+              v-for="(a, i) in assignments"
               :key="a.id"
               class="paper-item"
               :style="{ '--i': i }"
@@ -138,12 +138,6 @@ watch(dateFilter, () => {
   void loadAssignments()
 })
 
-const visibleAssignments = computed(() =>
-  dateFilter.value
-    ? assignments.value.filter((a) => a.created_at.slice(0, 10) === dateFilter.value)
-    : assignments.value
-)
-
 const dateFilterLabel = computed(() => {
   if (!dateFilter.value) return ''
   const [y, m, d] = dateFilter.value.split('-')
@@ -154,7 +148,7 @@ const dateFilterLabel = computed(() => {
 const dayProgress = computed(() => {
   let done = 0
   let total = 0
-  for (const assignment of visibleAssignments.value) {
+  for (const assignment of assignments.value) {
     total++
     if (assignment.question_count > 0 && doneCount(assignment) >= assignment.question_count) {
       done++
