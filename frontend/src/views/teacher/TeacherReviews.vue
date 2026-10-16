@@ -324,6 +324,7 @@ const okMsg = ref('')
 let reviewRefreshTimer: number | undefined
 let reviewRefreshInFlight = false
 let reviewDetailRequestToken = 0
+let reviewQueueMutationToken = 0
 /** 每条错因一份纠错表单（type/note），按 error_id 索引 */
 const correctForms = reactive<Record<number, { type: string; note: string }>>({})
 
@@ -557,8 +558,11 @@ async function refreshQueueSilently() {
   if (reviewRefreshInFlight || loading.value || document.visibilityState === 'hidden') return
   reviewRefreshInFlight = true
   const currentId = selectedId.value
+  const mutationToken = reviewQueueMutationToken
   try {
-    items.value = await teacher.fetchPendingReviews()
+    const refreshedItems = await teacher.fetchPendingReviews()
+    if (mutationToken !== reviewQueueMutationToken) return
+    items.value = refreshedItems
     if (currentId && selectedId.value === currentId
       && !items.value.some((item) => item.submission_id === currentId)) {
       closeReviewModal()
@@ -651,6 +655,7 @@ async function approveSelected() {
   try {
     const name = detail.value?.student.name ?? ''
     await teacher.approveReview(approvedId, finalScore)
+    reviewQueueMutationToken += 1
     items.value = items.value.filter((i) => i.submission_id !== approvedId)
     okMsg.value = `已通过，${name} 会收到提醒并能看到诊断了。`
     detail.value = null
@@ -669,6 +674,7 @@ async function approveAll() {
   error.value = ''
   try {
     const n = await teacher.approveAllReviews()
+    reviewQueueMutationToken += 1
     items.value = []
     closeReviewModal()
     detail.value = null
