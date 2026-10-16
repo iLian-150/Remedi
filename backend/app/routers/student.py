@@ -22,7 +22,6 @@ from ..models import (
     AssignmentExt,
     AssignmentSetting,
     ChatMessage,
-    ChatSessionMessageImage,
     Correction,
     Error,
     Essay,
@@ -108,6 +107,7 @@ from ..services.related_mistakes import (
     find_related_mistake_for_error,
     find_related_mistakes_for_questions,
 )
+from ..services.upload_files import delete_unreferenced_uploads
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
@@ -1657,47 +1657,7 @@ def _write_uploaded_file(path: str, data: bytes) -> None:
 
 
 def _remove_unreferenced_upload(db: Session, file_path: str) -> None:
-    """Remove a newly generated upload after failure only if no record references it."""
-    upload_dir = os.path.realpath(settings.UPLOAD_DIR)
-    absolute_path = os.path.realpath(os.path.join(upload_dir, file_path))
-    try:
-        if absolute_path == upload_dir or os.path.commonpath(
-            (upload_dir, absolute_path)
-        ) != upload_dir:
-            return
-    except ValueError:
-        return
-
-    db.rollback()
-    reference_columns = (
-        ChatSessionMessageImage.file_path,
-        SubmissionImage.file_path,
-        StudentQuestionCapture.image_path,
-        Workbook.file_path,
-    )
-    try:
-        for column in reference_columns:
-            if db.query(column).filter(column == file_path).first() is not None:
-                return
-    except Exception:
-        db.rollback()
-        logger.warning(
-            "上传失败后检查图片引用失败，保留原图（file_path=%s）",
-            file_path,
-            exc_info=True,
-        )
-        return
-
-    try:
-        os.remove(absolute_path)
-    except FileNotFoundError:
-        pass
-    except Exception:
-        logger.warning(
-            "上传失败后清理图片失败（file_path=%s）",
-            file_path,
-            exc_info=True,
-        )
+    delete_unreferenced_uploads(db, {file_path}, reason="上传失败后")
 
 
 def _add_submission_image_link(db: Session, submission: Submission,

@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, case, func, or_, select, union_all
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
@@ -99,6 +99,7 @@ from ..services.stats import (
     top_error_questions,
 )
 from ..services.teacher_stats import students_not_fully_submitted
+from ..services.upload_files import delete_unreferenced_uploads
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 logger = logging.getLogger(__name__)
@@ -1198,70 +1199,9 @@ def list_teacher_assignments(db: Session = Depends(get_db),
 
 
 def _delete_unreferenced_submission_images(db: Session, file_paths: set[str]) -> None:
-    """删除作业移除后不再被任何功能引用的提交原图。"""
-    upload_dir = os.path.realpath(settings.UPLOAD_DIR)
-    safe_paths = {}
-    for stored_path in file_paths:
-        absolute_path = os.path.realpath(
-            stored_path if os.path.isabs(stored_path)
-            else os.path.join(upload_dir, stored_path)
-        )
-        try:
-            inside_upload_dir = os.path.commonpath(
-                (upload_dir, absolute_path)
-            ) == upload_dir
-        except ValueError:
-            inside_upload_dir = False
-        if absolute_path == upload_dir or not inside_upload_dir:
-            continue
-        safe_paths[stored_path] = absolute_path
-
-    if not safe_paths:
-        return
-
-    referenced_paths = set()
-    reference_columns = (
-        SubmissionImage.file_path,
-        ChatSessionMessageImage.file_path,
-        StudentQuestionCapture.image_path,
-        Workbook.file_path,
+    delete_unreferenced_uploads(
+        db, file_paths, reason="作业删除后"
     )
-    paths = list(safe_paths)
-    try:
-        for start in range(0, len(paths), 200):
-            path_chunk = paths[start:start + 200]
-            reference_queries = [
-                select(column.label("file_path")).where(column.in_(path_chunk))
-                for column in reference_columns
-            ]
-            referenced_paths.update(
-                path
-                for (path,) in db.execute(union_all(*reference_queries)).all()
-                if path
-            )
-    except Exception:
-        db.rollback()
-        logger.warning(
-            "作业删除后批量检查提交图片引用失败，保留原图",
-            exc_info=True,
-        )
-        return
-
-    for stored_path, absolute_path in safe_paths.items():
-        if stored_path in referenced_paths:
-            continue
-        try:
-            os.remove(absolute_path)
-        except FileNotFoundError:
-            continue
-        except Exception:
-            # 作业删除已提交；清理失败只保留孤立文件，不应把成功删除显示成失败。
-            db.rollback()
-            logger.warning(
-                "作业删除后清理提交图片失败（file_path=%s）",
-                stored_path,
-                exc_info=True,
-            )
 
 
 def _trace_assignment_delete_failures(handler):

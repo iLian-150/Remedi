@@ -7,97 +7,25 @@
 # 迁移口径：用户首次触碰任一会话接口时，若其在旧 chat_messages 有记录
 # 且尚无任何会话 → 生成一条标题「之前的对话」的会话，把旧消息按序复制进来，
 # 再删掉该用户在旧表的行（防重复迁移）。学生/教师按 user_id 各自独立迁移。
-import logging
-import os
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import func, insert, literal, select, union_all
+from sqlalchemy import func, insert, literal, select
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..models import (
     ChatMessage,
     ChatSession,
     ChatSessionMessage,
     ChatSessionMessageImage,
     ChatSessionMessageMistakeLink,
-    SubmissionImage,
-    StudentQuestionCapture,
     User,
-    Workbook,
 )
+from .upload_files import delete_unreferenced_uploads
 
 LEGACY_SESSION_TITLE = "之前的对话"
 DEFAULT_SESSION_TITLE = "新对话"
 TITLE_MAX_CHARS = 20
-logger = logging.getLogger(__name__)
-
-
-def _delete_unreferenced_images(db: Session, file_paths: set[str]) -> None:
-    """删除会话移除后不再被其他功能引用的聊天图片。"""
-    upload_dir = os.path.realpath(settings.UPLOAD_DIR)
-    safe_paths = {}
-    for stored_path in file_paths:
-        absolute_path = os.path.realpath(
-            stored_path if os.path.isabs(stored_path)
-            else os.path.join(upload_dir, stored_path)
-        )
-        try:
-            inside_upload_dir = os.path.commonpath(
-                (upload_dir, absolute_path)
-            ) == upload_dir
-        except ValueError:
-            inside_upload_dir = False
-        if absolute_path == upload_dir or not inside_upload_dir:
-            continue
-        safe_paths[stored_path] = absolute_path
-
-    if not safe_paths:
-        return
-
-    referenced_paths = set()
-    paths = list(safe_paths)
-    reference_columns = (
-        ChatSessionMessageImage.file_path,
-        SubmissionImage.file_path,
-        StudentQuestionCapture.image_path,
-        Workbook.file_path,
-    )
-    try:
-        for start in range(0, len(paths), 200):
-            path_chunk = paths[start:start + 200]
-            reference_queries = [
-                select(column.label("file_path")).where(column.in_(path_chunk))
-                for column in reference_columns
-            ]
-            referenced_paths.update(
-                path
-                for (path,) in db.execute(union_all(*reference_queries)).all()
-                if path
-            )
-    except Exception:
-        db.rollback()
-        logger.warning(
-            "删除聊天会话后检查图片引用失败，保留原图",
-            exc_info=True,
-        )
-        return
-
-    for stored_path, absolute_path in safe_paths.items():
-        if stored_path in referenced_paths:
-            continue
-        try:
-            os.remove(absolute_path)
-        except FileNotFoundError:
-            continue
-        except Exception:
-            db.rollback()
-            logger.warning(
-                "删除聊天会话后清理图片失败（file_path=%s）",
-                stored_path,
-                exc_info=True,
-            )
 
 
 def _migrate_legacy_messages(db: Session, user: User) -> bool:
@@ -481,5 +409,7 @@ def delete_session(db: Session, user: User, session_id: int) -> bool:
         .delete(synchronize_session=False)
     db.delete(session)
     db.commit()
-    _delete_unreferenced_images(db, image_paths)
+    delete_unreferenced_uploads(
+        db, image_paths, reason="删除聊天会话后"
+    )
     return True
