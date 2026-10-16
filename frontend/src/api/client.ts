@@ -5,9 +5,11 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 
+const API_REQUEST_TIMEOUT_MS = 180_000
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
-  timeout: 120000
+  timeout: API_REQUEST_TIMEOUT_MS
 })
 
 // 请求拦截器：自动带 token

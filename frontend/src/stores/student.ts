@@ -482,9 +482,7 @@ export const useStudentStore = defineStore('student', {
         if (chatPrompt) form.append('chat_prompt', chatPrompt)
       }
       const { data } = await api.post<PhotoReviewResult>('/api/student/photo-review', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        // 视觉模型等待上限 120 秒，与后端统一配置保持一致。
-        timeout: 120000
+        headers: { 'Content-Type': 'multipart/form-data' }
       })
       return data
     },
