@@ -747,33 +747,80 @@ interface AnswerCheckResult {
   method: 'sympy' | 'llm' | 'none'
 }
 
-/** 验算指纹：题干或答案被改过后，旧验算结果视为过期、不再显示 */
+/** 验算指纹：题干、知识点或参考答案变化后，旧结果视为过期、不再显示 */
 function stampOf(q: QuestionForm): string {
-  return `${q.prompt.trim()}\n${q.reference_answer.trim()}`
+  return `${q.prompt.trim()}\n${q.knowledge_point.trim()}\n${q.reference_answer.trim()}`
+}
+
+const inFlightAnswerChecks = new WeakMap<QuestionForm, { stamp: string; promise: Promise<void> }>()
+const ANSWER_CHECK_CONCURRENCY = 4
+let activeAnswerChecks = 0
+const answerCheckWaiters: Array<() => void> = []
+
+// 手动逐题验算与发布前批量验算共用并发槽位，避免单页同时打满验算接口。
+async function acquireAnswerCheckSlot(): Promise<void> {
+  if (activeAnswerChecks < ANSWER_CHECK_CONCURRENCY) {
+    activeAnswerChecks += 1
+    return
+  }
+  await new Promise<void>((resolve) => answerCheckWaiters.push(resolve))
+}
+
+function releaseAnswerCheckSlot() {
+  const next = answerCheckWaiters.shift()
+  if (next) next()
+  else activeAnswerChecks -= 1
 }
 
 function showResult(q: QuestionForm): boolean {
   return q.check_stamp !== '' && q.check_stamp === stampOf(q)
 }
 
-async function runCheck(q: QuestionForm): Promise<void> {
-  q.check_stamp = stampOf(q)
+function runCheck(q: QuestionForm): Promise<void> {
+  const stamp = stampOf(q)
+  const existing = inFlightAnswerChecks.get(q)
+  if (existing?.stamp === stamp) return existing.promise
+
+  const stem = q.prompt.trim()
+  const referenceAnswer = q.reference_answer.trim()
+  const knowledgePoint = q.knowledge_point.trim()
+  q.check_stamp = stamp
   q.check_status = 'checking'
   q.check_detail = ''
-  try {
-    const { data } = await api.post<AnswerCheckResult>('/api/teacher/questions/check-answer', {
-      stem: q.prompt.trim(),
-      reference_answer: q.reference_answer.trim(),
-      knowledge_point: q.knowledge_point.trim() || undefined
-    })
-    q.check_status = data.status
-    q.check_detail = data.detail
-  } catch (e) {
-    // 验算接口异常按 unknown 处理：不显示任何标记，更不能挡住发布
-    q.check_status = 'unknown'
-    q.check_detail = ''
-    console.error(e)
-  }
+  const request = Promise.resolve().then(async () => {
+    let acquiredSlot = false
+    try {
+      await acquireAnswerCheckSlot()
+      acquiredSlot = true
+      if (stampOf(q) !== stamp) return
+      const { data } = await api.post<AnswerCheckResult>('/api/teacher/questions/check-answer', {
+        stem,
+        reference_answer: referenceAnswer,
+        knowledge_point: knowledgePoint || undefined
+      })
+      if (stampOf(q) !== stamp) return
+      q.check_status = data.status
+      q.check_detail = data.detail
+    } catch (e) {
+      // 验算接口异常按 unknown 处理：不显示任何标记，更不能挡住发布
+      if (stampOf(q) === stamp) {
+        q.check_status = 'unknown'
+        q.check_detail = ''
+      }
+      console.error(e)
+    } finally {
+      if (acquiredSlot) releaseAnswerCheckSlot()
+      if (inFlightAnswerChecks.get(q)?.promise === request) {
+        inFlightAnswerChecks.delete(q)
+      }
+      if (q.check_stamp === stamp && stampOf(q) !== stamp && q.check_status === 'checking') {
+        q.check_status = 'idle'
+        q.check_detail = ''
+      }
+    }
+  })
+  inFlightAnswerChecks.set(q, { stamp, promise: request })
+  return request
 }
 
 async function checkOne(q: QuestionForm) {
@@ -1180,6 +1227,7 @@ async function submit() {
   // suspect 只在题下留黄色标记并弹一次确认，教师确认后照常发布，绝不拦截
   const withAnswer = subject.value === 'math' ? valid.filter((q) => q.reference_answer.trim()) : []
   if (withAnswer.length) {
+    const checkedStamps = new Map(withAnswer.map((q) => [q, stampOf(q)]))
     checkingAll.value = true
     try {
       await Promise.all(withAnswer.map((q) => runCheck(q)))
@@ -1188,7 +1236,11 @@ async function submit() {
     } finally {
       checkingAll.value = false
     }
-    const suspects = withAnswer.filter((q) => q.check_status === 'suspect')
+    if (withAnswer.some((q) => stampOf(q) !== checkedStamps.get(q))) {
+      error.value = '验算期间题干、知识点或参考答案有改动，请再次点击发布以检查最新内容。'
+      return
+    }
+    const suspects = withAnswer.filter((q) => showResult(q) && q.check_status === 'suspect')
     if (suspects.length) {
       const labelByQuestion = new Map<(typeof entries)[number]['q'], string>()
       for (const entry of entries) {
