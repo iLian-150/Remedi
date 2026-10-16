@@ -6,7 +6,7 @@ import re
 import secrets
 from datetime import date, datetime, timedelta
 from time import perf_counter
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
@@ -1202,6 +1202,31 @@ def my_mistakes(
         ))
     result.sort(key=lambda item: item.created_at, reverse=True)
     return result
+
+
+@router.get("/corrections/calendar-marks", response_model=Dict[str, int],
+            summary="订正日历错题日期统计")
+def correction_calendar_marks(db: Session = Depends(get_db),
+                              current: User = Depends(require_student)):
+    """按提交日期统计本人诊断错题，供订正日历使用，不组装错题详情。"""
+    submission_date = func.date(
+        func.coalesce(Submission.submitted_at, Error.created_at)
+    )
+    rows = (
+        db.query(
+            submission_date.label("submission_date"),
+            func.count(Error.id).label("error_count"),
+        )
+        .join(Submission, Error.submission_id == Submission.id)
+        .filter(Submission.student_id == current.id)
+        .group_by(submission_date)
+        .all()
+    )
+    return {
+        str(day): int(count)
+        for day, count in rows
+        if day is not None
+    }
 
 
 @router.get("/mistakes/count", response_model=StudentMistakeCountOut,

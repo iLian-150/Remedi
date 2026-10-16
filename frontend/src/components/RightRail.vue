@@ -5,7 +5,7 @@
        assignmentDateFilter，作业列表页据此筛选 + 显示当天进度；再次点同一天 = 取消筛选。
      - mode="corrections"（学生订正页，v0.9.1）：订正日历——按错题所属提交日期打点+计数；
        点选日期 → 写入 student store 的 correctionsDateFilter，订正页据此只看那天的错题；
-       再次点同一天 = 取消筛选。数据走 store.fetchCorrectableMistakes 前端聚合，
+       再次点同一天 = 取消筛选。数据走后端日期聚合接口，
        与订正页同口径（仅诊断产生的错题；待审核错题同步计入待订正）。
      - mode="timeline"（学生学习报告页：总览与科目详情，本次改造）：错题时间线——
        报告页右栏不再是信箱；面板默认收起，只露标题行（图标+「错题时间线」+条数+
@@ -360,17 +360,10 @@ function assignmentMarks(assignments: Array<{ created_at: string }>) {
   return marksByDate
 }
 
-/** 订正日历标记（v0.9.1）：拉可订正错题，按所属提交日期聚合（与订正页同口径：
- * submitted_at 优先，缺失时用错题产生时间兜底） */
+/** 订正日历标记：后端仅返回按所属提交日期聚合的计数，避免下载完整错题详情。 */
 async function loadCorrectionMarks() {
   try {
-    const list = await student.fetchCorrectableMistakes()
-    const m: Record<string, number> = {}
-    for (const item of list) {
-      const d = (item.submitted_at ?? item.created_at).slice(0, 10)
-      if (d) m[d] = (m[d] ?? 0) + 1
-    }
-    correctionMarks.value = m
+    correctionMarks.value = await student.fetchCorrectionCalendarMarks()
   } catch (e) {
     console.error(e)
   }

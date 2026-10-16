@@ -402,13 +402,17 @@ export const useStudentStore = defineStore('student', {
       )
       return data
     },
-    /** 可订正错题（v0.9.1 抽到 store 供订正页与右栏订正日历共用）：
+    /** 可订正错题（v0.9.1 抽到 store 供订正页与报告时间线共用）：
      * 一次读取未归档与已归档记录，只留诊断产生的错题——自主收录题
      * （id<0 / source_kind=student_saved）没有 errors 记录，进不了订正判定。
      * 低置信错题会立即进入错题本，并带有 review_status=pending 标记。 */
     async fetchCorrectableMistakes(): Promise<StudentMistake[]> {
       const allMistakes = await this.fetchAllMyMistakes()
       return allMistakes.filter((item) => item.id > 0 && item.source_kind !== 'student_saved')
+    },
+    async fetchCorrectionCalendarMarks(): Promise<Record<string, number>> {
+      const { data } = await api.get<Record<string, number>>('/api/student/corrections/calendar-marks')
+      return data
     },
     async fetchMistakeCount(subject?: string): Promise<number> {
       const { data } = await api.get<StudentMistakeCount>('/api/student/mistakes/count', {
