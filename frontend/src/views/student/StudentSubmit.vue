@@ -642,7 +642,10 @@ async function submitAnswer(q: Question) {
 /* ---------- 作业装载与状态 ---------- */
 
 async function loadQuestions(id: number, loadToken: number) {
-  const relatedPromise = student.fetchRelatedMistakesForAssignment(id).catch(() => ({}))
+  const emptyRelatedMistakes: Record<string, RelatedMistake | null> = {}
+  const relatedPromise = currentAssignment.value?.photo_required === false
+    ? Promise.resolve(emptyRelatedMistakes)
+    : student.fetchRelatedMistakesForAssignment(id).catch(() => emptyRelatedMistakes)
   const detail = await student.fetchAssignmentDetail(id)
   if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return detail
   questions.value = detail.questions
