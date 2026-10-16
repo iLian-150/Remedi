@@ -3,6 +3,7 @@
 # 不执行任意代码。解析失败抛 UnparseableError，由上层记为"无法解析"而不中断流程。
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional, Union
 
 from sympy import Eq
@@ -79,6 +80,19 @@ def clean_text(raw: str) -> str:
     return t
 
 
+@lru_cache(maxsize=512)
+def _parse_expression_cached(text: str):
+    """Reuse immutable SymPy expressions for repeated normalized steps."""
+    return parse_expr(text, transformations=TRANSFORMATIONS, evaluate=False)
+
+
+def _parse_expression(text: str):
+    # Keep unusually long expressions out of the process-wide cache.
+    if len(text) > 256:
+        return parse_expr(text, transformations=TRANSFORMATIONS, evaluate=False)
+    return _parse_expression_cached(text)
+
+
 def parse_step(raw: str) -> ParsedStep:
     """解析单个步骤。失败抛 UnparseableError。"""
     t = clean_text(raw)
@@ -97,10 +111,10 @@ def parse_step(raw: str) -> ParsedStep:
                 raise UnparseableError("等式两边不能为空")
             # evaluate=False：保留 7+3 这类原始结构不被立即求值，
             # 移项检测需要看到"被搬动的项"原样；等价性判定里的 simplify 会求值，不受影响
-            lhs = parse_expr(lhs_s, transformations=TRANSFORMATIONS, evaluate=False)
-            rhs = parse_expr(rhs_s, transformations=TRANSFORMATIONS, evaluate=False)
+            lhs = _parse_expression(lhs_s)
+            rhs = _parse_expression(rhs_s)
             return ParsedStep(kind="eq", expr=Eq(lhs, rhs, evaluate=False), text=t)
-        expr = parse_expr(t, transformations=TRANSFORMATIONS, evaluate=False)
+        expr = _parse_expression(t)
         return ParsedStep(kind="expr", expr=expr, text=t)
     except UnparseableError:
         raise
