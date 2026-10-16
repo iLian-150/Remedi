@@ -323,6 +323,7 @@ const error = ref('')
 const okMsg = ref('')
 let reviewRefreshTimer: number | undefined
 let reviewRefreshInFlight = false
+let reviewDetailRequestToken = 0
 /** 每条错因一份纠错表单（type/note），按 error_id 索引 */
 const correctForms = reactive<Record<number, { type: string; note: string }>>({})
 
@@ -479,7 +480,9 @@ const reviewAnswerSteps = computed(() =>
 )
 
 function closeReviewModal() {
+  reviewDetailRequestToken += 1
   modalOpen.value = false
+  detailLoading.value = false
   viewAssignmentId.value = null
   selectedStudentId.value = null
   selectedId.value = null
@@ -578,6 +581,7 @@ function onReviewPageVisibilityChange() {
 }
 
 async function selectItem(submissionId: number) {
+  const requestToken = ++reviewDetailRequestToken
   selectedId.value = submissionId
   modalOpen.value = true
   detailLoading.value = true
@@ -586,15 +590,19 @@ async function selectItem(submissionId: number) {
   finalScoreInput.value = ''
   try {
     const d = await teacher.fetchReviewDetail(submissionId)
+    if (requestToken !== reviewDetailRequestToken || selectedId.value !== submissionId) return
     detail.value = d
     d.diagnosis.errors.forEach((e) => {
       if (!correctForms[e.id]) correctForms[e.id] = { type: '', note: '' }
     })
   } catch (e) {
+    if (requestToken !== reviewDetailRequestToken || selectedId.value !== submissionId) return
     error.value = '审核详情加载失败：' + errDetail(e)
     console.error(e)
   } finally {
-    detailLoading.value = false
+    if (requestToken === reviewDetailRequestToken && selectedId.value === submissionId) {
+      detailLoading.value = false
+    }
   }
 }
 
