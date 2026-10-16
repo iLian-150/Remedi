@@ -7,8 +7,8 @@ from .config import settings
 
 connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):
-    # SQLite 线程安全：允许跨线程使用同一连接（配合 scoped 使用习惯）
-    connect_args = {"check_same_thread": False}
+    # 请求与后台批改可能同时访问数据库：允许跨线程使用，并等待写锁最多 30 秒。
+    connect_args = {"check_same_thread": False, "timeout": 30}
 
 engine = create_engine(settings.DATABASE_URL, connect_args=connect_args, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
@@ -28,6 +28,11 @@ def get_db():
 def init_db():
     """建表并幂等补齐轻量 schema 更新与热查询索引。"""
     from . import models  # noqa: F401  确保模型被注册到 Base.metadata
+    if engine.dialect.name == "sqlite":
+        # WAL 允许读请求与写事务并行；SQLite 仍然一次只能有一个写事务。
+        with engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+            connection.commit()
     Base.metadata.create_all(bind=engine)
     # 会话列表读取持久化消息数；老库只在新增列时回填一次，不在每次请求中聚合历史消息。
     with engine.begin() as connection:
