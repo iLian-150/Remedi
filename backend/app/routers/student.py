@@ -676,7 +676,7 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
 
 @router.get("/submissions", summary="我的提交记录")
 def list_submissions(question_id: Optional[int] = Query(default=None),
-                     limit: int = Query(default=20, le=100), offset: int = Query(default=0, ge=0),
+                     limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0),
                      db: Session = Depends(get_db), current: User = Depends(require_student)):
     query = db.query(Submission).filter(Submission.student_id == current.id)
     if question_id:
@@ -1393,7 +1393,7 @@ def submit_essay(body: EssayCreate, db: Session = Depends(get_db),
 
 
 @router.get("/essays", summary="我的作文列表")
-def list_essays(limit: int = Query(default=20, le=100), offset: int = Query(default=0, ge=0),
+def list_essays(limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0),
                 db: Session = Depends(get_db), current: User = Depends(require_student)):
     import json
     query = db.query(Essay).options(load_only(
