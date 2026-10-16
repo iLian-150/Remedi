@@ -27,6 +27,7 @@ import type {
   StudentBriefing,
   StudentCorrectionWallPage,
   StudentMistakeCount,
+  StudentMistakeReviewSummary,
   StudentProfile,
   StudentMistake,
   StudentMistakeTimelinePage,
@@ -461,6 +462,12 @@ export const useStudentStore = defineStore('student', {
         params: subject ? { subject } : {}
       })
       return data.count
+    },
+    async fetchMistakeReviewSummary(): Promise<StudentMistakeReviewSummary> {
+      const { data } = await api.get<StudentMistakeReviewSummary>(
+        '/api/student/mistakes/review-summary'
+      )
+      return data
     },
     async setMistakeCategoryStudied(payload: {
       assignment_id: number

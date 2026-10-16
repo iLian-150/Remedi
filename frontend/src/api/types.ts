@@ -158,6 +158,25 @@ export interface StudentMistakeCount {
   count: number
 }
 
+export interface StudentMistakeReviewCategory {
+  key: string
+  subject: string
+  category_label: string
+  knowledge_point: string
+  assignment_title: string
+  mistake_id: number
+  item_count: number
+  priority: number
+  created_at: string
+  studied: boolean
+}
+
+export interface StudentMistakeReviewSummary {
+  total_count: number
+  has_records: boolean
+  categories: StudentMistakeReviewCategory[]
+}
+
 export interface StudentMistakeTimelineItem {
   id: number
   submission_id: number

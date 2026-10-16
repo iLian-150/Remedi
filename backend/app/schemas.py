@@ -230,6 +230,25 @@ class StudentMistakeCountOut(BaseModel):
     count: int
 
 
+class StudentMistakeReviewCategoryOut(BaseModel):
+    key: str
+    subject: str
+    category_label: str
+    knowledge_point: str
+    assignment_title: str
+    mistake_id: int
+    item_count: int
+    priority: int
+    created_at: datetime
+    studied: bool
+
+
+class StudentMistakeReviewSummaryOut(BaseModel):
+    total_count: int
+    has_records: bool
+    categories: List[StudentMistakeReviewCategoryOut]
+
+
 class StudentMistakeTimelineItemOut(BaseModel):
     id: int
     submission_id: int

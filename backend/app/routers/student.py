@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import secrets
+from bisect import bisect_left
 from datetime import date, datetime, timedelta
 from time import perf_counter
 from typing import Dict, List, Optional
@@ -80,6 +81,7 @@ from ..schemas import (
     SubmissionCreate,
     StudentMistakeOut,
     StudentMistakeCountOut,
+    StudentMistakeReviewSummaryOut,
     StudentMistakeTimelinePageOut,
     StudentCorrectionWallPageOut,
     StudentQuestionCaptureCreate,
@@ -1493,6 +1495,133 @@ def my_mistake_count(subject: Optional[str] = Query(default=None),
         query = query.join(Question, Question.id == Submission.question_id) \
             .filter(Question.subject == subject)
     return {"count": int(query.scalar() or 0)}
+
+
+@router.get("/mistakes/review-summary", response_model=StudentMistakeReviewSummaryOut,
+            summary="错题复习侧栏摘要")
+def student_mistake_review_summary(db: Session = Depends(get_db),
+                                   current: User = Depends(require_student)):
+    """只聚合错题复习侧栏需要的类别、进度和优先级字段。"""
+    row_query = (
+        db.query(
+            Error.id.label("error_id"),
+            Error.error_type,
+            Error.knowledge_point,
+            Error.is_stubborn,
+            Error.created_at.label("error_created_at"),
+            Question.subject.label("subject"),
+            Assignment.id.label("assignment_id"),
+            Assignment.title.label("assignment_title"),
+            Assignment.created_at.label("assignment_created_at"),
+            StudentMistakeArchive.archived_at,
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .outerjoin(
+            StudentMistakeArchive,
+            and_(
+                StudentMistakeArchive.student_id == current.id,
+                StudentMistakeArchive.error_id == Error.id,
+            ),
+        )
+        .filter(Submission.student_id == current.id)
+        .order_by(Error.created_at.desc(), Error.id.desc())
+    )
+
+    # 原始错题本为相似错题优先级保留全部历史类别×作业代表项；这里只需时间戳，
+    # 不读取题干、标准答案、步骤、订正正文、图片或相似错题详情。
+    latest_by_category_assignment = {}
+    groups = {}
+    for row in row_query.yield_per(500):
+        subject = row.subject or "other"
+        category_key, category_label = _mistake_category(
+            subject, row.error_type, row.knowledge_point
+        )
+        category_assignment_key = (category_key, row.assignment_id)
+        latest_by_category_assignment.setdefault(
+            category_assignment_key, row.assignment_created_at
+        )
+        if row.archived_at is not None:
+            continue
+
+        group_key = (row.assignment_id, category_key)
+        entry = groups.get(group_key)
+        if entry is None:
+            entry = {
+                "key": f"{row.assignment_id}:{category_key}",
+                "subject": subject,
+                "category_label": category_label,
+                "knowledge_point": row.knowledge_point,
+                "assignment_title": row.assignment_title,
+                "mistake_id": row.error_id,
+                "item_count": 0,
+                "stubborn_count": 0,
+                "created_at": row.error_created_at,
+                "assignment_created_at": row.assignment_created_at,
+            }
+            groups[group_key] = entry
+        entry["item_count"] += 1
+        entry["stubborn_count"] += int(row.is_stubborn)
+        if row.error_created_at < entry["created_at"]:
+            entry["created_at"] = row.error_created_at
+
+    dates_by_category = {}
+    for (category_key, _assignment_id), assignment_created_at in (
+        latest_by_category_assignment.items()
+    ):
+        dates_by_category.setdefault(category_key, []).append(assignment_created_at)
+    for dates in dates_by_category.values():
+        dates.sort()
+
+    assignment_ids = list({assignment_id for assignment_id, _ in groups})
+    reviewed = set()
+    for start in range(0, len(assignment_ids), 500):
+        reviewed.update(
+            db.query(
+                StudentMistakeCategoryReview.assignment_id,
+                StudentMistakeCategoryReview.category_key,
+            ).filter(
+                StudentMistakeCategoryReview.student_id == current.id,
+                StudentMistakeCategoryReview.assignment_id.in_(
+                    assignment_ids[start:start + 500]
+                ),
+            ).all()
+        )
+
+    categories = []
+    for (assignment_id, category_key), entry in groups.items():
+        prior_assignment_count = bisect_left(
+            dates_by_category[category_key], entry["assignment_created_at"]
+        )
+        similar_count = min(5, prior_assignment_count)
+        entry["studied"] = (assignment_id, category_key) in reviewed
+        entry["priority"] = similar_count * entry["item_count"] + entry["stubborn_count"]
+        if not entry["studied"]:
+            categories.append({
+                "key": entry["key"],
+                "subject": entry["subject"],
+                "category_label": entry["category_label"],
+                "knowledge_point": entry["knowledge_point"],
+                "assignment_title": entry["assignment_title"],
+                "mistake_id": entry["mistake_id"],
+                "item_count": entry["item_count"],
+                "priority": entry["priority"],
+                "created_at": entry["created_at"],
+                "studied": False,
+            })
+    categories.sort(key=lambda item: (-item["priority"], item["created_at"]))
+
+    has_saved_capture = db.query(StudentQuestionCapture.id).filter(
+        StudentQuestionCapture.student_id == current.id,
+        StudentQuestionCapture.saved_at.isnot(None),
+        StudentQuestionCapture.archived_at.is_(None),
+    ).first() is not None
+    return {
+        "total_count": len(groups),
+        "has_records": bool(groups) or has_saved_capture,
+        "categories": categories,
+    }
 
 
 @router.patch("/mistakes/categories", summary="标记错因类别学习状态")

@@ -474,9 +474,24 @@ async function loadMistakeReview() {
   reviewLoading.value = true
   reviewError.value = false
   try {
-    const items = await student.fetchMyMistakes(false)
+    const summary = await student.fetchMistakeReviewSummary()
     if (generation !== reviewLoadGeneration) return
-    reviewSummary.value = summarizeMistakeReview(items)
+    reviewSummary.value = {
+      totalCount: summary.total_count,
+      hasRecords: summary.has_records,
+      categories: summary.categories.map((item) => ({
+        key: item.key,
+        subject: item.subject,
+        categoryLabel: item.category_label,
+        knowledgePoint: item.knowledge_point,
+        assignmentTitle: item.assignment_title,
+        mistakeId: item.mistake_id,
+        itemCount: item.item_count,
+        priority: item.priority,
+        createdAt: item.created_at,
+        studied: item.studied
+      }))
+    }
     student.mistakeReviewCount = reviewCategories.value.length
   } catch (e) {
     if (generation !== reviewLoadGeneration) return
