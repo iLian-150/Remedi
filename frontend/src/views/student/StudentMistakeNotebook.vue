@@ -334,7 +334,7 @@ function openOriginalQuestion(mistake: RelatedMistake | StudentMistake) {
   selectedOriginalMistake.value = { ...mistake }
 }
 function openSimilarOriginal(previous: StudentMistake['similar_occurrences'][number]) {
-  const fullMistake = allMistakes.value.find((item) => item.submission_id === previous.submission_id)
+  const fullMistake = allMistakes.value.find((item) => item.id === previous.id)
   if (fullMistake) {
     openOriginalQuestion(fullMistake)
     return
