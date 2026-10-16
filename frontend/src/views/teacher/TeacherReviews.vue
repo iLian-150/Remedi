@@ -374,15 +374,21 @@ interface AssignmentGroup {
   imageUrl: string | null
 }
 
-const assignmentGroups = computed<AssignmentGroup[]>(() => {
+const assignmentData = computed(() => {
   const map = new Map<string, AssignmentGroup>()
   const indexes = new Map<string, {
     students: Map<number, StudentGroup>
     reasons: Set<string>
     questionIds: Set<number>
   }>()
+  const itemsBySubmissionId = new Map<number, ReviewPendingItem>()
+  let latestSubmissionId: number | null = null
   for (const it of items.value) {
     const key = String(it.assignment_id)
+    itemsBySubmissionId.set(it.submission_id, it)
+    if (latestSubmissionId === null || it.submission_id > latestSubmissionId) {
+      latestSubmissionId = it.submission_id
+    }
     let g = map.get(key)
     if (!g) {
       g = {
@@ -436,8 +442,15 @@ const assignmentGroups = computed<AssignmentGroup[]>(() => {
     if (it.submitted_at > g.latest) g.latest = it.submitted_at
     if (!g.imageUrl && it.image_url) g.imageUrl = it.image_url
   }
-  return [...map.values()]
+  return {
+    groups: [...map.values()],
+    groupsByKey: map,
+    indexes,
+    itemsBySubmissionId,
+    latestSubmissionId,
+  }
 })
+const assignmentGroups = computed<AssignmentGroup[]>(() => assignmentData.value.groups)
 
 function accuracyPercent(group: AssignmentGroup): number | null {
   return group.totalAnswerSteps > 0
@@ -471,12 +484,12 @@ function itemAccuracyClass(item: ReviewPendingItem | null): string {
 const viewAssignmentId = ref<string | null>(null)
 const selectedStudentId = ref<number | null>(null)
 
-const currentAssignment = computed(() =>
-  assignmentGroups.value.find((g) => String(g.id) === viewAssignmentId.value) ?? null
-)
-const currentReviewItem = computed(() =>
-  items.value.find((i) => i.submission_id === selectedId.value) ?? null
-)
+const currentAssignment = computed(() => viewAssignmentId.value
+  ? assignmentData.value.groupsByKey.get(viewAssignmentId.value) ?? null
+  : null)
+const currentReviewItem = computed(() => selectedId.value == null
+  ? null
+  : assignmentData.value.itemsBySubmissionId.get(selectedId.value) ?? null)
 const reviewAnswerSteps = computed(() =>
   detail.value?.diagnosis.steps.filter((step) => step.status !== 'stem') ?? []
 )
@@ -497,7 +510,7 @@ function handleReviewModalKeydown(event: KeyboardEvent) {
 
 function enterAssignment(g: AssignmentGroup) {
   viewAssignmentId.value = String(g.id)
-  const first = g.students.find((student) => student.items.length > 0)
+  const first = g.students[0]
   if (first) {
     selectedStudentId.value = first.student.id
     void selectItem(first.items[0].submission_id)
@@ -506,15 +519,19 @@ function enterAssignment(g: AssignmentGroup) {
 
 function selectStudent(studentId: number) {
   selectedStudentId.value = studentId
-  const sg = currentAssignment.value?.students.find((s) => s.student.id === studentId)
+  const sg = viewAssignmentId.value
+    ? assignmentData.value.indexes.get(viewAssignmentId.value)?.students.get(studentId)
+    : undefined
   if (sg?.items.length) void selectItem(sg.items[0].submission_id)
 }
 
 /** 审核通过后仍留在窗口，自动打开同作业下一份，再到下一作业。 */
 async function relocateAfterApprove(assignmentKey: string | null, studentId: number | null) {
-  const groups = assignmentGroups.value
-  const g = groups.find((x) => String(x.id) === assignmentKey) ?? groups[0]
-  const sg = g?.students.find((s) => s.student.id === studentId) ?? g?.students[0]
+  const data = assignmentData.value
+  const g = (assignmentKey ? data.groupsByKey.get(assignmentKey) : undefined) ?? data.groups[0]
+  const sg = g
+    ? data.indexes.get(String(g.id))?.students.get(studentId ?? -1) ?? g.students[0]
+    : undefined
   if (g && sg) {
     viewAssignmentId.value = String(g.id)
     selectedStudentId.value = sg.student.id
@@ -532,7 +549,7 @@ async function loadQueue(preselect?: number) {
   try {
     items.value = await teacher.fetchPendingReviews()
     if (preselect) {
-      const target = items.value.find((i) => i.submission_id === preselect)
+      const target = assignmentData.value.itemsBySubmissionId.get(preselect)
       if (target) {
         viewAssignmentId.value = String(target.assignment_id)
         selectedStudentId.value = target.student.id
@@ -564,10 +581,7 @@ async function refreshQueueSilently() {
     const summary = await teacher.fetchPendingReviewSummary()
     if (mutationToken !== reviewQueueMutationToken) return
     teacher.pendingReviewCount = summary.count
-    const latestLoadedId = items.value.reduce(
-      (latest, item) => Math.max(latest, item.submission_id),
-      0
-    ) || null
+    const latestLoadedId = assignmentData.value.latestSubmissionId
     if (
       summary.count === items.value.length
       && summary.latest_submission_id === latestLoadedId
@@ -577,7 +591,7 @@ async function refreshQueueSilently() {
     if (mutationToken !== reviewQueueMutationToken) return
     items.value = refreshedItems
     if (currentId && selectedId.value === currentId
-      && !items.value.some((item) => item.submission_id === currentId)) {
+      && !assignmentData.value.itemsBySubmissionId.has(currentId)) {
       closeReviewModal()
       okMsg.value = '审核队列已更新，当前作答已不在待审核列表中。'
     }
