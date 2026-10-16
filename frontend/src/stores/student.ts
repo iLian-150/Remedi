@@ -453,11 +453,13 @@ export const useStudentStore = defineStore('student', {
       limit?: number
       beforeCreatedAt?: string
       beforeId?: number
+      includeTotalCount?: boolean
     } = {}): Promise<StudentMistakeTimelinePage> {
       const { data } = await api.get<StudentMistakeTimelinePage>('/api/student/mistakes/timeline', {
         params: {
           subject: options.subject,
           limit: options.limit,
+          include_total_count: options.includeTotalCount,
           before_created_at: options.beforeCreatedAt,
           before_id: options.beforeId,
         },

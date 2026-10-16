@@ -1479,6 +1479,7 @@ def correction_awaiting_verification_knowledge_points(
 def student_mistake_timeline(
     subject: Optional[str] = Query(default=None),
     limit: int = Query(default=40, ge=1, le=100),
+    include_total_count: bool = Query(default=False),
     before_created_at: Optional[datetime] = Query(default=None),
     before_id: Optional[int] = Query(default=None, ge=1),
     db: Session = Depends(get_db),
@@ -1490,6 +1491,20 @@ def student_mistake_timeline(
             status_code=422,
             detail="before_created_at 与 before_id 必须同时提供",
         )
+
+    total_count = None
+    if include_total_count and before_created_at is None:
+        count_query = (
+            db.query(func.count(Error.id))
+            .select_from(Error)
+            .join(Submission, Error.submission_id == Submission.id)
+            .filter(Submission.student_id == current.id)
+        )
+        if subject:
+            count_query = count_query.join(
+                Question, Question.id == Submission.question_id
+            ).filter(Question.subject == subject)
+        total_count = int(count_query.scalar() or 0)
 
     latest_correction = (
         db.query(Correction.is_correct)
@@ -1544,6 +1559,7 @@ def student_mistake_timeline(
             for row in rows[:limit]
         ],
         "has_more": has_more,
+        "total_count": total_count,
     }
 
 

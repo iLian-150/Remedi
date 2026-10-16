@@ -271,6 +271,7 @@ class StudentMistakeTimelineItemOut(BaseModel):
 class StudentMistakeTimelinePageOut(BaseModel):
     items: List[StudentMistakeTimelineItemOut]
     has_more: bool
+    total_count: Optional[int] = None
 
 
 class StudentCorrectionWallItemOut(BaseModel):

@@ -290,8 +290,8 @@ const tlScopeLabel = computed(() =>
 watch(tlSubject, () => {
   if (props.mode !== 'timeline') return
   resetTimelineRows()
-  void loadTimelineCount()
   if (tlExpanded.value) void loadTimeline()
+  else void loadTimelineCount()
 })
 
 function fmtTime(t: string): string {
@@ -407,9 +407,14 @@ async function loadTimeline() {
       const page = await student.fetchMistakeTimeline({
         subject: subject || undefined,
         limit: timelinePageSize,
+        includeTotalCount: timelineCountSubject !== subject,
       })
       if (generation !== timelineRequestGeneration || subject !== tlSubject.value || props.mode !== 'timeline') return
       timelineRows.value = page.items
+      if (page.total_count != null) {
+        tlCount.value = page.total_count
+        timelineCountSubject = subject
+      }
       timelineHasMore.value = page.has_more
       const lastItem = page.items[page.items.length - 1]
       timelineCursor.value = page.has_more && lastItem
@@ -419,6 +424,9 @@ async function loadTimeline() {
       timelineLoadedSubject = subject
     } catch (e) {
       console.error(e)
+      if (props.mode === 'timeline' && tlSubject.value === subject && timelineCountSubject !== subject) {
+        void loadTimelineCount()
+      }
     } finally {
       if (generation === timelineRequestGeneration) {
         tlLoading.value = false
@@ -540,7 +548,6 @@ async function loadForMode() {
   } else if (props.mode === 'timeline') {
     resetTimelineRows()
     if (tlExpanded.value) {
-      void loadTimelineCount()
       await loadTimeline()
     } else await loadTimelineCount()
   } else {

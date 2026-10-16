@@ -191,6 +191,7 @@ export interface StudentMistakeTimelineItem {
 export interface StudentMistakeTimelinePage {
   items: StudentMistakeTimelineItem[]
   has_more: boolean
+  total_count?: number | null
 }
 
 export interface StudentCorrectionWallItem {
