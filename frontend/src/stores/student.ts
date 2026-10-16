@@ -53,6 +53,9 @@ function persistActiveSessionId(id: number | null) {
 }
 
 const inFlightMistakeRequests = new Map<string, Promise<StudentMistake[]>>()
+const STUDENT_MISTAKE_CACHE_TTL_MS = 15_000
+const studentMistakeCache = new Map<string, { data: StudentMistake[]; expiresAt: number }>()
+const studentMistakeGenerations = new Map<string, number>()
 const inFlightAssignmentRequests = new Map<string, Promise<Assignment[]>>()
 // 作业导航短时间复用字段更完整的列表；作答成功后立即失效。
 const STUDENT_ASSIGNMENT_CACHE_TTL_MS = 15_000
@@ -198,16 +201,56 @@ function coalesceMistakeRequest(
   load: () => Promise<StudentMistake[]>
 ): Promise<StudentMistake[]> {
   const key = `${userId ?? 'anonymous'}:${filter}`
+  if (userId != null) {
+    const cached = studentMistakeCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data)
+    if (cached) studentMistakeCache.delete(key)
+  }
+
   const existing = inFlightMistakeRequests.get(key)
   if (existing) return existing
 
-  const request = Promise.resolve().then(load).finally(() => {
-    if (inFlightMistakeRequests.get(key) === request) {
-      inFlightMistakeRequests.delete(key)
-    }
-  })
+  const generationKey = userId == null ? null : String(userId)
+  const generation = generationKey == null
+    ? null
+    : studentMistakeGenerations.get(generationKey) ?? 0
+  const request = Promise.resolve()
+    .then(load)
+    .then((data) => {
+      if (
+        userId != null && generationKey != null &&
+        (studentMistakeGenerations.get(generationKey) ?? 0) === generation
+      ) {
+        studentMistakeCache.set(key, {
+          data,
+          expiresAt: Date.now() + STUDENT_MISTAKE_CACHE_TTL_MS
+        })
+      }
+      return data
+    })
+    .finally(() => {
+      if (inFlightMistakeRequests.get(key) === request) {
+        inFlightMistakeRequests.delete(key)
+      }
+    })
   inFlightMistakeRequests.set(key, request)
   return request
+}
+
+function invalidateStudentMistakes(userId: number | undefined) {
+  if (userId == null) return
+  const keyPrefix = `${userId}:`
+  for (const key of studentMistakeCache.keys()) {
+    if (key.startsWith(keyPrefix)) studentMistakeCache.delete(key)
+  }
+  for (const key of inFlightMistakeRequests.keys()) {
+    if (key.startsWith(keyPrefix)) inFlightMistakeRequests.delete(key)
+  }
+  const generationKey = String(userId)
+  studentMistakeGenerations.set(
+    generationKey,
+    (studentMistakeGenerations.get(generationKey) ?? 0) + 1
+  )
 }
 
 export const useStudentStore = defineStore('student', {
@@ -296,6 +339,7 @@ export const useStudentStore = defineStore('student', {
     async submitMath(payload: { question_id: number; steps: string[] }): Promise<SubmissionResult> {
       const { data } = await api.post<SubmissionResult>('/api/student/submissions', payload)
       invalidateStudentAssignments(useAuthStore().user?.id)
+      invalidateStudentMistakes(useAuthStore().user?.id)
       invalidateStudentReport(useAuthStore().user?.id)
       return data
     },
@@ -349,15 +393,18 @@ export const useStudentStore = defineStore('student', {
       studied: boolean
     }): Promise<void> {
       await api.patch('/api/student/mistakes/categories', payload)
+      invalidateStudentMistakes(useAuthStore().user?.id)
     },
     async setMistakeArchived(errorId: number, archived: boolean): Promise<void> {
       await api.patch(`/api/student/mistakes/${errorId}/archive`, { archived })
+      invalidateStudentMistakes(useAuthStore().user?.id)
     },
     async setMistakeAssignmentArchived(assignmentId: number, archived: boolean, occurrenceIds: number[] = []): Promise<number[]> {
       const { data } = await api.patch<{ archived_ids: number[] }>(
         `/api/student/mistakes/assignments/${assignmentId}/archive`,
         { archived, occurrence_ids: occurrenceIds }
       )
+      invalidateStudentMistakes(useAuthStore().user?.id)
       return data.archived_ids
     },
     // 3.5 提交详情（分步诊断）
@@ -384,6 +431,7 @@ export const useStudentStore = defineStore('student', {
     // 3.9 提交订正（针对某条 error）
     async submitCorrection(payload: { error_id: number; content: string }): Promise<CorrectionResult> {
       const { data } = await api.post<CorrectionResult>('/api/student/corrections', payload)
+      invalidateStudentMistakes(useAuthStore().user?.id)
       invalidateStudentReport(useAuthStore().user?.id)
       return data
     },
@@ -434,6 +482,7 @@ export const useStudentStore = defineStore('student', {
     },
     async savePhotoCapture(captureId: number, explanation: string): Promise<void> {
       await api.post(`/api/student/photo-captures/${captureId}/save`, { explanation })
+      invalidateStudentMistakes(useAuthStore().user?.id)
     },
     async saveTextQuestion(questionText: string, subject = 'math', explanation = ''): Promise<void> {
       await api.post('/api/student/question-captures', {
@@ -929,6 +978,7 @@ export const useStudentStore = defineStore('student', {
       source_error_id?: number
     }): Promise<Verification> {
       const { data } = await api.post<Verification>('/api/student/verifications', payload)
+      invalidateStudentMistakes(useAuthStore().user?.id)
       return data
     },
     // 3.20 我的验证列表（v0.4.0）
@@ -942,6 +992,7 @@ export const useStudentStore = defineStore('student', {
         `/api/student/verifications/${id}/submit`,
         { steps }
       )
+      invalidateStudentMistakes(useAuthStore().user?.id)
       invalidateStudentReport(useAuthStore().user?.id)
       return data
     }
