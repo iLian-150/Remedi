@@ -182,7 +182,9 @@ async function confirmDelete() {
     pendingDelete.value = null
     toast.value = `已删除《${target.title}》，学生端已同步移除。`
     // 通知右侧栏日历刷新（右侧栏删除时也会发同一事件让本页刷新）
-    window.dispatchEvent(new CustomEvent('assignments-changed'))
+    window.dispatchEvent(new CustomEvent('assignments-changed', {
+      detail: { assignments: assignments.value }
+    }))
     setTimeout(() => (toast.value = ''), 4000)
   } catch (e) {
     const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
@@ -194,7 +196,12 @@ async function confirmDelete() {
 }
 
 // 右侧栏里删除作业后，本页同步刷新
-async function onAssignmentsChanged() {
+async function onAssignmentsChanged(event: Event) {
+  const updated = (event as CustomEvent<{ assignments?: TeacherAssignment[] }>).detail?.assignments
+  if (Array.isArray(updated)) {
+    assignments.value = updated
+    return
+  }
   try {
     await reload()
   } catch (e) {

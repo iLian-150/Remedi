@@ -327,25 +327,26 @@ async function loadUnreadCount() {
 
 async function loadMarks() {
   try {
-    const m: Record<string, number> = {}
+    let list: Array<{ created_at: string }>
     if (isStudent.value) {
       // 与学生作业列表页共用轻量提交状态请求；日历只需要发布时间。
-      const list = await student.fetchAssignments(false, false, true)
-      for (const a of list) {
-        const d = a.created_at.slice(0, 10)
-        if (d) m[d] = (m[d] ?? 0) + 1
-      }
+      list = await student.fetchAssignments(false, false, true)
     } else {
-      const list = await teacher.fetchTeacherAssignments()
-      for (const a of list) {
-        const d = a.created_at.slice(0, 10)
-        if (d) m[d] = (m[d] ?? 0) + 1
-      }
+      list = await teacher.fetchTeacherAssignments()
     }
-    marks.value = m
+    marks.value = assignmentMarks(list)
   } catch (e) {
     console.error(e)
   }
+}
+
+function assignmentMarks(assignments: Array<{ created_at: string }>) {
+  const marksByDate: Record<string, number> = {}
+  for (const assignment of assignments) {
+    const date = assignment.created_at.slice(0, 10)
+    if (date) marksByDate[date] = (marksByDate[date] ?? 0) + 1
+  }
+  return marksByDate
 }
 
 /** 订正日历标记（v0.9.1）：拉可订正错题，按所属提交日期聚合（与订正页同口径：
@@ -477,8 +478,16 @@ async function loadForMode() {
 watch(() => [props.mode, props.open] as const, loadForMode)
 
 // 教师在作业列表页发布/删除作业后，日历标记同步刷新
-function onAssignmentsChanged() {
-  if (props.mode === 'calendar' && props.open) void loadMarks()
+function onAssignmentsChanged(event: Event) {
+  if (props.mode !== 'calendar' || !props.open) return
+  const assignments = (event as CustomEvent<{
+    assignments?: Array<{ created_at: string }>
+  }>).detail?.assignments
+  if (Array.isArray(assignments)) {
+    marks.value = assignmentMarks(assignments)
+    return
+  }
+  void loadMarks()
 }
 
 onMounted(() => {
