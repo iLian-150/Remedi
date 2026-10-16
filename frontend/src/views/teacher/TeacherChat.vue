@@ -82,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
 import AppIcon from '../../components/icons/AppIcon.vue'
@@ -112,6 +112,12 @@ const loadingInit = ref(true)
 const toast = ref('')
 const error = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
+let activeStreamController: AbortController | null = null
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null &&
+    'name' in error && (error as { name?: unknown }).name === 'AbortError'
+}
 
 // ---------- 会话（v0.6.0 会话制；v0.6.2 导航移入左侧栏，会话状态归 store 与侧栏共用） ----------
 // 本页不持有会话列表：侧栏操作改 store.sessionView，本页 watch seq 变化后同步重渲染。
@@ -161,6 +167,8 @@ async function sendText(raw: string) {
   suggestions.value = []
   pushMsg('user', text)
   const wait = pushMsg('ai', '正在查询…', true)
+  const controller = new AbortController()
+  activeStreamController = controller
   sending.value = true
   try {
     wait.text = ''
@@ -173,20 +181,24 @@ async function sendText(raw: string) {
       }
       wait.text += character
       scrollToBottom()
-    })
+    }, controller.signal)
     if (res.session_id) teacher.setActiveSession(res.session_id)
     suggestions.value = res.suggestions ?? []
     // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排
     teacher.loadSessions(true)
   } catch (e) {
+    if (isAbortError(e)) return
     wait.text = '查询失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
   } finally {
+    if (activeStreamController === controller) activeStreamController = null
     wait.pending = false
     sending.value = false
     scrollToBottom()
   }
 }
+
+onUnmounted(() => activeStreamController?.abort())
 
 function renderHistory(rows: { role: string; content: string }[]) {
   messages.value = []

@@ -483,6 +483,8 @@ interface ChatMsg {
 
 const renderAssistantMarkdown = createMarkdownRenderer<ChatMsg>((message) => message.text)
 const messages = ref<ChatMsg[]>([])
+const streamAbortControllers = new Set<AbortController>()
+let chatUnmounted = false
 let briefingRefreshGeneration = 0
 let briefingRequest: Promise<StudentBriefing> | null = null
 let initialBriefingRequest: Promise<StudentBriefing> | null = null
@@ -499,6 +501,19 @@ type PendingPhotoRetry = {
 }
 const pendingPhotoRetries = new Map<number, PendingPhotoRetry>()
 let seq = 0
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null &&
+    'name' in error && (error as { name?: unknown }).name === 'AbortError'
+}
+
+function createStreamAbortController(): AbortController {
+  const controller = new AbortController()
+  if (chatUnmounted) controller.abort()
+  else streamAbortControllers.add(controller)
+  return controller
+}
+
 function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
   const msg: ChatMsg = {
     id: ++seq,
@@ -766,6 +781,9 @@ function onImagePreviewKeydown(event: KeyboardEvent) {
 }
 
 onUnmounted(() => {
+  chatUnmounted = true
+  for (const controller of streamAbortControllers) controller.abort()
+  streamAbortControllers.clear()
   if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame)
   window.removeEventListener('keydown', onImagePreviewKeydown)
   imageObjectUrls.forEach((url) => URL.revokeObjectURL(url))
@@ -894,6 +912,7 @@ async function sendChat(raw?: string) {
     }
     await streamAssistantReply(wait, text)
   } catch (e) {
+    if (isAbortError(e)) return
     wait.kind = 'error'
     wait.text = '发送失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
@@ -912,6 +931,7 @@ async function streamAssistantReply(
   relatedMistakeErrorId?: number | null
 ) {
   let firstText = true
+  const controller = createStreamAbortController()
   wait.text = '正在生成回复…'
   wait.pending = true
   wait.streaming = true
@@ -924,7 +944,7 @@ async function streamAssistantReply(
       }
       wait.text += text
       scrollToBottom()
-    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId)
+    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId, controller.signal)
     wait.pending = false
     if (!wait.text) wait.text = result.reply
     wait.relatedMistake = result.related_mistake ?? null
@@ -935,6 +955,7 @@ async function streamAssistantReply(
     // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
     student.loadSessions(true)
   } finally {
+    streamAbortControllers.delete(controller)
     wait.pending = false
     wait.streaming = false
   }
@@ -1003,6 +1024,7 @@ function markVisionReplyFailure(wait: ChatMsg, reason: unknown, isRetry = false)
 
 async function streamVisionReply(wait: ChatMsg, file: File, question: string): Promise<string> {
   let firstText = true
+  const controller = createStreamAbortController()
   wait.text = ''
   wait.pending = true
   wait.streaming = true
@@ -1015,10 +1037,11 @@ async function streamVisionReply(wait: ChatMsg, file: File, question: string): P
       }
       wait.text += text
       scrollToBottom()
-    })
+    }, controller.signal)
     if (!wait.text) wait.text = reply
     return reply
   } finally {
+    streamAbortControllers.delete(controller)
     wait.pending = false
     wait.streaming = false
   }
@@ -1057,7 +1080,7 @@ async function sendPhotoReview(file: File, prompt: string) {
       throw reason
     })
     const visionTask = streamVisionReply(wait, file, visionQuestion).catch((reason: unknown) => {
-      markVisionReplyFailure(wait, reason)
+      if (!isAbortError(reason)) markVisionReplyFailure(wait, reason)
       throw reason
     })
     const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
@@ -1080,7 +1103,7 @@ async function sendPhotoReview(file: File, prompt: string) {
         wait.retrySave = true
         console.error(saveError)
       }
-    } else if (!wait.retryVision) {
+    } else if (!wait.retryVision && !isAbortError(visionResult.reason)) {
       markVisionReplyFailure(wait, visionResult.reason)
     }
 
@@ -1136,7 +1159,7 @@ async function retryExplanation(msg: ChatMsg) {
         : Promise.resolve(null)
       const visionTask = msg.retryVision
         ? streamVisionReply(msg, photoRetry.file, photoRetry.visionQuestion).catch((reason: unknown) => {
-          markVisionReplyFailure(msg, reason, true)
+          if (!isAbortError(reason)) markVisionReplyFailure(msg, reason, true)
           throw reason
         })
         : Promise.resolve(null)
@@ -1150,7 +1173,7 @@ async function retryExplanation(msg: ChatMsg) {
       if (visionResult.status === 'fulfilled' && visionResult.value) {
         msg.retryVision = false
         photoRetry.assistantText = visionResult.value
-      } else if (visionResult.status === 'rejected' && !msg.retryVision) {
+      } else if (visionResult.status === 'rejected' && !msg.retryVision && !isAbortError(visionResult.reason)) {
         markVisionReplyFailure(msg, visionResult.reason, true)
       }
 
@@ -1187,6 +1210,7 @@ async function retryExplanation(msg: ChatMsg) {
         pendingPhotoRetries.delete(msg.id)
       }
     } catch (err) {
+      if (isAbortError(err)) return
       msg.text += `\n\n重试失败：${errDetail(err) || '请稍后重试。'}`
       console.error(err)
     } finally {
@@ -1206,6 +1230,7 @@ async function retryExplanation(msg: ChatMsg) {
   try {
     await streamAssistantReply(msg, prompt, false, safeToolsOnly, msg.relatedMistake?.id)
   } catch (err) {
+    if (isAbortError(err)) return
     msg.kind = 'text'
     msg.text = '批改记录已保存，但讲解仍未生成：' + (errDetail(err) || '请稍后重试。')
     msg.retryPrompt = prompt

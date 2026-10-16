@@ -40,6 +40,13 @@ function waitForNextCharacter(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, TYPEWRITER_INTERVAL_MS))
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  const error = new Error('请求已取消')
+  error.name = 'AbortError'
+  throw error
+}
+
 function activeSessionStorageKey(): string | null {
   const userId = useAuthStore().user?.id
   return userId == null ? null : `remedi_student_active_session_${userId}`
@@ -495,16 +502,20 @@ export const useStudentStore = defineStore('student', {
     async agentVisionChatStream(
       file: File,
       question: string,
-      onText: (text: string) => void
+      onText: (text: string) => void,
+      signal?: AbortSignal
     ): Promise<string> {
       const auth = useAuthStore()
       const form = new FormData()
+      throwIfAborted(signal)
       form.append('file', await visionImageForModel(file))
+      throwIfAborted(signal)
       form.append('question', question)
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/vision/stream' }), {
         method: 'POST',
         headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
-        body: form
+        body: form,
+        signal
       })
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as { detail?: unknown } | null
@@ -530,7 +541,7 @@ export const useStudentStore = defineStore('student', {
       const startTypewriter = () => {
         if (typingTask || offset >= characters.length) return
         typingTask = (async () => {
-          while (offset < characters.length) {
+          while (offset < characters.length && !signal?.aborted) {
             onText(characters[offset++])
             await waitForNextCharacter()
           }
@@ -600,6 +611,7 @@ export const useStudentStore = defineStore('student', {
         startTypewriter()
       }
       await waitForTypewriter()
+      throwIfAborted(signal)
       if (streamError) throw new Error(streamError)
       if (!reply) throw new Error('视觉模型没有正常结束图片讲解，请重试。')
       return reply
@@ -642,7 +654,8 @@ export const useStudentStore = defineStore('student', {
       onText: (text: string) => void,
       persistUserMessage = true,
       safeToolsOnly = false,
-      relatedMistakeErrorId?: number | null
+      relatedMistakeErrorId?: number | null,
+      signal?: AbortSignal
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/stream' }), {
@@ -657,7 +670,8 @@ export const useStudentStore = defineStore('student', {
           persist_user_message: persistUserMessage,
           safe_tools_only: safeToolsOnly,
           related_mistake_error_id: relatedMistakeErrorId ?? undefined
-        })
+        }),
+        signal
       })
 
       if (!response.ok) {
@@ -684,7 +698,7 @@ export const useStudentStore = defineStore('student', {
       const startTypewriter = () => {
         if (typingTask || queueOffset >= characterQueue.length) return
         typingTask = (async () => {
-          while (queueOffset < characterQueue.length) {
+          while (queueOffset < characterQueue.length && !signal?.aborted) {
             onText(characterQueue[queueOffset++])
             await waitForNextCharacter()
           }
@@ -756,6 +770,7 @@ export const useStudentStore = defineStore('student', {
         startTypewriter()
       }
       await waitForTypewriter()
+      throwIfAborted(signal)
       if (!result) throw new Error('学习助手的流式回复没有正常结束，请重试。')
       return result
     },

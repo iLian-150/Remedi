@@ -184,7 +184,8 @@ export const useTeacherStore = defineStore('teacher', {
     async agentChatStream(
       message: string,
       sessionId: number | null | undefined,
-      onCharacter: (character: string) => void
+      onCharacter: (character: string) => void,
+      signal?: AbortSignal
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const response = await fetch(api.getUri({ url: '/api/teacher/agent/chat/stream' }), {
@@ -193,7 +194,8 @@ export const useTeacherStore = defineStore('teacher', {
           'Content-Type': 'application/json',
           ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {})
         },
-        body: JSON.stringify({ message, session_id: sessionId ?? undefined })
+        body: JSON.stringify({ message, session_id: sessionId ?? undefined }),
+        signal
       })
 
       if (!response.ok) {
@@ -217,7 +219,7 @@ export const useTeacherStore = defineStore('teacher', {
       const startTypewriter = () => {
         if (typingTask || queueOffset >= characterQueue.length) return
         typingTask = (async () => {
-          while (queueOffset < characterQueue.length) {
+          while (queueOffset < characterQueue.length && !signal?.aborted) {
             onCharacter(characterQueue[queueOffset++])
             await new Promise<void>((resolve) => window.setTimeout(resolve, 18))
           }
@@ -280,6 +282,11 @@ export const useTeacherStore = defineStore('teacher', {
         throw error
       }
       await waitForTypewriter()
+      if (signal?.aborted) {
+        const error = new Error('请求已取消')
+        error.name = 'AbortError'
+        throw error
+      }
       if (!result) throw new Error('教师助手的流式回复没有正常结束，请重试。')
       return result
     },
