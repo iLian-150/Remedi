@@ -479,15 +479,8 @@ async function loadForMode() {
 watch(() => [props.mode, props.open] as const, loadForMode)
 
 // 教师在作业列表页发布/删除作业后，日历标记同步刷新
-function onAssignmentsChanged(event: Event) {
+function onAssignmentsChanged() {
   if (props.mode !== 'calendar' || !props.open) return
-  const assignments = (event as CustomEvent<{
-    assignments?: Array<{ created_at: string }>
-  }>).detail?.assignments
-  if (Array.isArray(assignments)) {
-    marks.value = assignmentMarks(assignments)
-    return
-  }
   void loadMarks()
 }
 

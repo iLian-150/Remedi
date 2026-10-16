@@ -5,7 +5,7 @@ import os
 import secrets
 from bisect import bisect_right
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import wraps
 from typing import List, Optional, Tuple
 
@@ -1203,9 +1203,19 @@ def create_assignment(body: TeacherAssignmentCreate,
 
 
 @router.get("/assignments", summary="已发布作业列表")
-def list_teacher_assignments(db: Session = Depends(get_db),
-                             current: User = Depends(require_teacher)):
-    assignments = db.query(Assignment).order_by(Assignment.id).all()
+def list_teacher_assignments(
+    created_on: Optional[date] = Query(default=None),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    query = db.query(Assignment)
+    if created_on is not None:
+        day_start = datetime.combine(created_on, datetime.min.time())
+        query = query.filter(
+            Assignment.created_at >= day_start,
+            Assignment.created_at < day_start + timedelta(days=1),
+        )
+    assignments = query.order_by(Assignment.id).all()
     items = _teacher_assignments_out(assignments, db)
     return {"total": len(items), "items": items}
 
@@ -1216,7 +1226,7 @@ def teacher_assignment_calendar_marks(
     current: User = Depends(require_teacher),
 ):
     """Return only publication times used by the right-rail calendar."""
-    rows = db.query(Assignment.created_at).order_by(Assignment.created_at).all()
+    rows = db.query(Assignment.created_at).all()
     return {"items": [{"created_at": created_at} for (created_at,) in rows]}
 
 

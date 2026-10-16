@@ -105,7 +105,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 权限：学生。
 
-可选查询参数：`include_questions=true` 时，每个作业项额外返回 `questions` 与 `groups`，字段结构与 3.2 作业详情一致；题目仍不返回标准答案。`include_submission_status=true` 时，每个作业项额外返回 `submitted_question_ids`（当前学生已有提交的题目 ID）和 `pending_question_ids`（每题最新提交仍待审核的题目 ID）；状态按题目最新提交确定，不受提交历史条数限制。`include_pending_count=true` 时，每个作业项额外返回 `pending_count`（每题最新提交仍待审核的题目数），适用于只需显示待审核数量的轻量列表。`include_chat_questions=true` 时，每个作业项额外返回 `chat_questions`（仅含数学题 ID、科目、题干和顺序）与 `submitted_chat_question_ids`（当前学生已提交的数学题 ID），供聊天选题器轻量加载。四个参数默认均为 `false`，普通作业列表保持轻量。
+可选查询参数：`created_on=YYYY-MM-DD` 只返回该发布日期的作业；`include_questions=true` 时，每个作业项额外返回 `questions` 与 `groups`，字段结构与 3.2 作业详情一致；题目仍不返回标准答案。`include_submission_status=true` 时，每个作业项额外返回 `submitted_question_ids`（当前学生已有提交的题目 ID）和 `pending_question_ids`（每题最新提交仍待审核的题目 ID）；状态按题目最新提交确定，不受提交历史条数限制。`include_pending_count=true` 时，每个作业项额外返回 `pending_count`（每题最新提交仍待审核的题目数），适用于只需显示待审核数量的轻量列表。`include_chat_questions=true` 时，每个作业项额外返回 `chat_questions`（仅含数学题 ID、科目、题干和顺序）与 `submitted_chat_question_ids`（当前学生已提交的数学题 ID），供聊天选题器轻量加载。四个 include 参数默认均为 `false`，普通作业列表保持轻量。
 
 响应 `200`（以下示例包含 `include_submission_status=true` 时新增的状态字段）：
 
@@ -1042,6 +1042,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 权限：教师。响应 `200`：`{"total": n, "items": [...]}`，item 结构同 4.7 响应。
 
 - `submission_count`：该题的累计提交记录数（submissions + essays，同一学生多次提交计多次）。
+- 可选查询参数 `created_on=YYYY-MM-DD` 只返回当天发布的作业，避免加载无关日期的题目与提交统计。
 
 ### 4.8.1 GET /api/teacher/assignments/calendar-marks —— 教师作业日历标记
 
@@ -1572,3 +1573,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.269 | 2026-10-16 | 学生聊天页改用轻量上下文接口，省去通用作业列表的全科统计聚合。 |
 | v0.13.270 | 2026-10-17 | 学生和教师会话侧栏改用游标分页，减少初始化查询与首屏渲染的历史会话数量。 |
 | v0.13.271 | 2026-10-17 | 教师作业日历仅读取发布时间，避免重复加载全部题目、提交人数和作业配置。 |
+| v0.13.272 | 2026-10-17 | 学生和教师按日历筛选作业时由服务端缩小查询范围，避免加载其他日期的提交统计与题目。 |

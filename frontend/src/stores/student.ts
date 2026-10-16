@@ -80,6 +80,7 @@ const STUDENT_ASSIGNMENT_CACHE_TTL_MS = 15_000
 type StudentAssignmentCacheEntry = {
   userId: number
   options: [boolean, boolean, boolean, boolean]
+  createdOn?: string
   data: Assignment[]
   expiresAt: number
 }
@@ -137,6 +138,7 @@ function coalesceAssignmentRequest(
   includeSubmissionStatus: boolean,
   includePendingCount: boolean,
   includeChatQuestions: boolean,
+  createdOn: string | undefined,
   load: () => Promise<Assignment[]>
 ): Promise<Assignment[]> {
   const options: [boolean, boolean, boolean, boolean] = [
@@ -145,7 +147,7 @@ function coalesceAssignmentRequest(
     includePendingCount,
     includeChatQuestions
   ]
-  const key = `${userId ?? 'anonymous'}:${options.join(':')}`
+  const key = `${userId ?? 'anonymous'}:${options.join(':')}:${createdOn ?? 'all'}`
 
   if (userId != null) {
     const now = Date.now()
@@ -157,6 +159,7 @@ function coalesceAssignmentRequest(
       }
       if (
         cached.userId === userId &&
+        cached.createdOn === createdOn &&
         options.every((enabled, index) => !enabled || cached.options[index])
       ) {
         if (!bestCached || cached.expiresAt > bestCached.expiresAt) bestCached = cached
@@ -182,6 +185,7 @@ function coalesceAssignmentRequest(
         studentAssignmentCache.set(key, {
           userId,
           options,
+          createdOn,
           data,
           expiresAt: Date.now() + STUDENT_ASSIGNMENT_CACHE_TTL_MS
         })
@@ -316,7 +320,8 @@ export const useStudentStore = defineStore('student', {
       includeQuestions = false,
       includeSubmissionStatus = false,
       includePendingCount = false,
-      includeChatQuestions = false
+      includeChatQuestions = false,
+      createdOn?: string
     ): Promise<Assignment[]> {
       const userId = useAuthStore().user?.id
       return coalesceAssignmentRequest(
@@ -325,13 +330,15 @@ export const useStudentStore = defineStore('student', {
         includeSubmissionStatus,
         includePendingCount,
         includeChatQuestions,
+        createdOn,
         async () => {
           const { data } = await api.get<PageResult<Assignment>>('/api/student/assignments', {
             params: {
               ...(includeQuestions ? { include_questions: true } : {}),
               ...(includeSubmissionStatus ? { include_submission_status: true } : {}),
               ...(includePendingCount ? { include_pending_count: true } : {}),
-              ...(includeChatQuestions ? { include_chat_questions: true } : {})
+              ...(includeChatQuestions ? { include_chat_questions: true } : {}),
+              ...(createdOn ? { created_on: createdOn } : {})
             }
           })
           return data.items

@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import secrets
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from time import perf_counter
 from typing import List, Optional
 
@@ -243,6 +243,7 @@ def list_assignments(
     include_submission_status: bool = Query(default=False),
     include_pending_count: bool = Query(default=False),
     include_chat_questions: bool = Query(default=False),
+    created_on: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
@@ -252,6 +253,14 @@ def list_assignments(
             db.query(User.id).filter(User.role == "student")
         ))
     )
+    assignment_scope = visible_assignment
+    if created_on is not None:
+        day_start = datetime.combine(created_on, datetime.min.time())
+        assignment_scope = and_(
+            visible_assignment,
+            Assignment.created_at >= day_start,
+            Assignment.created_at < day_start + timedelta(days=1),
+        )
     assignment_query = (
         db.query(Assignment, AssignmentExt, AssignmentSetting, Workbook.title)
         .options(
@@ -293,7 +302,7 @@ def list_assignments(
     question_stats_subquery = (
         question_stats_query
         .join(Assignment, Assignment.id == Question.assignment_id)
-        .filter(visible_assignment)
+        .filter(assignment_scope)
         .group_by(Question.assignment_id)
         .subquery()
     )
@@ -330,7 +339,7 @@ def list_assignments(
                 SubmissionReview,
                 SubmissionReview.submission_id == Submission.id,
             )
-            .filter(Submission.student_id == current.id, visible_assignment)
+            .filter(Submission.student_id == current.id, assignment_scope)
             .subquery()
         )
 
@@ -365,7 +374,7 @@ def list_assignments(
 
     query_rows = (
         assignment_query
-        .filter(visible_assignment)
+        .filter(assignment_scope)
         .order_by(Assignment.id)
         .all()
     )

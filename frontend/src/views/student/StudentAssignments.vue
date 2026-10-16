@@ -135,6 +135,7 @@ const dateFilter = computed(() => student.assignmentDateFilter)
 
 watch(dateFilter, () => {
   intro.value = false
+  void loadAssignments()
 })
 
 const visibleAssignments = computed(() =>
@@ -198,18 +199,28 @@ function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string
   return { kind: 'todo', text: '未开始' }
 }
 
-onMounted(async () => {
+let assignmentLoadGeneration = 0
+
+async function loadAssignments() {
+  const generation = ++assignmentLoadGeneration
   loading.value = true
+  error.value = ''
   try {
-    const list = await student.fetchAssignments(false, false, true)
-    assignments.value = list
+    const list = await student.fetchAssignments(
+      false, false, true, false, dateFilter.value || undefined
+    )
+    if (generation === assignmentLoadGeneration) assignments.value = list
   } catch (e) {
-    error.value = '作业列表加载失败，请确认后端已启动。'
+    if (generation === assignmentLoadGeneration) {
+      error.value = '作业列表加载失败，请确认后端已启动。'
+    }
     console.error(e)
   } finally {
-    loading.value = false
+    if (generation === assignmentLoadGeneration) loading.value = false
   }
-})
+}
+
+onMounted(() => { void loadAssignments() })
 </script>
 
 <style scoped>

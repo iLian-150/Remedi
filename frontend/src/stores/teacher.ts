@@ -45,9 +45,10 @@ const inFlightAssignmentRequests = new Map<string, Promise<TeacherAssignment[]>>
 
 function coalesceAssignmentRequest(
   userId: number | undefined,
+  createdOn: string | undefined,
   load: () => Promise<TeacherAssignment[]>
 ): Promise<TeacherAssignment[]> {
-  const key = userId == null ? 'anonymous' : String(userId)
+  const key = `${userId == null ? 'anonymous' : userId}:${createdOn ?? 'all'}`
   const existing = inFlightAssignmentRequests.get(key)
   if (existing) return existing
 
@@ -153,10 +154,12 @@ export const useTeacherStore = defineStore('teacher', {
       return data
     },
     // 4.8 已发布作业列表（含每题提交人数，v0.2.0）
-    fetchTeacherAssignments(): Promise<TeacherAssignment[]> {
+    fetchTeacherAssignments(createdOn?: string): Promise<TeacherAssignment[]> {
       const userId = useAuthStore().user?.id
-      return coalesceAssignmentRequest(userId, async () => {
-        const { data } = await api.get<PageResult<TeacherAssignment>>('/api/teacher/assignments')
+      return coalesceAssignmentRequest(userId, createdOn, async () => {
+        const { data } = await api.get<PageResult<TeacherAssignment>>('/api/teacher/assignments', {
+          params: createdOn ? { created_on: createdOn } : undefined
+        })
         return data.items
       })
     },

@@ -97,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignment } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
@@ -124,6 +124,10 @@ function subjectLabel(subject: string): string {
 /** 右侧栏日历选中的发布日期（yyyy-mm-dd，空 = 不筛选）——与日历共用 store 状态 */
 const dateFilter = computed(() => teacher.assignmentDateFilter)
 
+watch(dateFilter, () => {
+  void reload().catch((e) => console.error(e))
+})
+
 const visibleAssignments = computed(() =>
   dateFilter.value
     ? assignments.value.filter((a) => a.created_at.slice(0, 10) === dateFilter.value)
@@ -144,8 +148,23 @@ function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
+let assignmentLoadGeneration = 0
+
 async function reload() {
-  assignments.value = await teacher.fetchTeacherAssignments()
+  const generation = ++assignmentLoadGeneration
+  loading.value = true
+  error.value = ''
+  try {
+    const list = await teacher.fetchTeacherAssignments(dateFilter.value || undefined)
+    if (generation === assignmentLoadGeneration) assignments.value = list
+  } catch (e) {
+    if (generation === assignmentLoadGeneration) {
+      error.value = '作业列表加载失败，请确认后端已启动。'
+    }
+    throw e
+  } finally {
+    if (generation === assignmentLoadGeneration) loading.value = false
+  }
 }
 
 function askDelete(a: TeacherAssignment) {
@@ -209,16 +228,8 @@ async function onAssignmentsChanged(event: Event) {
   }
 }
 
-onMounted(async () => {
-  loading.value = true
-  try {
-    await reload()
-  } catch (e) {
-    error.value = '作业列表加载失败，请确认后端已启动。'
-    console.error(e)
-  } finally {
-    loading.value = false
-  }
+onMounted(() => {
+  void reload().catch((e) => console.error(e))
   window.addEventListener('assignments-changed', onAssignmentsChanged)
 })
 onUnmounted(() => window.removeEventListener('assignments-changed', onAssignmentsChanged))
