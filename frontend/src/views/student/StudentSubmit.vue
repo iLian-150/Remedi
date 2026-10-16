@@ -343,11 +343,25 @@ const loading = ref(false)
 const error = ref('')
 let assignmentLoadToken = 0
 
-const mathQuestions = computed(() => questions.value.filter((q) => q.subject === 'math'))
 const isOffline = computed(() => currentDetail.value?.mode === 'offline')
-const photoQuestions = computed(() => isOffline.value
-  ? questions.value
-  : questions.value.filter((q) => q.subject !== 'math'))
+const questionLists = computed(() => {
+  if (isOffline.value) {
+    return {
+      math: questions.value.filter((q) => q.subject === 'math'),
+      photo: questions.value,
+    }
+  }
+
+  const math: Question[] = []
+  const photo: Question[] = []
+  for (const question of questions.value) {
+    if (question.subject === 'math') math.push(question)
+    else photo.push(question)
+  }
+  return { math, photo }
+})
+const mathQuestions = computed(() => questionLists.value.math)
+const photoQuestions = computed(() => questionLists.value.photo)
 function isPhotoQuestion(q: Question): boolean {
   return isOffline.value || q.subject !== 'math'
 }
