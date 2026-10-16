@@ -341,6 +341,7 @@ const relatedByQid = ref<Record<number, RelatedMistake>>({})
 const selectedRelatedMistake = ref<RelatedMistake | null>(null)
 const loading = ref(false)
 const error = ref('')
+let assignmentLoadToken = 0
 
 const mathQuestions = computed(() => questions.value.filter((q) => q.subject === 'math'))
 const isOffline = computed(() => currentDetail.value?.mode === 'offline')
@@ -586,12 +587,14 @@ async function submitAnswer(q: Question) {
 
 /* ---------- 作业装载与状态 ---------- */
 
-async function loadQuestions(id: number) {
+async function loadQuestions(id: number, loadToken: number) {
   const relatedPromise = student.fetchRelatedMistakesForAssignment(id).catch(() => ({}))
   const detail = await student.fetchAssignmentDetail(id)
+  if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return detail
   questions.value = detail.questions
   currentDetail.value = detail
   const relatedByQuestion = await relatedPromise
+  if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return detail
   const related: Record<number, RelatedMistake> = {}
   Object.entries(relatedByQuestion).forEach(([questionId, mistake]) => {
     if (mistake) related[Number(questionId)] = mistake
@@ -619,6 +622,8 @@ async function loadQuestions(id: number) {
 }
 
 async function selectAssignment(id: number) {
+  const loadToken = ++assignmentLoadToken
+  error.value = ''
   questions.value = []
   relatedByQid.value = {}
   currentDetail.value = null
@@ -629,10 +634,12 @@ async function selectAssignment(id: number) {
   answerErrors.value = {}
   if (!id) return
   try {
-    await loadQuestions(id)
+    await loadQuestions(id, loadToken)
   } catch (e) {
-    error.value = '作业详情加载失败。'
-    console.error(e)
+    if (loadToken === assignmentLoadToken && Number(assignmentId.value) === id) {
+      error.value = '作业详情加载失败。'
+      console.error(e)
+    }
   }
 }
 
@@ -708,10 +715,13 @@ onMounted(async () => {
     const presetId = Number(route.query.assignment_id)
     if (presetId && list.some((a) => a.id === presetId)) {
       assignmentId.value = presetId
+      const loadToken = ++assignmentLoadToken
       try {
-        await loadQuestions(presetId)
+        await loadQuestions(presetId, loadToken)
       } catch {
-        error.value = '该作业不存在或已失效，请重新选择。'
+        if (loadToken === assignmentLoadToken && Number(assignmentId.value) === presetId) {
+          error.value = '该作业不存在或已失效，请重新选择。'
+        }
       }
     } else if (presetId) {
       error.value = '该作业不存在或已失效，请重新选择。'
