@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .database import get_db
@@ -13,26 +14,67 @@ from .models import User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 TOKEN_PREFIX = "mock-"
+_FIRST_STUDENT_NUMBER = 2026001
+_STUDENT_CREATE_RETRIES = 100
 
 
 def create_token(user_id: int) -> str:
     return f"{TOKEN_PREFIX}{user_id}"
 
 
+def _next_student_no(db: Session) -> str:
+    """Pick the first free number at or above the current sequential position."""
+    next_number = _FIRST_STUDENT_NUMBER + db.query(User.id).filter(
+        User.role == "student",
+    ).count()
+    while True:
+        student_no = f"S{next_number}"
+        occupied = db.query(User.id).filter(User.student_no == student_no).first()
+        if occupied is None:
+            return student_no
+        next_number += 1
+
+
 def get_or_create_user(db: Session, username: str, role: str) -> User:
     user = db.query(User).filter(User.name == username, User.role == role).first()
     if user:
         return user
-    # 自动创建：学生生成学号，教师学号为空
-    student_no: Optional[str] = None
-    if role == "student":
-        count = db.query(User).filter(User.role == "student").count()
-        student_no = f"S{2026001 + count}"
-    user = User(name=username, student_no=student_no, role=role)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+
+    if role != "student":
+        user = User(name=username, student_no=None, role=role)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    # 学号按现有顺序生成；删除用户留下的空洞会被跳过，避免唯一约束冲突。
+    for _ in range(_STUDENT_CREATE_RETRIES):
+        student_no = _next_student_no(db)
+        user = User(name=username, student_no=student_no, role=role)
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            # 并发请求可能已创建同名账号；如果只是学号被抢占，则重算后再试。
+            existing = db.query(User).filter(
+                User.name == username, User.role == role,
+            ).first()
+            if existing:
+                return existing
+            occupied = db.query(User.id).filter(
+                User.student_no == student_no,
+            ).first()
+            if occupied:
+                continue
+            raise
+        db.refresh(user)
+        return user
+
+    raise HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "学生账号创建繁忙，请稍后重试。",
+    )
 
 
 def get_current_user(
