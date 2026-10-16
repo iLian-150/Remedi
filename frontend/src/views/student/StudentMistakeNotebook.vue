@@ -147,6 +147,8 @@ const assistantOnLeft = ref(false)
 const assistantFullscreen = ref(false)
 const removedAssignment = ref<{ id: number; title: string; ids: number[] } | null>(null)
 let supplementalStylesPromise: Promise<unknown> | undefined
+let viewRequestId = 0
+let assistantRequestId = 0
 const studentName = computed(() => auth.name || '我的')
 const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> = [
   { key: 'notebook', label: '卡片笔记', icon: 'book' },
@@ -343,15 +345,31 @@ function ensureSupplementalStyles() {
   return supplementalStylesPromise
 }
 function setView(next: NotebookView) {
-  const activate = () => { view.value = next; closeAssistant(); actionError.value = '' }
+  const requestId = ++viewRequestId
+  const activate = () => {
+    if (requestId !== viewRequestId) return
+    view.value = next
+    closeAssistant()
+    actionError.value = ''
+  }
   if (next !== 'mindmap' && next !== 'network') { activate(); return }
   void ensureSupplementalStyles().then(activate).catch(() => activate())
 }
 function openAssistant(mistake: StudentMistake) {
-  const activate = () => { selectedMistake.value = mistake; assistantFullscreen.value = false }
+  const requestId = ++assistantRequestId
+  const activate = () => {
+    if (requestId !== assistantRequestId) return
+    selectedMistake.value = mistake
+    assistantFullscreen.value = false
+  }
   void ensureSupplementalStyles().then(activate).catch(() => activate())
 }
-function closeAssistant() { selectedMistake.value = null; assistantOnLeft.value = false; assistantFullscreen.value = false }
+function closeAssistant() {
+  assistantRequestId += 1
+  selectedMistake.value = null
+  assistantOnLeft.value = false
+  assistantFullscreen.value = false
+}
 function openOriginalQuestion(mistake: RelatedMistake | StudentMistake) {
   // This action is intentionally local: show the modal without changing the current route.
   selectedOriginalMistake.value = { ...mistake }
