@@ -37,6 +37,14 @@
         <slot name="empty" />
       </div>
     </div>
+    <button
+      v-if="notes.length && notes.length < totalCount"
+      type="button"
+      class="wall-more"
+      @click="emit('show-more')"
+    >
+      继续显示错题（{{ notes.length }} / {{ totalCount }}）
+    </button>
   </div>
 </template>
 
@@ -61,12 +69,13 @@ export interface CorrectionNote {
   isStubborn: boolean
 }
 
-defineProps<{ notes: CorrectionNote[] }>()
+defineProps<{ notes: CorrectionNote[]; totalCount: number }>()
 const emit = defineEmits<{
   /** 待订正贴被撕下（动画播完）→ 父页进入该题修正工作区 */
   pick: [errorId: number]
   /** 已订正贴被点 → 父页跳诊断详情 */
   view: [submissionId: number]
+  'show-more': []
 }>()
 
 /** 每张贴的固定倾斜角（按序号循环，错落但不乱） */
@@ -107,6 +116,21 @@ function onNoteClick(n: CorrectionNote) {
   grid-template-columns: repeat(auto-fill, minmax(218px, 1fr));
   gap: 30px 22px;
 }
+.wall-more {
+  display: block;
+  width: min(420px, 100%);
+  margin: 22px auto 0;
+  padding: 10px 16px;
+  border: 1px solid #d8d0ba;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #57503c;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wall-more:hover { background: #fff; border-color: #b9ad8c; }
 
 /* ---------- 便利贴 ---------- */
 .note {

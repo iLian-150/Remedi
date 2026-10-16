@@ -59,8 +59,10 @@
       <CorrectionStickyWall
         v-if="view === 'wall'"
         :notes="wallNotes"
+        :total-count="visibleMistakes.length"
         @pick="onPickNote"
         @view="onViewNote"
+        @show-more="showMoreWallNotes"
       >
         <template #empty>
           <template v-if="!mistakes.length">
@@ -191,6 +193,8 @@ const view = ref<'wall' | 'work'>('wall')
 /** 订正日历选中的日期（yyyy-mm-dd，空 = 全部）：v0.9.1 起由右侧栏订正日历写入
  * store.correctionsDateFilter，本页只读消费（筛选状态条与列表都据此响应） */
 const selectedDate = computed(() => student.correctionsDateFilter)
+const wallNotePageSize = 40
+const visibleWallLimit = ref(wallNotePageSize)
 const content = ref('')
 const result = ref<CorrectionResult | null>(null)
 const loading = ref(false)
@@ -222,7 +226,7 @@ function dateLabelOf(item: StudentMistake): string {
 
 /** 便利贴墙数据：一题一贴 */
 const wallNotes = computed<CorrectionNote[]>(() =>
-  visibleMistakes.value.map((item) => ({
+  visibleMistakes.value.slice(0, visibleWallLimit.value).map((item) => ({
     errorId: item.id,
     submissionId: item.submission_id,
     stem: item.question_stem || item.step_text || '',
@@ -250,6 +254,10 @@ function onViewNote(submissionId: number) {
   router.push({ path: '/student/diagnosis', query: { submission_id: submissionId } })
 }
 
+function showMoreWallNotes() {
+  visibleWallLimit.value += wallNotePageSize
+}
+
 /** 返回便利贴墙（fixedIds 已在提交成功时更新，刚订正对的贴随之变已订正样式） */
 function backToWall() {
   view.value = 'wall'
@@ -271,7 +279,10 @@ function clearDateFilter() {
 
 // 右栏日历点选（含再点同一天取消）→ store 筛选变化 → 贴墙只剩当天的贴；
 // 若正在修正的题被筛掉，退回贴墙（墙面始终与筛选一致）
-watch(selectedDate, () => syncSelection())
+watch(selectedDate, () => {
+  visibleWallLimit.value = wallNotePageSize
+  syncSelection()
+})
 
 function syncSelection() {
   if (view.value === 'work' && !visibleMistakes.value.some((item) => item.id === selectedErrorId.value)) {
