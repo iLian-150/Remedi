@@ -105,25 +105,28 @@
       <div v-if="tlExpanded" class="tl-body">
         <div v-if="tlLoading" class="loading" style="padding: 18px 0">加载错题时间线…</div>
         <p v-else-if="!timelineItems.length" class="hint" style="padding: 6px 0">还没有错题记录，继续保持。</p>
-        <div v-else class="timeline tl-list">
-          <div
-            v-for="item in timelineItems"
-            :key="item.id"
-            class="timeline-item tl-item"
-            @click="gotoSubmission(item.submission_id)"
-          >
-            <span :class="item.corrected ? 'timeline-dot green' : errorTypeDotClass(item.error_type)"></span>
-            <div class="timeline-time">{{ fmtTime(item.created_at) }}</div>
-            <div class="timeline-body">
-              <p class="tl-stem">{{ item.question_stem }}</p>
-              <p class="tl-meta">
-                <span class="badge badge-blue">{{ item.knowledge_point }}</span>
-                <ErrorTypeBadge :type="item.error_type as ErrorType" />
-                <span v-if="item.corrected" class="badge badge-green">已订正</span>
-                <span v-else class="badge badge-gray">未订正</span>
-              </p>
+        <div v-else class="tl-list">
+          <div class="timeline">
+            <div
+              v-for="item in visibleTimelineItems"
+              :key="item.id"
+              class="timeline-item tl-item"
+              @click="gotoSubmission(item.submission_id)"
+            >
+              <span :class="item.corrected ? 'timeline-dot green' : errorTypeDotClass(item.error_type)"></span>
+              <div class="timeline-time">{{ fmtTime(item.created_at) }}</div>
+              <div class="timeline-body">
+                <p class="tl-stem">{{ item.question_stem }}</p>
+                <p class="tl-meta">
+                  <span class="badge badge-blue">{{ item.knowledge_point }}</span>
+                  <ErrorTypeBadge :type="item.error_type as ErrorType" />
+                  <span v-if="item.corrected" class="badge badge-green">已订正</span>
+                  <span v-else class="badge badge-gray">未订正</span>
+                </p>
+              </div>
             </div>
           </div>
+          <button v-if="visibleTimelineItems.length < timelineItems.length" type="button" class="tl-more" @click="showMoreTimeline">继续显示错题（{{ visibleTimelineItems.length }} / {{ timelineItems.length }}）</button>
         </div>
       </div>
     </template>
@@ -202,11 +205,14 @@ const marks = ref<Record<string, number>>({})
 const correctionMarks = ref<Record<string, number>>({})
 
 /** 错题时间线（报告页）：原始错题（诊断产生，源头 /student/mistakes）与展开态（默认收起） */
-const tlRaw = ref<StudentMistake[]>([])
+type MistakeTimelineEntry = Pick<StudentMistake, 'id' | 'submission_id' | 'question_subject' | 'created_at' | 'question_stem' | 'knowledge_point' | 'error_type'> & { corrected: boolean }
+const timelineRows = ref<MistakeTimelineEntry[]>([])
 const tlLoading = ref(false)
 const tlExpanded = ref(false)
 const tlCount = ref<number | null>(null)
 const tlLoaded = ref(false)
+const timelinePageSize = 40
+const timelineVisibleLimit = ref(timelinePageSize)
 let tlLoadPromise: Promise<void> | null = null
 
 interface ReviewCategory {
@@ -277,18 +283,15 @@ const tlSubject = computed(() =>
 const tlScopeLabel = computed(() =>
   tlSubject.value ? `${TL_SUBJECT_TEXT[tlSubject.value] ?? tlSubject.value}错题` : '全部错题'
 )
-/** 时间线条目：按科目过滤 → 按错题产生时间倒序 → 附已订正标记（最新一次订正判对） */
-const timelineItems = computed(() => {
-  const items: Array<StudentMistake & { corrected: boolean }> = []
-  for (const item of tlRaw.value) {
-    if (tlSubject.value && item.question_subject !== tlSubject.value) continue
-    items.push({ ...item, corrected: item.latest_correction?.is_correct === true })
-  }
-  return items.sort((a, b) => b.created_at.localeCompare(a.created_at))
-})
+/** 时间线只留列表需要的字段；已按时间倒序，在切换科目时只过滤轻量记录。 */
+const timelineItems = computed(() => timelineRows.value.filter(
+  (item) => !tlSubject.value || item.question_subject === tlSubject.value,
+))
+const visibleTimelineItems = computed(() => timelineItems.value.slice(0, timelineVisibleLimit.value))
 
 watch(tlSubject, () => {
   if (props.mode !== 'timeline') return
+  timelineVisibleLimit.value = timelinePageSize
   if (tlLoaded.value) {
     tlCount.value = timelineItems.value.length
   } else if (!tlExpanded.value) {
@@ -298,6 +301,10 @@ watch(tlSubject, () => {
 
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
+}
+
+function showMoreTimeline() {
+  timelineVisibleLimit.value += timelinePageSize
 }
 
 function onSelectDay(date: string) {
@@ -393,7 +400,17 @@ async function loadTimeline() {
   tlLoading.value = true
   const request = (async () => {
     try {
-      tlRaw.value = await student.fetchCorrectableMistakes()
+      const mistakes = await student.fetchCorrectableMistakes()
+      timelineRows.value = mistakes.map((item) => ({
+        id: item.id,
+        submission_id: item.submission_id,
+        question_subject: item.question_subject,
+        created_at: item.created_at,
+        question_stem: item.question_stem,
+        knowledge_point: item.knowledge_point,
+        error_type: item.error_type,
+        corrected: item.latest_correction?.is_correct === true,
+      })).sort((a, b) => b.created_at.localeCompare(a.created_at))
       tlLoaded.value = true
       tlCount.value = timelineItems.value.length
     } catch (e) {
@@ -471,6 +488,7 @@ async function loadForMode() {
     await loadCorrectionMarks()
   } else if (props.mode === 'timeline') {
     tlLoaded.value = false
+    timelineVisibleLimit.value = timelinePageSize
     if (tlExpanded.value) await loadTimeline()
     else await loadTimelineCount()
   } else {
@@ -547,6 +565,12 @@ async function markAllRead() {
 .tl-chevron.open { transform: rotate(180deg); }
 .tl-body { margin-top: 14px; }
 .tl-list { margin-top: 2px; }
+.tl-more {
+  display: block; margin: 8px auto 0; padding: 7px 11px; border: 1px solid var(--border);
+  border-radius: 8px; background: #fff; color: var(--primary); cursor: pointer;
+  font: 600 12px var(--font);
+}
+.tl-more:hover { border-color: var(--primary); background: var(--primary-50); }
 .tl-item { cursor: pointer; }
 .tl-item:hover .tl-stem { color: var(--primary); }
 .tl-stem {
