@@ -49,7 +49,7 @@
             <p v-if="actionError && !removedAssignment" class="notebook-action-error" role="alert">{{ actionError }}</p>
             <div v-if="loading" class="notebook-assignment-list notebook-loading" aria-hidden="true"><div v-for="index in 4" :key="index" class="notebook-skeleton"><span/><span/><span/></div></div>
             <div v-else-if="visibleAssignments.length" class="notebook-assignment-list">
-              <details v-for="(assignment, index) in visibleAssignments" :key="assignment.id" class="notebook-assignment" :open="index === 0">
+              <details v-for="assignment in visibleAssignments" :key="assignment.id" class="notebook-assignment" :open="expandedAssignmentIds.has(assignment.id)" @toggle="onAssignmentToggle(assignment.id, $event)">
                 <summary>
                   <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="16"/></span>
                   <span class="notebook-subject-badge"><AppIcon name="book" :size="14"/>{{ subjectName(assignment.subject) }}</span>
@@ -57,7 +57,7 @@
                   <span class="notebook-assignment-progress">{{ assignment.studentSavedOnly ? '自主收录' : `${assignment.studiedCategoryCount}/${assignment.categories.length} 类` }}</span>
                   <span class="notebook-assignment-state" :class="{ ready: assignment.ready }">{{ assignment.studentSavedOnly ? '已收录' : assignment.ready ? '已学完' : '待学习' }}</span>
                 </summary>
-                <div class="notebook-assignment-content">
+                <div v-if="expandedAssignmentIds.has(assignment.id)" class="notebook-assignment-content">
                   <section v-for="category in assignment.categories" :key="category.key" class="notebook-category" :class="{ studied: category.studied }">
                     <header class="notebook-category-head"><div><span class="notebook-category-dot"/><div><h4>{{ category.label }}</h4><small>{{ category.items.length }} 条记录</small></div></div><button v-if="!category.studentSavedOnly" type="button" :class="{ studied: category.studied }" :disabled="workingKey === studyKey(assignment.id, category.key)" @click="toggleCategory(assignment, category)">{{ workingKey === studyKey(assignment.id, category.key) ? '保存中…' : category.studied ? '已学会 · 撤销' : '标记已学会' }}</button></header>
                     <div v-if="category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in category.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
@@ -143,6 +143,7 @@ const query = ref('')
 const sort = ref('recent')
 const workingKey = ref('')
 const selectedMistake = ref<StudentMistake | null>(null)
+const expandedAssignmentIds = ref<Set<number>>(new Set())
 const assistantOnLeft = ref(false)
 const assistantFullscreen = ref(false)
 const removedAssignment = ref<{ id: number; title: string; ids: number[] } | null>(null)
@@ -199,6 +200,15 @@ const visibleAssignments = computed(() => {
     return right.createdAt.localeCompare(left.createdAt)
   })
 })
+watch(visibleAssignments, (assignments, previous) => {
+  const visibleIds = new Set(assignments.map((assignment) => assignment.id))
+  const next = new Set([...expandedAssignmentIds.value].filter((id) => visibleIds.has(id)))
+  const firstId = assignments[0]?.id
+  if (firstId != null && firstId !== previous?.[0]?.id && !next.has(firstId)) {
+    next.add(firstId)
+  }
+  expandedAssignmentIds.value = next
+}, { immediate: true })
 const filtersApplied = computed(() => subject.value !== 'all' || status.value !== 'all' || Boolean(query.value.trim()))
 const nextMistake = computed(() => {
   for (const assignment of visibleAssignments.value) {
@@ -216,6 +226,15 @@ const relatedMistakes = computed(() => {
 const assistantAssignment = computed(() => selectedMistake.value ? notebookData.value.assignmentGroupsById.get(selectedMistake.value.assignment_id) : undefined)
 const assistantProgress = computed(() => ({ completed: assistantAssignment.value?.studiedCategoryCount ?? 0, total: assistantAssignment.value?.categories.length ?? 0, complete: Boolean(assistantAssignment.value?.ready) }))
 const assistantStudyKey = computed(() => selectedMistake.value ? studyKey(selectedMistake.value.assignment_id, selectedMistake.value.category_key) : '')
+
+function onAssignmentToggle(assignmentId: number, event: Event) {
+  const details = event.currentTarget as HTMLDetailsElement | null
+  if (!details) return
+  const next = new Set(expandedAssignmentIds.value)
+  if (details.open) next.add(assignmentId)
+  else next.delete(assignmentId)
+  expandedAssignmentIds.value = next
+}
 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
   const subjectKeys = new Set<string>()
