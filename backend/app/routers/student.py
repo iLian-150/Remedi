@@ -2027,9 +2027,13 @@ def save_text_question(body: StudentQuestionCaptureCreate,
 
 @router.post("/photo-transcribe", response_model=PhotoTranscribeOut, summary="拍照转写作业")
 async def photo_transcribe(file: UploadFile = File(...),
+                           save_image: bool = Query(
+                               default=True,
+                               description="是否保存原图并返回可回读地址；默认保存",
+                           ),
                            current: User = Depends(require_student)):
-    """上传作业照片 → Provider 视觉转写 → 返回 {image_id, image_url, question_text, steps}。
-    图片只存本地文件（不落库）；学生确认/编辑后走 POST /submissions 完成诊断。"""
+    """上传作业照片并转写；save_image=false 时不持久化原图。
+    学生确认/编辑后走 POST /submissions 完成诊断。"""
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
     data = await file.read(_PHOTO_MAX_BYTES + 1)
@@ -2037,19 +2041,22 @@ async def photo_transcribe(file: UploadFile = File(...),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
-    filename = "{}_{}{}".format(
-        datetime.now().strftime("%Y%m%d%H%M%S"),
-        secrets.token_hex(4),
-        _PHOTO_TYPES[file.content_type],
-    )
     result = await run_in_threadpool(get_provider().transcribe_image, data, file.content_type)
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    await run_in_threadpool(
-        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
-    )
+    image_id = image_url = None
+    if save_image:
+        image_id = "{}_{}{}".format(
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            secrets.token_hex(4),
+            _PHOTO_TYPES[file.content_type],
+        )
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        await run_in_threadpool(
+            _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, image_id), data
+        )
+        image_url = f"/api/uploads/{image_id}"
     return {
-        "image_id": filename,
-        "image_url": f"/api/uploads/{filename}",
+        "image_id": image_id,
+        "image_url": image_url,
         "question_text": result.get("question_text", ""),
         "steps": result.get("steps", []),
         "student_work_detected": result.get("student_work_detected"),

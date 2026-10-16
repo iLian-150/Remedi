@@ -457,6 +457,7 @@ export const useStudentStore = defineStore('student', {
       const form = new FormData()
       form.append('file', file)
       const { data } = await api.post<PhotoTranscribeResult>('/api/student/photo-transcribe', form, {
+        params: { save_image: false },
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       return data

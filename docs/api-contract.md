@@ -423,7 +423,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 权限：学生。
 
-请求：`multipart/form-data`，字段 `file` 为作业照片（jpg / png / webp，≤10MB）。
+请求：`multipart/form-data`，字段 `file` 为作业照片（jpg / png / webp，≤10MB）；查询参数 `save_image` 默认为 `true`。
 
 响应 `200`：
 
@@ -437,7 +437,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```
 
 - `question_text`：转写出的题干；`steps`：学生作答步骤（按顺序，**不含题干**）。
-- 图片只存服务器本地目录（环境变量 `UPLOAD_DIR`，默认 `backend/uploads/`），不落库；`image_url` 为静态回读路径。
+- `save_image=true` 时图片只存服务器本地目录（环境变量 `UPLOAD_DIR`，默认 `backend/uploads/`），不落库；`image_url` 为静态回读路径。设为 `false` 时跳过写盘，`image_id` 与 `image_url` 返回 `null`。
 - 转写由 Cloudflare Workers AI 视觉模型完成，默认 `@cf/qwen/qwen3.8-27b`（可用 `CLOUDFLARE_VISION_MODEL` 覆盖）；未配置凭证或识别失败时明确返回错误，不使用 Mock 罐头转写。
 - 本接口**不产生提交记录**：学生确认/编辑转写结果后，仍走 3.3 `POST /api/student/submissions`（question_id + steps）完成诊断。
 
@@ -1039,9 +1039,11 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 权限：教师。与 3.11 同一转写能力，服务于「发布作业」表单：上传题目照片 → 识别 → 前端把 `question_text` 填入题干输入框、`steps` 填入标准步骤，教师检查修改后再发布（不直接落库）。
 
-请求：`multipart/form-data`，字段 `file`（jpg / png / webp，≤10MB），图片存同一 `UPLOAD_DIR`。
+请求：`multipart/form-data`，字段 `file`（jpg / png / webp，≤10MB）；查询参数 `save_image` 默认为 `true`，大题识别接口 `/api/teacher/photo-recognize-group` 也支持此参数。
 
-响应 `200`：结构同 3.11（`image_id` / `image_url` / `question_text` / `steps`），前端实际使用 `question_text` 与 `steps`。
+响应 `200`：结构同 3.11（`image_id` / `image_url` / `question_text` / `steps`）；设 `save_image=false` 时两个图片字段为 `null`。前端实际使用 `question_text` 与 `steps`。
+
+大题识别响应为 `image_id` / `image_url` / `stem` / `sub_questions`，图片字段遵循相同的 `save_image` 规则。
 
 - 注意：v1 直接复用 `transcribe_image`（其 prompt 按学生作答转写调校），未针对题目照片单独调 prompt，识别质量以实际为准。
 - 错误：`400`（格式不支持 / 内容为空 / 超过 10MB）；`403`（学生调用）。

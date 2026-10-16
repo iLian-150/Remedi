@@ -166,6 +166,7 @@ export const useTeacherStore = defineStore('teacher', {
       const form = new FormData()
       form.append('file', file)
       const { data } = await api.post<PhotoTranscribeResult>('/api/teacher/photo-recognize', form, {
+        params: { save_image: false },
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       return data
@@ -175,6 +176,7 @@ export const useTeacherStore = defineStore('teacher', {
       const form = new FormData()
       form.append('file', file)
       const { data } = await api.post<PhotoGroupTranscribeResult>('/api/teacher/photo-recognize-group', form, {
+        params: { save_image: false },
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       return data

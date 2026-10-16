@@ -422,8 +422,8 @@ export interface StudentBriefing {
 }
 
 export interface PhotoTranscribeResult {
-  image_id: string
-  image_url: string
+  image_id?: string | null
+  image_url?: string | null
   question_text: string
   steps: string[]
   student_work_detected?: boolean | null
@@ -433,8 +433,8 @@ export interface PhotoTranscribeResult {
 
 export interface PhotoGroupTranscribeResult {
   // v0.13.11：拍照识别大题——共同题干 + 全部小题
-  image_id: string
-  image_url: string
+  image_id?: string | null
+  image_url?: string | null
   stem: string
   sub_questions: { question_text: string; steps: string[] }[]
 }

@@ -1718,9 +1718,13 @@ _PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 @router.post("/photo-recognize", response_model=PhotoTranscribeOut, summary="拍照识别题目")
 async def photo_recognize(file: UploadFile = File(...),
+                          save_image: bool = Query(
+                              default=True,
+                              description="是否保存原图并返回可回读地址；默认保存",
+                          ),
                           current: User = Depends(require_teacher)):
-    """上传题目照片 → Provider 视觉转写 → 返回 {question_text, steps}（含图片回读信息）。
-    规则与学生端 photo-transcribe 一致（jpg/png/webp、≤10MB、存同一 UPLOAD_DIR）；
+    """上传题目照片并转写，默认返回图片回读信息，save_image=false 时跳过保存。
+    规则与学生端 photo-transcribe 一致（jpg/png/webp、≤10MB）；
     前端把 question_text 填入题干、steps 填入标准步骤，教师检查修改后再发布。
     注意：v1 直接复用学生作答转写能力（transcribe_image），未针对题目照片单独调 prompt。"""
     if file.content_type not in _PHOTO_TYPES:
@@ -1730,21 +1734,24 @@ async def photo_recognize(file: UploadFile = File(...),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
-    filename = "{}_{}{}".format(
-        datetime.now().strftime("%Y%m%d%H%M%S"),
-        secrets.token_hex(4),
-        _PHOTO_TYPES[file.content_type],
-    )
     result = await run_in_threadpool(
         get_provider().transcribe_image, data, file.content_type
     )
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    await run_in_threadpool(
-        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
-    )
+    image_id = image_url = None
+    if save_image:
+        image_id = "{}_{}{}".format(
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            secrets.token_hex(4),
+            _PHOTO_TYPES[file.content_type],
+        )
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        await run_in_threadpool(
+            _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, image_id), data
+        )
+        image_url = f"/api/uploads/{image_id}"
     return {
-        "image_id": filename,
-        "image_url": f"/api/uploads/{filename}",
+        "image_id": image_id,
+        "image_url": image_url,
         "question_text": result.get("question_text", ""),
         "steps": result.get("steps", []),
     }
@@ -1752,12 +1759,17 @@ async def photo_recognize(file: UploadFile = File(...),
 
 @router.post("/photo-recognize-group", response_model=PhotoGroupTranscribeOut, summary="拍照识别大题")
 async def photo_recognize_group(file: UploadFile = File(...),
+                                save_image: bool = Query(
+                                    default=True,
+                                    description="是否保存原图并返回可回读地址；默认保存",
+                                ),
                                 current: User = Depends(require_teacher)):
     """上传大题照片 → Provider 视觉识别 → 返回 {stem, sub_questions}（v0.13.11）。
 
     识别入口在大题层级：一张图一次拆出共同题干与全部小题（照片里有解题过程
     才带每道小题的 steps），前端据此新建/填充一个大题，教师检查修改后再发布；
-    不再逐个小题拍照识别。图片规则与单题识别一致（jpg/png/webp、≤10MB）。"""
+    不再逐个小题拍照识别。图片规则与单题识别一致（jpg/png/webp、≤10MB）；
+    save_image=false 时只返回识别结果，不持久化原图。"""
     if file.content_type not in _PHOTO_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
     data = await file.read(_PHOTO_MAX_BYTES + 1)
@@ -1765,21 +1777,24 @@ async def photo_recognize_group(file: UploadFile = File(...),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
-    filename = "{}_{}{}".format(
-        datetime.now().strftime("%Y%m%d%H%M%S"),
-        secrets.token_hex(4),
-        _PHOTO_TYPES[file.content_type],
-    )
     result = await run_in_threadpool(
         get_provider().transcribe_group_image, data, file.content_type
     )
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    await run_in_threadpool(
-        _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
-    )
+    image_id = image_url = None
+    if save_image:
+        image_id = "{}_{}{}".format(
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            secrets.token_hex(4),
+            _PHOTO_TYPES[file.content_type],
+        )
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        await run_in_threadpool(
+            _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, image_id), data
+        )
+        image_url = f"/api/uploads/{image_id}"
     return {
-        "image_id": filename,
-        "image_url": f"/api/uploads/{filename}",
+        "image_id": image_id,
+        "image_url": image_url,
         "stem": result.get("stem", ""),
         "sub_questions": result.get("sub_questions", []),
     }

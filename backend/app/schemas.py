@@ -354,8 +354,8 @@ class ProfileOut(BaseModel):
 # ---------- 拍照转写 / 首页简报（v0.2.0 新增） ----------
 
 class PhotoTranscribeOut(BaseModel):
-    image_id: str                 # 服务器保存的文件名
-    image_url: str                # 图片相对访问路径（/uploads/<文件名>）
+    image_id: Optional[str] = None  # save_image=false 时不写盘
+    image_url: Optional[str] = None
     question_text: str
     steps: List[str]
     student_work_detected: Optional[bool] = None
@@ -370,8 +370,8 @@ class PhotoGroupSubOut(BaseModel):
 
 class PhotoGroupTranscribeOut(BaseModel):
     """拍照识别大题（v0.13.11）：共同题干 + 全部小题一次返回。"""
-    image_id: str                 # 服务器保存的文件名
-    image_url: str                # 图片相对访问路径（/uploads/<文件名>）
+    image_id: Optional[str] = None  # save_image=false 时不写盘
+    image_url: Optional[str] = None
     stem: str
     sub_questions: List[PhotoGroupSubOut]
 
