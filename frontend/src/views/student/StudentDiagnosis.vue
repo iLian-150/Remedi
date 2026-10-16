@@ -18,6 +18,9 @@
       <div class="form-row" style="margin-bottom: 0">
         <label>选择一次提交</label>
         <select v-model="selectedSubmissionId" @change="loadMathDetail">
+          <option v-if="selectedSubmissionFromHistory !== null" :value="selectedSubmissionFromHistory">
+            当前查看较早的提交 · #{{ selectedSubmissionFromHistory }}
+          </option>
           <option v-for="s in submissions" :key="s.id" :value="s.id">
             {{ s.question_stem }} · {{ s.review_status === 'pending' ? `老师复核中${s.error_count ? ` · 发现 ${s.error_count} 个问题` : ''}` : s.error_count ? `发现 ${s.error_count} 个问题` : '全部正确' }} · {{ fmtTime(s.submitted_at) }}
           </option>
@@ -106,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { SubmissionResult, SubmissionSummary } from '../../api/types'
@@ -125,6 +128,12 @@ const mathDetail = ref<SubmissionResult | null>(null)
 const mathLoading = ref(false)
 const submissionsLoaded = ref(false)
 let detailRequestToken = 0
+const selectedSubmissionFromHistory = computed(() => {
+  const id = Number(selectedSubmissionId.value)
+  return Number.isSafeInteger(id) && id > 0 && !submissions.value.some((item) => item.id === id)
+    ? id
+    : null
+})
 
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
@@ -159,9 +168,13 @@ async function loadMathDetail() {
 
 function selectSubmissionFromRoute() {
   const rawPreset = route.query.submission_id
-  const preset = typeof rawPreset === 'string' ? Number(rawPreset) : Number.NaN
-  const target = submissions.value.find((s) => s.id === preset) ?? submissions.value[0]
-  selectedSubmissionId.value = target?.id ?? ''
+  const requestedId = typeof rawPreset === 'string' ? Number(rawPreset) : Number.NaN
+  const hasRequestedId = Number.isSafeInteger(requestedId) && requestedId > 0
+  const target = hasRequestedId
+    ? submissions.value.find((s) => s.id === requestedId)
+    : submissions.value[0]
+  // 目标可能早于历史列表最近 100 条；详情接口可直接按 ID 读取，不回退到错误的最新记录。
+  selectedSubmissionId.value = target?.id ?? (hasRequestedId ? requestedId : '')
   void loadMathDetail()
 }
 
