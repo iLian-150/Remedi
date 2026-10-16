@@ -101,7 +101,6 @@ import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import '../../assets/mistake-book.css'
-import '../../assets/mistake-book-2.css'
 
 const MistakePointAssistant = defineAsyncComponent(
   () => import('../../components/mistake-book/MistakePointAssistant.vue'),
@@ -147,6 +146,7 @@ const selectedMistake = ref<StudentMistake | null>(null)
 const assistantOnLeft = ref(false)
 const assistantFullscreen = ref(false)
 const removedAssignment = ref<{ id: number; title: string; ids: number[] } | null>(null)
+let supplementalStylesPromise: Promise<unknown> | undefined
 const studentName = computed(() => auth.name || '我的')
 const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> = [
   { key: 'notebook', label: '卡片笔记', icon: 'book' },
@@ -333,8 +333,24 @@ function assignmentSummary(assignment: AssignmentGroup) {
     : `${assignment.items.length} 条错题 · ${assignment.categories.length} 类错误`
 }
 function studyKey(assignmentId: number, categoryKey: string) { return `${assignmentId}:${categoryKey}` }
-function setView(next: NotebookView) { view.value = next; closeAssistant(); actionError.value = '' }
-function openAssistant(mistake: StudentMistake) { selectedMistake.value = mistake; assistantFullscreen.value = false }
+function ensureSupplementalStyles() {
+  if (!supplementalStylesPromise) {
+    supplementalStylesPromise = import('../../assets/mistake-book-2.css').catch((error) => {
+      supplementalStylesPromise = undefined
+      throw error
+    })
+  }
+  return supplementalStylesPromise
+}
+function setView(next: NotebookView) {
+  const activate = () => { view.value = next; closeAssistant(); actionError.value = '' }
+  if (next !== 'mindmap' && next !== 'network') { activate(); return }
+  void ensureSupplementalStyles().then(activate).catch(() => activate())
+}
+function openAssistant(mistake: StudentMistake) {
+  const activate = () => { selectedMistake.value = mistake; assistantFullscreen.value = false }
+  void ensureSupplementalStyles().then(activate).catch(() => activate())
+}
 function closeAssistant() { selectedMistake.value = null; assistantOnLeft.value = false; assistantFullscreen.value = false }
 function openOriginalQuestion(mistake: RelatedMistake | StudentMistake) {
   // This action is intentionally local: show the modal without changing the current route.
