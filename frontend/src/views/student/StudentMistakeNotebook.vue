@@ -115,14 +115,13 @@ const MistakeStickyNotes = defineAsyncComponent(
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
 interface MistakeCategory { key: string; label: string; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
-interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; searchText: string; priority: number }
+interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; searchText: string | null; priority: number }
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
 interface NotebookData {
   subjectOptions: Array<{ key: string; label: string }>
   subjectCountByKey: Map<string, number>
   assignmentGroups: AssignmentGroup[]
   assignmentGroupsById: Map<number, AssignmentGroup>
-  relatedMistakeIndex: RelatedMistakeIndex
   categoryCount: number
   studiedCategoryCount: number
 }
@@ -162,6 +161,7 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
 ]
 const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
+const relatedMistakeIndexCache = new WeakMap<StudentMistake[], RelatedMistakeIndex>()
 
 const notebookData = computed(() => buildNotebookData(allMistakes.value))
 const subjectOptions = computed(() => notebookData.value.subjectOptions)
@@ -193,7 +193,7 @@ const visibleAssignments = computed(() => {
     if (subject.value !== 'all' && assignment.subject !== subject.value) return false
     if (status.value === 'pending' && assignment.ready || status.value === 'ready' && !assignment.ready) return false
     if (!needle) return true
-    return assignment.searchText.includes(needle)
+    return assignmentSearchText(assignment).includes(needle)
   }).sort((left, right) => {
     if (sort.value === 'oldest') return left.createdAt.localeCompare(right.createdAt)
     if (sort.value === 'priority') {
@@ -230,7 +230,8 @@ const nextMistake = computed(() => {
 const relatedMistakes = computed(() => {
   const mistake = selectedMistake.value
   if (!mistake) return []
-  return notebookData.value.relatedMistakeIndex.get(mistake.question_subject)?.get(mistake.knowledge_point)?.get(mistake.category_key) ?? []
+  return getRelatedMistakeIndex(allMistakes.value)
+    .get(mistake.question_subject)?.get(mistake.knowledge_point)?.get(mistake.category_key) ?? []
 })
 const assistantAssignment = computed(() => selectedMistake.value ? notebookData.value.assignmentGroupsById.get(selectedMistake.value.assignment_id) : undefined)
 const assistantProgress = computed(() => ({ completed: assistantAssignment.value?.studiedCategoryCount ?? 0, total: assistantAssignment.value?.categories.length ?? 0, complete: Boolean(assistantAssignment.value?.ready) }))
@@ -249,13 +250,53 @@ function showMoreAssignments() {
   visibleAssignmentLimit.value += notebookAssignmentPageSize
 }
 
+function getRelatedMistakeIndex(items: StudentMistake[]): RelatedMistakeIndex {
+  const cached = relatedMistakeIndexCache.get(items)
+  if (cached) return cached
+
+  const index: RelatedMistakeIndex = new Map()
+  for (const item of items) {
+    let subjectIndex = index.get(item.question_subject)
+    if (!subjectIndex) {
+      subjectIndex = new Map()
+      index.set(item.question_subject, subjectIndex)
+    }
+    let knowledgePointIndex = subjectIndex.get(item.knowledge_point)
+    if (!knowledgePointIndex) {
+      knowledgePointIndex = new Map()
+      subjectIndex.set(item.knowledge_point, knowledgePointIndex)
+    }
+    let relatedGroup = knowledgePointIndex.get(item.category_key)
+    if (!relatedGroup) {
+      relatedGroup = []
+      knowledgePointIndex.set(item.category_key, relatedGroup)
+    }
+    relatedGroup.push(item)
+  }
+  relatedMistakeIndexCache.set(items, index)
+  return index
+}
+
+function assignmentSearchText(assignment: AssignmentGroup): string {
+  if (assignment.searchText !== null) return assignment.searchText
+  const searchParts: Array<string | null | undefined> = [assignment.title]
+  for (const category of assignment.categories) {
+    searchParts.push(category.label)
+    for (const item of category.items) {
+      searchParts.push(item.error_type, item.knowledge_point, item.question_stem, item.step_text, item.detail)
+    }
+  }
+  const searchText = searchParts.filter(Boolean).join(' ').toLocaleLowerCase()
+  assignment.searchText = searchText
+  return searchText
+}
+
 function buildNotebookData(items: StudentMistake[]): NotebookData {
   const subjectKeys = new Set<string>()
   const subjectCountByKey = new Map<string, number>()
   const groups = new Map<number, AssignmentGroup>()
   const categoriesByAssignment = new Map<number, Map<string, MistakeCategory>>()
   const studiedByCategory = new Map<string, boolean>()
-  const relatedMistakeIndex: RelatedMistakeIndex = new Map()
   for (const item of items) {
     subjectKeys.add(item.question_subject)
     subjectCountByKey.set(
@@ -269,24 +310,6 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
         (studiedByCategory.get(categoryKey) ?? true) && item.category_studied,
       )
     }
-
-    let subjectIndex = relatedMistakeIndex.get(item.question_subject)
-    if (!subjectIndex) {
-      subjectIndex = new Map()
-      relatedMistakeIndex.set(item.question_subject, subjectIndex)
-    }
-    let knowledgePointIndex = subjectIndex.get(item.knowledge_point)
-    if (!knowledgePointIndex) {
-      knowledgePointIndex = new Map()
-      subjectIndex.set(item.knowledge_point, knowledgePointIndex)
-    }
-    let relatedGroup = knowledgePointIndex.get(item.category_key)
-    if (!relatedGroup) {
-      relatedGroup = []
-      knowledgePointIndex.set(item.category_key, relatedGroup)
-    }
-    relatedGroup.push(item)
-
     let group = groups.get(item.assignment_id)
     if (!group) {
       group = {
@@ -299,7 +322,7 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
         ready: false,
         studentSavedOnly: true,
         studiedCategoryCount: 0,
-        searchText: '',
+        searchText: null,
         priority: 0,
       }
       groups.set(item.assignment_id, group)
@@ -330,17 +353,8 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
 
   const assignmentGroups = Array.from(groups.values()).map((group) => {
     group.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.items.length - a.items.length || a.label.localeCompare(b.label, 'zh-CN'))
-    group.items.sort((a, b) => b.created_at.localeCompare(a.created_at))
     group.studiedCategoryCount = group.categories.reduce((count, item) => count + Number(item.studied), 0)
     group.ready = group.categories.length > 0 && group.studiedCategoryCount === group.categories.length
-    const searchParts: Array<string | null | undefined> = [group.title]
-    for (const category of group.categories) {
-      searchParts.push(category.label)
-      for (const item of category.items) {
-        searchParts.push(item.error_type, item.knowledge_point, item.question_stem, item.step_text, item.detail)
-      }
-    }
-    group.searchText = searchParts.filter(Boolean).join(' ').toLocaleLowerCase()
     return group
   })
   let studiedCategoryCount = 0
@@ -352,7 +366,6 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
     subjectCountByKey,
     assignmentGroups,
     assignmentGroupsById: groups,
-    relatedMistakeIndex,
     categoryCount: studiedByCategory.size,
     studiedCategoryCount,
   }
