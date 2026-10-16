@@ -191,32 +191,38 @@ def agent_reply_stream(db: Session, student: User,
 
         stream_started_at = perf_counter()
         first_text_logged = False
-        for part in graph.stream(
+        graph_stream = graph.stream(
             {"messages": messages},
             config={"recursion_limit": 15},
             stream_mode="messages",
             version="v2",
-        ):
-            if part.get("type") != "messages":
-                continue
-            message_chunk, metadata = part["data"]
-            if metadata.get("langgraph_node") != "agent":
-                continue
-            text = _message_chunk_text(message_chunk)
-            if text:
-                if safe_tools_only and not first_text_logged:
-                    first_text_logged = True
-                    logger.info(
-                        "照片讲解首字延迟（%.2f 秒）",
-                        perf_counter() - stream_started_at,
-                    )
-                reply_parts.append(text)
-                yield text
-            for call in getattr(message_chunk, "tool_call_chunks", None) or []:
-                name = call.get("name")
-                if name:
-                    index = call.get("index", len(tool_names))
-                    tool_names[index] = tool_names.get(index, "") + name
+        )
+        try:
+            for part in graph_stream:
+                if part.get("type") != "messages":
+                    continue
+                message_chunk, metadata = part["data"]
+                if metadata.get("langgraph_node") != "agent":
+                    continue
+                text = _message_chunk_text(message_chunk)
+                if text:
+                    if safe_tools_only and not first_text_logged:
+                        first_text_logged = True
+                        logger.info(
+                            "照片讲解首字延迟（%.2f 秒）",
+                            perf_counter() - stream_started_at,
+                        )
+                    reply_parts.append(text)
+                    yield text
+                for call in getattr(message_chunk, "tool_call_chunks", None) or []:
+                    name = call.get("name")
+                    if name:
+                        index = call.get("index", len(tool_names))
+                        tool_names[index] = tool_names.get(index, "") + name
+        finally:
+            close = getattr(graph_stream, "close", None)
+            if close is not None:
+                close()
 
         reply = "".join(reply_parts).strip()
         if not reply:
@@ -241,26 +247,32 @@ def agent_reply_stream(db: Session, student: User,
             matched = 0
             diverged = False
             fallback_had_text = False
-            for chunk in direct_photo_explanation():
-                if not chunk:
-                    continue
-                fallback_had_text = True
-                if not streamed_reply:
-                    yield chunk
-                    reply_parts.append(chunk)
-                    continue
-                for character in chunk:
-                    if not diverged and matched < len(streamed_reply) and character == streamed_reply[matched]:
-                        matched += 1
+            fallback_stream = direct_photo_explanation()
+            try:
+                for chunk in fallback_stream:
+                    if not chunk:
                         continue
-                    if not diverged:
-                        diverged = True
-                        if matched < len(streamed_reply):
-                            supplement = "\n\n补充讲解：\n"
-                            yield supplement
-                            reply_parts.append(supplement)
-                    yield character
-                    reply_parts.append(character)
+                    fallback_had_text = True
+                    if not streamed_reply:
+                        yield chunk
+                        reply_parts.append(chunk)
+                        continue
+                    for character in chunk:
+                        if not diverged and matched < len(streamed_reply) and character == streamed_reply[matched]:
+                            matched += 1
+                            continue
+                        if not diverged:
+                            diverged = True
+                            if matched < len(streamed_reply):
+                                supplement = "\n\n补充讲解：\n"
+                                yield supplement
+                                reply_parts.append(supplement)
+                        yield character
+                        reply_parts.append(character)
+            finally:
+                close = getattr(fallback_stream, "close", None)
+                if close is not None:
+                    close()
             if not fallback_had_text:
                 raise ValueError("模型直接讲解未返回文本内容")
             logger.info("照片讲解直接流式兜底完成（耗时 %.2f 秒）", perf_counter() - fallback_started_at)

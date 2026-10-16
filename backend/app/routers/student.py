@@ -10,7 +10,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session, aliased, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
@@ -88,6 +87,7 @@ from ..schemas import (
 from ..services import variant_gen
 from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
+from ..services.streaming import ClosingStreamingResponse
 from ..services.confidence import normalize_confidence
 from ..services import scoring as scoring_svc
 from ..services.diagnosis import (
@@ -2277,10 +2277,12 @@ async def agent_vision_chat_stream(
         stream_started_at = perf_counter()
         first_text_at = None
         reply_parts = []
+        image_stream = None
         try:
-            for chunk in get_provider().stream_image_answer(
+            image_stream = get_provider().stream_image_answer(
                 image_bytes, content_type, question
-            ):
+            )
+            for chunk in image_stream:
                 if not chunk:
                     continue
                 if first_text_at is None:
@@ -2308,8 +2310,12 @@ async def agent_vision_chat_stream(
                 student_id,
             )
             yield event("error", {"detail": "视觉模型暂时无法完成讲解，请稍后重试。"})
+        finally:
+            close = getattr(image_stream, "close", None)
+            if close is not None:
+                close()
 
-    return StreamingResponse(
+    return ClosingStreamingResponse(
         stream_events(),
         media_type="text/event-stream",
         headers={
@@ -2427,8 +2433,10 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
                 session.id, body.safe_tools_only,
             )
             yield event("error", {"detail": failure_detail(exc, body.safe_tools_only)})
+        finally:
+            reply_stream.close()
 
-    return StreamingResponse(
+    return ClosingStreamingResponse(
         stream_events(),
         media_type="text/event-stream",
         headers={

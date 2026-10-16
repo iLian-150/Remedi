@@ -10,7 +10,6 @@ from functools import wraps
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.orm import Session, joinedload, load_only
@@ -84,6 +83,7 @@ from ..schemas import (
     WorkbookOut,
 )
 from ..services import reviews as review_svc
+from ..services.streaming import ClosingStreamingResponse
 from ..services import scoring as scoring_svc
 from ..services.answer_check import check_reference_answer
 from ..services.diagnosis import (
@@ -1668,8 +1668,10 @@ def teacher_agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
         except Exception:
             logger.exception("教师班级数据助理流式回复中断")
             yield event("error", {"detail": "模型暂时无法回复，请稍后重试。"})
+        finally:
+            reply_stream.close()
 
-    return StreamingResponse(
+    return ClosingStreamingResponse(
         stream_events(),
         media_type="text/event-stream",
         headers={

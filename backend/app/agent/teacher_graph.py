@@ -67,26 +67,32 @@ def teacher_agent_reply_stream(db: Session, teacher: User,
     reply_parts: list[str] = []
     tool_names: dict[int, str] = {}
     try:
-        for part in graph.stream(
+        graph_stream = graph.stream(
             {"messages": messages},
             config={"recursion_limit": 15},
             stream_mode="messages",
             version="v2",
-        ):
-            if part.get("type") != "messages":
-                continue
-            message_chunk, metadata = part["data"]
-            if metadata.get("langgraph_node") != "agent":
-                continue
-            text = _message_chunk_text(message_chunk)
-            if text:
-                reply_parts.append(text)
-                yield text
-            for call in getattr(message_chunk, "tool_call_chunks", None) or []:
-                name = call.get("name")
-                if name:
-                    index = call.get("index", len(tool_names))
-                    tool_names[index] = tool_names.get(index, "") + name
+        )
+        try:
+            for part in graph_stream:
+                if part.get("type") != "messages":
+                    continue
+                message_chunk, metadata = part["data"]
+                if metadata.get("langgraph_node") != "agent":
+                    continue
+                text = _message_chunk_text(message_chunk)
+                if text:
+                    reply_parts.append(text)
+                    yield text
+                for call in getattr(message_chunk, "tool_call_chunks", None) or []:
+                    name = call.get("name")
+                    if name:
+                        index = call.get("index", len(tool_names))
+                        tool_names[index] = tool_names.get(index, "") + name
+        finally:
+            close = getattr(graph_stream, "close", None)
+            if close is not None:
+                close()
 
         reply = "".join(reply_parts).strip()
         if not reply:
