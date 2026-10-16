@@ -365,17 +365,28 @@ function subjectName(subject: string) { return subjectNames[subject] || subject 
 // 拉不到就降级为只显示出错步骤（模板里的 v-else 分支）
 const origSteps = ref<StepDiagnosis[]>([])
 let origLoadToken = 0
+const origStepsBySubmission = new Map<number, Promise<StepDiagnosis[]>>()
 async function loadOrigSteps() {
   const err = selectedError.value
+  const token = ++origLoadToken
   origSteps.value = []
   if (!err) return
-  const token = ++origLoadToken
+  const submissionId = err.submission_id
+  let stepsRequest = origStepsBySubmission.get(submissionId)
+  if (!stepsRequest) {
+    stepsRequest = student.fetchSubmissionDetail(submissionId).then((detail) =>
+      (detail.steps ?? []).filter((step) => step.status !== 'stem'),
+    )
+    origStepsBySubmission.set(submissionId, stepsRequest)
+  }
   try {
-    const detail = await student.fetchSubmissionDetail(err.submission_id)
+    const steps = await stepsRequest
     if (token !== origLoadToken) return
-    // seq=0 是题干伪步骤，已在「原来的题目」里单独展示，这里只列作答步
-    origSteps.value = (detail.steps ?? []).filter((s) => s.status !== 'stem')
+    origSteps.value = steps
   } catch {
+    if (origStepsBySubmission.get(submissionId) === stepsRequest) {
+      origStepsBySubmission.delete(submissionId)
+    }
     if (token === origLoadToken) origSteps.value = []
   }
 }
