@@ -54,6 +54,16 @@ function persistActiveSessionId(id: number | null) {
 
 const inFlightMistakeRequests = new Map<string, Promise<StudentMistake[]>>()
 const inFlightAssignmentRequests = new Map<string, Promise<Assignment[]>>()
+// 作业导航短时间复用字段更完整的列表；作答成功后立即失效。
+const STUDENT_ASSIGNMENT_CACHE_TTL_MS = 15_000
+type StudentAssignmentCacheEntry = {
+  userId: number
+  options: [boolean, boolean, boolean, boolean]
+  data: Assignment[]
+  expiresAt: number
+}
+const studentAssignmentCache = new Map<string, StudentAssignmentCacheEntry>()
+const studentAssignmentGenerations = new Map<string, number>()
 const STUDENT_REPORT_CACHE_TTL_MS = 15_000
 const studentReportCache = new Map<string, { data: SubjectReport[]; expiresAt: number }>()
 const inFlightStudentReportRequests = new Map<string, Promise<SubjectReport[]>>()
@@ -108,17 +118,78 @@ function coalesceAssignmentRequest(
   includeChatQuestions: boolean,
   load: () => Promise<Assignment[]>
 ): Promise<Assignment[]> {
-  const key = `${userId ?? 'anonymous'}:${includeQuestions}:${includeSubmissionStatus}:${includePendingCount}:${includeChatQuestions}`
+  const options: [boolean, boolean, boolean, boolean] = [
+    includeQuestions,
+    includeSubmissionStatus,
+    includePendingCount,
+    includeChatQuestions
+  ]
+  const key = `${userId ?? 'anonymous'}:${options.join(':')}`
+
+  if (userId != null) {
+    const now = Date.now()
+    let bestCached: StudentAssignmentCacheEntry | undefined
+    for (const [cachedKey, cached] of studentAssignmentCache) {
+      if (cached.expiresAt <= now) {
+        studentAssignmentCache.delete(cachedKey)
+        continue
+      }
+      if (
+        cached.userId === userId &&
+        options.every((enabled, index) => !enabled || cached.options[index])
+      ) {
+        if (!bestCached || cached.expiresAt > bestCached.expiresAt) bestCached = cached
+      }
+    }
+    if (bestCached) return Promise.resolve(bestCached.data)
+  }
+
   const existing = inFlightAssignmentRequests.get(key)
   if (existing) return existing
 
-  const request = Promise.resolve().then(load).finally(() => {
-    if (inFlightAssignmentRequests.get(key) === request) {
-      inFlightAssignmentRequests.delete(key)
-    }
-  })
+  const generationKey = userId == null ? null : String(userId)
+  const generation = generationKey == null
+    ? null
+    : studentAssignmentGenerations.get(generationKey) ?? 0
+  const request = Promise.resolve()
+    .then(load)
+    .then((data) => {
+      if (
+        userId != null && generationKey != null &&
+        (studentAssignmentGenerations.get(generationKey) ?? 0) === generation
+      ) {
+        studentAssignmentCache.set(key, {
+          userId,
+          options,
+          data,
+          expiresAt: Date.now() + STUDENT_ASSIGNMENT_CACHE_TTL_MS
+        })
+      }
+      return data
+    })
+    .finally(() => {
+      if (inFlightAssignmentRequests.get(key) === request) {
+        inFlightAssignmentRequests.delete(key)
+      }
+    })
   inFlightAssignmentRequests.set(key, request)
   return request
+}
+
+function invalidateStudentAssignments(userId: number | undefined) {
+  if (userId == null) return
+  const userKey = String(userId)
+  const keyPrefix = `${userKey}:`
+  for (const key of studentAssignmentCache.keys()) {
+    if (key.startsWith(keyPrefix)) studentAssignmentCache.delete(key)
+  }
+  for (const key of inFlightAssignmentRequests.keys()) {
+    if (key.startsWith(keyPrefix)) inFlightAssignmentRequests.delete(key)
+  }
+  studentAssignmentGenerations.set(
+    userKey,
+    (studentAssignmentGenerations.get(userKey) ?? 0) + 1
+  )
 }
 
 function coalesceMistakeRequest(
@@ -224,6 +295,7 @@ export const useStudentStore = defineStore('student', {
     // 3.3 提交数学作业并诊断（诊断同步返回）
     async submitMath(payload: { question_id: number; steps: string[] }): Promise<SubmissionResult> {
       const { data } = await api.post<SubmissionResult>('/api/student/submissions', payload)
+      invalidateStudentAssignments(useAuthStore().user?.id)
       invalidateStudentReport(useAuthStore().user?.id)
       return data
     },
@@ -296,6 +368,7 @@ export const useStudentStore = defineStore('student', {
     // 3.6 提交英语作文并评分
     async submitEssay(payload: { question_id?: number; text: string }): Promise<EssayResult> {
       const { data } = await api.post<EssayResult>('/api/student/essays', payload)
+      invalidateStudentAssignments(useAuthStore().user?.id)
       return data
     },
     // 3.7 我的作文列表
