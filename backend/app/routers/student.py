@@ -1492,19 +1492,8 @@ def student_mistake_timeline(
             detail="before_created_at 与 before_id 必须同时提供",
         )
 
+    include_count = include_total_count and before_created_at is None
     total_count = None
-    if include_total_count and before_created_at is None:
-        count_query = (
-            db.query(func.count(Error.id))
-            .select_from(Error)
-            .join(Submission, Error.submission_id == Submission.id)
-            .filter(Submission.student_id == current.id)
-        )
-        if subject:
-            count_query = count_query.join(
-                Question, Question.id == Submission.question_id
-            ).filter(Question.subject == subject)
-        total_count = int(count_query.scalar() or 0)
 
     latest_correction = (
         db.query(Correction.is_correct)
@@ -1534,6 +1523,10 @@ def student_mistake_timeline(
     )
     if subject:
         query = query.filter(Question.subject == subject)
+    if include_count:
+        query = query.add_columns(
+            func.count(Error.id).over().label("total_count")
+        )
     if before_created_at is not None and before_id is not None:
         query = query.filter(or_(
             Error.created_at < before_created_at,
@@ -1543,6 +1536,8 @@ def student_mistake_timeline(
     rows = query.order_by(
         Error.created_at.desc(), Error.id.desc()
     ).limit(limit + 1).all()
+    if include_count:
+        total_count = int(rows[0].total_count or 0) if rows else 0
     has_more = len(rows) > limit
     return {
         "items": [
