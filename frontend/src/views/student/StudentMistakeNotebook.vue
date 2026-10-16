@@ -61,7 +61,7 @@
                   <section v-for="category in assignment.categories" :key="category.key" class="notebook-category" :class="{ studied: category.studied }">
                     <header class="notebook-category-head"><div><span class="notebook-category-dot"/><div><h4>{{ category.label }}</h4><small>{{ category.itemCount }} 条记录</small></div></div><button v-if="!category.studentSavedOnly" type="button" :class="{ studied: category.studied }" :disabled="workingKey === studyKey(assignment.id, category.key)" @click="toggleCategory(assignment, category)">{{ workingKey === studyKey(assignment.id, category.key) ? '保存中…' : category.studied ? '已学会 · 撤销' : '标记已学会' }}</button></header>
                     <div v-if="category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in category.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
-                    <div class="notebook-category-questions"><article v-for="mistake in categoryItems(assignment, category)" :key="mistake.id">
+                    <div class="notebook-category-questions"><article v-for="mistake in categoryItems(category)" :key="mistake.id">
                       <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.id === mistake.id }" @click="openAssistant(mistake)"><strong>{{ isStudentSaved(mistake) ? '自主收录题目' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</strong><small>{{ mistake.knowledge_point }} · {{ mistake.error_type }}<span v-if="mistake.review_status === 'pending'" class="badge badge-amber">老师复核中</span></small><span class="notebook-question-excerpt">{{ mistake.question_stem }}</span><span class="notebook-question-detail">{{ safe(mistake.detail || '') }}</span></button>
                       <button v-if="!isStudentSaved(mistake)" type="button" @click.stop.prevent="openOriginalQuestion(mistake)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
                       <button v-else type="button" :disabled="workingKey === `archive:${mistake.assignment_id}`" @click="archiveSaved(mistake)">{{ workingKey === `archive:${mistake.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
@@ -114,11 +114,10 @@ const MistakeStickyNotes = defineAsyncComponent(
 )
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
-interface MistakeCategory { key: string; label: string; itemCount: number; firstItem: StudentMistake | null; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
+interface MistakeCategory { key: string; label: string; itemCount: number; firstItem: StudentMistake | null; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
 interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; itemCount: number; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; priority: number }
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
 type AssignmentSearchIndex = Map<number, string>
-type ExpandedMistakeCategories = Map<number, Map<string, StudentMistake[]>>
 interface NotebookData {
   subjectOptions: Array<{ key: string; label: string }>
   subjectCountByKey: Map<string, number>
@@ -214,38 +213,6 @@ const visibleAssignments = computed(() => {
 const displayedAssignments = computed(() =>
   visibleAssignments.value.slice(0, visibleAssignmentLimit.value)
 )
-const mistakesByAssignmentCategory = computed(() => {
-  const grouped = new Map<number, Map<string, StudentMistake[]>>()
-  for (const item of allMistakes.value) {
-    let categories = grouped.get(item.assignment_id)
-    if (!categories) {
-      categories = new Map()
-      grouped.set(item.assignment_id, categories)
-    }
-    let categoryItems = categories.get(item.category_key)
-    if (!categoryItems) {
-      categoryItems = []
-      categories.set(item.category_key, categoryItems)
-    }
-    categoryItems.push(item)
-  }
-  return grouped
-})
-const expandedMistakeCategories = computed<ExpandedMistakeCategories>(() => {
-  const expandedIds = new Set(
-    displayedAssignments.value
-      .filter((assignment) => expandedAssignmentIds.value.has(assignment.id))
-      .map((assignment) => assignment.id),
-  )
-  const categoriesByAssignment: ExpandedMistakeCategories = new Map()
-  if (!expandedIds.size) return categoriesByAssignment
-  const grouped = mistakesByAssignmentCategory.value
-  for (const assignmentId of expandedIds) {
-    const categories = grouped.get(assignmentId)
-    if (categories) categoriesByAssignment.set(assignmentId, categories)
-  }
-  return categoriesByAssignment
-})
 watch([subject, status, query, sort], () => {
   visibleAssignmentLimit.value = notebookAssignmentPageSize
 })
@@ -337,8 +304,8 @@ function assignmentSearchText(assignment: AssignmentGroup): string {
   return index.get(assignment.id) ?? assignment.title.toLocaleLowerCase()
 }
 
-function categoryItems(assignment: AssignmentGroup, category: MistakeCategory): StudentMistake[] {
-  return expandedMistakeCategories.value.get(assignment.id)?.get(category.key) ?? []
+function categoryItems(category: MistakeCategory): StudentMistake[] {
+  return category.items
 }
 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
@@ -388,6 +355,7 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
         label: item.category_label || item.error_type,
         itemCount: 0,
         firstItem: item,
+        items: [],
         studied: true,
         similar: item.similar_occurrences,
         studentSavedOnly: true,
@@ -396,6 +364,7 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
       group.categories.push(category)
     }
     category.itemCount += 1
+    category.items.push(item)
     if (!category.firstItem) category.firstItem = item
     category.studentSavedOnly = category.studentSavedOnly && isStudentSaved(item)
     category.studied = category.studied && item.category_studied
