@@ -38,12 +38,13 @@
       </div>
     </div>
     <button
-      v-if="notes.length && notes.length < totalCount"
+      v-if="hasMore"
       type="button"
       class="wall-more"
+      :disabled="loadingMore"
       @click="emit('show-more')"
     >
-      继续显示错题（{{ notes.length }} / {{ totalCount }}）
+      {{ loadingMore ? '正在加载…' : `继续显示错题（${notes.length} / ${totalCount}）` }}
     </button>
   </div>
 </template>
@@ -69,7 +70,7 @@ export interface CorrectionNote {
   isStubborn: boolean
 }
 
-defineProps<{ notes: CorrectionNote[]; totalCount: number }>()
+defineProps<{ notes: CorrectionNote[]; totalCount: number; hasMore: boolean; loadingMore: boolean }>()
 const emit = defineEmits<{
   /** 待订正贴被撕下（动画播完）→ 父页进入该题修正工作区 */
   pick: [errorId: number]
@@ -131,6 +132,7 @@ function onNoteClick(n: CorrectionNote) {
   cursor: pointer;
 }
 .wall-more:hover { background: #fff; border-color: #b9ad8c; }
+.wall-more:disabled { opacity: 0.65; cursor: default; }
 
 /* ---------- 便利贴 ---------- */
 .note {

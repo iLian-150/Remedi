@@ -246,6 +246,38 @@ class StudentMistakeTimelinePageOut(BaseModel):
     has_more: bool
 
 
+class StudentCorrectionWallItemOut(BaseModel):
+    id: int
+    submission_id: int
+    question_subject: str
+    assignment_title: str
+    question_stem: str
+    review_status: str
+    corrected: bool
+    is_stubborn: bool
+    knowledge_point: str
+    error_type: str
+    detail: Optional[str] = None
+    step_seq: Optional[int] = None
+    step_text: Optional[str] = None
+    created_at: datetime
+    submitted_at: Optional[datetime] = None
+    image_url: Optional[str] = None
+
+
+class StudentCorrectionWallCursorOut(BaseModel):
+    created_at: datetime
+    id: int
+
+
+class StudentCorrectionWallPageOut(BaseModel):
+    items: List[StudentCorrectionWallItemOut]
+    total_count: Optional[int] = None
+    pending_count: Optional[int] = None
+    has_more: bool
+    next_cursor: Optional[StudentCorrectionWallCursorOut] = None
+
+
 class RelatedMistakeOut(BaseModel):
     id: int
     submission_id: int

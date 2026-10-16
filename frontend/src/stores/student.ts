@@ -25,6 +25,7 @@ import type {
   PhotoTranscribeResult,
   RelatedMistake,
   StudentBriefing,
+  StudentCorrectionWallPage,
   StudentMistakeCount,
   StudentProfile,
   StudentMistake,
@@ -413,6 +414,24 @@ export const useStudentStore = defineStore('student', {
     },
     async fetchCorrectionCalendarMarks(): Promise<Record<string, number>> {
       const { data } = await api.get<Record<string, number>>('/api/student/corrections/calendar-marks')
+      return data
+    },
+    async fetchCorrectionWallPage(options: {
+      date?: string
+      limit?: number
+      beforeCreatedAt?: string
+      beforeId?: number
+      includeId?: number
+    } = {}): Promise<StudentCorrectionWallPage> {
+      const { data } = await api.get<StudentCorrectionWallPage>('/api/student/corrections/wall', {
+        params: {
+          submitted_on: options.date,
+          limit: options.limit,
+          before_created_at: options.beforeCreatedAt,
+          before_id: options.beforeId,
+          include_id: options.includeId,
+        },
+      })
       return data
     },
     async fetchMistakeTimeline(options: {

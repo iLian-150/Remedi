@@ -174,6 +174,33 @@ export interface StudentMistakeTimelinePage {
   has_more: boolean
 }
 
+export interface StudentCorrectionWallItem {
+  id: number
+  submission_id: number
+  question_subject: string
+  assignment_title: string
+  question_stem: string
+  review_status: 'pending' | 'approved'
+  corrected: boolean
+  is_stubborn: boolean
+  knowledge_point: string
+  error_type: ErrorType | string
+  detail: string | null
+  step_seq: number | null
+  step_text: string | null
+  created_at: string
+  submitted_at: string | null
+  image_url: string | null
+}
+
+export interface StudentCorrectionWallPage {
+  items: StudentCorrectionWallItem[]
+  total_count?: number | null
+  pending_count?: number | null
+  has_more: boolean
+  next_cursor: { created_at: string; id: number } | null
+}
+
 export interface RelatedMistake {
   id: number
   submission_id: number

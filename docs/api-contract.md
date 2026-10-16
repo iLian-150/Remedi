@@ -890,6 +890,41 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 }
 ```
 
+### 3.40 GET /api/student/corrections/wall —— 分页读取订正便利贴
+
+权限：学生。只返回当前学生的诊断错题，包含已归档和待教师复核记录，不包含自主收录题目。默认每页 40 条，`limit` 范围为 1–100。可选 `submitted_on` 按错题所属提交日期筛选，日期优先使用 `submitted_at`，缺失时回退到错题产生时间。使用 `before_created_at` 与 `before_id` 作为联合游标，两个游标参数必须同时提供。`include_id` 可在首屏额外带回指定错题供深链定位，不影响常规分页游标和计数。
+
+响应 `200`：`items` 只含便利贴和订正工作区所需字段；`total_count` 与 `pending_count` 在首屏提供，后续页为 `null`；`has_more` 与 `next_cursor` 表示是否存在下一页及其游标。
+
+```json
+{
+  "items": [
+    {
+      "id": 12,
+      "submission_id": 8,
+      "question_subject": "math",
+      "assignment_title": "第一周数学作业",
+      "question_stem": "解方程：2x+3=7",
+      "review_status": "approved",
+      "corrected": false,
+      "is_stubborn": false,
+      "knowledge_point": "一元一次方程",
+      "error_type": "计算失误",
+      "detail": "移项后符号计算错误。",
+      "step_seq": 2,
+      "step_text": "2x=7+3",
+      "created_at": "2026-10-07T10:35:00",
+      "submitted_at": "2026-10-07T10:35:00",
+      "image_url": null
+    }
+  ],
+  "total_count": 12,
+  "pending_count": 9,
+  "has_more": true,
+  "next_cursor": {"created_at": "2026-10-06T10:35:00", "id": 4}
+}
+```
+
 ---
 
 ## 4. /api/teacher/* —— 教师端
@@ -1615,3 +1650,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.274 | 2026-10-17 | 订正日历在后端按提交日期统计错题数量，避免传输完整错题详情。 |
 | v0.13.275 | 2026-10-17 | 错题时间线改用按科目筛选的游标分页接口，仅按需读取当前显示记录。 |
 | v0.13.276 | 2026-10-17 | 订正便利贴墙分批挂载错题卡片，按需追加并在切换日期时重置首批，控制首屏 DOM 数量。 |
+| v0.13.277 | 2026-10-17 | 订正墙改用后端日期筛选和游标分页，只传输卡片与工作区所需错题字段。 |

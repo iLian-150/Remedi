@@ -1,11 +1,11 @@
 <!-- 学生端：订正错题
-     从错题本取可订正的错题（诊断产生的错题；自主收录题没有诊断记录不在此列），
+     从订正墙分页接口取诊断错题摘要（自主收录题没有诊断记录，不在此列），
      针对某条 error 提交订正，后端自动判定正误（is_correct：true/false/null）。
      v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时在结果区给出
      入口，页内打开变式题面板（VerifyPanel）做二次验证，通过验证该知识点才
      算「已修复」（原先跳学习报告页验证，本次改造随报告纯化迁回本页；墙上方
      另有「待验证的知识点」汇总入口，KP 状态读 fetchReport 的四态口径）。
-     本地 fixedIds 仅表示已订正。
+     已订正状态以服务端最新订正记录为准。
      v0.9.0 曾在页内加订正日历；v0.9.1 日历迁入右侧栏（右栏在订正页切换为
      「订正日历」模式），选中日期经 store.correctionsDateFilter 与本页共享：
      本页顶部出现筛选状态条，「查看全部」清除；低置信度错题会在教师复核同时
@@ -30,7 +30,7 @@
       <div v-if="selectedDate" class="card filter-bar">
         <div class="filter-info">
           <span class="filter-title">正在看 {{ selectedDateLabel }} 的订正</span>
-          <span class="filter-progress-text tnum">共 {{ visibleMistakes.length }} 条 · 待订正 {{ pendingCount }} 条</span>
+          <span class="filter-progress-text tnum">共 {{ totalMistakeCount }} 条 · 待订正 {{ pendingCount }} 条</span>
         </div>
         <button class="btn secondary small" @click="clearDateFilter">查看全部</button>
       </div>
@@ -59,13 +59,15 @@
       <CorrectionStickyWall
         v-if="view === 'wall'"
         :notes="wallNotes"
-        :total-count="visibleMistakes.length"
+        :total-count="totalMistakeCount"
+        :has-more="hasMoreMistakes"
+        :loading-more="loadingMoreMistakes"
         @pick="onPickNote"
         @view="onViewNote"
-        @show-more="showMoreWallNotes"
+        @show-more="loadMoreCorrectionWall"
       >
         <template #empty>
-          <template v-if="!mistakes.length">
+          <template v-if="!selectedDate && !totalMistakeCount">
             太棒了，目前没有需要订正的题目，去 <router-link to="/student/assignments" class="empty-link">作业列表</router-link> 继续挑战吧。
           </template>
           <template v-else>这一天没有需要订正的错题，换一天看看，或者点上方「查看全部」。</template>
@@ -107,7 +109,7 @@
             <span class="badge badge-blue">{{ subjectName(selectedError.question_subject) }}</span>
             <span class="badge badge-blue">{{ selectedError.knowledge_point }}</span>
             <span v-if="selectedError.review_status === 'pending'" class="badge badge-amber">老师复核中</span>
-            <span v-if="fixedIds.has(selectedError.id)" class="badge badge-green">已订正</span>
+            <span v-if="selectedError.corrected" class="badge badge-green">已订正</span>
             <span v-else-if="selectedError.is_stubborn" class="badge badge-amber">需要加固</span>
           </p>
         </div>
@@ -171,22 +173,19 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import { useAuthStore } from '../../stores/auth'
-import type { CorrectionResult, StepDiagnosis, StudentMistake } from '../../api/types'
+import type { CorrectionResult, StepDiagnosis, StudentCorrectionWallItem } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
-import { getFixedErrorIds, markErrorFixed } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import VerifyPanel from '../../components/VerifyPanel.vue'
 import CorrectionStickyWall, { type CorrectionNote } from '../../components/CorrectionStickyWall.vue'
 
 const student = useStudentStore()
-const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-/** 全部可订正错题（原始错题本条目，仅诊断产生的；自主收录题无诊断记录不能订正） */
-const mistakes = ref<StudentMistake[]>([])
+/** 当前已加载的订正墙页；服务端只返回墙面和工作区直接使用的字段。 */
+const mistakes = ref<StudentCorrectionWallItem[]>([])
 const selectedErrorId = ref<number | ''>('')
 /** 当前视图：wall 便利贴墙 / work 修正工作区（点贴撕下后进入，v0.9.3） */
 const view = ref<'wall' | 'work'>('wall')
@@ -194,16 +193,20 @@ const view = ref<'wall' | 'work'>('wall')
  * store.correctionsDateFilter，本页只读消费（筛选状态条与列表都据此响应） */
 const selectedDate = computed(() => student.correctionsDateFilter)
 const wallNotePageSize = 40
-const visibleWallLimit = ref(wallNotePageSize)
+const totalMistakeCount = ref(0)
+const pendingCount = ref(0)
+const hasMoreMistakes = ref(false)
+const loadingMoreMistakes = ref(false)
+const correctionCursor = ref<{ created_at: string; id: number } | null>(null)
+let correctionRequestGeneration = 0
 const content = ref('')
 const result = ref<CorrectionResult | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
-const fixedIds = ref<Set<number>>(new Set())
 
 /** 错题所属提交的日期键：优先后端 submitted_at，缺失时用错题产生时间兜底 */
-function mistakeDateKey(item: StudentMistake): string {
+function mistakeDateKey(item: StudentCorrectionWallItem): string {
   return (item.submitted_at ?? item.created_at).slice(0, 10)
 }
 
@@ -213,20 +216,18 @@ const selectedDateLabel = computed(() => {
   return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`
 })
 
-/** 当前可见错题原条目（选了日期就只剩那天的），贴墙与工作区都消费这份 */
-const visibleMistakes = computed(() =>
-  mistakes.value.filter((item) => !selectedDate.value || mistakeDateKey(item) === selectedDate.value)
-)
+/** 当前已读取的错题页已经由服务端按所选日期筛选。 */
+const visibleMistakes = computed(() => mistakes.value)
 
 /** 贴面日期文案：如「10月7日」 */
-function dateLabelOf(item: StudentMistake): string {
+function dateLabelOf(item: StudentCorrectionWallItem): string {
   const [, m, d] = mistakeDateKey(item).split('-')
   return `${Number(m)}月${Number(d)}日`
 }
 
 /** 便利贴墙数据：一题一贴 */
 const wallNotes = computed<CorrectionNote[]>(() =>
-  visibleMistakes.value.slice(0, visibleWallLimit.value).map((item) => ({
+  visibleMistakes.value.map((item) => ({
     errorId: item.id,
     submissionId: item.submission_id,
     stem: item.question_stem || item.step_text || '',
@@ -236,7 +237,7 @@ const wallNotes = computed<CorrectionNote[]>(() =>
     reviewStatus: item.review_status,
     assignmentTitle: item.assignment_title,
     dateLabel: dateLabelOf(item),
-    isFixed: fixedIds.value.has(item.id),
+    isFixed: item.corrected,
     isStubborn: item.is_stubborn
   }))
 )
@@ -254,34 +255,87 @@ function onViewNote(submissionId: number) {
   router.push({ path: '/student/diagnosis', query: { submission_id: submissionId } })
 }
 
-function showMoreWallNotes() {
-  visibleWallLimit.value += wallNotePageSize
-}
-
-/** 返回便利贴墙（fixedIds 已在提交成功时更新，刚订正对的贴随之变已订正样式） */
+/** 返回便利贴墙（订正状态由当前页的服务端记录同步更新） */
 function backToWall() {
   view.value = 'wall'
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-/** 筛选状态条的待订正计数（当前可见里还没订正对的） */
-const pendingCount = computed(() => {
-  let count = 0
-  for (const item of visibleMistakes.value) {
-    if (!fixedIds.value.has(item.id)) count++
-  }
-  return count
-})
-
 function clearDateFilter() {
   student.setCorrectionsDateFilter('')
 }
 
-// 右栏日历点选（含再点同一天取消）→ store 筛选变化 → 贴墙只剩当天的贴；
-// 若正在修正的题被筛掉，退回贴墙（墙面始终与筛选一致）
+async function loadCorrectionWall(reset = true, includeId?: number) {
+  const submittedOn = selectedDate.value || undefined
+  let cursor: { created_at: string; id: number } | null = null
+  let generation = correctionRequestGeneration
+  if (reset) {
+    generation = ++correctionRequestGeneration
+    mistakes.value = []
+    totalMistakeCount.value = 0
+    pendingCount.value = 0
+    hasMoreMistakes.value = false
+    correctionCursor.value = null
+    loading.value = true
+    loadingMoreMistakes.value = false
+  } else {
+    if (!hasMoreMistakes.value || !correctionCursor.value || loadingMoreMistakes.value) return
+    cursor = correctionCursor.value
+    loadingMoreMistakes.value = true
+  }
+  error.value = ''
+
+  try {
+    const page = await student.fetchCorrectionWallPage({
+      date: submittedOn,
+      limit: wallNotePageSize,
+      beforeCreatedAt: cursor?.created_at,
+      beforeId: cursor?.id,
+      includeId: reset ? includeId : undefined,
+    })
+    if (generation !== correctionRequestGeneration || selectedDate.value !== (submittedOn ?? '')) return
+
+    if (reset) {
+      mistakes.value = page.items
+    } else {
+      const loadedIds = new Set(mistakes.value.map((item) => item.id))
+      mistakes.value.push(...page.items.filter((item) => !loadedIds.has(item.id)))
+    }
+    mistakes.value.sort((a, b) =>
+      b.created_at.localeCompare(a.created_at) || b.id - a.id,
+    )
+    if (page.total_count != null) totalMistakeCount.value = page.total_count
+    if (page.pending_count != null) pendingCount.value = page.pending_count
+    hasMoreMistakes.value = page.has_more
+    correctionCursor.value = page.next_cursor
+    if (reset) syncSelection()
+  } catch (e) {
+    if (generation === correctionRequestGeneration) {
+      error.value = reset
+        ? '错题加载失败，请确认后端已启动。'
+        : '继续加载错题失败，请重试。'
+      console.error(e)
+      if (reset) syncSelection()
+    }
+  } finally {
+    if (generation === correctionRequestGeneration) {
+      loading.value = false
+      loadingMoreMistakes.value = false
+    }
+  }
+}
+
+function loadMoreCorrectionWall() {
+  return loadCorrectionWall(false)
+}
+
+// 右栏日历点选（含再点同一天取消）→ 后端只返回对应日期的订正卡片；
+// 工作区带上当前 ID，筛选掉当前题时回到便利贴墙。
 watch(selectedDate, () => {
-  visibleWallLimit.value = wallNotePageSize
-  syncSelection()
+  const includeId = view.value === 'work' && typeof selectedErrorId.value === 'number'
+    ? selectedErrorId.value
+    : undefined
+  void loadCorrectionWall(true, includeId)
 })
 
 function syncSelection() {
@@ -292,8 +346,8 @@ function syncSelection() {
   }
 }
 
-// v0.13.9：工作区直接消费错题原条目（StudentMistake）——题目回顾要用的原题、
-// 正确答案、标准解题过程、原图都在原条目上，避免映射到 GradingError 时丢失
+// 工作区消费当前页的轻量错题记录；完整作答步骤仍按提交 ID 按需读取，避免
+// 首屏请求携带错题本不需要的标准答案、相似错题和订正正文。
 const selectedError = computed(() => visibleMistakes.value.find((e) => e.id === selectedErrorId.value) ?? null)
 const correctionPlaceholder = computed(() => selectedError.value?.question_subject === 'math'
   ? '例如：2x=7-3'
@@ -393,10 +447,13 @@ async function submit() {
       error_id: Number(selectedErrorId.value),
       content: content.value.trim()
     })
-    // 订正成功 → 本地标记已修复（契约无订正记录查询接口，仅本机可知）
-    if (result.value.is_correct === true && auth.user) {
-      markErrorFixed(auth.user.id, Number(selectedErrorId.value))
-      fixedIds.value = getFixedErrorIds(auth.user.id)
+    // 订正成功后同步当前页状态和跨页汇总计数；后续页面读取以服务端记录为准。
+    if (result.value.is_correct === true) {
+      const fixedMistake = mistakes.value.find((item) => item.id === Number(selectedErrorId.value))
+      if (fixedMistake && !fixedMistake.corrected) {
+        fixedMistake.corrected = true
+        pendingCount.value = Math.max(0, pendingCount.value - 1)
+      }
     }
   } catch (e) {
     error.value = '订正提交失败：' + errDetail(e)
@@ -412,28 +469,15 @@ function errDetail(e: unknown): string {
 }
 
 onMounted(async () => {
-  loading.value = true
-  try {
-    if (auth.user) fixedIds.value = getFixedErrorIds(auth.user.id)
-    // 可订正错题的拉取/合并/过滤口径在 store 里与右栏订正日历共用一份
-    mistakes.value = await student.fetchCorrectableMistakes()
-    // 待验证知识点名单（墙上方 KP 维度验证入口的数据来源，失败不挡页面）
-    void loadAwaitingVerifyKps()
-    if (auth.user) {
-      const serverFixed = mistakes.value.filter((item) => item.latest_correction?.is_correct === true).map((item) => item.id)
-      fixedIds.value = new Set([...fixedIds.value, ...serverFixed])
-    }
-    // 深链带 error_id 时直接进该题修正工作区（沿用既有深链口径）；否则停在贴墙
-    const requestedId = Number(route.query.error_id)
-    if (visibleMistakes.value.some((item) => item.id === requestedId)) {
-      selectedErrorId.value = requestedId
-      view.value = 'work'
-    }
-  } catch (e) {
-    error.value = '错题加载失败，请确认后端已启动。'
-    console.error(e)
-  } finally {
-    loading.value = false
+  const requestedId = Number(route.query.error_id)
+  const includeId = Number.isSafeInteger(requestedId) && requestedId > 0 ? requestedId : undefined
+  await loadCorrectionWall(true, includeId)
+  // 待验证知识点名单（墙上方 KP 维度入口的数据来源，失败不挡页面）
+  void loadAwaitingVerifyKps()
+  // 深链错误 ID 通过轻量接口额外带回，避免为了定位一题下载完整错题本。
+  if (includeId && visibleMistakes.value.some((item) => item.id === includeId)) {
+    selectedErrorId.value = includeId
+    view.value = 'work'
   }
 })
 

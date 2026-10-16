@@ -81,6 +81,7 @@ from ..schemas import (
     StudentMistakeOut,
     StudentMistakeCountOut,
     StudentMistakeTimelinePageOut,
+    StudentCorrectionWallPageOut,
     StudentQuestionCaptureCreate,
     VerificationCreate,
     VerificationOut,
@@ -1210,9 +1211,22 @@ def my_mistakes(
 def correction_calendar_marks(db: Session = Depends(get_db),
                               current: User = Depends(require_student)):
     """按提交日期统计本人诊断错题，供订正日历使用，不组装错题详情。"""
-    submission_date = func.date(
-        func.coalesce(Submission.submitted_at, Error.created_at)
-    )
+    submitted_date_filter = None
+    if submitted_on is not None:
+        submitted_start = datetime.combine(submitted_on, datetime.min.time())
+        submitted_end = submitted_start + timedelta(days=1)
+        submitted_date_filter = or_(
+            and_(
+                Submission.submitted_at.isnot(None),
+                Submission.submitted_at >= submitted_start,
+                Submission.submitted_at < submitted_end,
+            ),
+            and_(
+                Submission.submitted_at.is_(None),
+                Error.created_at >= submitted_start,
+                Error.created_at < submitted_end,
+            ),
+        )
     rows = (
         db.query(
             submission_date.label("submission_date"),
@@ -1227,6 +1241,155 @@ def correction_calendar_marks(db: Session = Depends(get_db),
         str(day): int(count)
         for day, count in rows
         if day is not None
+    }
+
+
+@router.get("/corrections/wall", response_model=StudentCorrectionWallPageOut,
+            summary="分页读取订正便利贴")
+def correction_wall_page(
+    submitted_on: Optional[date] = Query(default=None),
+    limit: int = Query(default=40, ge=1, le=100),
+    before_created_at: Optional[datetime] = Query(default=None),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    include_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """按需返回订正墙卡片字段，不组装完整错题本条目。"""
+    if (before_created_at is None) != (before_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="before_created_at 与 before_id 必须同时提供",
+        )
+
+    submission_date = func.date(
+        func.coalesce(Submission.submitted_at, Error.created_at)
+    )
+    latest_correction = (
+        db.query(Correction.is_correct)
+        .filter(
+            Correction.error_id == Error.id,
+            Correction.student_id == current.id,
+        )
+        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
+        .limit(1)
+        .correlate(Error)
+        .scalar_subquery()
+    )
+    review_status = (
+        db.query(SubmissionReview.status)
+        .filter(SubmissionReview.submission_id == Submission.id)
+        .limit(1)
+        .correlate(Submission)
+        .scalar_subquery()
+    )
+    image_path = (
+        db.query(SubmissionImage.file_path)
+        .filter(SubmissionImage.submission_id == Submission.id)
+        .limit(1)
+        .correlate(Submission)
+        .scalar_subquery()
+    )
+
+    count_query = (
+        db.query(
+            func.count(Error.id),
+            func.coalesce(func.sum(case((
+                latest_correction.is_(True), 0,
+            ), else_=1)), 0),
+        )
+        .select_from(Error)
+        .join(Submission, Submission.id == Error.submission_id)
+        .filter(Submission.student_id == current.id)
+    )
+    if submitted_date_filter is not None:
+        count_query = count_query.filter(submitted_date_filter)
+    total_count = None
+    pending_count = None
+    if before_created_at is None:
+        count_row = count_query.first()
+        total_count = int(count_row[0] or 0) if count_row else 0
+        pending_count = int(count_row[1] or 0) if count_row else 0
+
+    base_query = (
+        db.query(
+            Error.id,
+            Error.submission_id,
+            Question.subject.label("question_subject"),
+            Assignment.title.label("assignment_title"),
+            Question.stem.label("question_stem"),
+            review_status.label("review_status"),
+            latest_correction.label("corrected"),
+            Error.is_stubborn,
+            Error.knowledge_point,
+            Error.error_type,
+            Error.detail,
+            Step.seq.label("step_seq"),
+            Step.text.label("step_text"),
+            Error.created_at,
+            Submission.submitted_at,
+            image_path.label("image_path"),
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .outerjoin(Step, Step.id == Error.step_id)
+        .filter(Submission.student_id == current.id)
+    )
+    if submitted_date_filter is not None:
+        base_query = base_query.filter(submitted_date_filter)
+
+    page_query = base_query
+    if before_created_at is not None and before_id is not None:
+        page_query = page_query.filter(or_(
+            Error.created_at < before_created_at,
+            and_(Error.created_at == before_created_at, Error.id < before_id),
+        ))
+    page_rows = page_query.order_by(
+        Error.created_at.desc(), Error.id.desc()
+    ).limit(limit + 1).all()
+    has_more = len(page_rows) > limit
+    items_rows = page_rows[:limit]
+    cursor_row = items_rows[-1] if has_more and items_rows else None
+
+    # 深链可以带入较早的错题；它不会改变常规分页游标或计数。
+    if include_id is not None and all(row.id != include_id for row in items_rows):
+        included = base_query.filter(Error.id == include_id).first()
+        if included is not None:
+            items_rows.append(included)
+            items_rows.sort(key=lambda row: (row.created_at, row.id), reverse=True)
+
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "submission_id": row.submission_id,
+                "question_subject": row.question_subject,
+                "assignment_title": row.assignment_title,
+                "question_stem": row.question_stem,
+                "review_status": row.review_status or review_svc.APPROVED,
+                "corrected": row.corrected is True,
+                "is_stubborn": row.is_stubborn,
+                "knowledge_point": row.knowledge_point,
+                "error_type": row.error_type,
+                "detail": student_visible_linear_error_detail(
+                    row.question_stem, row.step_text, row.step_seq,
+                ) or row.detail,
+                "step_seq": row.step_seq,
+                "step_text": row.step_text,
+                "created_at": row.created_at,
+                "submitted_at": row.submitted_at,
+                "image_url": f"/api/uploads/{row.image_path}" if row.image_path else None,
+            }
+            for row in items_rows
+        ],
+        "total_count": total_count,
+        "pending_count": pending_count,
+        "has_more": has_more,
+        "next_cursor": (
+            {"created_at": cursor_row.created_at, "id": cursor_row.id}
+            if cursor_row is not None else None
+        ),
     }
 
 
