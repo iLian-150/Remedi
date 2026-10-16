@@ -52,6 +52,7 @@ def init_db():
             ))
     # create_all 不会给已存在的表补建后来添加的索引；启动时显式幂等创建热查询表索引。
     for model in (
+        models.User,
         models.Submission,
         models.Step,
         models.Notification,

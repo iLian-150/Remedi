@@ -20,6 +20,9 @@ from .database import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index("ix_users_role_name", "role", "name"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(64), nullable=False, comment="姓名（登录用户名）")
