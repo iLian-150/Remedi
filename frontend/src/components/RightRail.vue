@@ -343,15 +343,14 @@ async function loadUnreadCount() {
 
 async function loadMarks() {
   try {
-    let list: Array<{ created_at: string }>
     if (isStudent.value) {
       // 与学生作业列表页共用轻量提交状态请求；日历只需要发布时间。
-      list = await student.fetchAssignments(false, false, true)
+      const assignments = await student.fetchAssignments(false, false, true)
+      marks.value = assignmentMarks(assignments)
     } else {
-      // 日历只需要发布时间，避免加载每份作业的题目、提交人数和配置。
-      list = await teacher.fetchTeacherAssignmentCalendarMarks()
+      // 数据库按日期汇总，避免将每份作业的发布时间都传到浏览器。
+      marks.value = await teacher.fetchTeacherAssignmentCalendarMarks()
     }
-    marks.value = assignmentMarks(list)
   } catch (e) {
     console.error(e)
   }

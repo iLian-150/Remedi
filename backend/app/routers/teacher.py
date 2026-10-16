@@ -1225,9 +1225,21 @@ def teacher_assignment_calendar_marks(
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
-    """Return only publication times used by the right-rail calendar."""
-    rows = db.query(Assignment.created_at).all()
-    return {"items": [{"created_at": created_at} for (created_at,) in rows]}
+    """Return daily assignment counts used by the right-rail calendar."""
+    created_on = func.date(Assignment.created_at)
+    rows = (
+        db.query(
+            created_on.label("created_on"),
+            func.count(Assignment.id).label("assignment_count"),
+        )
+        .group_by(created_on)
+        .all()
+    )
+    return {
+        str(day): int(count or 0)
+        for day, count in rows
+        if day is not None
+    }
 
 
 def _delete_unreferenced_submission_images(db: Session, file_paths: set[str]) -> None:
