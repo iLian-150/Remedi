@@ -115,6 +115,7 @@ from ..services.upload_files import delete_unreferenced_uploads
 from ..services.essays import present_essay, score_and_save_essay
 from ..services.providers import get_provider
 from ..services.stats import (
+    awaiting_verification_knowledge_points,
     knowledge_point_errors,
     student_briefing,
     student_profile,
@@ -1391,6 +1392,16 @@ def correction_wall_page(
             if cursor_row is not None else None
         ),
     }
+
+
+@router.get("/corrections/awaiting-verification-knowledge-points",
+            response_model=List[str], summary="待二次验证的知识点名单")
+def correction_awaiting_verification_knowledge_points(
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """只返回订正页入口所需的待验证知识点名称。"""
+    return awaiting_verification_knowledge_points(db, current, visible_only=True)
 
 
 @router.get("/mistakes/timeline", response_model=StudentMistakeTimelinePageOut,

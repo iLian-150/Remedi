@@ -4,7 +4,7 @@
      v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时在结果区给出
      入口，页内打开变式题面板（VerifyPanel）做二次验证，通过验证该知识点才
      算「已修复」（原先跳学习报告页验证，本次改造随报告纯化迁回本页；墙上方
-     另有「待验证的知识点」汇总入口，KP 状态读 fetchReport 的四态口径）。
+     另有「待验证的知识点」汇总入口，使用轻量名单接口读取待验证知识点）。
      已订正状态以服务端最新订正记录为准。
      v0.9.0 曾在页内加订正日历；v0.9.1 日历迁入右侧栏（右栏在订正页切换为
      「订正日历」模式），选中日期经 store.correctionsDateFilter 与本页共享：
@@ -399,19 +399,12 @@ function imageHref(value: string) {
 const verifyKp = ref('')
 /** 本次订正后刚在页内完成了该知识点的验证（结果区 CTA 随之换成完成提示） */
 const justVerified = ref(false)
-/** 待验证知识点名单：读学习报告四态口径（status === 'awaiting_verify'），跨科目汇总 */
+/** 待验证知识点名单：由服务端按学习报告口径聚合，并跨科目去重。 */
 const awaitingVerifyKps = ref<string[]>([])
 
 async function loadAwaitingVerifyKps() {
   try {
-    const reportData = await student.fetchReport()
-    const names = new Set<string>()
-    for (const s of reportData) {
-      for (const kp of s.knowledge_points) {
-        if (kp.status === 'awaiting_verify') names.add(kp.name)
-      }
-    }
-    awaitingVerifyKps.value = [...names]
+    awaitingVerifyKps.value = await student.fetchAwaitingVerificationKps()
   } catch (e) {
     console.error(e)
   }

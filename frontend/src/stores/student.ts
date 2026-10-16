@@ -416,6 +416,12 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<Record<string, number>>('/api/student/corrections/calendar-marks')
       return data
     },
+    async fetchAwaitingVerificationKps(): Promise<string[]> {
+      const { data } = await api.get<string[]>(
+        '/api/student/corrections/awaiting-verification-knowledge-points'
+      )
+      return data
+    },
     async fetchCorrectionWallPage(options: {
       date?: string
       limit?: number

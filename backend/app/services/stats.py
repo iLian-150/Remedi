@@ -815,6 +815,52 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     return result
 
 
+def awaiting_verification_knowledge_points(db, student: User,
+                                          visible_only: bool = False) -> List[str]:
+    """返回错题均已订正正确、但尚未通过二次验证的知识点名称。"""
+    subject_expr = case(
+        (Question.id.is_(None), "math"), else_=Question.subject,
+    )
+    pending_review = db.query(SubmissionReview.submission_id).filter(
+        SubmissionReview.submission_id == Submission.id,
+        SubmissionReview.status == "pending",
+    ).exists()
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == student.id,
+        Correction.is_correct.is_(True),
+    ).exists()
+    has_passed_verification = db.query(Verification.id).filter(
+        Verification.student_id == student.id,
+        Verification.status == "passed",
+        Verification.knowledge_point == Error.knowledge_point,
+    ).exists()
+
+    query = (
+        db.query(Error.knowledge_point)
+        .join(Submission, Submission.id == Error.submission_id)
+        .outerjoin(Question, Question.id == Submission.question_id)
+        .filter(
+            Submission.student_id == student.id,
+            ~has_passed_verification,
+        )
+    )
+    if visible_only:
+        query = query.filter(~pending_review)
+
+    rows = (
+        query.group_by(subject_expr, Error.knowledge_point)
+        .having(
+            func.count(Error.id)
+            == func.sum(case((has_correct_correction, 1), else_=0))
+        )
+        .order_by(Error.knowledge_point)
+        .all()
+    )
+    # 报告按科目分组，同名知识点可能出现多次；订正页只需要跨科目去重名单。
+    return sorted({name for (name,) in rows})
+
+
 def knowledge_point_errors(db, student: User, knowledge_point: str,
                            visible_only: bool = False) -> List[Dict]:
     """某知识点下该生的错题时间线（纵向学习记忆），按时间倒序。"""
