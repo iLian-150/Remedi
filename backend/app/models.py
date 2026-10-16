@@ -145,6 +145,14 @@ class Error(Base):
     step = relationship("Step")
 
 
+Index(
+    "ix_errors_type_created_id",
+    Error.error_type,
+    Error.created_at.desc(),
+    Error.id.desc(),
+)
+
+
 class Correction(Base):
     __tablename__ = "corrections"
     __table_args__ = (

@@ -55,6 +55,7 @@ def init_db():
         models.User,
         models.Submission,
         models.Step,
+        models.Error,
         models.Notification,
         models.SubmissionReview,
         models.Correction,

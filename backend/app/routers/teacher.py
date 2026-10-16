@@ -273,7 +273,7 @@ def list_errors(
         )
         .add_columns(SubmissionReview.status.label("review_status"))
         .add_columns(func.count(Error.id).over().label("total"))
-        .order_by(Error.created_at.desc())
+        .order_by(Error.created_at.desc(), Error.id.desc())
         .offset(offset)
         .limit(limit)
         .all()
