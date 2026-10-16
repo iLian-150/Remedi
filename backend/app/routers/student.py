@@ -2037,16 +2037,16 @@ async def photo_transcribe(file: UploadFile = File(...),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     filename = "{}_{}{}".format(
         datetime.now().strftime("%Y%m%d%H%M%S"),
         secrets.token_hex(4),
         _PHOTO_TYPES[file.content_type],
     )
+    result = await run_in_threadpool(get_provider().transcribe_image, data, file.content_type)
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     await run_in_threadpool(
         _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, filename), data
     )
-    result = await run_in_threadpool(get_provider().transcribe_image, data, file.content_type)
     return {
         "image_id": filename,
         "image_url": f"/api/uploads/{filename}",
