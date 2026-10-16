@@ -778,35 +778,50 @@ def submission_detail(submission_id: int, db: Session = Depends(get_db),
     )
 
 
+_MISTAKE_CATEGORY_RULES = (
+    ("tense", "时态运用", ("时态", "tense")),
+    (
+        "agreement",
+        "主谓一致",
+        ("主谓一致", "主语和谓语一致", "subject-verb agreement"),
+    ),
+    ("article", "冠词使用", ("冠词", "article")),
+    ("preposition", "介词使用", ("介词", "preposition")),
+    ("word_form", "词形变化", ("词形", "单复数", "词性转换", "word form")),
+    ("spelling", "拼写", ("拼写", "拼错", "spelling")),
+    ("punctuation", "标点使用", ("标点", "punctuation")),
+    ("capitalization", "大小写", ("大小写", "capitalization", "uppercase")),
+    ("calculation", "计算与运算", ("计算", "运算", "算错", "calculation")),
+    ("formula", "公式运用", ("公式", "formula")),
+    ("concept", "概念理解", ("概念", "理解错误", "概念混淆")),
+    ("unit", "单位换算", ("单位", "换算", "unit")),
+    ("sign", "符号与正负号", ("符号", "正负号", "漏负号")),
+    ("omission", "遗漏与漏写", ("遗漏", "漏写", "漏项", "漏答")),
+    ("reading", "审题与信息提取", ("审题", "看错题", "读题", "信息提取")),
+    ("expression", "表达与书写", ("表达", "书写", "格式")),
+)
+_GENERIC_MISTAKE_TYPES = frozenset({
+    "语法错误", "知识错误", "知识性错误", "综合诊断", "待确认问题",
+    "其他错误", "错误", "未分类",
+})
+
+
 def _mistake_category(subject: str, error_type: str, knowledge_point: str) -> tuple[str, str]:
     """Use the reference notebook's stable category rules, adapted to Remedi fields."""
     normalized_type = re.sub(r"\s+", "", error_type or "").casefold()
     normalized_knowledge = re.sub(r"\s+", "", knowledge_point or "").casefold()
-    categories = (
-        ("tense", "时态运用", ("时态", "tense")),
-        ("agreement", "主谓一致", ("主谓一致", "主语和谓语一致", "subject-verb agreement")),
-        ("article", "冠词使用", ("冠词", "article")),
-        ("preposition", "介词使用", ("介词", "preposition")),
-        ("word_form", "词形变化", ("词形", "单复数", "词性转换", "word form")),
-        ("spelling", "拼写", ("拼写", "拼错", "spelling")),
-        ("punctuation", "标点使用", ("标点", "punctuation")),
-        ("capitalization", "大小写", ("大小写", "capitalization", "uppercase")),
-        ("calculation", "计算与运算", ("计算", "运算", "算错", "calculation")),
-        ("formula", "公式运用", ("公式", "formula")),
-        ("concept", "概念理解", ("概念", "理解错误", "概念混淆")),
-        ("unit", "单位换算", ("单位", "换算", "unit")),
-        ("sign", "符号与正负号", ("符号", "正负号", "漏负号")),
-        ("omission", "遗漏与漏写", ("遗漏", "漏写", "漏项", "漏答")),
-        ("reading", "审题与信息提取", ("审题", "看错题", "读题", "信息提取")),
-        ("expression", "表达与书写", ("表达", "书写", "格式")),
+    primary = (
+        normalized_knowledge
+        if normalized_type in _GENERIC_MISTAKE_TYPES
+        else normalized_type
     )
-    generic_types = {"语法错误", "知识错误", "知识性错误", "综合诊断", "待确认问题", "其他错误", "错误", "未分类"}
-    primary = normalized_knowledge if normalized_type in generic_types else normalized_type
     subject_key = subject or "other"
-    for code, label, tokens in categories:
+    for code, label, tokens in _MISTAKE_CATEGORY_RULES:
         if any(token in primary for token in tokens) or any(token in normalized_knowledge for token in tokens):
             return f"{subject_key}:{code}", label
-    fallback_source = knowledge_point if normalized_type in generic_types else error_type
+    fallback_source = (
+        knowledge_point if normalized_type in _GENERIC_MISTAKE_TYPES else error_type
+    )
     fallback = str(fallback_source or error_type or "待归类").strip()
     normalized_fallback = (re.sub(r"[\s，。；：、,.!?！？]+", "", fallback).casefold() or "待归类")[:160]
     return f"{subject_key}:other:{normalized_fallback}", fallback
@@ -892,6 +907,20 @@ def my_mistakes(
     image_path_by_submission = {}
     rows = []
     latest_by_category_assignment = {}
+    category_by_values: dict[tuple[str, str, str], tuple[str, str]] = {}
+
+    def category_for_fields(
+        subject: Optional[str],
+        error_type: Optional[str],
+        knowledge_point: Optional[str],
+    ) -> tuple[str, str]:
+        key = (subject or "other", error_type or "", knowledge_point or "")
+        category = category_by_values.get(key)
+        if category is None:
+            category = _mistake_category(*key)
+            category_by_values[key] = category
+        return category
+
     for (
         error,
         submission,
@@ -916,7 +945,7 @@ def my_mistakes(
             archived_at_by_error[error.id] = archived_at
         # 查询按错题时间倒序；每个类别和作业只保存首次遇到的最新记录，
         # 后续生成相似错题只需要这些代表项，无需在内存保留全部历史 ORM 行。
-        category_key, _ = _mistake_category(
+        category_key, _ = category_for_fields(
             question.subject, error.error_type, error.knowledge_point
         )
         category_assignments = latest_by_category_assignment.setdefault(
@@ -1069,7 +1098,7 @@ def my_mistakes(
         )
     linear_detail_by_step = {}
     for error, submission, question, assignment, step in rows:
-        category_key, category_label = _mistake_category(
+        category_key, category_label = category_for_fields(
             question.subject, error.error_type, error.knowledge_point
         )
         correction = correction_by_error.get(error.id)
