@@ -18,6 +18,7 @@ import type {
   CorrectionResult,
   EssayResult,
   EssaySummary,
+  LatestQuestionSubmissionStatus,
   KnowledgePointErrorItem,
   NotificationList,
   PageResult,
@@ -381,6 +382,12 @@ export const useStudentStore = defineStore('student', {
         params: { ...(questionId ? { question_id: questionId } : {}), limit }
       })
       return data.items
+    },
+    async fetchLatestQuestionSubmissionStatuses(): Promise<LatestQuestionSubmissionStatus[]> {
+      const { data } = await api.get<LatestQuestionSubmissionStatus[]>(
+        '/api/student/submissions/latest-status'
+      )
+      return data
     },
     // 错题本：全部诊断错误，附作业、分类、订正与历史同类错误
     fetchMyMistakes(archived = false): Promise<StudentMistake[]> {

@@ -79,6 +79,7 @@ from ..schemas import (
     MistakeCategoryStudyIn,
     SubmissionBrief,
     SubmissionCreate,
+    SubmissionQuestionStatusOut,
     StudentMistakeOut,
     StudentMistakeCountOut,
     StudentMistakeReviewSummaryOut,
@@ -759,6 +760,73 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
             score=score, max_score=max_score,
         ))
     return {"total": total, "items": items}
+
+
+@router.get("/submissions/latest-status",
+            response_model=List[SubmissionQuestionStatusOut],
+            summary="每道题的最新提交状态与得分")
+def latest_submission_statuses(db: Session = Depends(get_db),
+                               current: User = Depends(require_student)):
+    """按题目只返回最新提交状态及可见成绩，供交作业页初始化题目状态。"""
+    latest_submissions = db.query(
+        Submission.id.label("submission_id"),
+        func.row_number().over(
+            partition_by=Submission.question_id,
+            order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+        ).label("row_num"),
+    ).filter(
+        Submission.student_id == current.id,
+    ).subquery()
+    rows = (
+        db.query(Submission, SubmissionReview.status.label("review_status"))
+        .join(
+            latest_submissions,
+            and_(
+                latest_submissions.c.submission_id == Submission.id,
+                latest_submissions.c.row_num == 1,
+            ),
+        )
+        .outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        )
+        .options(
+            load_only(
+                Submission.id, Submission.question_id,
+                Submission.status, Submission.submitted_at,
+            ),
+            joinedload(Submission.question).load_only(
+                Question.id, Question.assignment_id,
+            ),
+        )
+        .filter(Submission.student_id == current.id)
+        .order_by(Submission.question_id)
+        .all()
+    )
+    visible_submissions = [
+        submission
+        for submission, review_status in rows
+        if review_status != review_svc.PENDING
+    ]
+    scores_by_submission = {}
+    for start in range(0, len(visible_submissions), 300):
+        scores_by_submission.update(
+            scoring_svc.visible_scores(
+                db, visible_submissions[start:start + 300]
+            )
+        )
+
+    result = []
+    for submission, review_status in rows:
+        score = scores_by_submission.get(submission.id)
+        result.append(SubmissionQuestionStatusOut(
+            question_id=submission.question_id,
+            status=submission.status,
+            review_status=review_status or review_svc.APPROVED,
+            score=score["score"] if score else None,
+            max_score=score["max_score"] if score else None,
+        ))
+    return result
 
 
 @router.get("/submissions/{submission_id}", response_model=DiagnosisOut, summary="提交详情")

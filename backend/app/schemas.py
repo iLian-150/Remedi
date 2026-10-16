@@ -173,6 +173,14 @@ class SubmissionBrief(BaseModel):
     max_score: Optional[float] = None
 
 
+class SubmissionQuestionStatusOut(BaseModel):
+    question_id: int
+    status: str
+    review_status: str = "approved"
+    score: Optional[float] = None
+    max_score: Optional[float] = None
+
+
 class MistakeCorrectionBrief(BaseModel):
     id: int
     content: str

@@ -281,7 +281,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { Assignment, AssignmentDetail, Question, RelatedMistake, SubmissionResult, SubmissionSummary } from '../../api/types'
+import type { Assignment, AssignmentDetail, LatestQuestionSubmissionStatus, Question, RelatedMistake, SubmissionResult } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import PhotoGradeFlow from '../../components/PhotoGradeFlow.vue'
 import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
@@ -686,27 +686,20 @@ function onGraded(qid: number, result: SubmissionResult) {
 onMounted(async () => {
   loading.value = true
   try {
-    const [list, subs] = await Promise.all([
+    const [list, statuses] = await Promise.all([
       student.fetchAssignments(),
-      student.fetchMySubmissions().catch(() => [])
+      student.fetchLatestQuestionSubmissionStatuses().catch(() => [])
     ])
     assignments.value = list
-    // 每道题取最新一次提交定状态（列表按时间倒序，首见即最新）
-    const latestByQid = new Map<number, SubmissionSummary>()
-    subs.forEach((s) => {
-      if (!latestByQid.has(s.question_id)) latestByQid.set(s.question_id, s)
-    })
-    latestByQid.forEach((s, qid) => {
+    // 后端按题目只返回最新提交，状态不受提交历史分页上限影响。
+    statuses.forEach((s: LatestQuestionSubmissionStatus) => {
+      const qid = s.question_id
       if (s.status === 'deferred') deferredQids.value.add(qid)
       else if ((s.review_status ?? 'approved') === 'pending') pendingQids.value.add(qid)
       else doneQids.value.add(qid)
     })
-    // 评分系统：每题最新一次提交若已通过且有分，记下得分 chip 数据
-    const seenScore = new Set<number>()
     const scores: Record<number, { score: number; max: number }> = {}
-    subs.forEach((s) => {
-      if (seenScore.has(s.question_id)) return
-      seenScore.add(s.question_id)
+    statuses.forEach((s) => {
       if (s.score !== null && s.score !== undefined && s.max_score !== null && s.max_score !== undefined) {
         scores[s.question_id] = { score: s.score, max: s.max_score }
       }

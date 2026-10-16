@@ -281,6 +281,14 @@ export interface SubmissionSummary {
   max_score?: number | null // 评分系统：本题满分
 }
 
+export interface LatestQuestionSubmissionStatus {
+  question_id: number
+  status: string
+  review_status?: 'pending' | 'approved' | null
+  score?: number | null
+  max_score?: number | null
+}
+
 // ---------- 英语作文 ----------
 export interface EssayScores {
   content: number
