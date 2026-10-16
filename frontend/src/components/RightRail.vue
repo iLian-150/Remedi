@@ -224,6 +224,7 @@ interface ReviewCategory {
 const reviewRaw = ref<StudentMistake[]>([])
 const reviewLoading = ref(false)
 const reviewError = ref(false)
+let reviewLoadGeneration = 0
 const reviewSummary = computed(() => {
   const groups = new Map<string, ReviewCategory>()
   for (const item of reviewRaw.value) {
@@ -411,18 +412,22 @@ function reviewSubjectName(value: string) {
 }
 
 async function loadMistakeReview() {
+  const generation = ++reviewLoadGeneration
   reviewLoading.value = true
   reviewError.value = false
   try {
-    reviewRaw.value = await student.fetchMyMistakes(false)
+    const items = await student.fetchMyMistakes(false)
+    if (generation !== reviewLoadGeneration) return
+    reviewRaw.value = items
     student.mistakeReviewCount = reviewCategories.value.length
   } catch (e) {
+    if (generation !== reviewLoadGeneration) return
     reviewRaw.value = []
     student.mistakeReviewCount = 0
     reviewError.value = true
     console.error(e)
   } finally {
-    reviewLoading.value = false
+    if (generation === reviewLoadGeneration) reviewLoading.value = false
   }
 }
 
@@ -431,8 +436,18 @@ function beginReview(mistakeId: number) {
   void router.push({ path: '/student/mistakes', query: { review: String(mistakeId) } })
 }
 
-function onMistakeReviewChanged() {
-  if (props.mode === 'mistakes') void loadMistakeReview()
+function onMistakeReviewChanged(event: Event) {
+  if (props.mode !== 'mistakes') return
+  const items = (event as CustomEvent<{ items?: StudentMistake[] }>).detail?.items
+  if (Array.isArray(items)) {
+    reviewLoadGeneration += 1
+    reviewRaw.value = items
+    reviewLoading.value = false
+    reviewError.value = false
+    student.mistakeReviewCount = reviewCategories.value.length
+    return
+  }
+  void loadMistakeReview()
 }
 
 async function loadForMode() {

@@ -360,7 +360,7 @@ function openSimilarOriginal(previous: StudentMistake['similar_occurrences'][num
 }
 function resetFilters() { subject.value = 'all'; status.value = 'all'; query.value = '' }
 
-async function loadMistakes() {
+async function loadMistakes(): Promise<boolean> {
   loading.value = true
   loadError.value = ''
   actionError.value = ''
@@ -369,10 +369,15 @@ async function loadMistakes() {
     mistakesLoaded.value = true
     if (selectedMistake.value) selectedMistake.value = allMistakes.value.find((item) => item.id === selectedMistake.value?.id) || null
     openRequestedReview()
+    return true
   } catch (reason) {
     loadError.value = '错题本加载失败，请确认后端已启动。'
     console.error(reason)
+    return false
   } finally { loading.value = false }
+}
+function notifyMistakeReviewChanged(items?: StudentMistake[]) {
+  window.dispatchEvent(new CustomEvent('mistake-review-changed', { detail: { items } }))
 }
 async function toggleCategory(assignment: AssignmentGroup, category: MistakeCategory) {
   await toggleCategoryByPayload({ assignment_id: assignment.id, category_key: category.key, studied: !category.studied })
@@ -385,7 +390,7 @@ async function toggleCategoryByPayload(payload: { assignment_id: number; categor
     await student.setMistakeCategoryStudied(payload)
     allMistakes.value = allMistakes.value.map((item) => item.assignment_id === payload.assignment_id && item.category_key === payload.category_key ? { ...item, category_studied: payload.studied } : item)
     if (selectedMistake.value?.assignment_id === payload.assignment_id && selectedMistake.value.category_key === payload.category_key) selectedMistake.value = { ...selectedMistake.value, category_studied: payload.studied }
-    window.dispatchEvent(new Event('mistake-review-changed'))
+    notifyMistakeReviewChanged(allMistakes.value)
   } catch {
     actionError.value = '学习状态保存失败，请稍后重试。'
   } finally { workingKey.value = '' }
@@ -405,8 +410,8 @@ async function archiveAssignment(assignment: AssignmentGroup) {
     await student.setMistakeAssignmentArchived(assignment.id, true)
     removedAssignment.value = { id: assignment.id, title: assignment.title, ids: assignment.items.map((item) => item.id) }
     closeAssistant()
-    await loadMistakes()
-    window.dispatchEvent(new Event('mistake-review-changed'))
+    const refreshed = await loadMistakes()
+    notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
   } catch { actionError.value = '整份作业移出失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
@@ -420,8 +425,8 @@ async function archiveSaved(mistake: StudentMistake) {
   try {
     await student.setMistakeArchived(mistake.id, true)
     closeAssistant()
-    await loadMistakes()
-    window.dispatchEvent(new Event('mistake-review-changed'))
+    const refreshed = await loadMistakes()
+    notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
   } catch { actionError.value = '移出错题本失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
@@ -433,8 +438,8 @@ async function restoreAssignment() {
   try {
     await student.setMistakeAssignmentArchived(removed.id, false, removed.ids)
     removedAssignment.value = null
-    await loadMistakes()
-    window.dispatchEvent(new Event('mistake-review-changed'))
+    const refreshed = await loadMistakes()
+    notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
   } catch { actionError.value = '恢复作业失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
