@@ -106,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { SubmissionResult, SubmissionSummary } from '../../api/types'
@@ -123,6 +123,8 @@ const submissions = ref<SubmissionSummary[]>([])
 const selectedSubmissionId = ref<number | ''>('')
 const mathDetail = ref<SubmissionResult | null>(null)
 const mathLoading = ref(false)
+const submissionsLoaded = ref(false)
+let detailRequestToken = 0
 
 function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
@@ -133,29 +135,46 @@ function fmtScore(v: number): string {
 }
 
 async function loadMathDetail() {
-  if (!selectedSubmissionId.value) return
-  mathLoading.value = true
+  const submissionId = Number(selectedSubmissionId.value)
+  const requestToken = ++detailRequestToken
+  error.value = ''
   mathDetail.value = null
+  if (!Number.isSafeInteger(submissionId) || submissionId <= 0) {
+    mathLoading.value = false
+    return
+  }
+  mathLoading.value = true
   try {
-    mathDetail.value = await student.fetchSubmissionDetail(Number(selectedSubmissionId.value))
+    const detail = await student.fetchSubmissionDetail(submissionId)
+    if (requestToken !== detailRequestToken || Number(selectedSubmissionId.value) !== submissionId) return
+    mathDetail.value = detail
   } catch (e) {
+    if (requestToken !== detailRequestToken || Number(selectedSubmissionId.value) !== submissionId) return
     error.value = '批改结果加载失败。'
     console.error(e)
   } finally {
-    mathLoading.value = false
+    if (requestToken === detailRequestToken) mathLoading.value = false
   }
 }
+
+function selectSubmissionFromRoute() {
+  const rawPreset = route.query.submission_id
+  const preset = typeof rawPreset === 'string' ? Number(rawPreset) : Number.NaN
+  const target = submissions.value.find((s) => s.id === preset) ?? submissions.value[0]
+  selectedSubmissionId.value = target?.id ?? ''
+  void loadMathDetail()
+}
+
+watch(() => route.query.submission_id, () => {
+  if (submissionsLoaded.value) selectSubmissionFromRoute()
+})
 
 onMounted(async () => {
   try {
     submissions.value = await student.fetchMySubmissions()
+    submissionsLoaded.value = true
     // 学习报告时间线跳入时带 ?submission_id=，优先预选该次提交
-    const preset = Number(route.query.submission_id)
-    const target = submissions.value.find((s) => s.id === preset) ?? submissions.value[0]
-    if (target) {
-      selectedSubmissionId.value = target.id
-      await loadMathDetail()
-    }
+    selectSubmissionFromRoute()
   } catch (e) {
     error.value = '提交记录加载失败，请确认后端已启动。'
     console.error(e)
