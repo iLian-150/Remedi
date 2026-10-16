@@ -217,18 +217,14 @@ const selectedDateLabel = computed(() => {
   return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`
 })
 
-/** 当前已读取的错题页已经由服务端按所选日期筛选。 */
-const visibleMistakes = computed(() => mistakes.value)
-
 /** 贴面日期文案：如「10月7日」 */
 function dateLabelOf(item: StudentCorrectionWallItem): string {
   const [, m, d] = mistakeDateKey(item).split('-')
   return `${Number(m)}月${Number(d)}日`
 }
 
-/** 便利贴墙数据：一题一贴 */
-const wallNotes = computed<CorrectionNote[]>(() =>
-  visibleMistakes.value.map((item) => ({
+function toCorrectionNote(item: StudentCorrectionWallItem): CorrectionNote {
+  return {
     errorId: item.id,
     submissionId: item.submission_id,
     stem: item.question_stem || item.step_text || '',
@@ -240,8 +236,12 @@ const wallNotes = computed<CorrectionNote[]>(() =>
     dateLabel: dateLabelOf(item),
     isFixed: item.corrected,
     isStubborn: item.is_stubborn
-  }))
-)
+  }
+}
+
+/** 便利贴墙数据按分页增量维护，避免每次追加时重新转换全部已加载记录。 */
+const wallNotes = ref<CorrectionNote[]>([])
+const correctionNotesById = new Map<number, CorrectionNote>()
 
 /** 点待订正的贴（撕下动画播完）→ 进入该题修正工作区 */
 function onPickNote(errorId: number) {
@@ -274,6 +274,8 @@ async function loadCorrectionWall(reset = true, includeId?: number) {
     generation = ++correctionRequestGeneration
     mistakes.value = []
     loadedMistakesById.clear()
+    wallNotes.value = []
+    correctionNotesById.clear()
     totalMistakeCount.value = 0
     pendingCount.value = 0
     hasMoreMistakes.value = false
@@ -305,12 +307,18 @@ async function loadCorrectionWall(reset = true, includeId?: number) {
       mistakes.value.sort((a, b) =>
         b.created_at.localeCompare(a.created_at) || b.id - a.id,
       )
+      wallNotes.value = mistakes.value.map(toCorrectionNote)
+      correctionNotesById.clear()
+      for (const note of wallNotes.value) correctionNotesById.set(note.errorId, note)
     } else {
       for (const item of page.items) {
         if (loadedMistakesById.has(item.id)) continue
         mistakes.value.push(item)
         const loadedItem = mistakes.value[mistakes.value.length - 1]
         loadedMistakesById.set(loadedItem.id, loadedItem)
+        wallNotes.value.push(toCorrectionNote(loadedItem))
+        const loadedNote = wallNotes.value[wallNotes.value.length - 1]
+        correctionNotesById.set(loadedNote.errorId, loadedNote)
       }
     }
     if (page.total_count != null) totalMistakeCount.value = page.total_count
@@ -465,6 +473,8 @@ async function submit() {
       const fixedMistake = loadedMistakesById.get(Number(selectedErrorId.value))
       if (fixedMistake && !fixedMistake.corrected) {
         fixedMistake.corrected = true
+        const note = correctionNotesById.get(fixedMistake.id)
+        if (note) note.isFixed = true
         pendingCount.value = Math.max(0, pendingCount.value - 1)
       }
     }
