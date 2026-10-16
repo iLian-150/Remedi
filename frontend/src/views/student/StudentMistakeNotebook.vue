@@ -214,6 +214,23 @@ const visibleAssignments = computed(() => {
 const displayedAssignments = computed(() =>
   visibleAssignments.value.slice(0, visibleAssignmentLimit.value)
 )
+const mistakesByAssignmentCategory = computed(() => {
+  const grouped = new Map<number, Map<string, StudentMistake[]>>()
+  for (const item of allMistakes.value) {
+    let categories = grouped.get(item.assignment_id)
+    if (!categories) {
+      categories = new Map()
+      grouped.set(item.assignment_id, categories)
+    }
+    let categoryItems = categories.get(item.category_key)
+    if (!categoryItems) {
+      categoryItems = []
+      categories.set(item.category_key, categoryItems)
+    }
+    categoryItems.push(item)
+  }
+  return grouped
+})
 const expandedMistakeCategories = computed<ExpandedMistakeCategories>(() => {
   const expandedIds = new Set(
     displayedAssignments.value
@@ -222,20 +239,10 @@ const expandedMistakeCategories = computed<ExpandedMistakeCategories>(() => {
   )
   const categoriesByAssignment: ExpandedMistakeCategories = new Map()
   if (!expandedIds.size) return categoriesByAssignment
-
-  for (const item of allMistakes.value) {
-    if (!expandedIds.has(item.assignment_id)) continue
-    let categories = categoriesByAssignment.get(item.assignment_id)
-    if (!categories) {
-      categories = new Map()
-      categoriesByAssignment.set(item.assignment_id, categories)
-    }
-    let categoryItems = categories.get(item.category_key)
-    if (!categoryItems) {
-      categoryItems = []
-      categories.set(item.category_key, categoryItems)
-    }
-    categoryItems.push(item)
+  const grouped = mistakesByAssignmentCategory.value
+  for (const assignmentId of expandedIds) {
+    const categories = grouped.get(assignmentId)
+    if (categories) categoriesByAssignment.set(assignmentId, categories)
   }
   return categoriesByAssignment
 })
