@@ -513,8 +513,6 @@ async function toggleAssistantStudy() {
 }
 async function archiveAssignment(assignment: AssignmentGroup) {
   if (!assignment.ready) return
-  const assignmentItems = allMistakes.value
-    .filter((item) => item.assignment_id === assignment.id)
   workingKey.value = `archive:${assignment.id}`
   actionError.value = ''
   try {
@@ -525,7 +523,15 @@ async function archiveAssignment(assignment: AssignmentGroup) {
       return
     }
     const archivedIdSet = new Set(archivedIds)
-    const archivedItems = assignmentItems.filter((item) => archivedIdSet.has(item.id))
+    const archivedItems: StudentMistake[] = []
+    for (const category of assignment.categories) {
+      for (const item of category.items) {
+        if (archivedIdSet.has(item.id)) archivedItems.push(item)
+      }
+    }
+    archivedItems.sort((a, b) =>
+      b.created_at.localeCompare(a.created_at) || b.id - a.id,
+    )
     removedAssignment.value = {
       id: assignment.id,
       title: assignment.title,
@@ -566,13 +572,30 @@ async function restoreAssignment() {
     removedAssignment.value = null
     if (restoredIds.length === removed.ids.length && removed.items.length === removed.ids.length) {
       const restoredIdSet = new Set(restoredIds)
-      const merged = new Map(allMistakes.value.map((item) => [item.id, item]))
-      for (const item of removed.items) {
-        if (restoredIdSet.has(item.id)) merged.set(item.id, item)
+      const restoredItems = removed.items.filter((item) => restoredIdSet.has(item.id))
+      const currentItems = allMistakes.value
+      const merged: StudentMistake[] = []
+      let currentIndex = 0
+      let restoredIndex = 0
+      // 当前列表和已移出列表都按创建时间倒序，线性合并可避免重新排序全量错题。
+      while (currentIndex < currentItems.length && restoredIndex < restoredItems.length) {
+        const current = currentItems[currentIndex]
+        const restoredItem = restoredItems[restoredIndex]
+        if (current.id === restoredItem.id) {
+          merged.push(restoredItem)
+          currentIndex += 1
+          restoredIndex += 1
+        } else if (current.created_at.localeCompare(restoredItem.created_at) >= 0) {
+          merged.push(current)
+          currentIndex += 1
+        } else {
+          merged.push(restoredItem)
+          restoredIndex += 1
+        }
       }
-      allMistakes.value = Array.from(merged.values()).sort((a, b) =>
-        b.created_at.localeCompare(a.created_at),
-      )
+      while (currentIndex < currentItems.length) merged.push(currentItems[currentIndex++])
+      while (restoredIndex < restoredItems.length) merged.push(restoredItems[restoredIndex++])
+      allMistakes.value = merged
       notifyMistakeReviewChanged(allMistakes.value)
     } else {
       const refreshed = await loadMistakes()
