@@ -198,6 +198,7 @@ const pendingCount = ref(0)
 const hasMoreMistakes = ref(false)
 const loadingMoreMistakes = ref(false)
 const correctionCursor = ref<{ created_at: string; id: number } | null>(null)
+const loadedMistakeIds = new Set<number>()
 let correctionRequestGeneration = 0
 const content = ref('')
 const result = ref<CorrectionResult | null>(null)
@@ -272,6 +273,7 @@ async function loadCorrectionWall(reset = true, includeId?: number) {
   if (reset) {
     generation = ++correctionRequestGeneration
     mistakes.value = []
+    loadedMistakeIds.clear()
     totalMistakeCount.value = 0
     pendingCount.value = 0
     hasMoreMistakes.value = false
@@ -297,13 +299,19 @@ async function loadCorrectionWall(reset = true, includeId?: number) {
 
     if (reset) {
       mistakes.value = page.items
+      loadedMistakeIds.clear()
+      for (const item of page.items) loadedMistakeIds.add(item.id)
+      // 首屏可能额外包含深链错题，先统一排序；后续页由联合游标保证顺序。
+      mistakes.value.sort((a, b) =>
+        b.created_at.localeCompare(a.created_at) || b.id - a.id,
+      )
     } else {
-      const loadedIds = new Set(mistakes.value.map((item) => item.id))
-      mistakes.value.push(...page.items.filter((item) => !loadedIds.has(item.id)))
+      for (const item of page.items) {
+        if (loadedMistakeIds.has(item.id)) continue
+        loadedMistakeIds.add(item.id)
+        mistakes.value.push(item)
+      }
     }
-    mistakes.value.sort((a, b) =>
-      b.created_at.localeCompare(a.created_at) || b.id - a.id,
-    )
     if (page.total_count != null) totalMistakeCount.value = page.total_count
     if (page.pending_count != null) pendingCount.value = page.pending_count
     hasMoreMistakes.value = page.has_more
