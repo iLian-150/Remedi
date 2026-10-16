@@ -115,7 +115,7 @@ const MistakeStickyNotes = defineAsyncComponent(
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
 interface MistakeCategory { key: string; label: string; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
-interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; items: StudentMistake[]; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; searchText: string | null; priority: number }
+interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; itemCount: number; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; searchText: string | null; priority: number }
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
 interface NotebookData {
   subjectOptions: Array<{ key: string; label: string }>
@@ -317,7 +317,7 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
         title: item.assignment_title,
         createdAt: item.assignment_created_at,
         subject: item.question_subject,
-        items: [],
+        itemCount: 0,
         categories: [],
         ready: false,
         studentSavedOnly: true,
@@ -328,7 +328,7 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
       groups.set(item.assignment_id, group)
       categoriesByAssignment.set(item.assignment_id, new Map())
     }
-    group.items.push(item)
+    group.itemCount += 1
     group.studentSavedOnly = group.studentSavedOnly && isStudentSaved(item)
     group.priority += item.similar_occurrences.length + Number(item.is_stubborn)
     const categoryIndex = categoriesByAssignment.get(item.assignment_id)!
@@ -376,8 +376,8 @@ function safe(value: string) { return sanitizeStudentCopy(value) }
 function isStudentSaved(item: StudentMistake) { return item.source_kind === 'student_saved' }
 function assignmentSummary(assignment: AssignmentGroup) {
   return assignment.studentSavedOnly
-    ? `${assignment.items.length} 道自主收录题目`
-    : `${assignment.items.length} 条错题 · ${assignment.categories.length} 类错误`
+    ? `${assignment.itemCount} 道自主收录题目`
+    : `${assignment.itemCount} 条错题 · ${assignment.categories.length} 类错误`
 }
 function studyKey(assignmentId: number, categoryKey: string) { return `${assignmentId}:${categoryKey}` }
 function ensureSupplementalStyles() {
@@ -490,11 +490,14 @@ async function toggleAssistantStudy() {
 }
 async function archiveAssignment(assignment: AssignmentGroup) {
   if (!assignment.ready) return
+  const occurrenceIds = assignment.categories.flatMap((category) =>
+    category.items.map((item) => item.id)
+  )
   workingKey.value = `archive:${assignment.id}`
   actionError.value = ''
   try {
     await student.setMistakeAssignmentArchived(assignment.id, true)
-    removedAssignment.value = { id: assignment.id, title: assignment.title, ids: assignment.items.map((item) => item.id) }
+    removedAssignment.value = { id: assignment.id, title: assignment.title, ids: occurrenceIds }
     closeAssistant()
     const refreshed = await loadMistakes()
     notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
