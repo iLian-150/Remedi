@@ -93,7 +93,7 @@
           <p class="encourage">
             {{ e.is_stubborn ? '这个知识点还需要再加固一下，多练几道同类题会有帮助。' : '这是一次偶发的小失误，下次细心一点就好。' }}
           </p>
-          <p class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
+          <p v-if="e.detail" class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
           <div class="toolbar" style="margin-top: 8px; margin-bottom: 0">
             <router-link to="/student/corrections"><button class="btn small secondary">去订正这道题</button></router-link>
           </div>

@@ -244,6 +244,8 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `errors[].error_type` 枚举：`计算失误` | `概念混淆` | `审题遗漏` | `无法解析`。
 - `errors[].confidence`：0~1。规则命中概念误区 0.85 / 算术小偏差 0.7 / 兜底 0.5 / 无法解析 0.3。
 - `errors[].is_stubborn`：该生该知识点近 N 天（默认 30 天，可配 `STUBBORN_WINDOW_DAYS`）内再次出错即为 `true`（顽固误区），否则为偶发失误。
+- `errors[].step_seq` / `errors[].step_text`：无关联作答步骤时为 `null`。
+- `errors[].detail`：没有诊断说明时为 `null`。
 - `follow_up_question`（v0.4.0 新增）：按主错因（与 `first_error_seq` 同口径）+ 知识点由模板生成的一句启发式追问，引导学生先自己想明白错在哪；全对（`errors` 为空）时为 `null`。GET 3.5 提交详情同结构，同样带此字段。
 - **低置信度教师复核（v0.9.0 新增、v0.13.13 调整）**：经实时批改入口（3.3 / 3.31 / photo-diagnose）产生的新提交中，只要有任一错因 `confidence < 0.60`，整份提交进入教师审核队列（新表 `submission_reviews`，`status=pending`）；恰好 `0.60` 不进入审核，全对提交也不进入。复核与学生错题/订正流程并行：
   - 3.3 / 3.5 / 拍照批改响应仍标记 `status = "pending_review"`、`review_status = "pending"`，但立即返回完整 `steps`、`errors`、`first_error_seq` 与 `follow_up_question`；学生可查看诊断、错题会立即出现在错题本并可进入订正区。待审核时 `score = null`，成绩仍跟审核一起放行。

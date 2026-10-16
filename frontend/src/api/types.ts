@@ -96,13 +96,13 @@ export interface StepDiagnosis {
 export interface GradingError {
   id: number
   submission_id: number
-  step_seq: number
-  step_text: string
+  step_seq: number | null
+  step_text: string | null
   knowledge_point: string
   error_type: ErrorType | string
   confidence: number // 0~1
   is_stubborn: boolean // 顽固误区
-  detail: string
+  detail: string | null
   teacher_corrected: boolean
   teacher_note: string | null
   created_at: string
