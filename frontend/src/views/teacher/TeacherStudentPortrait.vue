@@ -29,7 +29,7 @@
           <h3>个人知识轨迹</h3>
           <p class="card-sub">按时间倒序：三色圆点 = 错因类型；红色「顽固」标签为需重点跟进的误区。</p>
           <div class="timeline" v-if="allRecords.length">
-            <div v-for="r in allRecords" :key="r.id" class="timeline-item">
+            <div v-for="r in visibleRecords" :key="r.id" class="timeline-item">
               <span :class="errorTypeDotClass(r.error_type)"></span>
               <div class="timeline-time tnum">{{ fmtTime(r.created_at) }}</div>
               <div class="timeline-body">
@@ -49,6 +49,12 @@
             </div>
           </div>
           <div v-else class="empty">该学生暂无错误记录。</div>
+          <button
+            v-if="visibleRecords.length < allRecords.length"
+            type="button"
+            class="btn small secondary portrait-more"
+            @click="showMoreRecords"
+          >继续显示记录（{{ visibleRecords.length }} / {{ allRecords.length }}）</button>
         </div>
 
         <div class="portrait-side">
@@ -99,17 +105,47 @@ interface PortraitRecord {
 const totalAttempts = computed(() => profile.value?.knowledge_points.reduce((s, k) => s + k.attempts, 0) ?? 0)
 const totalErrors = computed(() => profile.value?.knowledge_points.reduce((s, k) => s + k.errors, 0) ?? 0)
 
-// 纵向错误记录：顽固 + 最近错误去重后按时间倒序
+// 两份后端列表均已按时间倒序，线性合并以避免对全部历史再次排序。
 const allRecords = computed<PortraitRecord[]>(() => {
-  const map = new Map<number, PortraitRecord>()
-  for (const record of profile.value?.stubborn_errors ?? []) {
-    map.set(record.id, { ...record, is_stubborn: true })
+  const stubbornErrors = (profile.value?.stubborn_errors ?? []).map((record) => ({
+    ...record,
+    is_stubborn: true,
+  }))
+  const recentErrors = (profile.value?.recent_errors ?? []).map((record) => ({ ...record }))
+  const recordsById = new Map<number, PortraitRecord>()
+  for (const record of stubbornErrors) recordsById.set(record.id, record)
+  const recentOnly: PortraitRecord[] = []
+  for (const record of recentErrors) {
+    if (!recordsById.has(record.id)) recentOnly.push(record)
+    recordsById.set(record.id, record)
   }
-  for (const record of profile.value?.recent_errors ?? []) {
-    map.set(record.id, { ...record })
+
+  const records: PortraitRecord[] = []
+  let stubbornIndex = 0
+  let recentIndex = 0
+  while (stubbornIndex < stubbornErrors.length || recentIndex < recentOnly.length) {
+    const stubbornRecord = stubbornErrors[stubbornIndex]
+    const recentRecord = recentOnly[recentIndex]
+    if (
+      stubbornRecord &&
+      (!recentRecord || stubbornRecord.created_at.localeCompare(recentRecord.created_at) >= 0)
+    ) {
+      records.push(recordsById.get(stubbornRecord.id) ?? stubbornRecord)
+      stubbornIndex += 1
+    } else if (recentRecord) {
+      records.push(recentRecord)
+      recentIndex += 1
+    }
   }
-  return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  return records
 })
+const RECORD_BATCH_SIZE = 50
+const visibleRecordCount = ref(RECORD_BATCH_SIZE)
+const visibleRecords = computed(() => allRecords.value.slice(0, visibleRecordCount.value))
+
+function showMoreRecords() {
+  visibleRecordCount.value += RECORD_BATCH_SIZE
+}
 
 // 学生画像接口已按错误率降序，图表与 tooltip 直接复用接口数组。
 const sortedKps = computed(() =>
@@ -181,4 +217,5 @@ onMounted(async () => {
 .suggestion { background: var(--primary-50); border-radius: 8px; padding: 12px 16px; font-size: 14px; }
 .step-text { font-weight: 600; margin: 6px 0 4px; }
 .detail { color: var(--text-2); font-size: 13px; }
+.portrait-more { display: block; margin: 14px auto 0; }
 </style>
