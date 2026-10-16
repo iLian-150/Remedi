@@ -371,8 +371,9 @@ def diagnose_submission(db, student: User, question: Question,
 
 def diagnose_visual_submission(db, student: User, question: Question,
                                visual_steps: List[dict],
-                               reuse: Optional[Submission] = None) -> Tuple[Submission, List[Step], List[Error]]:
-    """持久化视觉模型直接给出的多学科作答判断，不再二次解析识别文本。"""
+                               reuse: Optional[Submission] = None,
+                               *, commit: bool = True) -> Tuple[Submission, List[Step], List[Error]]:
+    """持久化视觉判断；commit=False 时由调用方与关联记录一起提交。"""
     if reuse is not None:
         submission = reuse
         db.query(Error).filter(Error.submission_id == submission.id).delete()
@@ -445,7 +446,12 @@ def diagnose_visual_submission(db, student: User, question: Question,
         errors.append(error)
 
     submission.status = "graded"
-    _commit_diagnosis_and_score(db, submission, steps)
+    if commit:
+        _commit_diagnosis_and_score(db, submission, steps)
+    else:
+        # Routes that also persist image and review metadata can commit the full
+        # submission atomically after all related rows have been staged.
+        db.flush()
     return submission, steps, errors
 
 

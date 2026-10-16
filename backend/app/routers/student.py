@@ -1710,6 +1710,22 @@ def _add_submission_image_link(db: Session, submission: Submission,
     ))
 
 
+def _persist_visual_submission_score(
+    db: Session, submission: Submission, steps: List[Step]
+) -> None:
+    """Persist the non-blocking visual score after the diagnosis transaction commits."""
+    submission_id = submission.id
+    try:
+        scoring_svc.persist_ai_score(db, submission, steps)
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "保存图片作业初评分失败（submission_id=%s）",
+            submission_id,
+            exc_info=True,
+        )
+
+
 def _has_recognized_student_work(recognition: dict, step_texts: List[str]) -> bool:
     """模型返回了作答步骤时，以步骤内容作为有作答的可靠证据。
 
@@ -1986,7 +2002,7 @@ async def photo_review(
         }
 
     submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
-        db, current, question, visual_steps
+        db, current, question, visual_steps, commit=False
     )
     if stored_image_path is None:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -2026,6 +2042,7 @@ async def photo_review(
     except Exception:
         _remove_unreferenced_upload(db, stored_image_path)
         raise
+    _persist_visual_submission_score(db, submission, diagnosed_steps)
     related_mistake = find_related_mistake(
         db, current.id, question.subject, question.knowledge_point,
         exclude_assignment_id=question.assignment_id,
@@ -2218,7 +2235,7 @@ async def photo_diagnose(
         return out
     try:
         submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
-            db, current, question, visual_steps
+            db, current, question, visual_steps, commit=False
         )
         _add_submission_image_link(db, submission, image_path, image_name)
         review = review_svc.create_review_if_needed(
@@ -2237,6 +2254,7 @@ async def photo_diagnose(
     except Exception:
         _remove_unreferenced_upload(db, image_path)
         raise
+    _persist_visual_submission_score(db, submission, diagnosed_steps)
     result = present_for_student(
         submission, db, steps=diagnosed_steps, errors=diagnosed_errors,
         review_status=review.status if review is not None else review_svc.APPROVED,
