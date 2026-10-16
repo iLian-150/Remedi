@@ -32,6 +32,18 @@
 
       <div class="tchat-panel">
         <div class="tchat-body" ref="bodyRef">
+          <div v-if="historyHasMore || historyLoadingOlder || historyLoadError" class="history-pager">
+            <button
+              v-if="historyHasMore"
+              type="button"
+              class="history-pager-button"
+              :disabled="historyLoadingOlder || sending"
+              @click="loadOlderHistory"
+            >
+              {{ historyLoadingOlder ? '正在加载…' : '加载更早消息' }}
+            </button>
+            <span v-if="historyLoadError" class="history-pager-error">{{ historyLoadError }}</span>
+          </div>
           <div v-for="msg in messages" :key="msg.id" class="msg-row" :class="msg.side">
             <div v-if="msg.side === 'ai'" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
             <div class="bubble" :class="msg.side === 'ai' ? 'ai-bubble' : 'user-bubble'">
@@ -85,6 +97,7 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
+import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const auth = useAuthStore()
@@ -112,7 +125,12 @@ const loadingInit = ref(true)
 const toast = ref('')
 const error = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
+const historyHasMore = ref(false)
+const historyLoadingOlder = ref(false)
+const historyLoadError = ref('')
+const historyCursor = ref<AgentHistoryCursor | null>(null)
 let activeStreamController: AbortController | null = null
+let historyRequestToken = 0
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null &&
@@ -128,10 +146,14 @@ const WELCOME = () =>
   `${auth.name}，你好！我是你的班级数据助理。\n` +
   '你可以直接问我：某份作业谁还没交、哪个知识点错误率最高、班级知识修复率，或者某个学生最近的情况。点上方任意一个快捷问题也能直接问。'
 
-function pushMsg(side: 'ai' | 'user', text: string, pending = false): Msg {
-  const m: Msg = { id: ++seq, side, text, pending }
+function createMsg(side: 'ai' | 'user', text: string, pending = false): Msg {
+  return { id: ++seq, side, text, pending }
+}
+
+function pushMsg(side: 'ai' | 'user', text: string, pending = false, shouldScroll = true): Msg {
+  const m = createMsg(side, text, pending)
   messages.value.push(m)
-  scrollToBottom()
+  if (shouldScroll) scrollToBottom()
   return m
 }
 
@@ -200,12 +222,58 @@ async function sendText(raw: string) {
 
 onUnmounted(() => activeStreamController?.abort())
 
-function renderHistory(rows: { role: string; content: string }[]) {
+function restoreHistoryMessage(row: AgentHistoryItem, shouldScroll = false) {
+  pushMsg(row.role === 'user' ? 'user' : 'ai', row.content, false, shouldScroll)
+}
+
+function updateHistoryPage(page: AgentHistoryPage | null) {
+  const beforeCreatedAt = page?.before_created_at
+  const beforeId = page?.before_id
+  historyHasMore.value = Boolean(page?.has_more && beforeCreatedAt && beforeId != null)
+  historyCursor.value = historyHasMore.value && beforeCreatedAt && beforeId != null
+    ? { before_created_at: beforeCreatedAt, before_id: beforeId }
+    : null
+  historyLoadError.value = ''
+}
+
+function renderHistory(page: AgentHistoryPage | null) {
   messages.value = []
-  if (rows.length) {
-    rows.forEach((h) => pushMsg(h.role === 'user' ? 'user' : 'ai', h.content))
+  updateHistoryPage(page)
+  if (page?.items.length) {
+    page.items.forEach((item) => restoreHistoryMessage(item))
   } else {
-    pushMsg('ai', WELCOME())
+    pushMsg('ai', WELCOME(), false, false)
+  }
+}
+
+async function loadOlderHistory() {
+  const sessionId = teacher.sessionView.id ?? teacher.activeSessionId
+  const cursor = historyCursor.value
+  if (sessionId == null || !cursor || historyLoadingOlder.value) return
+  const requestToken = ++historyRequestToken
+  historyLoadingOlder.value = true
+  historyLoadError.value = ''
+  try {
+    const page = await teacher.fetchSessionMessages(sessionId, cursor)
+    const currentSessionId = teacher.sessionView.id ?? teacher.activeSessionId
+    if (requestToken !== historyRequestToken || currentSessionId !== sessionId) return
+    const body = bodyRef.value
+    const previousHeight = body?.scrollHeight ?? 0
+    const previousTop = body?.scrollTop ?? 0
+    const olderMessages = page.items.map((item) => createMsg(
+      item.role === 'user' ? 'user' : 'ai', item.content
+    ))
+    messages.value.unshift(...olderMessages)
+    updateHistoryPage(page)
+    await nextTick()
+    if (body) body.scrollTop = previousTop + body.scrollHeight - previousHeight
+  } catch (e) {
+    if (requestToken === historyRequestToken) {
+      historyLoadError.value = '加载更早消息失败，请重试。'
+      console.error(e)
+    }
+  } finally {
+    if (requestToken === historyRequestToken) historyLoadingOlder.value = false
   }
 }
 
@@ -216,23 +284,32 @@ watch(
   async (seq) => {
     if (seq === appliedViewSeq) return
     appliedViewSeq = seq
+    const requestToken = ++historyRequestToken
     const view = teacher.sessionView
+    const viewId = view.id
     suggestions.value = []
     error.value = ''
+    historyHasMore.value = false
+    historyCursor.value = null
+    historyLoadError.value = ''
+    historyLoadingOlder.value = false
+    messages.value = []
     if (view.fresh) {
-      renderHistory([])
+      renderHistory(null)
       showToast('已开始新对话')
-    } else if (view.id != null) {
+    } else if (viewId != null) {
       try {
-        const rows = await teacher.fetchSessionMessages(view.id)
-        renderHistory(rows)
+        const page = await teacher.fetchSessionMessages(viewId)
+        if (requestToken !== historyRequestToken) return
+        renderHistory(page)
       } catch (e) {
+        if (requestToken !== historyRequestToken) return
         error.value = '打开这条对话失败：' + (errDetail(e) || '请稍后重试。')
         console.error(e)
       }
     } else {
       // 会话全删光了：回到欢迎态
-      renderHistory([])
+      renderHistory(null)
     }
     scrollToBottom()
   }
@@ -249,7 +326,7 @@ onMounted(async () => {
     initialSessionId = teacher.activeSessionId
     appliedViewSeq = initialViewSeq
     const history = initialSessionId == null
-      ? []
+      ? null
       : await teacher.fetchSessionMessages(initialSessionId)
     // 加载期间用户可能已切换会话，不能让较早的响应覆盖新会话内容。
     if (teacher.sessionView.seq === initialViewSeq && teacher.activeSessionId === initialSessionId) {
@@ -257,7 +334,7 @@ onMounted(async () => {
     }
   } catch (e) {
     if (initialViewSeq == null || teacher.sessionView.seq === initialViewSeq) {
-      renderHistory([])
+      renderHistory(null)
     }
     console.error(e)
   } finally {
@@ -295,6 +372,10 @@ onMounted(async () => {
 }
 /* 底部留白给悬浮输入卡让位，最后的消息不被卡片遮住 */
 .tchat-body { flex: 1; overflow-y: auto; padding: 18px 20px 118px; }
+.history-pager { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 16px; }
+.history-pager-button { border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; background: var(--card); color: var(--primary); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.history-pager-button:disabled { opacity: 0.55; cursor: wait; }
+.history-pager-error { color: var(--red); font-size: 12px; }
 .msg-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
 .msg-row.user { flex-direction: row-reverse; }
 .msg-avatar {

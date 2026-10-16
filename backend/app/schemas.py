@@ -643,6 +643,13 @@ class AgentHistoryItem(BaseModel):
     image_name: Optional[str] = None
 
 
+class AgentHistoryPageOut(BaseModel):
+    items: List[AgentHistoryItem]
+    has_more: bool
+    before_created_at: Optional[datetime] = None
+    before_id: Optional[int] = None
+
+
 class ChatSessionOut(BaseModel):
     """对话会话（v0.6.0 新增）：历史对话列表用。"""
     id: int

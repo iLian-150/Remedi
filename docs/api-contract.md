@@ -712,6 +712,10 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 权限：学生。返回该会话的**全部**消息（不截断），时间正序，元素结构同 3.16。会话不存在或不是本人的统一 `404`。
 
+### 3.25.1 GET /api/student/agent/sessions/{session_id}/messages/page —— 分页读取会话消息
+
+权限：学生。默认返回最近 50 条消息，按时间正序；`limit` 可设为 1–100。若 `has_more=true`，使用响应中的 `before_created_at` 与 `before_id` 作为同名查询参数继续读取更早消息。两个游标参数必须同时提供。响应包含 `items`、`has_more` 和下一页游标；会话不存在或不是本人的统一 `404`。旧的 3.25 全量接口继续可用。
+
 ### 3.26 DELETE /api/student/agent/sessions/{session_id} —— 删除一条会话（v0.6.0 新增）
 
 权限：学生。删除本人的一条会话及其全部消息（不可恢复）。会话不存在或不是本人的统一 `404`。
@@ -1148,6 +1152,10 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ### 4.21 GET /api/teacher/agent/sessions/{session_id}/messages —— 某会话的全部消息（v0.6.0 新增）
 
 权限：教师。语义同学生端 3.25（全部消息正序；不存在/非本人 `404`）。
+
+### 4.21.1 GET /api/teacher/agent/sessions/{session_id}/messages/page —— 分页读取会话消息
+
+权限：教师。语义同学生端 3.25.1（默认最近 50 条、时间正序、游标读取更早消息）；旧的 4.21 全量接口继续可用。
 
 ### 4.22 DELETE /api/teacher/agent/sessions/{session_id} —— 删除一条教师会话（v0.6.0 新增）
 

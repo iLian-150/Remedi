@@ -52,6 +52,7 @@ from ..models import (
 from ..schemas import (
     AgentChatIn,
     AgentHistoryItem,
+    AgentHistoryPageOut,
     ChatSessionOut,
     ClassRepairRateOut,
     ErrorTypeCountOut,
@@ -1565,6 +1566,47 @@ def teacher_agent_session_messages(session_id: int, db: Session = Depends(get_db
         {"role": m.role, "content": m.content, "created_at": m.created_at}
         for m in cs.session_messages(db, session)
     ]
+
+
+@router.get("/agent/sessions/{session_id}/messages/page",
+            response_model=AgentHistoryPageOut,
+            summary="分页读取某会话消息")
+def teacher_agent_session_message_page(
+    session_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    before_created_at: Optional[datetime] = Query(default=None),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    """按时间倒序取一页，并按时间正序返回；较早历史用游标继续读取。"""
+    if (before_created_at is None) != (before_id is None):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "before_created_at 和 before_id 必须同时提供",
+        )
+    from ..services import chat_sessions as cs
+
+    session = cs.get_own_session_or_migrate(db, current, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    page, has_more, cursor_created_at, cursor_id = cs.session_message_page(
+        db,
+        session,
+        limit,
+        before_created_at,
+        before_id,
+    )
+    return {
+        "items": [
+            {"role": message.role, "content": message.content,
+             "created_at": message.created_at}
+            for message in page
+        ],
+        "has_more": has_more,
+        "before_created_at": cursor_created_at,
+        "before_id": cursor_id,
+    }
 
 
 @router.delete("/agent/sessions/{session_id}", summary="删除一条教师对话会话（v0.6.0 新增）")

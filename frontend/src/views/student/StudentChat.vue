@@ -204,6 +204,19 @@
           </div>
         </div>
 
+        <div v-if="historyHasMore || historyLoadingOlder || historyLoadError" class="history-pager">
+          <button
+            v-if="historyHasMore"
+            type="button"
+            class="history-pager-button"
+            :disabled="historyLoadingOlder || chatSending"
+            @click="loadOlderHistory"
+          >
+            {{ historyLoadingOlder ? '正在加载…' : '加载更早消息' }}
+          </button>
+          <span v-if="historyLoadError" class="history-pager-error">{{ historyLoadError }}</span>
+        </div>
+
         <div v-for="msg in visibleMessages" :key="msg.id" class="msg-row" :class="msg.side">
           <div v-if="msg.side === 'ai'" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
 
@@ -430,6 +443,8 @@ import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
 import type {
   AgentHistoryItem,
+  AgentHistoryCursor,
+  AgentHistoryPage,
   ChatQuestion,
   PendingAssignment,
   PhotoReviewResult,
@@ -514,8 +529,8 @@ function createStreamAbortController(): AbortController {
   return controller
 }
 
-function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
-  const msg: ChatMsg = {
+function createMsg(partial: Partial<ChatMsg>): ChatMsg {
+  return {
     id: ++seq,
     side: 'ai',
     kind: 'text',
@@ -536,8 +551,12 @@ function pushMsg(partial: Partial<ChatMsg>): ChatMsg {
     relatedMistake: null,
     ...partial
   }
+}
+
+function pushMsg(partial: Partial<ChatMsg>, shouldScroll = true): ChatMsg {
+  const msg = createMsg(partial)
   messages.value.push(msg)
-  scrollToBottom()
+  if (shouldScroll) scrollToBottom()
   // 返回数组中的响应式代理；返回原始对象会让异步流式文本更新绕过 Vue，
   // 最终只在其他状态变化时整段刷新出来。
   return messages.value[messages.value.length - 1]
@@ -623,6 +642,10 @@ function openRelatedMistake(mistake: RelatedMistake) {
 }
 const imageObjectUrls = new Set<string>()
 const bodyRef = ref<HTMLElement | null>(null)
+const historyHasMore = ref(false)
+const historyLoadingOlder = ref(false)
+const historyLoadError = ref('')
+const historyCursor = ref<AgentHistoryCursor | null>(null)
 let scrollFrame: number | null = null
 const loadingInit = ref(true)
 const welcomeBriefing = computed(() => messages.value.find((msg) => msg.kind === 'briefing')?.briefing ?? null)
@@ -811,43 +834,103 @@ async function prependBriefing() {
 // 简报卡始终保留置顶，会话消息接在简报下方（与原 switchSession 行为一致）。
 // fresh=true 表示刚新建的空会话；id=null 表示会话已删光；两者都回到「只剩简报卡」的欢迎态。
 let appliedViewSeq = 0
-function restoreHistoryMessage(h: AgentHistoryItem) {
+let historyRequestToken = 0
+
+function historyMessage(h: AgentHistoryItem): Partial<ChatMsg> {
   if (h.role === 'user' && h.image_url) {
     const text = h.content
       .replace(/^上传了一张作业照片。?\s*/, '')
       .replace(/^补充说明：/, '')
-    pushMsg({
+    return {
       side: 'user',
       kind: 'image',
       text,
       fileName: h.image_name || '作业照片',
       url: h.image_url
-    })
-    return
+    }
   }
-  pushMsg({
+  return {
     side: h.role === 'user' ? 'user' : 'ai',
     kind: 'text',
     text: h.content,
     relatedMistake: h.related_mistake ?? null
-  })
+  }
+}
+
+function restoreHistoryMessage(h: AgentHistoryItem) {
+  pushMsg(historyMessage(h), false)
+}
+
+function updateHistoryPage(page: AgentHistoryPage | null) {
+  const beforeCreatedAt = page?.before_created_at
+  const beforeId = page?.before_id
+  historyHasMore.value = Boolean(page?.has_more && beforeCreatedAt && beforeId != null)
+  historyCursor.value = historyHasMore.value && beforeCreatedAt && beforeId != null
+    ? { before_created_at: beforeCreatedAt, before_id: beforeId }
+    : null
+  historyLoadError.value = ''
+}
+
+function restoreHistoryPage(page: AgentHistoryPage | null) {
+  updateHistoryPage(page)
+  page?.items.forEach(restoreHistoryMessage)
+}
+
+async function loadOlderHistory() {
+  const sessionId = student.sessionView.id ?? student.activeSessionId
+  const cursor = historyCursor.value
+  if (sessionId == null || !cursor || historyLoadingOlder.value) return
+  const requestToken = ++historyRequestToken
+  historyLoadingOlder.value = true
+  historyLoadError.value = ''
+  try {
+    const page = await student.fetchSessionMessages(sessionId, cursor)
+    const currentSessionId = student.sessionView.id ?? student.activeSessionId
+    if (requestToken !== historyRequestToken || currentSessionId !== sessionId) return
+    const body = bodyRef.value
+    const previousHeight = body?.scrollHeight ?? 0
+    const previousTop = body?.scrollTop ?? 0
+    const olderMessages = page.items.map((item) => createMsg(historyMessage(item)))
+    const firstConversationMessage = messages.value.findIndex((message) => message.kind !== 'briefing')
+    const insertAt = firstConversationMessage < 0 ? messages.value.length : firstConversationMessage
+    messages.value.splice(insertAt, 0, ...olderMessages)
+    updateHistoryPage(page)
+    await nextTick()
+    if (body) body.scrollTop = previousTop + body.scrollHeight - previousHeight
+  } catch (e) {
+    if (requestToken === historyRequestToken) {
+      historyLoadError.value = '加载更早消息失败，请重试。'
+      console.error(e)
+    }
+  } finally {
+    if (requestToken === historyRequestToken) historyLoadingOlder.value = false
+  }
 }
 watch(
   () => student.sessionView.seq,
   async (seqVal) => {
     if (seqVal === appliedViewSeq) return
     appliedViewSeq = seqVal
+    const requestToken = ++historyRequestToken
     const view = student.sessionView
+    const viewId = view.id
     clearSelectedImage()
     suggestions.value = []
     briefManual.value = null
+    historyHasMore.value = false
+    historyCursor.value = null
+    historyLoadError.value = ''
+    historyLoadingOlder.value = false
     messages.value = messages.value.filter((m) => m.kind === 'briefing')
     if (!messages.value.length) await prependBriefing()
-    if (!view.fresh && view.id != null) {
+    if (requestToken !== historyRequestToken) return
+    if (!view.fresh && viewId != null) {
       try {
-        const rows = await student.fetchSessionMessages(view.id)
-        rows.forEach(restoreHistoryMessage)
+        const page = await student.fetchSessionMessages(viewId)
+        if (requestToken !== historyRequestToken) return
+        restoreHistoryPage(page)
       } catch (e) {
+        if (requestToken !== historyRequestToken) return
         pushMsg({ side: 'ai', kind: 'error', text: '打开这条对话失败：' + (errDetail(e) || '请稍后重试。') })
         console.error(e)
       }
@@ -1286,10 +1369,14 @@ async function confirmTranscribe(msg: ChatMsg) {
 onMounted(async () => {
   window.addEventListener('keydown', onImagePreviewKeydown)
   const sessionsPromise = student.loadSessions()
+  let initialSessionId: number | null = null
   const historyPromise = sessionsPromise
-    .then(async () => student.activeSessionId == null
-      ? []
-      : student.fetchSessionMessages(student.activeSessionId))
+    .then(async () => {
+      initialSessionId = student.activeSessionId
+      return initialSessionId == null
+        ? null
+        : student.fetchSessionMessages(initialSessionId)
+    })
     .then(
       (history) => ({ history } as const),
       (error) => ({ error } as const)
@@ -1348,7 +1435,9 @@ onMounted(async () => {
   const historyResult = await historyPromise
   if ('history' in historyResult) {
     try {
-      historyResult.history.forEach(restoreHistoryMessage)
+      if (initialSessionId === student.activeSessionId) {
+        restoreHistoryPage(historyResult.history)
+      }
     } catch (e) {
       console.error(e)
     }
@@ -1461,6 +1550,10 @@ onMounted(async () => {
 .brief-item-sub { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
 .msg-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: flex-start; }
 .msg-row.user { flex-direction: row-reverse; }
+.history-pager { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 4px 0 16px; }
+.history-pager-button { border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; background: var(--card); color: var(--primary); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.history-pager-button:disabled { opacity: 0.55; cursor: wait; }
+.history-pager-error { color: var(--red); font-size: 12px; }
 .msg-avatar {
   width: 30px; height: 30px; border-radius: 50%;
   background: var(--primary-50); color: var(--primary);

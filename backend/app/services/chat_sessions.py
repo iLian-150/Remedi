@@ -10,7 +10,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import func, insert, literal, select
+from sqlalchemy import and_, func, insert, literal, or_, select
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -166,13 +166,23 @@ def list_sessions(db: Session, user: User) -> List[dict]:
 
 
 def session_messages(db: Session, session: ChatSession,
-                     limit: Optional[int] = None) -> List[ChatSessionMessage]:
-    """会话内消息正序返回；limit 给定时取最近 limit 条（仍正序）。"""
+                     limit: Optional[int] = None,
+                     before_created_at: Optional[datetime] = None,
+                     before_id: Optional[int] = None) -> List[ChatSessionMessage]:
+    """Return chronological messages, optionally taking the latest rows before a cursor."""
     query = (
         db.query(ChatSessionMessage)
         .filter(ChatSessionMessage.session_id == session.id)
         .order_by(ChatSessionMessage.created_at.desc(), ChatSessionMessage.id.desc())
     )
+    if before_created_at is not None and before_id is not None:
+        query = query.filter(or_(
+            ChatSessionMessage.created_at < before_created_at,
+            and_(
+                ChatSessionMessage.created_at == before_created_at,
+                ChatSessionMessage.id < before_id,
+            ),
+        ))
     if limit is not None:
         rows = query.limit(limit).all()
         return list(reversed(rows))
@@ -245,14 +255,15 @@ def resolve_chat_session_history(
 
 
 def history_items(db: Session, user: User, session: ChatSession,
-                  limit: Optional[int] = None) -> List[dict]:
+                  limit: Optional[int] = None,
+                  messages: Optional[List[ChatSessionMessage]] = None) -> List[dict]:
     """批量组装会话历史，避免逐条查询图片和错题关联 ID。"""
-    messages = session_messages(db, session, limit)
-    if not messages:
+    page_messages = messages if messages is not None else session_messages(db, session, limit)
+    if not page_messages:
         return []
     message_filter = ChatSessionMessage.session_id == session.id
-    if limit is not None and len(messages) <= 500:
-        message_filter = ChatSessionMessage.id.in_([message.id for message in messages])
+    if len(page_messages) <= 500:
+        message_filter = ChatSessionMessage.id.in_([message.id for message in page_messages])
 
     image_by_message = {
         message_id: {
@@ -288,7 +299,7 @@ def history_items(db: Session, user: User, session: ChatSession,
 
     assistant_error_ids = {
         mistake_error_by_message[message.id]
-        for message in messages
+        for message in page_messages
         if message.role == "assistant" and message.id in mistake_error_by_message
     }
     from .related_mistakes import find_related_mistakes_for_errors
@@ -297,7 +308,7 @@ def history_items(db: Session, user: User, session: ChatSession,
         db, user.id, assistant_error_ids
     )
     result = []
-    for message in messages:
+    for message in page_messages:
         error_id = mistake_error_by_message.get(message.id)
         related = (
             related_by_error.get(error_id)
@@ -312,6 +323,54 @@ def history_items(db: Session, user: User, session: ChatSession,
         item.update(image_by_message.get(message.id, {}))
         result.append(item)
     return result
+
+
+def history_page_items(
+    db: Session,
+    user: User,
+    session: ChatSession,
+    limit: int,
+    before_created_at: Optional[datetime] = None,
+    before_id: Optional[int] = None,
+) -> dict:
+    """Return one chronological history page and a stable cursor for older messages."""
+    page, has_more, cursor_created_at, cursor_id = session_message_page(
+        db, session, limit, before_created_at, before_id
+    )
+    return {
+        "items": history_items(db, user, session, messages=page),
+        "has_more": has_more,
+        "before_created_at": cursor_created_at,
+        "before_id": cursor_id,
+    }
+
+
+def session_message_page(
+    db: Session,
+    session: ChatSession,
+    limit: int,
+    before_created_at: Optional[datetime] = None,
+    before_id: Optional[int] = None,
+) -> tuple[List[ChatSessionMessage], bool, Optional[datetime], Optional[int]]:
+    """Fetch a bounded chronological page and its cursor without loading decorations."""
+    if (before_created_at is None) != (before_id is None):
+        raise ValueError("history cursor requires both timestamp and message ID")
+    rows = session_messages(
+        db,
+        session,
+        limit=limit + 1,
+        before_created_at=before_created_at,
+        before_id=before_id,
+    )
+    has_more = len(rows) > limit
+    page = rows[-limit:]
+    cursor = page[0] if has_more else None
+    return (
+        page,
+        has_more,
+        cursor.created_at if cursor else None,
+        cursor.id if cursor else None,
+    )
 
 
 def append_message(db: Session, session: ChatSession, role: str, content: str) -> ChatSessionMessage:

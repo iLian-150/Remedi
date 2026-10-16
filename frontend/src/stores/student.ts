@@ -6,7 +6,9 @@ import { visionImageForModel } from '../utils/visionImage'
 import { useAuthStore } from './auth'
 import type {
   AgentChatResult,
+  AgentHistoryCursor,
   AgentHistoryItem,
+  AgentHistoryPage,
   Assignment,
   AssignmentDetail,
   ChatAssignmentContext,
@@ -788,10 +790,14 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.post<ChatSession>('/api/student/agent/sessions', {})
       return data
     },
-    // 3.25 某会话的全部消息（v0.6.0），时间正序
-    async fetchSessionMessages(sessionId: number): Promise<AgentHistoryItem[]> {
-      const { data } = await api.get<AgentHistoryItem[]>(
-        `/api/student/agent/sessions/${sessionId}/messages`
+    // 3.25 某会话最近一页消息，时间正序；可用游标继续读取较早消息。
+    async fetchSessionMessages(
+      sessionId: number,
+      cursor?: AgentHistoryCursor
+    ): Promise<AgentHistoryPage> {
+      const { data } = await api.get<AgentHistoryPage>(
+        `/api/student/agent/sessions/${sessionId}/messages/page`,
+        { params: cursor }
       )
       return data
     },

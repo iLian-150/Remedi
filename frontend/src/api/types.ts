@@ -461,6 +461,18 @@ export interface AgentHistoryItem {
   image_name?: string | null
 }
 
+export interface AgentHistoryCursor {
+  before_created_at: string
+  before_id: number
+}
+
+export interface AgentHistoryPage {
+  items: AgentHistoryItem[]
+  has_more: boolean
+  before_created_at: string | null
+  before_id: number | null
+}
+
 // ---------- 站内提醒（v0.3.0） ----------
 
 export interface NotificationItem {

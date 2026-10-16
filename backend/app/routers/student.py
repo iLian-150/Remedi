@@ -45,6 +45,7 @@ from ..schemas import (
     AgentAssistantMessageIn,
     AgentChatIn,
     AgentHistoryItem,
+    AgentHistoryPageOut,
     AssignmentScoreItem,
     ChatSessionOut,
     AssignmentDetail,
@@ -2274,6 +2275,33 @@ def agent_session_messages(session_id: int, db: Session = Depends(get_db),
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
     return cs.history_items(db, current, session)
+
+
+@router.get("/agent/sessions/{session_id}/messages/page",
+            response_model=AgentHistoryPageOut,
+            summary="分页读取某会话消息")
+def agent_session_message_page(
+    session_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    before_created_at: Optional[datetime] = Query(default=None),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """按时间倒序取一页，再按时间正序返回；较早历史用游标继续读取。"""
+    if (before_created_at is None) != (before_id is None):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "before_created_at 和 before_id 必须同时提供",
+        )
+    from ..services import chat_sessions as cs
+
+    session = cs.get_own_session_or_migrate(db, current, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+    return cs.history_page_items(
+        db, current, session, limit, before_created_at, before_id
+    )
 
 
 @router.post("/agent/sessions/{session_id}/assistant-message",
