@@ -222,6 +222,7 @@ def _teacher_error_item(
 
 @router.get("/errors", summary="错误记录列表")
 def list_errors(
+    error_id: Optional[int] = Query(default=None, ge=1),
     student_id: Optional[int] = Query(default=None),
     knowledge_point: Optional[str] = Query(default=None),
     error_type: Optional[str] = Query(default=None),
@@ -232,6 +233,8 @@ def list_errors(
     current: User = Depends(require_teacher),
 ):
     query = db.query(Error).join(Submission, Error.submission_id == Submission.id)
+    if error_id is not None:
+        query = query.filter(Error.id == error_id)
     if student_id:
         query = query.filter(Submission.student_id == student_id)
     if knowledge_point:

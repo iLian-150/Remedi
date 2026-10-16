@@ -132,14 +132,17 @@ function errDetail(e: unknown): string {
 onMounted(async () => {
   loading.value = true
   try {
-    // 契约未提供单条 error 查询接口：用 student_id 过滤列表定位
-    // 最小假设：此处先拉取错误列表并按 id 匹配（MVP 数据量小，可行）
-    const res = await teacher.fetchErrors({ limit: 100, offset: 0 })
-    const found = res.items.find((e) => e.id === Number(route.params.id))
+    const errorId = Number(route.params.id)
+    if (!Number.isSafeInteger(errorId) || errorId <= 0) {
+      error.value = '诊断记录编号无效。'
+      return
+    }
+    const res = await teacher.fetchErrors({ error_id: errorId, limit: 1 })
+    const found = res.items[0]
     if (found) {
       item.value = found
     } else {
-      error.value = '未找到该诊断记录（可能超出最近 100 条范围）。'
+      error.value = '未找到该诊断记录。'
     }
   } catch (e) {
     error.value = '诊断详情加载失败，请确认后端已启动。'

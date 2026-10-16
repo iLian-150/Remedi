@@ -849,7 +849,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.1 GET /api/teacher/errors —— 错误记录列表
 
-权限：教师。支持过滤：`student_id` / `knowledge_point` / `error_type` / `stubborn_only=true`，以及 `limit` / `offset`。
+权限：教师。支持过滤：`error_id` / `student_id` / `knowledge_point` / `error_type` / `stubborn_only=true`，以及 `limit` / `offset`。`error_id` 用于精确定位单条诊断记录，可与其他条件组合使用。
 
 响应 `200`：
 

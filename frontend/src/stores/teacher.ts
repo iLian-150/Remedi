@@ -28,6 +28,7 @@ import type {
 } from '../api/types'
 
 export interface ErrorFilter {
+  error_id?: number
   student_id?: number
   knowledge_point?: string
   error_type?: string
