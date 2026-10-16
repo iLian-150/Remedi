@@ -1243,8 +1243,9 @@ def my_mistakes(
         StudentQuestionCapture.created_at.desc(),
         StudentQuestionCapture.id.desc(),
     ).all()
+    capture_results = []
     for capture in captures:
-        result.append(StudentMistakeOut(
+        capture_results.append(StudentMistakeOut(
             id=-capture.id,
             submission_id=0,
             question_id=capture.question_id or 0,
@@ -1273,7 +1274,25 @@ def my_mistakes(
             capture_id=capture.id,
             image_url=f"/api/uploads/{capture.image_path}" if capture.image_path else None,
         ))
-    result.sort(key=lambda item: item.created_at, reverse=True)
+    # 错题查询已按时间倒序；单独排序自主收录记录后线性合并，避免再次全量排序。
+    capture_results.sort(key=lambda item: item.created_at, reverse=True)
+    mistake_count = len(result)
+    result.extend(capture_results)
+    mistake_index = mistake_count - 1
+    capture_index = len(capture_results) - 1
+    write_index = len(result) - 1
+    while mistake_index >= 0 and capture_index >= 0:
+        if result[mistake_index].created_at >= capture_results[capture_index].created_at:
+            result[write_index] = capture_results[capture_index]
+            capture_index -= 1
+        else:
+            result[write_index] = result[mistake_index]
+            mistake_index -= 1
+        write_index -= 1
+    while capture_index >= 0:
+        result[write_index] = capture_results[capture_index]
+        capture_index -= 1
+        write_index -= 1
     return result
 
 
