@@ -278,7 +278,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { Assignment, AssignmentDetail, LatestQuestionSubmissionStatus, Question, RelatedMistake, SubmissionResult } from '../../api/types'
@@ -331,8 +331,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onDocKey)
 })
-const currentDetail = ref<AssignmentDetail | null>(null) // 当前所选作业详情（说明卡 + 题目来源）
-const questions = ref<Question[]>([])
+const currentDetail = shallowRef<AssignmentDetail | null>(null) // 整体替换的只读作业详情，避免代理内部大题目列表
+const questions = shallowRef<Question[]>([]) // 接口题目只整体替换，避免逐题建立深层响应式代理
 const doneQids = ref<Set<number>>(new Set())
 const pendingQids = ref<Set<number>>(new Set()) // v0.9.0：最新一次提交在等老师审核的题目
 const deferredQids = ref<Set<number>>(new Set()) // v0.13.1：已提交、在等截止后统一批改的题目
