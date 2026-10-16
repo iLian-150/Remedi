@@ -1480,6 +1480,19 @@ async def upload_workbook(file: UploadFile = File(...),
     db.expire_on_commit = False
     try:
         db.commit()
+    except Exception:
+        db.rollback()
+        try:
+            os.remove(target_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            logger.warning(
+                "练习册元信息保存失败后清理 PDF 文件失败（file_path=%s）",
+                target_path,
+                exc_info=True,
+            )
+        raise
     finally:
         db.expire_on_commit = expire_on_commit
     # v0.6.0：上传成功后尝试把 PDF 第一页渲染成封面图（失败静默跳过，前端用书脊兜底）
@@ -1514,20 +1527,26 @@ def delete_workbook(workbook_id: int, db: Session = Depends(get_db),
     )
     if not w:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "练习册不存在")
+    pdf_path = os.path.join(settings.UPLOAD_DIR, w.file_path)
+    from ..services.covers import cover_file_path
+
+    cover_path = cover_file_path(w.id)
     db.query(AssignmentExt).filter(AssignmentExt.workbook_id == w.id) \
         .update({AssignmentExt.workbook_id: None}, synchronize_session=False)
-    try:
-        os.remove(os.path.join(settings.UPLOAD_DIR, w.file_path))
-    except OSError:
-        pass  # 文件已不在磁盘上时不阻塞删除元信息
-    try:
-        from ..services.covers import cover_file_path
-
-        os.remove(cover_file_path(w.id))
-    except OSError:
-        pass  # 无封面图时忽略（v0.6.0 起顺带清封面文件）
     db.delete(w)
     db.commit()
+    for file_path in (pdf_path, cover_path):
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            # 数据库删除已提交；清理失败只留孤立文件，不应把删除显示成失败。
+            logger.warning(
+                "练习册删除后清理文件失败（file_path=%s）",
+                file_path,
+                exc_info=True,
+            )
     return {"deleted": True}
 
 
