@@ -188,7 +188,7 @@ function retake() {
   openPicker()
 }
 
-defineExpose({ openPicker })
+defineExpose({ openPicker, processFile })
 
 /** 只清「上一次批改产物」，供选新图时复用（reset 在此基础上再清转写与预览） */
 function clearResult() {
@@ -215,6 +215,10 @@ async function onFileChange(e: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+  await processFile(file)
+}
+
+async function processFile(file: File) {
   errorText.value = ''
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     errorText.value = '这张图片格式不对，请上传 jpg / png / webp 格式的作答照片。'

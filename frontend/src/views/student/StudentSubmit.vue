@@ -12,6 +12,7 @@
      契约：3.1 作业列表 / 3.2 作业详情 / 3.3 文本提交（在线作答）/ 3.4 我的提交记录 -->
 <template>
   <div class="page">
+    <input ref="photoPickerRef" type="file" accept="image/*" hidden @change="onPhotoPickerChange" />
     <div class="page-head">
       <h2>交作业</h2>
       <p class="page-sub">{{ headSub }}</p>
@@ -234,8 +235,8 @@
             </button>
           </div>
 
-          <!-- 拍照流：组件常驻挂载（idle 时不可见），按钮点按经 ref 直达图库 -->
-          <div v-show="!collapsedQids.has(q.id)" class="flow-slot" :class="{ 'has-content': flowActive[q.id] }">
+          <!-- 按需挂载拍照流：首次选图后才创建该题组件，已挂载题目仍可直接重拍 -->
+          <div v-if="mountedFlowQids.has(q.id)" v-show="!collapsedQids.has(q.id)" class="flow-slot" :class="{ 'has-content': flowActive[q.id] }">
             <PhotoGradeFlow
               :ref="(el) => setFlowRef(q.id, el)"
               :question-id="q.id"
@@ -387,19 +388,48 @@ const listSub = computed(() =>
 )
 
 /* ---------- 线下拍照流：点按直达图库（v0.9.2） ---------- */
-type FlowHandle = { openPicker: () => void }
+type FlowHandle = { openPicker: () => void; processFile: (file: File) => Promise<void> }
 const flowRefs = new Map<number, FlowHandle | null>()
+const photoPickerRef = ref<HTMLInputElement | null>(null)
+const mountedFlowQids = shallowRef(new Set<number>())
+let pendingPhotoQuestion: { assignmentId: number; questionId: number } | null = null
 const flowActive = ref<Record<number, boolean>>({})
 const collapsedQids = ref<Set<number>>(new Set())
 
 function setFlowRef(qid: number, el: unknown) {
-  flowRefs.set(qid, (el as FlowHandle | null) ?? null)
+  const flow = (el as FlowHandle | null) ?? null
+  if (flow) flowRefs.set(qid, flow)
+  else flowRefs.delete(qid)
 }
 
 /** 点「拍照批改」的当下就打开图库，不再先展开一层中间面板 */
 function pickPhoto(qid: number) {
   collapsedQids.value.delete(qid)
-  flowRefs.get(qid)?.openPicker()
+  const flow = flowRefs.get(qid)
+  if (flow) {
+    flow.openPicker()
+    return
+  }
+  pendingPhotoQuestion = { assignmentId: Number(assignmentId.value), questionId: qid }
+  photoPickerRef.value?.click()
+}
+
+async function onPhotoPickerChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const pending = pendingPhotoQuestion
+  pendingPhotoQuestion = null
+  if (!file || !pending) return
+  if (
+    pending.assignmentId !== Number(assignmentId.value) ||
+    !questions.value.some((question) => question.id === pending.questionId)
+  ) return
+
+  mountedFlowQids.value = new Set(mountedFlowQids.value).add(pending.questionId)
+  await nextTick()
+  if (pending.assignmentId !== Number(assignmentId.value)) return
+  void flowRefs.get(pending.questionId)?.processFile(file)
 }
 
 function onFlowActive(qid: number, active: boolean) {
@@ -657,6 +687,8 @@ async function selectAssignment(id: number) {
   questions.value = []
   relatedByQid.value = {}
   currentDetail.value = null
+  mountedFlowQids.value = new Set()
+  pendingPhotoQuestion = null
   flowActive.value = {}
   collapsedQids.value = new Set()
   editorOpen.value = {}
