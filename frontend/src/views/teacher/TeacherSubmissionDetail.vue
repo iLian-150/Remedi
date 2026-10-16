@@ -25,10 +25,13 @@
       </div>
 
       <div class="card">
-        <h3>出错步骤</h3>
+        <h3>关联作答步骤</h3>
         <div class="step first-error">
-          <div class="step-title">步骤 {{ item.step_seq }} · 首次出错</div>
-          <p>{{ item.step_text }}</p>
+          <div class="step-title">
+            {{ item.step_seq == null ? '未关联具体步骤' : `步骤 ${item.step_seq} · 首次出错` }}
+          </div>
+          <p v-if="item.step_text">{{ item.step_text }}</p>
+          <p v-else class="hint">暂无作答步骤文本。</p>
         </div>
         <p class="hint">注：完整作答步骤链契约未对教师端提供，以上为出错步骤本身。</p>
       </div>
@@ -43,7 +46,8 @@
           <span class="badge badge-blue">知识点：{{ item.knowledge_point }}</span>
         </p>
         <div class="conf-bar"><div :style="{ width: `${Math.round(item.confidence * 100)}%` }"></div></div>
-        <p class="detail">{{ item.detail }}</p>
+        <p v-if="item.detail" class="detail">{{ item.detail }}</p>
+        <p v-else class="hint">暂无诊断说明。</p>
         <p v-if="item.teacher_corrected" class="corrected-note">
           已纠错（{{ item.teacher_note || '无备注' }}）
         </p>

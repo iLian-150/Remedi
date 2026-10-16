@@ -225,7 +225,8 @@
                       <ErrorTypeBadge :type="e.error_type" />
                       <span class="conf-text tnum">置信度 {{ Math.round(e.confidence * 100) }}%</span>
                     </div>
-                    <p class="detail-text">{{ e.detail }}</p>
+                    <p v-if="e.detail" class="detail-text">{{ e.detail }}</p>
+                    <p v-else class="detail-text">暂无诊断说明。</p>
                     <p v-if="e.step_text" class="review-error-step">作答：{{ e.step_text }}</p>
                     <div class="correct-row">
                       <select v-model="correctForms[e.id].type">

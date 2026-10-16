@@ -38,7 +38,7 @@
               </router-link>
             </td>
             <td>{{ e.question.stem }}</td>
-            <td>{{ e.step_text }}</td>
+            <td>{{ e.step_text || '—' }}</td>
             <td>
               <ErrorTypeBadge :type="e.error_type" />
               <span v-if="e.teacher_corrected" class="badge badge-gray">已纠错</span>
