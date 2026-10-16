@@ -471,19 +471,34 @@ export const useTeacherStore = defineStore('teacher', {
     },
     // 4.23 待审核队列（v0.9.0）：拉全量待审列表并回写角标计数
     async fetchPendingReviews(): Promise<ReviewPendingItem[]> {
-      const { data } = await api.get<{ count: number; items: ReviewPendingItem[] }>(
+      const { data } = await api.get<{
+        count: number
+        items: ReviewPendingItem[]
+        latest_submission_id?: number | null
+      }>(
         '/api/teacher/reviews/pending'
       )
       this.pendingReviews = data.items
       this.pendingReviewCount = data.count
       return data.items
     },
+    async fetchPendingReviewSummary(): Promise<{
+      count: number
+      latest_submission_id: number | null
+    }> {
+      const { data } = await api.get<{
+        count: number
+        latest_submission_id?: number | null
+      }>('/api/teacher/reviews/pending/count')
+      return {
+        count: data.count,
+        latest_submission_id: data.latest_submission_id ?? null,
+      }
+    },
     async fetchPendingReviewCount(): Promise<number> {
-      const { data } = await api.get<{ count: number }>(
-        '/api/teacher/reviews/pending/count'
-      )
-      this.pendingReviewCount = data.count
-      return data.count
+      const summary = await this.fetchPendingReviewSummary()
+      this.pendingReviewCount = summary.count
+      return summary.count
     },
     /** 只刷新待审计数（导航角标用，App.vue 路由变化时调用） */
     async refreshPendingReviewCount() {

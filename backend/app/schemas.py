@@ -804,10 +804,12 @@ class ReviewPendingItem(BaseModel):
 class ReviewPendingOut(BaseModel):
     count: int                  # 待审核总数（导航角标用）
     items: List[ReviewPendingItem]
+    latest_submission_id: Optional[int] = None  # 队列变更快照，供审核页轻量轮询
 
 
 class ReviewPendingCountOut(BaseModel):
     count: int                  # 待审核总数（轻量导航角标接口）
+    latest_submission_id: Optional[int] = None  # 最新待审提交 ID；空队列为 None
 
 
 class ReviewScoreOut(BaseModel):

@@ -561,6 +561,18 @@ async function refreshQueueSilently() {
   const currentId = selectedId.value
   const mutationToken = reviewQueueMutationToken
   try {
+    const summary = await teacher.fetchPendingReviewSummary()
+    if (mutationToken !== reviewQueueMutationToken) return
+    teacher.pendingReviewCount = summary.count
+    const latestLoadedId = items.value.reduce(
+      (latest, item) => Math.max(latest, item.submission_id),
+      0
+    ) || null
+    if (
+      summary.count === items.value.length
+      && summary.latest_submission_id === latestLoadedId
+    ) return
+
     const refreshedItems = await teacher.fetchPendingReviews()
     if (mutationToken !== reviewQueueMutationToken) return
     items.value = refreshedItems

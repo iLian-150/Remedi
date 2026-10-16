@@ -539,10 +539,16 @@ def _review_pending_item(
 @router.get("/reviews/pending/count", response_model=ReviewPendingCountOut,
             summary="待审核数量（导航角标）")
 def reviews_pending_count(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    count = db.query(func.count(SubmissionReview.submission_id)).filter(
+    count, latest_submission_id = db.query(
+        func.count(SubmissionReview.submission_id),
+        func.max(SubmissionReview.submission_id),
+    ).filter(
         SubmissionReview.status == review_svc.PENDING
-    ).scalar()
-    return {"count": int(count or 0)}
+    ).one()
+    return {
+        "count": int(count or 0),
+        "latest_submission_id": latest_submission_id,
+    }
 
 
 @router.get("/reviews/pending", response_model=ReviewPendingOut, summary="待审核队列（v0.9.0 新增）")
@@ -655,7 +661,11 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             "legacy_image_lookup_complete": True,
         }
         items.append(_review_pending_item(sub, db, assignment_context, preloaded))
-    return {"count": len(items), "items": items}
+    return {
+        "count": len(items),
+        "items": items,
+        "latest_submission_id": max(submission_ids, default=None),
+    }
 
 
 @router.post("/reviews/approve-all", response_model=ReviewApproveAllOut, summary="全部通过审核（v0.9.0 新增）")
