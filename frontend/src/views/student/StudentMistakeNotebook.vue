@@ -49,7 +49,7 @@
             <p v-if="actionError && !removedAssignment" class="notebook-action-error" role="alert">{{ actionError }}</p>
             <div v-if="loading" class="notebook-assignment-list notebook-loading" aria-hidden="true"><div v-for="index in 4" :key="index" class="notebook-skeleton"><span/><span/><span/></div></div>
             <div v-else-if="visibleAssignments.length" class="notebook-assignment-list">
-              <details v-for="assignment in visibleAssignments" :key="assignment.id" class="notebook-assignment" :open="expandedAssignmentIds.has(assignment.id)" @toggle="onAssignmentToggle(assignment.id, $event)">
+              <details v-for="assignment in displayedAssignments" :key="assignment.id" class="notebook-assignment" :open="expandedAssignmentIds.has(assignment.id)" @toggle="onAssignmentToggle(assignment.id, $event)">
                 <summary>
                   <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="16"/></span>
                   <span class="notebook-subject-badge"><AppIcon name="book" :size="14"/>{{ subjectName(assignment.subject) }}</span>
@@ -70,6 +70,7 @@
                   <footer v-if="!assignment.studentSavedOnly" class="notebook-assignment-footer"><span>{{ assignment.ready ? '这份作业的错误类别都已学完。' : `还需学完 ${assignment.categories.length - assignment.studiedCategoryCount} 类，才能移出整份作业。` }}</span><button type="button" :disabled="!assignment.ready || workingKey === `archive:${assignment.id}`" @click="archiveAssignment(assignment)">{{ workingKey === `archive:${assignment.id}` ? '正在移出…' : '整份作业移出错题本' }}</button></footer>
                 </div>
               </details>
+              <button v-if="displayedAssignments.length < visibleAssignments.length" type="button" class="notebook-more-assignments" @click="showMoreAssignments">继续显示作业（{{ displayedAssignments.length }} / {{ visibleAssignments.length }}）</button>
             </div>
             <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '留一页，给每一次进步' }}</h3><p>{{ allMistakes.length ? '换个关键词，或调整学科与学习进度试试。' : '完成作业诊断后，错题会按作业和错误类别整理在这里。' }}</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
           </div>
@@ -144,6 +145,8 @@ const sort = ref('recent')
 const workingKey = ref('')
 const selectedMistake = ref<StudentMistake | null>(null)
 const expandedAssignmentIds = ref<Set<number>>(new Set())
+const notebookAssignmentPageSize = 30
+const visibleAssignmentLimit = ref(notebookAssignmentPageSize)
 const assistantOnLeft = ref(false)
 const assistantFullscreen = ref(false)
 const removedAssignment = ref<{ id: number; title: string; ids: number[] } | null>(null)
@@ -200,6 +203,12 @@ const visibleAssignments = computed(() => {
     return right.createdAt.localeCompare(left.createdAt)
   })
 })
+const displayedAssignments = computed(() =>
+  visibleAssignments.value.slice(0, visibleAssignmentLimit.value)
+)
+watch([subject, status, query, sort], () => {
+  visibleAssignmentLimit.value = notebookAssignmentPageSize
+})
 watch(visibleAssignments, (assignments, previous) => {
   const visibleIds = new Set(assignments.map((assignment) => assignment.id))
   const next = new Set([...expandedAssignmentIds.value].filter((id) => visibleIds.has(id)))
@@ -234,6 +243,10 @@ function onAssignmentToggle(assignmentId: number, event: Event) {
   if (details.open) next.add(assignmentId)
   else next.delete(assignmentId)
   expandedAssignmentIds.value = next
+}
+
+function showMoreAssignments() {
+  visibleAssignmentLimit.value += notebookAssignmentPageSize
 }
 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
@@ -509,7 +522,17 @@ function openRequestedReview() {
   const requestedId = Number(route.query.review)
   if (!Number.isInteger(requestedId) || requestedId <= 0) return
   const mistake = allMistakes.value.find((item) => item.id === requestedId)
-  if (mistake) openAssistant(mistake)
+  if (mistake) {
+    const assignmentIndex = visibleAssignments.value.findIndex(
+      (assignment) => assignment.id === mistake.assignment_id,
+    )
+    if (assignmentIndex >= visibleAssignmentLimit.value) {
+      visibleAssignmentLimit.value =
+        Math.ceil((assignmentIndex + 1) / notebookAssignmentPageSize)
+        * notebookAssignmentPageSize
+    }
+    openAssistant(mistake)
+  }
   const query = { ...route.query }
   delete query.review
   void router.replace({ path: route.path, query })
