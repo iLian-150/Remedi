@@ -77,7 +77,7 @@
         <article v-for="item in reviewCategories.slice(0, 5)" :key="item.key" class="review-card">
           <div class="review-card-heading">
             <span class="review-subject">{{ reviewSubjectName(item.subject) }}</span>
-            <span class="review-error-count">{{ item.items.length }} 道相关错题</span>
+            <span class="review-error-count">{{ item.itemCount }} 道相关错题</span>
           </div>
           <h4>{{ item.knowledgePoint || item.categoryLabel }}</h4>
           <p class="review-card-meta">{{ item.assignmentTitle }} · {{ item.categoryLabel }}</p>
@@ -87,8 +87,8 @@
       </div>
       <div v-else class="review-empty">
         <span class="review-empty-icon"><AppIcon name="check" :size="19" /></span>
-        <strong>{{ reviewRaw.length ? '目前没有待巩固类别' : '错题本还没有记录' }}</strong>
-        <p>{{ reviewRaw.length ? '所有错误类别都已标记学会，继续保持。' : '完成作业诊断后，错题和复习进度会显示在这里。' }}</p>
+        <strong>{{ reviewSummary.hasRecords ? '目前没有待巩固类别' : '错题本还没有记录' }}</strong>
+        <p>{{ reviewSummary.hasRecords ? '所有错误类别都已标记学会，继续保持。' : '完成作业诊断后，错题和复习进度会显示在这里。' }}</p>
         <button type="button" @click="router.push('/student/mistakes')">查看错题本<AppIcon name="arrow-right" :size="12" /></button>
       </div>
     </template>
@@ -216,23 +216,25 @@ interface ReviewCategory {
   knowledgePoint: string
   assignmentTitle: string
   mistakeId: number
-  items: StudentMistake[]
+  itemCount: number
   priority: number
   createdAt: string
   studied: boolean
 }
-const reviewRaw = ref<StudentMistake[]>([])
+interface ReviewSummary { totalCount: number; hasRecords: boolean; categories: ReviewCategory[] }
+const reviewSummary = ref<ReviewSummary>({ totalCount: 0, hasRecords: false, categories: [] })
 const reviewLoading = ref(false)
 const reviewError = ref(false)
 let reviewLoadGeneration = 0
-const reviewSummary = computed(() => {
+
+function summarizeMistakeReview(items: StudentMistake[]): ReviewSummary {
   const groups = new Map<string, ReviewCategory>()
-  for (const item of reviewRaw.value) {
+  for (const item of items) {
     if (item.source_kind === 'student_saved') continue
     const key = `${item.assignment_id}:${item.category_key}`
     const existing = groups.get(key)
     if (existing) {
-      existing.items.push(item)
+      existing.itemCount += 1
       existing.studied = existing.studied && item.category_studied
       existing.priority += item.similar_occurrences.length + Number(item.is_stubborn)
       if (item.created_at < existing.createdAt) existing.createdAt = item.created_at
@@ -245,7 +247,7 @@ const reviewSummary = computed(() => {
       knowledgePoint: item.knowledge_point,
       assignmentTitle: item.assignment_title,
       mistakeId: item.id,
-      items: [item],
+      itemCount: 1,
       priority: item.similar_occurrences.length + Number(item.is_stubborn),
       createdAt: item.created_at,
       studied: item.category_studied
@@ -253,11 +255,12 @@ const reviewSummary = computed(() => {
   }
   return {
     totalCount: groups.size,
+    hasRecords: items.length > 0,
     categories: Array.from(groups.values())
       .filter((item) => !item.studied)
       .sort((left, right) => right.priority - left.priority || left.createdAt.localeCompare(right.createdAt))
   }
-})
+}
 const reviewTotalCount = computed(() => reviewSummary.value.totalCount)
 const reviewCategories = computed<ReviewCategory[]>(() => reviewSummary.value.categories)
 const reviewStudiedCount = computed(() => reviewTotalCount.value - reviewCategories.value.length)
@@ -420,11 +423,11 @@ async function loadMistakeReview() {
   try {
     const items = await student.fetchMyMistakes(false)
     if (generation !== reviewLoadGeneration) return
-    reviewRaw.value = items
+    reviewSummary.value = summarizeMistakeReview(items)
     student.mistakeReviewCount = reviewCategories.value.length
   } catch (e) {
     if (generation !== reviewLoadGeneration) return
-    reviewRaw.value = []
+    reviewSummary.value = { totalCount: 0, hasRecords: false, categories: [] }
     student.mistakeReviewCount = 0
     reviewError.value = true
     console.error(e)
@@ -443,7 +446,7 @@ function onMistakeReviewChanged(event: Event) {
   const items = (event as CustomEvent<{ items?: StudentMistake[] }>).detail?.items
   if (Array.isArray(items)) {
     reviewLoadGeneration += 1
-    reviewRaw.value = items
+    reviewSummary.value = summarizeMistakeReview(items)
     reviewLoading.value = false
     reviewError.value = false
     student.mistakeReviewCount = reviewCategories.value.length
