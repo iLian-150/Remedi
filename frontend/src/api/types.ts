@@ -275,10 +275,18 @@ export interface KnowledgeStat {
   mastery: number
 }
 
+export interface StubbornErrorBrief {
+  id: number
+  knowledge_point: string
+  error_type: string
+  step_text: string | null
+  created_at: string
+}
+
 export interface StudentProfile {
   student: { id: number; name: string; student_no: string; role?: string; created_at?: string | null }
   knowledge_points: KnowledgeStat[]
-  stubborn_errors: GradingError[]
+  stubborn_errors: StubbornErrorBrief[]
   recent_errors: GradingError[]
   suggestion: string
 }

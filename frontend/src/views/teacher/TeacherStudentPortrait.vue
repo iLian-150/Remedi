@@ -38,10 +38,10 @@
                   <span class="badge badge-blue">{{ r.knowledge_point }}</span>
                   <span v-if="r.is_stubborn" class="badge badge-red">顽固误区</span>
                   <span v-else class="badge badge-green">偶发失误</span>
-                  <span class="conf-text tnum">置信度 {{ Math.round(r.confidence * 100) }}%</span>
+                  <span v-if="r.confidence != null" class="conf-text tnum">置信度 {{ Math.round(r.confidence * 100) }}%</span>
                 </p>
-                <p class="step-text">{{ r.step_text }}</p>
-                <p class="detail">{{ r.detail }}</p>
+                <p v-if="r.step_text" class="step-text">{{ r.step_text }}</p>
+                <p v-if="r.detail" class="detail">{{ r.detail }}</p>
                 <p style="margin-top: 6px">
                   <router-link :to="`/teacher/submissions/${r.id}`"><button class="btn small ghost inline-icon">查看诊断 <AppIcon name="chevron-right" :size="14" /></button></router-link>
                 </p>
@@ -53,7 +53,7 @@
 
         <div class="portrait-side">
           <div class="card" v-if="profile.suggestion">
-            <h3>学习建议 <span class="hint" style="font-weight: 400">（模型生成，供教师参考）</span></h3>
+            <h3>学习建议 <span class="hint" style="font-weight: 400">（按学习记录生成，供教师参考）</span></h3>
             <p class="suggestion">{{ profile.suggestion }}</p>
           </div>
 
@@ -85,14 +85,29 @@ const profile = ref<StudentProfile | null>(null)
 const loading = ref(false)
 const error = ref('')
 
+interface PortraitRecord {
+  id: number
+  knowledge_point: string
+  error_type: string
+  step_text: string | null
+  created_at: string
+  is_stubborn: boolean
+  confidence?: number
+  detail?: string | null
+}
+
 const totalAttempts = computed(() => profile.value?.knowledge_points.reduce((s, k) => s + k.attempts, 0) ?? 0)
 const totalErrors = computed(() => profile.value?.knowledge_points.reduce((s, k) => s + k.errors, 0) ?? 0)
 
 // 纵向错误记录：顽固 + 最近错误去重后按时间倒序
-const allRecords = computed(() => {
-  const map = new Map<number, StudentProfile['recent_errors'][number]>()
-  const records = [...(profile.value?.stubborn_errors ?? []), ...(profile.value?.recent_errors ?? [])]
-  records.forEach((r) => map.set(r.id, r))
+const allRecords = computed<PortraitRecord[]>(() => {
+  const map = new Map<number, PortraitRecord>()
+  for (const record of profile.value?.stubborn_errors ?? []) {
+    map.set(record.id, { ...record, is_stubborn: true })
+  }
+  for (const record of profile.value?.recent_errors ?? []) {
+    map.set(record.id, { ...record })
+  }
   return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
 })
 

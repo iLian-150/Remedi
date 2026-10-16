@@ -157,7 +157,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useStudentStore } from '../../stores/student'
 import { useAuthStore } from '../../stores/auth'
-import type { GradingError, StudentProfile } from '../../api/types'
+import type { StudentProfile } from '../../api/types'
 import { errorTypePalette, sanitizeStudentCopy } from '../../utils/errorType'
 import { getFixedErrorIds } from '../../utils/correctionTracker'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -170,6 +170,7 @@ const profile = ref<StudentProfile | null>(null)
 const loading = ref(false)
 const error = ref('')
 const fixedIds = ref<Set<number>>(new Set())
+type ProfileErrorRecord = StudentProfile['stubborn_errors'][number] | StudentProfile['recent_errors'][number]
 
 // 一次汇总档案页的总量、去重时间线、奖状与问题类型，避免模板分别重复扫描。
 const profileSummary = computed(() => {
@@ -181,12 +182,12 @@ const profileSummary = computed(() => {
   }
 
   // 最近错误沿用原优先级：同 ID 时覆盖顽固错误列表中的记录。
-  const map = new Map<number, GradingError>()
+  const map = new Map<number, ProfileErrorRecord>()
   for (const item of profile.value?.stubborn_errors ?? []) map.set(item.id, item)
   for (const item of profile.value?.recent_errors ?? []) map.set(item.id, item)
   const timeline = [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
 
-  const certificates: GradingError[] = []
+  const certificates: ProfileErrorRecord[] = []
   const typeCounts = new Map<string, number>()
   let reinforcingCount = 0
   for (const item of timeline) {
