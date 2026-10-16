@@ -1116,6 +1116,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```
 
 - `cover_url`（v0.6.0 新增）：上传成功后后端尝试把 PDF 第一页渲染成封面图（PyMuPDF，约 150dpi），存 `UPLOAD_DIR/covers/{id}.jpg` 并经 `/api/uploads/covers/{id}.jpg` 访问；渲染失败（PDF 损坏等）静默跳过，`cover_url` 为 `null`，前端用纯色书脊兜底。封面按文件名约定关联，不给 `workbooks` 表加列。
+- 按页提题接口 `/api/teacher/workbooks/{workbook_id}/extract-questions` 的 `page_range` 长度为 1–64 字符；页码先按 PDF 实际范围裁剪，再限制单次最多 8 页。
 - 错误：`400`（非 PDF / 内容为空 / 超过 30MB）；`403`（学生调用）。
 
 ### 4.16 GET /api/teacher/workbooks —— 我的练习册知识库（v0.5.0 新增）

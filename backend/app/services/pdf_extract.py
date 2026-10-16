@@ -27,30 +27,42 @@ def parse_pages(text: str, page_count: int) -> List[int]:
     """从自由文本页码里解析 1-based 页号列表（去重、排序、按 PDF 实际页数夹紧）。
 
     解析不到 / 超过单次上限 → ValueError（信息可直接给老师看，路由转 400）。"""
-    pages: List[int] = []
-    for m in _PAGE_RE.finditer(text or ""):
-        a = int(m.group(1))
-        b = int(m.group(2)) if m.group(2) else a
+    pages: set[int] = set()
+
+    def add_range(a: int, b: int) -> None:
         if b < a:
             a, b = b, a
-        pages.extend(range(a, b + 1))
-    if not pages:
+        # 先裁剪到 PDF 实际页数，再展开；不能先构造用户指定的任意大范围。
+        first = max(a, 1)
+        last = min(b, page_count)
+        if first > last:
+            return
+        if last - first + 1 > MAX_PAGES:
+            raise ValueError(
+                f"一次最多识别 {MAX_PAGES} 页，请把范围拆小一点、分两次识别。"
+            )
+        pages.update(range(first, last + 1))
+        if len(pages) > MAX_PAGES:
+            raise ValueError(
+                f"一次最多识别 {MAX_PAGES} 页，请把范围拆小一点、分两次识别。"
+            )
+
+    found_page_range = False
+    for m in _PAGE_RE.finditer(text or ""):
+        found_page_range = True
+        a = int(m.group(1))
+        b = int(m.group(2)) if m.group(2) else a
+        add_range(a, b)
+    if not found_page_range:
         # 兜底：没有任何「页」字时，取文本里的第一个数字段当页码（如直接填 12-14）
         m = re.search(r"(\d+)\s*(?:[-~—–至到]\s*(\d+))?", text or "")
         if m:
             a = int(m.group(1))
             b = int(m.group(2)) if m.group(2) else a
-            if b < a:
-                a, b = b, a
-            pages = list(range(a, b + 1))
-    pages = sorted({p for p in pages if 1 <= p <= page_count})
+            add_range(a, b)
     if not pages:
         raise ValueError("没能从页码范围里读出有效页码，请写成「第 12-14 页」这样的格式。")
-    if len(pages) > MAX_PAGES:
-        raise ValueError(
-            f"一次最多识别 {MAX_PAGES} 页（这次有 {len(pages)} 页），请把范围拆小一点、分两次识别。"
-        )
-    return pages
+    return sorted(pages)
 
 
 def question_hint(text: str) -> str:

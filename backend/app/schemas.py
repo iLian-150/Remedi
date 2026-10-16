@@ -594,7 +594,11 @@ class WorkbookOut(BaseModel):
 
 
 class WorkbookExtractIn(BaseModel):
-    page_range: str               # 老师填的页码范围原文，如「第 12-14 页 第 1-8 题」
+    page_range: str = Field(
+        min_length=1,
+        max_length=64,
+        description="页码范围原文，如「第 12-14 页 第 1-8 题」",
+    )
 
 
 class ExtractedQuestionOut(BaseModel):
