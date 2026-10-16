@@ -98,7 +98,7 @@
         <h3><AppIcon name="sparkles" :size="17" /> 我的奖状墙</h3>
         <p class="card-sub">每订正对一道错题，就有一张小奖状。攒满它们，知识点就真正属于你了。</p>
         <div v-if="certificates.length" class="cert-grid">
-          <div v-for="e in certificates" :key="e.id" class="cert">
+          <div v-for="e in visibleCertificates" :key="e.id" class="cert">
             <p class="cert-head">奖 状</p>
             <p class="cert-body">
               <strong>{{ profile.student.name }}</strong> 同学<br />
@@ -109,6 +109,12 @@
           </div>
         </div>
         <div v-else class="empty">还没有奖状——去订正页做对第一道错题，第一张奖状就是你的。</div>
+        <button
+          v-if="visibleCertificates.length < certificates.length"
+          type="button"
+          class="btn small secondary profile-more"
+          @click="showMoreCertificates"
+        >继续显示奖状（{{ visibleCertificates.length }} / {{ certificates.length }}）</button>
       </div>
 
       <!-- ================= 成长记录表（课表式网格） ================= -->
@@ -121,7 +127,7 @@
               <tr><th>时间</th><th>知识点</th><th>问题类型</th><th>出错的步骤</th><th>状态</th><th></th></tr>
             </thead>
             <tbody>
-              <tr v-for="e in timeline" :key="e.id">
+              <tr v-for="e in visibleTimeline" :key="e.id">
                 <td class="tnum record-time">{{ fmtTime(e.created_at) }}</td>
                 <td><span class="badge badge-blue">{{ e.knowledge_point }}</span></td>
                 <td><ErrorTypeBadge :type="e.error_type" /></td>
@@ -140,6 +146,12 @@
           </table>
         </div>
         <div v-else class="empty">还没有错误记录，继续保持！</div>
+        <button
+          v-if="visibleTimeline.length < timeline.length"
+          type="button"
+          class="btn small secondary profile-more"
+          @click="showMoreTimeline"
+        >继续显示记录（{{ visibleTimeline.length }} / {{ timeline.length }}）</button>
       </div>
 
       <!-- 问题类型分布 -->
@@ -235,6 +247,20 @@ const reinforcingCount = computed(() => profileSummary.value.reinforcingCount)
 
 // 奖状墙：已订正的错题（轨迹 ∩ 本机已订正集）
 const certificates = computed(() => profileSummary.value.certificates)
+const CERTIFICATE_BATCH_SIZE = 24
+const TIMELINE_BATCH_SIZE = 50
+const visibleCertificateCount = ref(CERTIFICATE_BATCH_SIZE)
+const visibleTimelineCount = ref(TIMELINE_BATCH_SIZE)
+const visibleCertificates = computed(() => certificates.value.slice(0, visibleCertificateCount.value))
+const visibleTimeline = computed(() => timeline.value.slice(0, visibleTimelineCount.value))
+
+function showMoreCertificates() {
+  visibleCertificateCount.value += CERTIFICATE_BATCH_SIZE
+}
+
+function showMoreTimeline() {
+  visibleTimelineCount.value += TIMELINE_BATCH_SIZE
+}
 
 // 问题类型分布：三色统一
 const typeOptionData = computed(() => profileSummary.value.typeOptionData)
@@ -409,6 +435,7 @@ onMounted(async () => {
 
 /* ================= 奖状墙 ================= */
 .cert-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.profile-more { display: block; margin: 14px auto 0; }
 .cert {
   position: relative;
   background: linear-gradient(165deg, #FFFBEB, #FFF6DA);
