@@ -768,6 +768,8 @@ class TeacherDashboardOut(BaseModel):
     students: List[StudentBrief]
     total_errors: int
     stubborn_errors: int
+    graded_submissions: int
+    graded_submissions_with_errors: int
     repair_rate: Optional[ClassRepairRateOut] = None
     recent_error_types: List[ErrorTypeCountOut]
     suggestions: Optional[List[TeachingSuggestionOut]] = None

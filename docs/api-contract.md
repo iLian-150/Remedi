@@ -1208,7 +1208,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.27 GET /api/teacher/dashboard —— 教师首页看板汇总
 
-权限：教师。可选参数 `n` 为高频错题数量（默认 10，范围 1–50）；`include_suggestions=true` 时还返回教学建议。响应包含 `top_questions`、`knowledge_points`、`students`、`total_errors`、`stubborn_errors`、`repair_rate`、`recent_error_types` 与 `suggestions`（未请求时为 `null`）。错因类型分布与原首页保持一致，统计最近 100 条错误记录，但仅加载类别字段；`repair_rate` 在计算失败时为 `null`，其余数据仍正常返回。启用建议时，服务复用同次请求已经计算的修复率、知识点排行与高频错题统计，避免重复聚合。
+权限：教师。可选参数 `n` 为高频错题数量（默认 10，范围 1–50）；`include_suggestions=true` 时还返回教学建议。响应包含 `top_questions`、`knowledge_points`、`students`、`total_errors`、`stubborn_errors`、`graded_submissions`、`graded_submissions_with_errors`、`repair_rate`、`recent_error_types` 与 `suggestions`（未请求时为 `null`）。`graded_submissions` 统计全科已批改提交数；`graded_submissions_with_errors` 统计其中至少有一条诊断错因的提交数，按提交去重。错因类型分布与原首页保持一致，统计最近 100 条错误记录，但仅加载类别字段；`repair_rate` 在计算失败时为 `null`，其余数据仍正常返回。启用建议时，服务复用同次请求已经计算的修复率、知识点排行与高频错题统计，避免重复聚合。
 
 响应 `200`：包含上述字段的看板汇总对象，`recent_error_types` 项结构为 `{ "name": 错因类型, "value": 数量 }`。
 

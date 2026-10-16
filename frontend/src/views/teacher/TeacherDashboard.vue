@@ -43,11 +43,11 @@
         </div>
       </div>
 
-      <!-- 科目概览条（原科目总览卡压缩为一行：提交 / 整体错误率 / 涉及知识点） -->
+      <!-- 全科概览：只统计已批改提交，并按含错提交数计算错误率。 -->
       <div class="subject-strip">
-        <span class="strip-subject"><AppIcon name="book" :size="15" /> 数学</span>
-        <span>全班提交 <b class="tnum">{{ subjectTotals.submissions }}</b> 次</span>
-        <span>整体错误率 <b class="tnum">{{ Math.round(subjectTotals.errorRate * 100) }}%</b></span>
+        <span class="strip-subject"><AppIcon name="book" :size="15" /> 全科</span>
+        <span>已批改提交 <b class="tnum">{{ overview.gradedSubmissions }}</b> 次</span>
+        <span>已批含错率 <b class="tnum">{{ Math.round(gradedErrorRate * 100) }}%</b></span>
         <span>涉及知识点 <b class="tnum">{{ overview.kpCount }}</b> 个</span>
         <span class="strip-note">修复 = 订正错题后通过二次验证</span>
       </div>
@@ -149,7 +149,14 @@ const topQuestionsError = ref('')
 const loading = ref(false)
 const error = ref('')
 
-const overview = reactive({ totalErrors: 0, stubbornErrors: 0, studentCount: 0, kpCount: 0 })
+const overview = reactive({
+  totalErrors: 0,
+  stubbornErrors: 0,
+  studentCount: 0,
+  kpCount: 0,
+  gradedSubmissions: 0,
+  gradedSubmissionsWithErrors: 0
+})
 const typeOptionData = ref<Array<{ name: string; value: number }>>([])
 
 // 班级知识修复率（4.11）：KPI 卡 + 各知识点修复率（并入知识点卡片）
@@ -191,14 +198,10 @@ function suggestKindText(kind: TeachingSuggestion['kind']): string {
 function suggestBadgeClass(kind: TeachingSuggestion['kind']): string {
   return SUGGEST_BADGE_CLASS[kind] ?? 'badge-gray'
 }
-// 科目层汇总（数学）：提交总数取知识点排行的提交合计，整体错误率与学生画像同口径（上限 1.0）
-const subjectTotals = computed(() => {
-  const submissions = kpStats.value.reduce((sum, k) => sum + k.submissions, 0)
-  const errorRate = submissions
-    ? Math.min(1, overview.totalErrors / submissions)
-    : 0
-  return { submissions, errorRate }
-})
+// 已批提交中至少有一条诊断错因的比例，按提交去重且包含零错因知识点的提交。
+const gradedErrorRate = computed(() => overview.gradedSubmissions
+  ? Math.min(1, overview.gradedSubmissionsWithErrors / overview.gradedSubmissions)
+  : 0)
 
 const topQuestionsOption = computed(() => {
   // 教师首页汇总接口已按错误数降序，图表直接复用以免再次复制和排序。
@@ -286,6 +289,8 @@ async function loadStats(includeSuggestions = false) {
     overview.stubbornErrors = summary.stubborn_errors
     overview.studentCount = summary.students.length
     overview.kpCount = summary.knowledge_points.length
+    overview.gradedSubmissions = summary.graded_submissions
+    overview.gradedSubmissionsWithErrors = summary.graded_submissions_with_errors
     typeOptionData.value = summary.recent_error_types
     if (includeSuggestions) {
       suggestions.value = summary.suggestions ?? []

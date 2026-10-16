@@ -791,6 +791,14 @@ def teacher_dashboard(
         func.count(Error.id),
         func.sum(case((Error.is_stubborn.is_(True), 1), else_=0)),
     ).join(Submission, Error.submission_id == Submission.id).one()
+    graded_submissions, graded_submissions_with_errors = db.query(
+        func.count(func.distinct(Submission.id)),
+        func.count(func.distinct(Error.submission_id)),
+    ).outerjoin(
+        Error, Error.submission_id == Submission.id,
+    ).filter(
+        Submission.status == "graded",
+    ).one()
 
     recent_error_types = db.query(
         Error.error_type.label("error_type")
@@ -847,6 +855,8 @@ def teacher_dashboard(
         students=students_list,
         total_errors=int(error_total or 0),
         stubborn_errors=int(stubborn_total or 0),
+        graded_submissions=int(graded_submissions or 0),
+        graded_submissions_with_errors=int(graded_submissions_with_errors or 0),
         repair_rate=repair_rate,
         recent_error_types=[
             ErrorTypeCountOut(name=name, value=count)

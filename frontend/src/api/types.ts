@@ -665,6 +665,8 @@ export interface TeacherDashboardSummary {
   students: StudentSummary[]
   total_errors: number
   stubborn_errors: number
+  graded_submissions: number
+  graded_submissions_with_errors: number
   repair_rate: ClassRepairRate | null
   recent_error_types: Array<{ name: string; value: number }>
   suggestions?: TeachingSuggestion[] | null
