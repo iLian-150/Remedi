@@ -90,5 +90,6 @@ def init_db():
         connection.execute(text("DROP INDEX IF EXISTS ix_student_question_captures_student_id"))
         connection.execute(text("DROP INDEX IF EXISTS ix_student_question_captures_saved_at"))
         connection.execute(text("DROP INDEX IF EXISTS ix_student_mistake_events_student_id"))
+        connection.execute(text("DROP INDEX IF EXISTS ix_workbooks_teacher_id"))
     for index in models.ChatSessionMessage.__table__.indexes:
         index.create(bind=engine, checkfirst=True)

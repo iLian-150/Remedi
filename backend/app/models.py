@@ -425,11 +425,19 @@ class Workbook(Base):
     __tablename__ = "workbooks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(128), nullable=False, comment="练习册名（默认取 PDF 文件名）")
     file_path = Column(String(256), nullable=False, index=True,
                         comment="相对 UPLOAD_DIR 的文件路径")
     created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+Index(
+    "ix_workbooks_teacher_created_id",
+    Workbook.teacher_id,
+    Workbook.created_at.desc(),
+    Workbook.id.desc(),
+)
 
 
 class AssignmentExt(Base):
