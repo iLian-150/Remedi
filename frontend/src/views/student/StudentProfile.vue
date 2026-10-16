@@ -181,11 +181,34 @@ const profileSummary = computed(() => {
     totalErrors += item.errors
   }
 
+  // 两份后端列表都已按时间倒序；合并而非对全量历史重新排序。
   // 最近错误沿用原优先级：同 ID 时覆盖顽固错误列表中的记录。
-  const map = new Map<number, ProfileErrorRecord>()
-  for (const item of profile.value?.stubborn_errors ?? []) map.set(item.id, item)
-  for (const item of profile.value?.recent_errors ?? []) map.set(item.id, item)
-  const timeline = [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const stubbornErrors = profile.value?.stubborn_errors ?? []
+  const recentErrors = profile.value?.recent_errors ?? []
+  const recordsById = new Map<number, ProfileErrorRecord>()
+  for (const item of stubbornErrors) recordsById.set(item.id, item)
+  const recentOnly: ProfileErrorRecord[] = []
+  for (const item of recentErrors) {
+    if (!recordsById.has(item.id)) recentOnly.push(item)
+    recordsById.set(item.id, item)
+  }
+  const timeline: ProfileErrorRecord[] = []
+  let stubbornIndex = 0
+  let recentIndex = 0
+  while (stubbornIndex < stubbornErrors.length || recentIndex < recentOnly.length) {
+    const stubbornError = stubbornErrors[stubbornIndex]
+    const recentError = recentOnly[recentIndex]
+    if (
+      stubbornError &&
+      (!recentError || stubbornError.created_at.localeCompare(recentError.created_at) >= 0)
+    ) {
+      timeline.push(recordsById.get(stubbornError.id) ?? stubbornError)
+      stubbornIndex += 1
+    } else if (recentError) {
+      timeline.push(recentError)
+      recentIndex += 1
+    }
+  }
 
   const certificates: ProfileErrorRecord[] = []
   const typeCounts = new Map<string, number>()
