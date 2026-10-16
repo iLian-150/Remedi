@@ -497,8 +497,15 @@ async function toggleCategoryByPayload(payload: { assignment_id: number; categor
   actionError.value = ''
   try {
     await student.setMistakeCategoryStudied(payload)
-    allMistakes.value = allMistakes.value.map((item) => item.assignment_id === payload.assignment_id && item.category_key === payload.category_key ? { ...item, category_studied: payload.studied } : item)
-    if (selectedMistake.value?.assignment_id === payload.assignment_id && selectedMistake.value.category_key === payload.category_key) selectedMistake.value = { ...selectedMistake.value, category_studied: payload.studied }
+    const category = notebookData.value.assignmentGroupsById
+      .get(payload.assignment_id)?.categories
+      .find((item) => item.key === payload.category_key)
+    for (const item of category?.items ?? []) {
+      item.category_studied = payload.studied
+    }
+    if (selectedMistake.value?.assignment_id === payload.assignment_id && selectedMistake.value.category_key === payload.category_key) {
+      selectedMistake.value.category_studied = payload.studied
+    }
     notifyMistakeReviewChanged(allMistakes.value)
   } catch {
     actionError.value = '学习状态保存失败，请稍后重试。'
