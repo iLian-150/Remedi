@@ -150,7 +150,12 @@ const notebookAssignmentPageSize = 30
 const visibleAssignmentLimit = ref(notebookAssignmentPageSize)
 const assistantOnLeft = ref(false)
 const assistantFullscreen = ref(false)
-const removedAssignment = ref<{ id: number; title: string; ids: number[] } | null>(null)
+const removedAssignment = ref<{
+  id: number
+  title: string
+  ids: number[]
+  items: StudentMistake[]
+} | null>(null)
 let supplementalStylesPromise: Promise<unknown> | undefined
 let viewRequestId = 0
 let assistantRequestId = 0
@@ -529,17 +534,31 @@ async function toggleAssistantStudy() {
 }
 async function archiveAssignment(assignment: AssignmentGroup) {
   if (!assignment.ready) return
-  const occurrenceIds = allMistakes.value
+  const assignmentItems = allMistakes.value
     .filter((item) => item.assignment_id === assignment.id)
-    .map((item) => item.id)
   workingKey.value = `archive:${assignment.id}`
   actionError.value = ''
   try {
-    await student.setMistakeAssignmentArchived(assignment.id, true)
-    removedAssignment.value = { id: assignment.id, title: assignment.title, ids: occurrenceIds }
+    const archivedIds = await student.setMistakeAssignmentArchived(assignment.id, true)
+    if (!archivedIds.length) {
+      const refreshed = await loadMistakes()
+      notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
+      return
+    }
+    const archivedIdSet = new Set(archivedIds)
+    const archivedItems = assignmentItems.filter((item) => archivedIdSet.has(item.id))
+    removedAssignment.value = {
+      id: assignment.id,
+      title: assignment.title,
+      ids: archivedIds,
+      items: archivedItems,
+    }
     closeAssistant()
-    const refreshed = await loadMistakes()
-    notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
+    allMistakes.value = allMistakes.value.filter((item) => !archivedIdSet.has(item.id))
+    if (archivedItems.length !== archivedIds.length) {
+      const refreshed = await loadMistakes()
+      notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
+    } else notifyMistakeReviewChanged(allMistakes.value)
   } catch { actionError.value = '整份作业移出失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
@@ -553,8 +572,8 @@ async function archiveSaved(mistake: StudentMistake) {
   try {
     await student.setMistakeArchived(mistake.id, true)
     closeAssistant()
-    const refreshed = await loadMistakes()
-    notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
+    allMistakes.value = allMistakes.value.filter((item) => item.id !== mistake.id)
+    notifyMistakeReviewChanged(allMistakes.value)
   } catch { actionError.value = '移出错题本失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
@@ -564,10 +583,22 @@ async function restoreAssignment() {
   workingKey.value = `restore:${removed.id}`
   actionError.value = ''
   try {
-    await student.setMistakeAssignmentArchived(removed.id, false, removed.ids)
+    const restoredIds = await student.setMistakeAssignmentArchived(removed.id, false, removed.ids)
     removedAssignment.value = null
-    const refreshed = await loadMistakes()
-    notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
+    if (restoredIds.length === removed.ids.length && removed.items.length === removed.ids.length) {
+      const restoredIdSet = new Set(restoredIds)
+      const merged = new Map(allMistakes.value.map((item) => [item.id, item]))
+      for (const item of removed.items) {
+        if (restoredIdSet.has(item.id)) merged.set(item.id, item)
+      }
+      allMistakes.value = Array.from(merged.values()).sort((a, b) =>
+        b.created_at.localeCompare(a.created_at),
+      )
+      notifyMistakeReviewChanged(allMistakes.value)
+    } else {
+      const refreshed = await loadMistakes()
+      notifyMistakeReviewChanged(refreshed ? allMistakes.value : undefined)
+    }
   } catch { actionError.value = '恢复作业失败，请稍后重试。' }
   finally { workingKey.value = '' }
 }
