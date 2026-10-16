@@ -135,7 +135,7 @@
             <div class="editor-wrap">
               <div class="editor-gutter" aria-hidden="true">
                 <div class="editor-gutter-inner" :style="{ transform: `translateY(${-(gutterScroll[currentQ.id] ?? 0)}px)` }">
-                  <span v-for="n in lineCount(currentQ.id)" :key="n" class="tnum">{{ n }}</span>
+                  <span v-for="n in currentDraftMetrics.lineCount" :key="n" class="tnum">{{ n }}</span>
                 </div>
               </div>
               <textarea
@@ -149,14 +149,14 @@
               />
             </div>
             <div class="editor-meta">
-              <span class="tnum">{{ stepCount(currentQ.id) }} / 20 步</span>
-              <span v-if="stepCount(currentQ.id) > 20" class="editor-warn">步骤有点多，最多 20 步，请把几步合并一下再提交。</span>
+              <span class="tnum">{{ currentDraftMetrics.stepCount }} / 20 步</span>
+              <span v-if="currentDraftMetrics.stepCount > 20" class="editor-warn">步骤有点多，最多 20 步，请把几步合并一下再提交。</span>
               <span v-else-if="(drafts[currentQ.id] ?? '').trim()" class="editor-saved">草稿已自动保存在这台设备上</span>
             </div>
             <div class="toolbar" style="margin: 10px 0 0">
               <button
                 class="btn"
-                :disabled="submittingMap[currentQ.id] || stepCount(currentQ.id) === 0 || stepCount(currentQ.id) > 20"
+                :disabled="submittingMap[currentQ.id] || currentDraftMetrics.stepCount === 0 || currentDraftMetrics.stepCount > 20"
                 @click="submitAnswer(currentQ)"
               >
                 {{ submittingMap[currentQ.id] ? '提交中…' : '提交作答' }}
@@ -422,14 +422,6 @@ const gutterScroll = ref<Record<number, number>>({})
 
 const draftKey = (qid: number) => `remedi-answer-draft-${qid}`
 
-function lineCount(qid: number): number {
-  return Math.max(1, (drafts.value[qid] ?? '').split('\n').length)
-}
-
-function stepCount(qid: number): number {
-  return (drafts.value[qid] ?? '').split('\n').map((s) => s.trim()).filter(Boolean).length
-}
-
 function onDraftInput(qid: number, e: Event) {
   const text = (e.target as HTMLTextAreaElement).value
   drafts.value[qid] = text
@@ -462,6 +454,24 @@ const currentIdx = ref(0)
 const cardOpen = ref(false)
 const boardTextarea = ref<HTMLTextAreaElement | null>(null)
 const currentQ = computed(() => mathQuestions.value[currentIdx.value] ?? null)
+const currentDraftMetrics = computed(() => {
+  const questionId = currentQ.value?.id
+  const text = questionId == null ? '' : drafts.value[questionId] ?? ''
+  let lineCount = 1
+  let stepCount = 0
+  let lineStart = 0
+
+  while (lineStart <= text.length) {
+    const newlineIndex = text.indexOf('\n', lineStart)
+    const lineEnd = newlineIndex < 0 ? text.length : newlineIndex
+    if (text.slice(lineStart, lineEnd).trim()) stepCount += 1
+    if (newlineIndex < 0) break
+    lineCount += 1
+    lineStart = newlineIndex + 1
+  }
+
+  return { lineCount, stepCount }
+})
 
 /** 本题的提交状态卡类型：本次会话刚提交的优先，其次历史提交状态；null = 还没提交过 */
 function noteKind(q: Question): 'pending' | 'approved' | 'deferred' | null {
