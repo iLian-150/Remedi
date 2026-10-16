@@ -355,6 +355,8 @@ onMounted(async () => {
   padding: 20px 14px 18px 8px;
   border-bottom: 1px dashed #e4e2d9;
   border-radius: 8px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
   transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
 }
 .paper-item:last-child { border-bottom: none; }
