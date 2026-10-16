@@ -332,7 +332,8 @@ async function loadMarks() {
       // 与学生作业列表页共用轻量提交状态请求；日历只需要发布时间。
       list = await student.fetchAssignments(false, false, true)
     } else {
-      list = await teacher.fetchTeacherAssignments()
+      // 日历只需要发布时间，避免加载每份作业的题目、提交人数和配置。
+      list = await teacher.fetchTeacherAssignmentCalendarMarks()
     }
     marks.value = assignmentMarks(list)
   } catch (e) {

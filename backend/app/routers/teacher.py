@@ -1210,6 +1210,16 @@ def list_teacher_assignments(db: Session = Depends(get_db),
     return {"total": len(items), "items": items}
 
 
+@router.get("/assignments/calendar-marks", summary="教师作业日历标记")
+def teacher_assignment_calendar_marks(
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    """Return only publication times used by the right-rail calendar."""
+    rows = db.query(Assignment.created_at).order_by(Assignment.created_at).all()
+    return {"items": [{"created_at": created_at} for (created_at,) in rows]}
+
+
 def _delete_unreferenced_submission_images(db: Session, file_paths: set[str]) -> None:
     delete_unreferenced_uploads(
         db, file_paths, reason="作业删除后"

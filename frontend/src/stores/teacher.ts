@@ -160,6 +160,12 @@ export const useTeacherStore = defineStore('teacher', {
         return data.items
       })
     },
+    async fetchTeacherAssignmentCalendarMarks(): Promise<Array<{ created_at: string }>> {
+      const { data } = await api.get<{ items: Array<{ created_at: string }> }>(
+        '/api/teacher/assignments/calendar-marks'
+      )
+      return data.items
+    },
     // 4.7 发布作业（v0.2.0）
     async createAssignment(payload: TeacherAssignmentInput): Promise<TeacherAssignment> {
       const { data } = await api.post<TeacherAssignment>('/api/teacher/assignments', payload)
