@@ -1,80 +1,69 @@
 # Mock 认证：演示用，无密码。
-# 登录时按 username+role 查找用户，不存在则自动创建；token 格式为 "mock-<user_id>"。
+# 学生按名册中的姓名+学号登录；教师按姓名+学科隔离；token 为 "mock-<user_id>"。
 # ⚠️ 仅用于 MVP 演示/联调，生产环境必须替换为 JWT + 密码体系。
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import User
+from .models import TeacherSubject, User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
 TOKEN_PREFIX = "mock-"
-_FIRST_STUDENT_NUMBER = 2026001
-_STUDENT_CREATE_RETRIES = 100
 
 
 def create_token(user_id: int) -> str:
     return f"{TOKEN_PREFIX}{user_id}"
 
 
-def _next_student_no(db: Session) -> str:
-    """Pick the first free number at or above the current sequential position."""
-    next_number = _FIRST_STUDENT_NUMBER + db.query(User.id).filter(
-        User.role == "student",
-    ).count()
-    while True:
-        student_no = f"S{next_number}"
-        occupied = db.query(User.id).filter(User.student_no == student_no).first()
-        if occupied is None:
-            return student_no
-        next_number += 1
-
-
-def get_or_create_user(db: Session, username: str, role: str) -> User:
-    user = db.query(User).filter(User.name == username, User.role == role).first()
-    if user:
+def get_or_create_user(
+    db: Session,
+    username: str,
+    role: str,
+    student_no: Optional[str] = None,
+    subject: Optional[str] = None,
+) -> User:
+    """教师仍使用无密码演示登录；学生必须先由教师录入名册并用学号登录。"""
+    if role == "student":
+        normalized_no = (student_no or "").strip()
+        if not normalized_no:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "学生登录需要学号。")
+        user = db.query(User).filter(
+            User.role == "student", User.student_no == normalized_no,
+        ).first()
+        if user is None or user.name != username:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "姓名与学号不匹配，请联系任课老师检查班级名册。")
         return user
 
-    if role != "student":
-        user = User(name=username, student_no=None, role=role)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return user
+    if role == "teacher" and subject:
+        user = db.query(User).join(
+            TeacherSubject, TeacherSubject.teacher_id == User.id,
+        ).filter(
+            User.name == username,
+            User.role == "teacher",
+            TeacherSubject.subject == subject,
+        ).first()
+        if user:
+            return user
+        # 老师已有同名账号但尚未绑定任教学科时，首次使用该账号并完成映射。
+        legacy = db.query(User).filter(
+            User.name == username,
+            User.role == "teacher",
+            ~db.query(TeacherSubject.teacher_id).filter(
+                TeacherSubject.teacher_id == User.id,
+            ).exists(),
+        ).first()
+        if legacy:
+            return legacy
 
-    # 学号按现有顺序生成；删除用户留下的空洞会被跳过，避免唯一约束冲突。
-    for _ in range(_STUDENT_CREATE_RETRIES):
-        student_no = _next_student_no(db)
-        user = User(name=username, student_no=student_no, role=role)
-        db.add(user)
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            # 并发请求可能已创建同名账号；如果只是学号被抢占，则重算后再试。
-            existing = db.query(User).filter(
-                User.name == username, User.role == role,
-            ).first()
-            if existing:
-                return existing
-            occupied = db.query(User.id).filter(
-                User.student_no == student_no,
-            ).first()
-            if occupied:
-                continue
-            raise
-        db.refresh(user)
-        return user
-
-    raise HTTPException(
-        status.HTTP_503_SERVICE_UNAVAILABLE,
-        "学生账号创建繁忙，请稍后重试。",
-    )
+    user = User(name=username, student_no=None, role=role)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def get_current_user(

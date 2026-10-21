@@ -30,19 +30,19 @@
 
     <div v-if="mathLoading" class="loading">加载批改结果中…</div>
 
-    <!-- 低置信度诊断已放行给学生查看，同时保留教师复核状态 -->
+    <!-- 整份作业低于 60 分进入教师审核，错题、订正和系统评分仍即时展示 -->
     <div v-if="mathDetail && mathDetail.status === 'pending_review'" class="card">
       <div class="review-pending-box">
         <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
         <div>
           <p class="review-pending-title">错题已同步加入错题本和订正区</p>
-          <p class="review-pending-sub">老师正在复核这次低置信度判断；如需调整，错因会同步更新。成绩会在审核后显示。</p>
+          <p class="review-pending-sub">这份作业总分低于 60 分，正在等待教师审核。系统评分已显示，你可以先继续订正；老师改判后，成绩和错题记录会同步更新。</p>
         </div>
       </div>
     </div>
 
     <template v-if="mathDetail && (mathDetail.status !== 'pending_review' || mathDetail.steps.length || mathDetail.errors.length)">
-      <!-- 成绩单（评分系统）：老师审核通过后才有分 -->
+      <!-- 成绩单：系统评分立即展示，教师审核可调整最终分 -->
       <div class="card score-card" v-if="mathDetail.score">
         <h3>成绩单</h3>
         <div class="score-rows">

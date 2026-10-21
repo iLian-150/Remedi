@@ -1,15 +1,17 @@
 # 班级聚合与学习画像：高频错题 TopN、知识点错误率排行、学生画像。
 from typing import Dict, List
 
-from sqlalchemy import and_, case, func, literal
+from sqlalchemy import and_, case, func, literal, or_
 from sqlalchemy.orm import joinedload, load_only
 
-from ..models import Assignment, AssignmentExt, AssignmentSetting, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
+from ..models import Assignment, AssignmentClass, AssignmentExt, AssignmentSetting, ClassroomMember, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
 
 
-def top_error_questions(db, n: int = 10) -> List[Dict]:
+def top_error_questions(db, n: int = 10, assignment_ids=None) -> List[Dict]:
     """高频错题 TopN：按 error 数降序。"""
-    rows = (
+    if assignment_ids is not None and not assignment_ids:
+        return []
+    query = (
         db.query(
             Question,
             func.count(Error.id).label("error_count"),
@@ -23,7 +25,11 @@ def top_error_questions(db, n: int = 10) -> List[Dict]:
             Question.subject,
             Question.knowledge_point,
         ))
-        .group_by(Question.id)
+    )
+    if assignment_ids is not None:
+        query = query.filter(Question.assignment_id.in_(assignment_ids))
+    rows = (
+        query.group_by(Question.id)
         .order_by(func.count(Error.id).desc(), Question.id.asc())
         .limit(n)
         .all()
@@ -41,26 +47,36 @@ def top_error_questions(db, n: int = 10) -> List[Dict]:
     ]
 
 
-def knowledge_point_ranking(db) -> List[Dict]:
+def knowledge_point_ranking(db, assignment_ids=None) -> List[Dict]:
     """知识点错误率排行。
     口径：submissions = 该知识点题目的提交总数；errors = 该知识点累计 error 数；
     error_rate = errors / submissions。按 error_rate 降序。"""
     # 将提交数与错因数两组聚合合并为一条 SQL，避免看板和统计接口各自往返两次。
-    combined_counts = (
+    if assignment_ids is not None and not assignment_ids:
+        return []
+    attempts_query = (
         db.query(
             Question.knowledge_point.label("knowledge_point"),
             func.count(Submission.id).label("submissions"),
             literal(0).label("errors"),
         )
         .join(Submission, Submission.question_id == Question.id)
-        .group_by(Question.knowledge_point)
-        .union_all(
-            db.query(
+    )
+    errors_query = (
+        db.query(
                 Error.knowledge_point.label("knowledge_point"),
                 literal(0).label("submissions"),
                 func.count(Error.id).label("errors"),
+            ).join(Submission, Submission.id == Error.submission_id).join(
+                Question, Question.id == Submission.question_id,
             )
-            .group_by(Error.knowledge_point)
+    )
+    if assignment_ids is not None:
+        attempts_query = attempts_query.filter(Question.assignment_id.in_(assignment_ids))
+        errors_query = errors_query.filter(Question.assignment_id.in_(assignment_ids))
+    combined_counts = (
+        attempts_query.group_by(Question.knowledge_point).union_all(
+            errors_query.group_by(Error.knowledge_point)
         )
         .subquery()
     )
@@ -89,11 +105,15 @@ def knowledge_point_ranking(db) -> List[Dict]:
     return items
 
 
-def _student_error_query(db, student_id: int, visible_only: bool):
+def _student_error_query(db, student_id: int, visible_only: bool, assignment_ids=None):
     """该生错因的基础查询；学生自查时在 SQL 中排除待审核提交。"""
     query = db.query(Error).join(
         Submission, Submission.id == Error.submission_id,
     ).filter(Submission.student_id == student_id)
+    if assignment_ids is not None:
+        query = query.join(Question, Question.id == Submission.question_id).filter(
+            Question.assignment_id.in_(assignment_ids),
+        )
     if visible_only:
         pending_review = db.query(SubmissionReview.submission_id).filter(
             SubmissionReview.submission_id == Submission.id,
@@ -103,7 +123,7 @@ def _student_error_query(db, student_id: int, visible_only: bool):
     return query
 
 
-def _student_profile_stats(db, student_id: int, visible_only: bool):
+def _student_profile_stats(db, student_id: int, visible_only: bool, assignment_ids=None):
     """在一条 SQL 中合并画像所需的提交数与错因汇总。"""
     knowledge_point = case(
         (Question.id.is_(None), "未知"),
@@ -118,6 +138,8 @@ def _student_profile_stats(db, student_id: int, visible_only: bool):
         .outerjoin(Question, Question.id == Submission.question_id)
         .filter(Submission.student_id == student_id)
     )
+    if assignment_ids is not None:
+        attempt_query = attempt_query.filter(Question.assignment_id.in_(assignment_ids))
     if visible_only:
         attempt_query = attempt_query.outerjoin(
             SubmissionReview,
@@ -133,7 +155,7 @@ def _student_profile_stats(db, student_id: int, visible_only: bool):
         Correction.is_correct.is_(True),
     ).exists()
     error_stats = _student_error_query(
-        db, student_id, visible_only,
+        db, student_id, visible_only, assignment_ids,
     ).with_entities(
         Error.knowledge_point.label("knowledge_point"),
         func.count(Error.id).label("error_count"),
@@ -185,10 +207,10 @@ def _student_profile_stats(db, student_id: int, visible_only: bool):
     return attempts_by_knowledge_point, errors_by_knowledge_point
 
 
-def _student_stubborn_errors(db, student_id: int, visible_only: bool):
+def _student_stubborn_errors(db, student_id: int, visible_only: bool, assignment_ids=None):
     """只读取画像实际展示的顽固错因摘要行。"""
     return (
-        _student_error_query(db, student_id, visible_only)
+        _student_error_query(db, student_id, visible_only, assignment_ids)
         .filter(Error.is_stubborn.is_(True))
         .outerjoin(Step, Step.id == Error.step_id)
         .with_entities(
@@ -330,11 +352,11 @@ def _profile_suggestion(student: User, knowledge_points: List[Dict],
     return f"{student.name}，" + "；".join(parts) + "。"
 
 
-def student_profile(db, student: User, visible_only: bool = False) -> Dict:
+def student_profile(db, student: User, visible_only: bool = False, assignment_ids=None) -> Dict:
     """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
     # 按知识点聚合：attempts（提交数）、errors（错误数）
     kp_attempts, kp_error_stats = _student_profile_stats(
-        db, student.id, visible_only,
+        db, student.id, visible_only, assignment_ids,
     )
     kp_errors = {kp: stats[0] for kp, stats in kp_error_stats.items()}
     total_errors = sum(stats[0] for stats in kp_error_stats.values())
@@ -362,7 +384,7 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
     knowledge_points.sort(key=lambda x: x["mastery"])
 
     from .diagnosis import present_error
-    stubborn_list = _student_stubborn_errors(db, student.id, visible_only)
+    stubborn_list = _student_stubborn_errors(db, student.id, visible_only, assignment_ids)
     stubborn_errors = []
     for e in stubborn_list:
         stubborn_errors.append({
@@ -374,7 +396,7 @@ def student_profile(db, student: User, visible_only: bool = False) -> Dict:
         })
 
     recent_errors = _student_error_query(
-        db, student.id, visible_only,
+        db, student.id, visible_only, assignment_ids,
     ).options(
         joinedload(Error.step).load_only(Step.id, Step.seq, Step.text)
     ).order_by(
@@ -424,11 +446,24 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
 
     # 未完成作业：批量读取作业、题目数与扩展信息，避免按作业逐条查库。
     # 与学生作业列表保持相同可见范围：学生自主上传题目只归上传者练习，不进入班级作业简报。
-    visible_assignment = (
+    visible_owner = (
         Assignment.created_by.is_(None)
         | (~Assignment.created_by.in_(
             db.query(User.id).filter(User.role == "student")
         ))
+    )
+    has_class_recipients = db.query(AssignmentClass.assignment_id).filter(
+        AssignmentClass.assignment_id == Assignment.id,
+    ).exists()
+    assigned_to_student = db.query(AssignmentClass.assignment_id).join(
+        ClassroomMember, ClassroomMember.classroom_id == AssignmentClass.classroom_id,
+    ).filter(
+        AssignmentClass.assignment_id == Assignment.id,
+        ClassroomMember.student_id == student.id,
+    ).exists()
+    visible_assignment = and_(
+        visible_owner,
+        or_(~has_class_recipients, assigned_to_student),
     )
     # 每题最多计一次；UNION 同时包含待审核提交和作文，保持“交过即完成”的原有口径，
     # 并让数据库直接汇总，避免把全班作业的题目 ID 载入 Python 后逐题扫描。
@@ -547,20 +582,31 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     }
 
 
-def list_students(db, steady_only: bool = False) -> List[Dict]:
+def list_students(db, steady_only: bool = False, student_ids=None, assignment_ids=None) -> List[Dict]:
     """聚合学生提交与错题数；可选只返回已提交且没有错题的学生。"""
+    if student_ids is not None and not student_ids:
+        return []
+    if assignment_ids is not None and not assignment_ids:
+        return []
     if steady_only:
-        submission_counts = (
-            db.query(
+        submissions_query = db.query(
                 Submission.student_id.label("student_id"),
                 func.count(Submission.id).label("submission_count"),
             )
-            .group_by(Submission.student_id)
-            .subquery()
+        if assignment_ids is not None:
+            submissions_query = submissions_query.join(
+                Question, Question.id == Submission.question_id,
+            ).filter(Question.assignment_id.in_(assignment_ids))
+        submission_counts = submissions_query.group_by(Submission.student_id).subquery()
+        error_query = db.query(Error.id).join(
+            Submission, Error.submission_id == Submission.id,
         )
+        if assignment_ids is not None:
+            error_query = error_query.join(
+                Question, Question.id == Submission.question_id,
+            ).filter(Question.assignment_id.in_(assignment_ids))
         has_errors = (
-            db.query(Error.id)
-            .join(Submission, Error.submission_id == Submission.id)
+            error_query
             .filter(Submission.student_id == User.id)
             .exists()
         )
@@ -574,8 +620,10 @@ def list_students(db, steady_only: bool = False) -> List[Dict]:
             .join(submission_counts, submission_counts.c.student_id == User.id)
             .filter(User.role == "student", ~has_errors)
             .order_by(User.id)
-            .all()
         )
+        if student_ids is not None:
+            rows = rows.filter(User.id.in_(student_ids))
+        rows = rows.all()
         return [{
             "id": student_id,
             "name": name,
@@ -584,23 +632,27 @@ def list_students(db, steady_only: bool = False) -> List[Dict]:
             "error_count": 0,
         } for student_id, name, student_no, submission_count in rows]
 
-    submission_counts = (
-        db.query(
+    submissions_query = db.query(
             Submission.student_id.label("student_id"),
             func.count(Submission.id).label("submission_count"),
         )
-        .group_by(Submission.student_id)
-        .subquery()
-    )
-    error_counts = (
+    if assignment_ids is not None:
+        submissions_query = submissions_query.join(
+            Question, Question.id == Submission.question_id,
+        ).filter(Question.assignment_id.in_(assignment_ids))
+    submission_counts = submissions_query.group_by(Submission.student_id).subquery()
+    errors_query = (
         db.query(
             Submission.student_id.label("student_id"),
             func.count(Error.id).label("error_count"),
         )
         .join(Error, Error.submission_id == Submission.id)
-        .group_by(Submission.student_id)
-        .subquery()
     )
+    if assignment_ids is not None:
+        errors_query = errors_query.join(
+            Question, Question.id == Submission.question_id,
+        ).filter(Question.assignment_id.in_(assignment_ids))
+    error_counts = errors_query.group_by(Submission.student_id).subquery()
     rows = (
         db.query(
             User.id,
@@ -613,8 +665,10 @@ def list_students(db, steady_only: bool = False) -> List[Dict]:
         .outerjoin(error_counts, error_counts.c.student_id == User.id)
         .filter(User.role == "student")
         .order_by(User.id)
-        .all()
     )
+    if student_ids is not None:
+        rows = rows.filter(User.id.in_(student_ids))
+    rows = rows.all()
     return [{
         "id": student_id,
         "name": name,
@@ -816,8 +870,8 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
 
 
 def awaiting_verification_knowledge_points(db, student: User,
-                                          visible_only: bool = False) -> List[str]:
-    """返回错题均已订正正确、但尚未通过二次验证的知识点名称。"""
+                                          visible_only: bool = False) -> List[Dict]:
+    """返回错题均已订正正确、但尚未通过二次验证的学科/知识点。"""
     subject_expr = case(
         (Question.id.is_(None), "math"), else_=Question.subject,
     )
@@ -830,35 +884,53 @@ def awaiting_verification_knowledge_points(db, student: User,
         Correction.student_id == student.id,
         Correction.is_correct.is_(True),
     ).exists()
-    has_passed_verification = db.query(Verification.id).filter(
-        Verification.student_id == student.id,
-        Verification.status == "passed",
-        Verification.knowledge_point == Error.knowledge_point,
-    ).exists()
-
     query = (
-        db.query(Error.knowledge_point)
+        db.query(
+            subject_expr.label("subject"),
+            Error.knowledge_point,
+            Error.id.label("error_id"),
+            has_correct_correction.label("corrected"),
+        )
         .join(Submission, Submission.id == Error.submission_id)
         .outerjoin(Question, Question.id == Submission.question_id)
-        .filter(
-            Submission.student_id == student.id,
-            ~has_passed_verification,
-        )
+        .filter(Submission.student_id == student.id)
     )
     if visible_only:
         query = query.filter(~pending_review)
 
-    rows = (
-        query.group_by(subject_expr, Error.knowledge_point)
-        .having(
-            func.count(Error.id)
-            == func.sum(case((has_correct_correction, 1), else_=0))
-        )
-        .order_by(Error.knowledge_point)
-        .all()
-    )
-    # 报告按科目分组，同名知识点可能出现多次；订正页只需要跨科目去重名单。
-    return sorted({name for (name,) in rows})
+    by_key = {}
+    for subject, knowledge_point, error_id, corrected in query.order_by(
+        Error.created_at.desc(), Error.id.desc(),
+    ).all():
+        key = (subject or "math", knowledge_point)
+        item = by_key.setdefault(key, {"total": 0, "corrected": 0, "source_error_id": error_id})
+        item["total"] += 1
+        item["corrected"] += int(bool(corrected))
+
+    passed_rows = db.query(
+        subject_expr.label("subject"), Error.knowledge_point,
+    ).join(
+        Verification, Verification.source_error_id == Error.id,
+    ).join(
+        Submission, Submission.id == Error.submission_id,
+    ).outerjoin(
+        Question, Question.id == Submission.question_id,
+    ).filter(
+        Verification.student_id == student.id,
+        Verification.status == "passed",
+        Submission.student_id == student.id,
+    ).distinct().all()
+    passed_keys = {(subject or "math", knowledge_point) for subject, knowledge_point in passed_rows}
+    return [
+        {
+            "subject": subject,
+            "knowledge_point": knowledge_point,
+            "source_error_id": values["source_error_id"],
+        }
+        for (subject, knowledge_point), values in sorted(by_key.items())
+        if values["total"] == values["corrected"]
+        and (subject, knowledge_point) not in passed_keys
+    ]
 
 
 def knowledge_point_errors(db, student: User, knowledge_point: str,
@@ -923,7 +995,7 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
 #   班级知识修复率 = 已修复的（学生 × 知识点）组合数 / 出过错的（学生 × 知识点）组合数
 #   各知识点修复率 = 该知识点已修复学生数 / 该知识点出过错学生数
 
-def class_repair_rate(db) -> Dict:
+def class_repair_rate(db, student_ids=None, assignment_ids=None) -> Dict:
     """教师端：班级知识修复率 + 各知识点修复率（只读聚合，不改任何已有口径）。"""
     # 先在数据库按学生和知识点汇总，避免把每条错题及订正正文读入 Python。
     has_correct_correction = db.query(Correction.id).filter(
@@ -937,7 +1009,13 @@ def class_repair_rate(db) -> Dict:
         .group_by(Verification.student_id, Verification.knowledge_point)
         .subquery()
     )
-    error_summaries = (
+    if student_ids is not None and not student_ids:
+        return {
+            "class_repair_rate": 0.0, "students_with_errors": 0,
+            "total_knowledge_point_pairs": 0, "fixed_knowledge_point_pairs": 0,
+            "knowledge_points": [],
+        }
+    error_query = (
         db.query(
             Submission.student_id.label("student_id"),
             Error.knowledge_point.label("knowledge_point"),
@@ -956,6 +1034,7 @@ def class_repair_rate(db) -> Dict:
         )
         .join(Error, Error.submission_id == Submission.id)
         .join(User, User.id == Submission.student_id)
+        .join(Question, Question.id == Submission.question_id)
         .outerjoin(
             passed_verification_pairs,
             and_(
@@ -964,9 +1043,12 @@ def class_repair_rate(db) -> Dict:
             ),
         )
         .filter(User.role == "student")
-        .group_by(Submission.student_id, Error.knowledge_point)
-        .all()
     )
+    if student_ids is not None:
+        error_query = error_query.filter(Submission.student_id.in_(student_ids))
+    if assignment_ids is not None:
+        error_query = error_query.filter(Question.assignment_id.in_(assignment_ids))
+    error_summaries = error_query.group_by(Submission.student_id, Error.knowledge_point).all()
     if not error_summaries:
         return {
             "class_repair_rate": 0.0,

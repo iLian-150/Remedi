@@ -69,6 +69,14 @@ def build_teaching_suggestions(
         samples_map = {}
 
     items: List[Dict] = []
+    assignment_ids = (
+        precomputed_stats.get("assignment_ids")
+        if precomputed_stats is not None else None
+    )
+    student_ids = (
+        precomputed_stats.get("student_ids")
+        if precomputed_stats is not None else None
+    )
 
     # ---- reteach：修复率低且波及多名学生 ----
     reteach_kps = set()
@@ -95,17 +103,21 @@ def build_teaching_suggestions(
 
     # ---- stubborn_group：多名学生在同一知识点反复出错 ----
     try:
-        rows = (
+        stubborn_query = (
             db.query(
                 Error.knowledge_point,
                 func.count(func.distinct(Submission.student_id)).label("students"),
                 func.count(Error.id).label("errors"),
             )
             .join(Submission, Error.submission_id == Submission.id)
+            .join(Question, Question.id == Submission.question_id)
             .filter(Error.is_stubborn.is_(True))
-            .group_by(Error.knowledge_point)
-            .all()
         )
+        if assignment_ids is not None:
+            stubborn_query = stubborn_query.filter(Question.assignment_id.in_(assignment_ids))
+        if student_ids is not None:
+            stubborn_query = stubborn_query.filter(Submission.student_id.in_(student_ids))
+        rows = stubborn_query.group_by(Error.knowledge_point).all()
     except Exception:
         rows = []
     for kp_name, students, errors in rows:
@@ -180,6 +192,7 @@ def build_teaching_suggestions(
             db.query(Submission)
             .with_entities(
                 Submission.id.label("submission_id"),
+                Assignment.id.label("assignment_id"),
                 Assignment.title.label("assignment_title"),
                 SubmissionScore.submission_id.label("score_submission_id"),
                 SubmissionScore.final_score.label("final_score"),
@@ -215,7 +228,11 @@ def build_teaching_suggestions(
             )
             .filter(Submission.status == "graded")
         )
-        per_assignment: Dict[str, tuple[int, float]] = {}
+        if assignment_ids is not None:
+            score_rows = score_rows.filter(Assignment.id.in_(assignment_ids))
+        if student_ids is not None:
+            score_rows = score_rows.filter(Submission.student_id.in_(student_ids))
+        per_assignment: Dict[int, tuple[str, int, float]] = {}
         created_missing_score = False
         for row in score_rows.yield_per(1000):
             assignment_total = (
@@ -251,15 +268,16 @@ def build_teaching_suggestions(
             if not max_score:
                 continue
             title = row.assignment_title or "未命名作业"
-            count, rate_sum = per_assignment.get(title, (0, 0.0))
-            per_assignment[title] = (
+            count, rate_sum = per_assignment.get(row.assignment_id, (title, 0, 0.0))[1:]
+            per_assignment[row.assignment_id] = (
+                title,
                 count + 1,
                 rate_sum + float(final) / float(max_score),
             )
 
         if created_missing_score:
             db.commit()
-        for title, (count, rate_sum) in per_assignment.items():
+        for title, count, rate_sum in per_assignment.values():
             if count < 2:
                 continue
             avg = rate_sum / count

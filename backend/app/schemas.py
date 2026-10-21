@@ -26,12 +26,18 @@ class Pagination(BaseModel):
 class LoginIn(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     role: str = Field(pattern="^(teacher|student)$")
+    student_no: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    subject: Optional[str] = Field(
+        default=None,
+        pattern="^(chinese|math|english|politics|history|physics|chemistry|geography|biology)$",
+    )
 
 
 class LoginOut(BaseModel):
     token: str
     token_type: str = "bearer"
     user: UserOut
+    active_subject: Optional[str] = None
 
 
 # ---------- 学生：作业 ----------
@@ -129,7 +135,7 @@ class ErrorOut(BaseModel):
 
 
 class DiagnosisScoreOut(BaseModel):
-    """学生可见分（评分系统新增，只加字段）：只在审核通过后下发。"""
+    """学生可见的 AI 当前分；低分作业待教师审核时仍返回，最终分可能调整。"""
     score: float        # 本题得分（最终分）
     max_score: float    # 本题满分 = 作业总分 × 分值占比
     # 该作业目前累计得分（每题最新一次已通过提交的最终分之和）与作业总分；算不出为 None
@@ -145,9 +151,9 @@ class DiagnosisOut(BaseModel):
     steps: List[StepOut]
     errors: List[ErrorOut]
     follow_up_question: Optional[str] = None   # v0.4.0：按主错因+知识点生成的启发式追问，无错时为 None
-    # 教师审核状态与错题流程并行：pending 时步骤与错误仍对学生可见，成绩暂缓下发。
+    # 教师审核状态与错题流程并行：pending 时步骤、错误与 AI 当前分仍对学生可见。
     review_status: str = "approved"
-    # 本题得分；待审核或无分时为 None（分数跟审核一起放行）
+    # 本题 AI 当前得分；待审核时可见，教师调整后可能更新。
     score: Optional[DiagnosisScoreOut] = None
 
 
@@ -168,7 +174,7 @@ class SubmissionBrief(BaseModel):
     submitted_at: datetime
     # 教师审核状态 pending | approved（无审核行=历史数据=approved）；错误数与审核并行显示
     review_status: str = "approved"
-    # 评分系统新增（只加字段）：本题最终分与满分；仅审核通过后下发，待审核为 None
+    # 本题 AI 当前分与满分；待审核时可见，教师可能调整最终分
     score: Optional[float] = None
     max_score: Optional[float] = None
 
@@ -628,6 +634,8 @@ class TeacherAssignmentCreate(BaseModel):
     allow_revision: bool = False
     # v0.13.1 新增（只加可选字段）：大题列表（小题经 group_key 挂靠）
     groups: List[QuestionGroupIn] = Field(default_factory=list, max_length=20)
+    # 新建作业必须选择目标班级，防止新作业被所有学生默认看见。
+    class_ids: List[int] = Field(default_factory=list, max_length=100)
 
 
 class TeacherAssignmentQuestionOut(BaseModel):
@@ -657,6 +665,50 @@ class TeacherAssignmentOut(BaseModel):
     total_score: float = 100.0
     # v0.13.1 新增（只加字段）：允许修改开关
     allow_revision: bool = False
+    class_ids: List[int] = Field(default_factory=list)
+
+
+class ClassroomCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    subject: str = Field(
+        pattern="^(chinese|math|english|politics|history|physics|chemistry|geography|biology)$",
+    )
+
+
+class ClassroomStudentCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    student_no: str = Field(min_length=1, max_length=32)
+
+
+class ClassroomStudentOut(BaseModel):
+    id: int
+    name: str
+    student_no: str
+
+
+class ClassroomOut(BaseModel):
+    id: int
+    name: str
+    subjects: List[str] = Field(default_factory=list)
+    student_count: int = 0
+
+
+class SubjectKnowledgeCreateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=20000)
+    source_name: Optional[str] = Field(default=None, max_length=200)
+
+
+class StudentLearningMemoryOut(BaseModel):
+    subject: str
+    knowledge_point: str
+    error_count: int
+    corrected_count: int
+    correction_success_rate: float
+    verification_pass_rate: float
+    state: str
+    summary: str
+    updated_at: datetime
 
 
 # ---------- 教师：练习册知识库 + 提醒未交（v0.5.0 新增） ----------
@@ -702,6 +754,10 @@ class AgentChatIn(BaseModel):
     persist_user_message: bool = True  # 流式接口允许复用已保存的拍照消息，避免重复记一条
     safe_tools_only: bool = False  # 拍照结果讲解只开放只读工具，避免重复写入批改记录
     related_mistake_error_id: Optional[int] = None  # 照片识别阶段查到的历史错题，避免讲解时再走工具轮次
+    subject: Optional[str] = Field(
+        default=None,
+        pattern="^(chinese|math|english|politics|history|physics|chemistry|geography|biology)$",
+    )
 
 
 class AgentAssistantMessageIn(BaseModel):
@@ -776,6 +832,7 @@ class NotificationReadOut(BaseModel):
 class VerificationCreate(BaseModel):
     knowledge_point: str = Field(min_length=1, max_length=64)
     source_error_id: Optional[int] = None   # 触发验证的错题，可空（后端默认取该知识点最近错题）
+    subject: Optional[str] = Field(default=None, max_length=32)
 
 
 class VerificationOut(BaseModel):

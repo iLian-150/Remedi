@@ -97,7 +97,11 @@ import AppIcon from './icons/AppIcon.vue'
 import type { IconName } from './icons/paths'
 import ErrorTypeBadge from './ErrorTypeBadge.vue'
 
-const props = defineProps<{ knowledgePoint: string }>()
+const props = defineProps<{
+  knowledgePoint: string
+  subject?: string
+  sourceErrorId?: number
+}>()
 const emit = defineEmits<{ (e: 'passed'): void; (e: 'close'): void }>()
 
 const student = useStudentStore()
@@ -128,7 +132,11 @@ async function load() {
   result.value = null
   steps.value = ['']
   try {
-    verification.value = await student.createVerification({ knowledge_point: props.knowledgePoint })
+    verification.value = await student.createVerification({
+      knowledge_point: props.knowledgePoint,
+      subject: props.subject,
+      source_error_id: props.sourceErrorId
+    })
   } catch (e) {
     errorText.value = '同类题准备失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)

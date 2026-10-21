@@ -1,4 +1,4 @@
-<!-- 教师端：待审核（v0.9.0 新增）——老师复核低置信度 AI 判断；学生可先查看诊断、错题并订正，成绩等审核通过后放行。
+<!-- 教师端：待审核——整份作业百分制得分低于 60 分时，老师复核并可调整分数与错因；学生可同时订正。
      作业列表保持为背景页，点击作业直接打开审核窗口；学生和题目在窗口左侧切换，
      右侧显示答题情况（过程提示/分步诊断/错因复核/
      AI 评分/最终分与通过）。逐条错因可先一键纠错再通过（改后通过）；
@@ -11,7 +11,7 @@
   <div class="page">
     <div class="page-head">
       <h2>待审核</h2>
-      <p class="page-sub">同一学生本次作业已批改题目的正确率低于 60% 时会进入复核；单题正确率或错因置信度低于 60% 也会即时进入。点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
+      <p class="page-sub">整份作业结算后，百分制总分低于 60 分才进入复核；学生已能查看系统评分、错题和订正任务。点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -64,7 +64,7 @@
               <span class="assign-card-time">最近提交 {{ fmtTime(g.latest) }}</span>
             </span>
             <span class="assign-card-accuracy" :class="accuracyClass(g)">
-              <span class="accuracy-label">待审核学生本次作业正确率</span>
+              <span class="accuracy-label">作答步骤正确率（参考）</span>
               <strong>{{ accuracyPercent(g) ?? '—' }}<small v-if="accuracyPercent(g) !== null">%</small></strong>
               <span class="accuracy-steps" v-if="g.totalAnswerSteps">
                 {{ g.correctSteps }} / {{ g.totalAnswerSteps }} 步正确

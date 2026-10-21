@@ -10,8 +10,7 @@
 #     - 全部步骤都对 → 得分率 1.0；没有有效作答步骤 → 得分率 0
 #   AI 初评分 = round(题目满分 × 得分率, 1)
 #
-# 分数跟着审核走：批改落库时只写 ai_score；教师审核通过时落定 final_score
-# （老师改分则用老师的分，不改 = ai_score）。学生侧只在审核通过后才给分。
+# 批改结果立即展示 AI 分；低于作业审核线时教师可改判并写入 final_score。
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -408,9 +407,10 @@ def assignment_progress(
     assignment_id: int,
     *,
     current_submission: Optional[Submission] = None,
+    include_pending: bool = False,
 ) -> Dict:
-    """一份作业的累计得分（成绩单用）：每题取最新一次已通过提交的最终分求和，
-    分母是作业总分。只算学生可见口径（待审核的不计），并在数据库里筛出每题最新可见提交。
+    """一份作业的累计得分：每题取最新提交分求和，分母是作业总分。
+    默认排除待审核记录；批改详情可包含待审 AI 分供学生即时查看。
     可选返回当前提交的成绩，供诊断页与作业累计分共用同一批成绩读取。"""
     from . import reviews as review_svc
 
@@ -419,7 +419,7 @@ def assignment_progress(
         .filter(AssignmentScoring.assignment_id == assignment_id)
         .scalar_subquery()
     )
-    latest_visible = (
+    latest_query = (
         db.query(
             Submission.id.label("submission_id"),
             func.row_number().over(
@@ -428,19 +428,21 @@ def assignment_progress(
             ).label("rank"),
         )
         .join(Question, Submission.question_id == Question.id)
-        .outerjoin(
-            SubmissionReview,
-            SubmissionReview.submission_id == Submission.id,
-        )
         .filter(
             Submission.student_id == student_id,
             Question.assignment_id == assignment_id,
             Submission.status == "graded",
+        )
+    )
+    if not include_pending:
+        latest_query = latest_query.outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
             func.coalesce(SubmissionReview.status, review_svc.APPROVED)
             != review_svc.PENDING,
         )
-        .subquery()
-    )
+    latest_visible = latest_query.subquery()
     question_load = joinedload(Submission.question).load_only(
         Question.id, Question.assignment_id,
     )

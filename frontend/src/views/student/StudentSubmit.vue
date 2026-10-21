@@ -1,6 +1,6 @@
 <!-- 学生端：交作业（v0.2.1 拍照为主；v0.3.0 拍照批改原地完成；v0.6.0 一键直达）
      v0.9.0：作业切换改成页面顶部一条独立 sticky 切换条（下拉选作业，原地切换，
-     与下方题目列表视觉分开，不再混在题目卡里）；低置信度错因才进入老师审核。
+     与下方题目列表视觉分开，不再混在题目卡里）；整份作业低于 60 分才进入老师审核。
      v0.9.2 两项逻辑纠正：
      ① 作答方式按作业模式分流——线上作业（mode=online）恢复「在线作答」：
         每道题卡内是文本编辑器（一行一步），提交走 3.3 文本提交接口，与拍照
@@ -112,7 +112,7 @@
               <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
               <div>
                 <p class="review-pending-title">已提交，诊断和订正入口已同步生成</p>
-                <p class="review-pending-sub">错题已进入错题本和订正区，老师也在复核低置信度判断；成绩会在审核后显示。每道题只能提交一次。<template v-if="currentDetail?.allow_revision">如需修改，去页面底部的「修改作业」。</template></p>
+                <p class="review-pending-sub">这份作业总分低于 60 分，已进入教师审核。系统评分已显示，错题和订正任务也已同步；你可以先继续订正。每道题只能提交一次。<template v-if="currentDetail?.allow_revision">如需修改，去页面底部的「修改作业」。</template></p>
               </div>
               <router-link class="btn small secondary" to="/student/corrections">现在去订正</router-link>
             </div>
@@ -720,7 +720,7 @@ async function onAssignmentChange() {
   await selectAssignment(id)
 }
 
-/** 批改完成：低置信度错因进入待审核集，其他提交直接标记完成。 */
+/** 批改完成：只有整份作业总分低于 60 分才进入教师审核。 */
 function onGraded(qid: number, result: SubmissionResult) {
   if (result.status === 'deferred' || result.review_status === 'deferred') {
     // v0.13.1：延迟批改——只落库不诊断，进「已提交待统一批改」集
@@ -734,8 +734,11 @@ function onGraded(qid: number, result: SubmissionResult) {
     pendingQids.value.add(qid)
     doneQids.value.delete(qid)
     deferredQids.value.delete(qid)
-    // 重新提交后旧分数作废（新分要等老师审核通过才有）
-    delete scoreByQid.value[qid]
+    if (result.score) {
+      scoreByQid.value[qid] = { score: result.score.score, max: result.score.max_score }
+    } else {
+      delete scoreByQid.value[qid]
+    }
   } else {
     doneQids.value.add(qid)
     pendingQids.value.delete(qid)

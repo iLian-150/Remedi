@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.13.312（2026-10-17）
+> 版本：v0.13.314（2026-10-21）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -17,14 +17,14 @@
 
 ### 1.1 认证方式（Mock 登录）
 
-MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
+当前仍使用无密码 mock 登录，供测试和演示：
 
-1. `POST /api/auth/login` 传入 `{"username": "林小夏", "role": "student"}`。
-2. 后端按 `username + role` 查找用户；**不存在则自动创建**（学生自动生成学号 `Sxxxx`，教师学号为空）。
+1. 学生传入 `username`、`role="student"` 和名册中的 `student_no`；姓名与学号必须匹配，学生由教师先录入班级名册，登录不会自动创建学生。
+2. 教师传入 `username`、`role="teacher"` 和 `subject`；九个可选学科为语文、数学、英语、道法、历史、物理、化学、地理、生物。教师身份和 Agent 数据按学科区分。
 3. 返回 `token`，后续请求在 Header 中携带：`Authorization: Bearer <token>`。
 4. token 格式为 `mock-<user_id>`（纯演示用，生产环境必须替换为 JWT）。
 
-角色校验：`/api/student/*` 只允许 `role=student` 且只能操作自己的数据；`/api/teacher/*` 只允许 `role=teacher`。
+角色校验：`/api/student/*` 只允许 `role=student` 且只能操作自己的数据；`/api/teacher/*` 只允许 `role=teacher`，教师数据按任教学科和关联班级隔离。
 
 ### 1.2 通用错误响应
 
@@ -56,12 +56,15 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 ```json
 {
   "username": "林小夏",
-  "role": "student"
+  "role": "student",
+  "student_no": "S2026001"
 }
 ```
 
-- `username`: string，必填，用户名（演示数据：教师 `陈老师` / 学生 `林小夏` / `陈默`）。
+- `username`: string，必填，姓名。
 - `role`: string，必填，枚举 `teacher | student`。
+- `student_no`: string，学生必填，须和教师录入的名册姓名匹配。
+- `subject`: string，教师必填；可选 `chinese | math | english | politics | history | physics | chemistry | geography | biology`。
 
 响应 `200`：
 
@@ -74,11 +77,12 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
     "name": "林小夏",
     "student_no": "S2026001",
     "role": "student"
-  }
+  },
+  "active_subject": null
 }
 ```
 
-错误：`422` 参数缺失/role 非法。
+教师响应的 `active_subject` 返回所选学科；学生为 `null`。学生姓名或学号不匹配返回 `404`，教师缺少学科返回 `400`，参数格式错误返回 `422`。
 
 ### 2.2 GET /api/auth/me —— 当前登录用户
 
@@ -247,18 +251,18 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 - `errors[].step_seq` / `errors[].step_text`：无关联作答步骤时为 `null`。
 - `errors[].detail`：没有诊断说明时为 `null`。
 - `follow_up_question`（v0.4.0 新增）：按主错因（与 `first_error_seq` 同口径）+ 知识点由模板生成的一句启发式追问，引导学生先自己想明白错在哪；全对（`errors` 为空）时为 `null`。GET 3.5 提交详情同结构，同样带此字段。
-- **低置信度教师复核（v0.9.0 新增、v0.13.13 调整）**：经实时批改入口（3.3 / 3.31 / photo-diagnose）产生的新提交中，只要有任一错因 `confidence < 0.60`，整份提交进入教师审核队列（新表 `submission_reviews`，`status=pending`）；恰好 `0.60` 不进入审核，全对提交也不进入。复核与学生错题/订正流程并行：
-  - 3.3 / 3.5 / 拍照批改响应仍标记 `status = "pending_review"`、`review_status = "pending"`，但立即返回完整 `steps`、`errors`、`first_error_seq` 与 `follow_up_question`；学生可查看诊断、错题会立即出现在错题本并可进入订正区。待审核时 `score = null`，成绩仍跟审核一起放行。
+- **整份作业低分复核**：每题批改完成后即时计分并记录错题，错误立即进入学生错题本和订正待办。按学生、作业汇总每道题最新一次已批改成绩；整份作业所有题均已批改，或作业截止结算时，百分制总分严格低于 60 分，才把该作业各题最新提交加入教师审核队列（新表 `submission_reviews`，`status=pending`）。得分恰为 60 分不送审；单题置信度或图片识别置信度本身不会触发教师审核。审核只控制最终成绩放行和教师复核，不阻断学生查看错题、订正或学习：
+  - 3.3 / 3.5 / 拍照批改响应立即返回完整 `steps`、`errors`、`first_error_seq`、`follow_up_question` 和当前 AI 分数；错题立即出现在错题本及订正待办。若整份作业尚未结算，当前提交状态仍为已批改，不创建审核行。
   - 3.4 提交记录每项带 `review_status`，`pending` 时也返回真实 `error_count`；待办简报会立即计入这些错题。
   - 错题本（3.27）、3.9 订正、3.19 创建验证均可使用待审核错题；错题相关响应带 `review_status = "pending"`，前端标记「老师复核中」。教师若调整错因，学生刷新后看到更新后的记录。
-  - 学习报告、知识点错误率与学习画像仍只统计已审核提交；学生 Agent 的订正待办数包含待审核错题，学习报告类统计仍排除 pending。教师端（含 4.6 教师查画像、教师 Agent）全量可见。
+  - 学习报告、知识点错误率与学习画像按现有审核可见性处理；学生 Agent 能读取本人错题本与订正状态。教师端数据按任教学科和关联班级限制。
   - **无审核行的历史/种子提交一律视为 `approved`**，演示数据不受审核流影响。通过动作见 4.23~4.26；通过后学生收到 `type = "review_approved"` 的提醒。
 
 错误：`400`（题目是作文题，请用 `/api/student/essays`）、`404`（题目不存在）、`422`（steps 为空/超限）。
 
 ### 3.4 GET /api/student/submissions —— 我的提交记录
 
-权限：学生。支持 `?question_id=` 过滤。
+权限：学生。支持 `?question_id=` 过滤。每项包含 `review_status`、本题 AI 当前得分 `score` 与满分 `max_score`；整份作业低于 60 分待审核时仍返回 AI 当前分，教师通过并改分后会更新。
 
 响应 `200`：
 
@@ -273,7 +277,10 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
       "knowledge_point": "一元一次方程",
       "status": "graded",
       "error_count": 1,
-      "submitted_at": "2026-10-06T15:45:00"
+      "submitted_at": "2026-10-06T15:45:00",
+      "review_status": "approved",
+      "score": 8.0,
+      "max_score": 10.0
     }
   ]
 }
@@ -283,7 +290,7 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 权限：学生（只能看自己的）。
 
-响应 `200`：结构同 3.3 的响应体（submission_id/question_id/status/first_error_seq/steps/errors）。
+响应 `200`：结构同 3.3 的响应体（submission_id/question_id/status/first_error_seq/steps/errors/review_status/score）。
 
 错误：`403` 不是本人的提交；`404` 不存在。
 
@@ -538,6 +545,8 @@ MVP 阶段使用最简 mock 登录，不设密码，仅用于演示与联调：
 
 ### 3.15.1 POST /api/student/agent/chat/stream —— 学习助手流式对话
 
+请求还可传选填 `subject`（九个学科代码之一）；省略时 Agent 从问题中识别学科。Agent 使用对应学科的专属教学提示词与隔离知识库，可读取当前学生自己的错题本及学习记忆。
+
 权限：学生。请求 `{ "message": "我哪个知识点最需要加固？", "session_id": 3 }`；`message` 必填且最长 2000 字，`session_id` 选填。另可传 `persist_user_message`（默认 `true`）；用户消息会在开始生成前写入会话，避免刷新或中断时丢失提问。照片讲解可传 `safe_tools_only=true`，此模式直接生成回复；若图片识别阶段已查到历史同类错题，可传 `related_mistake_error_id`，服务端会再次校验错题归属并关联到助手回复，避免生成过程中再走一次工具调用。响应为 `text/event-stream`，通过 SSE 事件发送 Cloudflare 模型的流式回复；前端将每个文本块按 Unicode 字符逐字呈现。复用已保存的拍照消息时可传 `false`，避免重复保存内部提示词。模型调用失败会发 `error` 事件，不返回模拟内容。
 
 ```text
@@ -551,7 +560,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 - `token`：回复文本块；同一回复可能有多个事件。
 - `done`：完整回复、建议追问、会话 id，以及选填的 `related_mistake`（同学科、同知识点最近一条已审核且未归档的历史错题；无匹配时为 `null`）。服务端在生成完成后将助手回复写入会话，并持久化该消息与错题的关联；用户提问已在流开始前保存。
 - `error`：流生成中断时发送 `{ "detail": "回复生成中断，请稍后重试。" }`；已经保存的用户提问仍可在历史会话中找回。
-- 学生只发题目时，Agent 查询历史同类错题但不创建批改记录；学生明确给出自己的数学作答步骤并要求检查时，Agent 调用 `diagnose_student_text_work` 接入现有数学诊断、错题本和订正流程。全对不创建错题；低置信错因按 3.3 口径进入教师审核。
+  - 学生 Agent 可读取本人未归档错题、订正状态和学科学习记忆；每轮按所选学科检索对应的专属知识库。学生只发题目时仍不会创建批改记录；学生明确提交自己的作答并要求检查时，Agent 接入现有诊断、错题本和订正流程。
 
 ### 3.16 GET /api/student/agent/history —— 我的对话历史（v0.3.0 新增）
 
@@ -615,11 +624,12 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 请求：
 
 ```json
-{ "knowledge_point": "一元一次方程", "source_error_id": 9 }
+{ "knowledge_point": "一元一次方程", "source_error_id": 9, "subject": "math" }
 ```
 
 - `knowledge_point`：必填。
 - `source_error_id`：选填，触发本次验证的错题 id（必须属于本人，否则 `400`）；不传时后端默认取该生该知识点最近一条错题，可为空。
+- `subject`：选填，限定学科；有同名知识点时按学科选择并复用待完成验证，前端从错题或待验证知识点传入。
 
 行为：
 
@@ -805,7 +815,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 无学生作答证据时返回 `mode="answer"`、识别题干和 `capture_id`；前端将题干交给学习助手解答，但此时不创建 `Submission` / `Error`，也不展示为错题。学生点「加入错题本」或在同一对话里明确要求收录后，调用 3.32。
 
-检测到学生作答时，若传入 `question_id`，直接复用 3.3 数学诊断；自由上传则创建只归属该学生的题目记录并诊断。确有错误时自动写入错题/订正数据；任一错因置信率低于 60% 时整份提交进入教师审核，同时立即向学生开放错题和订正流程，分数仍等审核后显示；全对时不创建错题。视觉识别置信率低于 0.45 或有作答但无法辨认步骤时返回 `422`，不产生诊断记录。
+检测到学生作答时，若传入 `question_id`，直接复用 3.3 数学诊断；自由上传则创建只归属该学生的题目记录并诊断。确有错误时自动写入错题/订正数据；学生立即查看 AI 当前分数。整份作业结算后若总分低于 60/100，相关提交才进入教师审核；单题或图片置信度不独立触发审核。全对时不创建错题。视觉识别置信率低于 0.45 或有作答但无法辨认步骤时返回 `422`，不产生诊断记录。
 
 响应 `200`：`{"mode":"answer|diagnosis","question_text":"…","steps":[],"capture_id":1,"diagnosis":null,"related_mistake":null}`。`mode=diagnosis` 时 `diagnosis` 为 3.3 响应体，`capture_id` 为 `null`；`related_mistake` 是历史同类错题对象或 `null`。
 
@@ -928,12 +938,12 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 3.41 GET /api/student/corrections/awaiting-verification-knowledge-points —— 待二次验证的知识点名单
 
-权限：学生。按学习报告相同口径筛选本人可见错题：同一科目下该知识点的所有错题均已有正确订正，且该知识点尚无通过的二次验证记录；待教师复核的提交不参与判断。按知识点名称去重后返回，供订正页的验证入口使用。
+权限：学生。按学习报告相同口径筛选本人可见错题：同一学科下该知识点的所有错题均已有正确订正，且该学科/知识点尚无通过的二次验证记录；待教师复核的提交不参与判断。每项返回 `subject`、`knowledge_point`、`source_error_id`，供订正页按学科创建验证。
 
-响应 `200`：知识点名称数组；没有待验证知识点时返回空数组。
+响应 `200`：
 
 ```json
-["一元一次方程", "分数乘法"]
+[{"subject":"math","knowledge_point":"一元一次方程","source_error_id":9}]
 ```
 
 ### 3.42 GET /api/student/mistakes/review-summary —— 错题复习侧栏摘要
@@ -965,7 +975,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 3.43 GET /api/student/submissions/latest-status —— 每道题的最新提交状态与得分
 
-权限：学生。按题目分组，只返回本人每道题的最新提交状态；同一题多次提交时按 `submitted_at`、`id` 倒序取最新一条。响应不包含题干、错因数量或提交历史，包含教师审核状态及可见得分。没有审核记录时 `review_status` 为 `approved`；待审核提交的 `score` 和 `max_score` 为 `null`。未提交过的题目不返回。
+权限：学生。按题目分组，只返回本人每道题的最新提交状态；同一题多次提交时按 `submitted_at`、`id` 倒序取最新一条。响应不包含题干、错因数量或提交历史，包含教师审核状态及 AI 当前得分。没有审核记录时 `review_status` 为 `approved`；待审核提交也返回当前得分，教师改分后成绩会更新。未提交过的题目不返回。
 
 响应 `200`：
 
@@ -980,6 +990,10 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
   }
 ]
 ```
+
+### 3.44 GET /api/student/learning-memory —— 我的学科学习记忆
+
+权限：学生。返回从本人错题、订正和变式验证汇总的学科/知识点记忆：错误数、订正成功数、订正成功率、验证通过率、当前状态和摘要。待教师审核的错因暂不进入长期记忆，批准后会更新。学生 Agent 可结合该记忆和本人错题本回答问题。
 
 ---
 
@@ -1116,7 +1130,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.7 POST /api/teacher/assignments —— 发布作业（v0.2.0 新增）
 
-权限：教师。创建一份作业并落库，学生端立即可见（3.1 / 3.2）。
+权限：教师。创建一份作业并落库，仅所选班级学生可见（3.1 / 3.2）。
 
 请求：
 
@@ -1138,6 +1152,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```
 
 - `subject`：选填，作业级学科标记，供兼容客户端使用。新客户端应在每题传 `questions[].subject`。
+- `class_ids`：必填非空班级 ID 列表；每个目标班级都必须已关联当前教师所教的每个题目学科，否则 `400`。
 - `questions[].type`：保留兼容的 `math | essay` 字段；新客户端仍发送该字段。新增选填 `questions[].subject` 支持 `math | english | english_exercise | physics | chemistry | biology | chinese | history | geography | politics | computer_science | art | music | pe | other`；缺省时按 `type` 映射 `math | essay` 到 `math | english`。`prompt` 落库为题干 `stem`；`order_num` 按数组顺序从 1 开始。响应新增每题实际 `subject`。
 - 学生提交：数学线上题使用在线步骤板；其他学科或线下作业走拍照提交，服务端将原图直接交给视觉模型，不先做 OCR 转写。教师填写的参考答案和步骤仅作为模型批改上下文，不向学生返回。
 - `standard_steps` / `reference_answer`：选填，仅教师可见（学生端详情不返回标准答案，沿用 3.2 约定）。`standard_steps` 无独立存储列：当 `reference_answer` 为空时，它按行拼入 `standard_answer` 字段保存。
@@ -1332,7 +1347,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 }
 ```
 
-`correct_steps` / `total_steps` 是当前提交的正确作答步骤数 / 作答步骤总数；`assignment_correct_steps` / `assignment_total_steps` 是该学生本作业同学科各题最新提交的累计步骤数。整份作业同学科题目全部提交后，累计正确率低于 60% 会将该学生本作业各题最新提交送入审核；单题正确率、错因置信度或图片/步骤判断置信度低于 60% 仍即时送审。教师端卡片展示累计正确率，`review_reason` 可包含上述任一触发原因。图片诊断会同时检查整图置信度和每个作答步骤的判断置信度，即使低置信步骤被模型判为正确，也会进入教师队列。`image_url` 为学生上传的作答原图地址，`image_name` 为原图文件名；文本作答或没有可用图片时均为 `null`。待审核作业卡据此显示缩略图，点击提交后在原题与解题过程窗口中显示原图。
+`correct_steps` / `total_steps` 是当前提交的正确作答步骤数 / 作答步骤总数；`assignment_correct_steps` / `assignment_total_steps` 保留为诊断过程统计，不作为送审阈值。教师审核由整份作业百分制总分决定：该生该作业每道题最新的已批改成绩全部齐备，或作业截止结算后，总分低于 60/100 才送审。待审核原因显示整份作业结算得分与满分；题目级错误、低置信度和图片置信度均不会单独触发审核。`image_url` 为学生上传的作答原图地址，`image_name` 为原图文件名；文本作答或没有可用图片时均为 `null`。
 
 ### 4.23.1 GET /api/teacher/reviews/pending/count —— 待审核数量
 
@@ -1362,9 +1377,21 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.27 GET /api/teacher/dashboard —— 教师首页看板汇总
 
-权限：教师。可选参数 `n` 为高频错题数量（默认 10，范围 1–50）；`include_suggestions=true` 时还返回教学建议。响应包含 `top_questions`、`knowledge_points`、`students`、`total_errors`、`stubborn_errors`、`graded_submissions`、`graded_submissions_with_errors`、`repair_rate`、`recent_error_types` 与 `suggestions`（未请求时为 `null`）。`graded_submissions` 统计全科已批改提交数；`graded_submissions_with_errors` 统计其中至少有一条诊断错因的提交数，按提交去重。错因类型分布与原首页保持一致，统计最近 100 条错误记录，但仅加载类别字段；`repair_rate` 在计算失败时为 `null`，其余数据仍正常返回。启用建议时，服务复用同次请求已经计算的修复率、知识点排行与高频错题统计，避免重复聚合。
+权限：教师。看板所有统计、建议和学生列表只覆盖当前教师的任教学科及关联班级。可选参数 `n` 为高频错题数量（默认 10，范围 1–50）；`include_suggestions=true` 时还返回教学建议。响应包含 `top_questions`、`knowledge_points`、`students`、`total_errors`、`stubborn_errors`、`graded_submissions`、`graded_submissions_with_errors`、`repair_rate`、`recent_error_types` 与 `suggestions`（未请求时为 `null`）。`graded_submissions` 统计范围内已批改提交数；`graded_submissions_with_errors` 统计其中至少有一条诊断错因的提交数，按提交去重。错因类型分布统计范围内最近 100 条错误记录；`repair_rate` 在计算失败时为 `null`，其余数据仍正常返回。启用建议时，服务复用同次请求已经计算的修复率、知识点排行与高频错题统计，避免重复聚合。
 
 响应 `200`：包含上述字段的看板汇总对象，`recent_error_types` 项结构为 `{ "name": 错因类型, "value": 数量 }`。
+
+### 4.28 GET/POST /api/teacher/classes —— 任教学科班级
+
+权限：教师。`GET` 只列出当前教师关联的班级及学生人数。`POST` 建立或关联班级，请求 `{ "name": "七年级一班", "subject": "math" }`；班级名按全局名称匹配，已存在时会关联到该班级。所选学科必须是当前教师登录的学科。响应为 `{ id, name, subjects, student_count }`。
+
+### 4.28.1 GET/POST /api/teacher/classes/{classroom_id}/students —— 班级名册
+
+权限：该班级任课教师。`GET` 返回学生 `{ id, name, student_no }` 列表。`POST` 请求 `{ "name": "林小夏", "student_no": "S2026001" }`，将学生加入名册；学号在全局唯一，同名学生可通过不同学号区分。已有学号若姓名不匹配返回 `409`。学生只有在教师录入名册并加入班级后才能以姓名+学号登录。
+
+### 4.29 GET/POST/DELETE /api/teacher/knowledge/{subject}[/{chunk_id}] —— 学科 Agent 知识库
+
+权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET` 返回该学科资料；`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；`DELETE` 删除指定片段。每个学科只检索自己的资料。当前版本使用关键词重合检索文本片段，尚未提供 PDF 导入或向量检索。
 
 ---
 
@@ -1403,7 +1430,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | `verification.status` | `pending` / `passed` / `failed` |
 | 作业 `mode`（v0.5.0 新增） | `online`（线上作业）/ `offline`（线下练习册作业） |
 | 提醒 `type` | `teacher_correction`（教师纠错）/ `teacher_reminder`（教师提醒未交，v0.5.0 新增）/ `review_approved`（审核通过，v0.9.0 新增） |
-| 审核 `review_status`（v0.9.0 新增） | `pending`（待教师复核，学生仍可查看并订正错题；分数暂缓）/ `approved`（已通过；无审核行的历史/种子提交按此口径）；学生侧诊断响应 `status` 在 pending 时为 `pending_review` |
+| 审核 `review_status`（v0.9.0 新增） | `pending`（整份作业低于 60 分待教师复核；学生仍可查看 AI 当前分数、错题并订正）/ `approved`（已通过；无审核行的历史/种子提交按此口径）；学生侧诊断响应 `status` 在 pending 时为 `pending_review` |
 
 ## 7. 变更记录
 
@@ -1744,3 +1771,5 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.310 | 2026-10-17 | 做题页按需挂载拍照批改流程，首次选图后才创建对应题目组件，降低大型作业首屏开销。 |
 | v0.13.311 | 2026-10-17 | 做题页改为首次进入题目时读取本机草稿，避免加载整份作业时逐题同步访问存储。 |
 | v0.13.312 | 2026-10-17 | 做题页跳过纯在线数学作业的历史同类错题请求，减少未使用的数据查询。 |
+| v0.13.313 | 2026-10-17 | 错题本按归档范围加载完整记录，使用轻量历史字段保留相似错题关系，降低归档记录多时的读取开销。 |
+| v0.13.314 | 2026-10-21 | 学生无密码登录改为名册姓名+学号校验；教师按任教学科区分，增加班级名册与目标班级发布。新增九个学科 Agent 专属提示词、分科文本知识库检索、学生错题/订正/验证记忆，并允许学生 Agent 查询本人错题本。教师作业、审核、统计、建议和教师 Agent 按学科及任课班级收口。批改错误即时进入错题本和订正待办；仅整份作业结算后百分制低于 60 分才进入教师审核，单题或图片置信度不再独立送审。新增表 `classrooms`、`teacher_subjects`、`classroom_teacher_subjects`、`classroom_members`、`assignment_classes`、`subject_knowledge_chunks`、`student_learning_memories`，不修改旧表列。 |

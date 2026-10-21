@@ -6,6 +6,7 @@ import type { User } from '../api/types'
 interface AuthState {
   token: string
   user: User | null
+  activeSubject: string
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -13,7 +14,8 @@ export const useAuthStore = defineStore('auth', {
     const raw = localStorage.getItem('remedi_user')
     return {
       token: localStorage.getItem('remedi_token') || '',
-      user: raw ? (JSON.parse(raw) as User) : null
+      user: raw ? (JSON.parse(raw) as User) : null,
+      activeSubject: localStorage.getItem('remedi_active_subject') || ''
     }
   },
   getters: {
@@ -21,17 +23,22 @@ export const useAuthStore = defineStore('auth', {
     name: (s): string => s.user?.name ?? ''
   },
   actions: {
-    setSession(token: string, user: User) {
+    setSession(token: string, user: User, activeSubject = '') {
       this.token = token
       this.user = user
+      this.activeSubject = activeSubject
       localStorage.setItem('remedi_token', token)
       localStorage.setItem('remedi_user', JSON.stringify(user))
+      if (activeSubject) localStorage.setItem('remedi_active_subject', activeSubject)
+      else localStorage.removeItem('remedi_active_subject')
     },
     logout() {
       this.token = ''
       this.user = null
+      this.activeSubject = ''
       localStorage.removeItem('remedi_token')
       localStorage.removeItem('remedi_user')
+      localStorage.removeItem('remedi_active_subject')
     }
   }
 })

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..models import User
 from ..services.stats import knowledge_point_ranking
 from ..services.teacher_stats import class_overview, uncorrected_overview
+from ..services.teacher_scope import teacher_assignment_ids, teacher_student_ids
 from .graph import _build_llm, _message_chunk_text
 from .teacher_prompts import build_teacher_system_prompt
 from .teacher_tools import build_teacher_tools
@@ -16,18 +17,20 @@ from .teacher_tools import build_teacher_tools
 logger = logging.getLogger(__name__)
 
 
-def _teacher_context_summary(db: Session) -> str:
+def _teacher_context_summary(db: Session, teacher: User) -> str:
     """班级近况摘要（注入系统提示词）：规模 + 最严重知识点 + 订正积压人数。"""
     try:
-        ov = class_overview(db)
+        assignment_ids = [row[0] for row in teacher_assignment_ids(db, teacher).all()]
+        student_ids = [row[0] for row in teacher_student_ids(db, teacher).all()]
+        ov = class_overview(db, assignment_ids, student_ids)
         parts = [f"共 {ov['student_count']} 名学生、{ov['assignment_count']} 份作业"]
-        ranking = knowledge_point_ranking(db)
+        ranking = knowledge_point_ranking(db, assignment_ids)
         if ranking:
             top = ranking[0]
             parts.append(
                 f"错误率最高的知识点是「{top['knowledge_point']}」（{round(top['error_rate'] * 100)}%）"
             )
-        pending = uncorrected_overview(db)
+        pending = uncorrected_overview(db, assignment_ids, student_ids)
         if pending:
             parts.append(f"有 {len(pending)} 名学生的订正还没完成")
         return "；".join(parts) + "。"
@@ -62,7 +65,7 @@ def teacher_agent_reply_stream(db: Session, teacher: User,
     builder.add_edge("tools", "agent")
     graph = builder.compile()
 
-    system = build_teacher_system_prompt(teacher.name, _teacher_context_summary(db))
+    system = build_teacher_system_prompt(teacher.name, _teacher_context_summary(db, teacher))
     messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
     reply_parts: list[str] = []
     tool_names: dict[int, str] = {}

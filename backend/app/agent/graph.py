@@ -15,7 +15,9 @@ from ..config import settings
 from ..models import User
 from ..services.stats import student_briefing
 from .prompts import build_system_prompt
-from .tools import build_tools
+from .subjects import build_subject_context, detect_subject
+from ..services.learning_memory import student_memory_to_text
+from .tools import build_tools, student_notebook_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -122,23 +124,42 @@ def _message_chunk_text(msg) -> str:
 
 def agent_reply_stream(db: Session, student: User,
                        history: List[BaseMessage], user_text: str,
-                       safe_tools_only: bool = False):
+                       safe_tools_only: bool = False,
+                       subject: str | None = None):
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
     # 流式响应中的非文本 content 会在模型适配层被过滤；回复可以边生成边发送。
     llm = _build_llm(streaming=True)
+    subject = detect_subject(user_text, subject)
+    subject_context = build_subject_context(db, subject, user_text)
     if safe_tools_only:
-        # 照片讲解只依赖本轮已经识别和批改的内容。历史会话与学生近况不参与
-        # 当前题目推理，省掉额外上下文，并避免重复上传造成的长历史拖慢模型。
+        # 不传整段会话历史，但提供该学生最近错题作为个性化讲解依据。
+        try:
+            mistake_context = student_notebook_to_text(db, student, limit=5)
+            memory_context = student_memory_to_text(db, student.id, limit=5)
+        except Exception:
+            logger.exception("读取照片答疑的学生错题本失败，student_id=%s", student.id)
+            mistake_context = "当前无法读取历史错题。"
+            memory_context = "当前无法读取长期学习记忆。"
         system = (
             "你是 Remedi 学习辅导老师。学生照片中的题目和作答已经识别，批改记录已经保存。"
             "只处理当前消息里的题目：先讲正确思路，再结合已识别的学生步骤说明关键对错；"
             "如果没有学生步骤，就只讲题。不要重复批改或调用任何写入工具。"
-            "其他学科直接讲解。若系统给出错因待复核，不要把它说成最终结论。"
+            f"{subject_context}\n"
+            "可以参考下面该学生本人错题本中的同类错题进行个性化讲解；不要把自主收录说成答错。"
+            "若条目标注待教师审核，必须说明那是暂定判断，不要说成最终结论。"
+            f"\n学生错题本摘要：{mistake_context}\n"
+            f"学生学习记忆：{memory_context}\n"
             "回答简洁、分步骤，避免冗长铺垫。"
         )
         messages = [SystemMessage(content=system), HumanMessage(content=user_text)]
     else:
-        system = build_system_prompt(student.name, _context_summary(db, student))
+        system = build_system_prompt(
+            student.name, _context_summary(db, student), subject_context,
+        )
+        try:
+            system += "\n\n学生学科记忆：\n" + student_memory_to_text(db, student.id, limit=5)
+        except Exception:
+            logger.exception("读取学习记忆失败，student_id=%s", student.id)
         messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
     related_result: dict = {"mistake": None}
     reply_parts: list[str] = []

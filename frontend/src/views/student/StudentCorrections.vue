@@ -40,17 +40,19 @@
       <div v-if="view === 'wall' && awaitingVerifyKps.length" class="card verify-kp-card">
         <h3><AppIcon name="target" :size="18" /> 待验证的知识点</h3>
         <p class="card-sub">这些知识点的错题已经全部订正好，再做对一道同类变式题，就能完成验证、真正修复。</p>
-        <div v-for="kp in awaitingVerifyKps" :key="kp" class="verify-kp-row">
-          <span class="badge badge-blue">{{ kp }}</span>
-          <button class="btn small" @click="verifyKp = kp">做一道变式题，完成这个知识点的验证</button>
+        <div v-for="kp in awaitingVerifyKps" :key="`${kp.subject}:${kp.knowledge_point}`" class="verify-kp-row">
+          <span class="badge badge-blue">{{ subjectName(kp.subject) }} · {{ kp.knowledge_point }}</span>
+          <button class="btn small" @click="verifyTarget = kp">做一道变式题，完成这个知识点的验证</button>
         </div>
         <VerifyPanel
-          v-if="verifyKp"
-          :key="`wall-${verifyKp}`"
-          :knowledge-point="verifyKp"
+          v-if="verifyTarget"
+          :key="`wall-${verifyTarget.subject}-${verifyTarget.knowledge_point}`"
+          :knowledge-point="verifyTarget.knowledge_point"
+          :subject="verifyTarget.subject"
+          :source-error-id="verifyTarget.source_error_id"
           class="verify-panel-inline"
           @passed="onVerifyPassed"
-          @close="verifyKp = ''"
+          @close="verifyTarget = null"
         />
       </div>
 
@@ -151,12 +153,14 @@
             <AppIcon name="check" :size="15" /> 这个知识点的验证已经完成了，它真正修复啦。
           </p>
           <VerifyPanel
-            v-if="verifyKp"
-            :key="`work-${verifyKp}`"
-            :knowledge-point="verifyKp"
+            v-if="verifyTarget"
+            :key="`work-${verifyTarget.subject}-${verifyTarget.knowledge_point}`"
+            :knowledge-point="verifyTarget.knowledge_point"
+            :subject="verifyTarget.subject"
+            :source-error-id="verifyTarget.source_error_id"
             class="verify-panel-inline"
             @passed="onVerifyPassed"
-            @close="verifyKp = ''"
+            @close="verifyTarget = null"
           />
           <div class="result-actions">
             <button class="btn secondary small inline-icon" @click="backToWall">
@@ -173,7 +177,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { CorrectionResult, StepDiagnosis, StudentCorrectionWallItem } from '../../api/types'
+import type { AwaitingVerificationKnowledgePoint, CorrectionResult, StepDiagnosis, StudentCorrectionWallItem } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
@@ -424,11 +428,11 @@ function imageHref(value: string) {
 
 // ---------- 二次验证（迁入本页：报告纯化后验证入口只在订正流里） ----------
 /** 当前打开了变式题面板的知识点（空 = 未打开）；墙面待验证区与结果区共用这一个状态 */
-const verifyKp = ref('')
+const verifyTarget = ref<AwaitingVerificationKnowledgePoint | null>(null)
 /** 本次订正后刚在页内完成了该知识点的验证（结果区 CTA 随之换成完成提示） */
 const justVerified = ref(false)
-/** 待验证知识点名单：由服务端按学习报告口径聚合，并跨科目去重。 */
-const awaitingVerifyKps = ref<string[]>([])
+/** 待验证知识点名单按学科区分，避免同名知识点串用验证记录。 */
+const awaitingVerifyKps = ref<AwaitingVerificationKnowledgePoint[]>([])
 
 async function loadAwaitingVerifyKps() {
   try {
@@ -440,8 +444,15 @@ async function loadAwaitingVerifyKps() {
 
 /** 结果区入口：为刚订正对的这条错题所属知识点打开变式题面板 */
 function openResultVerify() {
-  const kp = result.value?.knowledge_point ?? selectedError.value?.knowledge_point ?? ''
-  if (kp) verifyKp.value = kp
+  const mistake = selectedError.value
+  const kp = result.value?.knowledge_point ?? mistake?.knowledge_point ?? ''
+  if (kp && mistake) {
+    verifyTarget.value = {
+      subject: mistake.question_subject,
+      knowledge_point: kp,
+      source_error_id: mistake.id,
+    }
+  }
 }
 
 /** 验证通过：刷新待验证名单（该知识点转为已修复后自动从名单消失） */
@@ -462,7 +473,7 @@ async function submit() {
   error.value = ''
   result.value = null
   justVerified.value = false
-  verifyKp.value = ''
+  verifyTarget.value = null
   try {
     result.value = await student.submitCorrection({
       error_id: Number(selectedErrorId.value),

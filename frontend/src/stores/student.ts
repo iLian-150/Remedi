@@ -5,6 +5,7 @@ import api from '../api/client'
 import { visionImageForModel } from '../utils/visionImage'
 import { useAuthStore } from './auth'
 import type {
+  AwaitingVerificationKnowledgePoint,
   AgentChatResult,
   AgentHistoryCursor,
   AgentHistoryItem,
@@ -33,6 +34,7 @@ import type {
   StudentMistake,
   StudentMistakeTimelinePage,
   SubjectReport,
+  StudentLearningMemory,
   ReportScores,
   SubmissionResult,
   SubmissionSummary,
@@ -424,8 +426,8 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<Record<string, number>>('/api/student/corrections/calendar-marks')
       return data
     },
-    async fetchAwaitingVerificationKps(): Promise<string[]> {
-      const { data } = await api.get<string[]>(
+    async fetchAwaitingVerificationKps(): Promise<AwaitingVerificationKnowledgePoint[]> {
+      const { data } = await api.get<AwaitingVerificationKnowledgePoint[]>(
         '/api/student/corrections/awaiting-verification-knowledge-points'
       )
       return data
@@ -586,7 +588,8 @@ export const useStudentStore = defineStore('student', {
       file: File,
       question: string,
       onText: (text: string) => void,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      subject?: string
     ): Promise<string> {
       const auth = useAuthStore()
       const form = new FormData()
@@ -594,6 +597,7 @@ export const useStudentStore = defineStore('student', {
       form.append('file', await visionImageForModel(file))
       throwIfAborted(signal)
       form.append('question', question)
+      if (subject) form.append('subject', subject)
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/vision/stream' }), {
         method: 'POST',
         headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
@@ -722,6 +726,10 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<ReportScores>('/api/student/report/scores')
       return data
     },
+    async fetchLearningMemory(): Promise<StudentLearningMemory[]> {
+      const { data } = await api.get<StudentLearningMemory[]>('/api/student/learning-memory')
+      return data
+    },
     // 3.14 知识点错题时间线（v0.2.1）
     async fetchKnowledgePointErrors(name: string): Promise<KnowledgePointErrorItem[]> {
       const { data } = await api.get<KnowledgePointErrorItem[]>(
@@ -738,7 +746,8 @@ export const useStudentStore = defineStore('student', {
       persistUserMessage = true,
       safeToolsOnly = false,
       relatedMistakeErrorId?: number | null,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      subject?: string
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/stream' }), {
@@ -752,7 +761,8 @@ export const useStudentStore = defineStore('student', {
           session_id: sessionId ?? undefined,
           persist_user_message: persistUserMessage,
           safe_tools_only: safeToolsOnly,
-          related_mistake_error_id: relatedMistakeErrorId ?? undefined
+          related_mistake_error_id: relatedMistakeErrorId ?? undefined,
+          subject
         }),
         signal
       })
@@ -1117,6 +1127,7 @@ export const useStudentStore = defineStore('student', {
     async createVerification(payload: {
       knowledge_point: string
       source_error_id?: number
+      subject?: string
     }): Promise<Verification> {
       const { data } = await api.post<Verification>('/api/student/verifications', payload)
       invalidateStudentMistakes(useAuthStore().user?.id)

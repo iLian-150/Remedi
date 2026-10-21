@@ -12,9 +12,14 @@
         <div class="chat-title">
           <span class="chat-title-mark"><AppIcon name="sparkles" :size="17" /></span>
           <span class="chat-title-copy">
-            <strong>Remedi 学习助手</strong>
-            <small>作业批改 · 错题复习 · 学习问答</small>
+            <strong>Remedi {{ agentSubjectLabel }} Agent</strong>
+            <small>专属学科讲解 · 错题记忆 · 学习问答</small>
           </span>
+          <label class="agent-subject-picker"><span>切换学科</span>
+            <select v-model="agentSubject">
+              <option v-for="item in agentSubjects" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
           <span class="chat-status"><i></i> 随时可以提问</span>
         </div>
       </div>
@@ -307,12 +312,12 @@
               <AppIcon name="check" :size="17" /> 批改结果
               <span class="badge badge-blue">{{ questionStem(msg.result.question_id) }}</span>
             </p>
-            <!-- 低置信错因仍立即展示并进入订正流程，教师审核并行进行 -->
+            <!-- 错题立即进入订正；整份作业低于 60 分时教师审核并行进行 -->
             <div v-if="msg.result.status === 'pending_review'" class="review-pending-box">
               <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
               <div>
                 <p class="review-pending-title">错题已同步加入错题本和订正区</p>
-                <p class="review-pending-sub">老师也会复核这次低置信度判断；如需调整，错因会同步更新。</p>
+                <p class="review-pending-sub">这份作业总分低于 60 分，老师正在审核；错题和订正任务已同步，你可以先继续订正。</p>
               </div>
             </div>
             <template v-if="msg.result.steps.length || msg.result.errors.length">
@@ -449,6 +454,7 @@ import type {
   PendingAssignment,
   PhotoReviewResult,
   RelatedMistake,
+  SubjectAgentCode,
   StepStatus,
   StudentBriefing,
   SubmissionResult,
@@ -466,6 +472,15 @@ const auth = useAuthStore()
 const student = useStudentStore()
 const route = useRoute()
 const router = useRouter()
+const agentSubjects: { value: SubjectAgentCode; label: string }[] = [
+  { value: 'chinese', label: '语文' }, { value: 'math', label: '数学' },
+  { value: 'english', label: '英语' }, { value: 'politics', label: '道法' },
+  { value: 'history', label: '历史' }, { value: 'physics', label: '物理' },
+  { value: 'chemistry', label: '化学' }, { value: 'geography', label: '地理' },
+  { value: 'biology', label: '生物' }
+]
+const agentSubject = ref<SubjectAgentCode>('math')
+const agentSubjectLabel = computed(() => agentSubjects.find((item) => item.value === agentSubject.value)?.label ?? '学习')
 
 // ---------- 对话消息 ----------
 interface ChatMsg {
@@ -1027,7 +1042,7 @@ async function streamAssistantReply(
       }
       wait.text += text
       scrollToBottom()
-    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId, controller.signal)
+    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId, controller.signal, agentSubject.value)
     wait.pending = false
     if (!wait.text) wait.text = result.reply
     wait.relatedMistake = result.related_mistake ?? null
@@ -1120,7 +1135,7 @@ async function streamVisionReply(wait: ChatMsg, file: File, question: string): P
       }
       wait.text += text
       scrollToBottom()
-    }, controller.signal)
+    }, controller.signal, agentSubject.value)
     if (!wait.text) wait.text = reply
     return reply
   } finally {
@@ -1462,6 +1477,8 @@ onMounted(async () => {
 .chat-title-copy { display: flex; flex-direction: column; gap: 1px; }
 .chat-title-copy strong { font-size: 14px; font-weight: 700; line-height: 1.25; }
 .chat-title-copy small { color: var(--text-3); font-size: 11px; font-weight: 400; }
+.agent-subject-picker { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.agent-subject-picker select { border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; background: var(--card); color: var(--text); font: inherit; }
 .chat-status { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; color: var(--text-3); font-size: 12px; font-weight: 500; }
 .chat-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
 .photo-capture-action { margin-top: 10px; }

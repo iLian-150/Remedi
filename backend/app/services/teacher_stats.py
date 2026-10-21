@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import load_only
 
-from ..models import Assignment, Correction, Error, Essay, Question, Submission, User
+from ..models import Assignment, AssignmentClass, ClassroomMember, Correction, Error, Essay, Question, Submission, User
 
 
 def _submitted_question_pairs(db, assignment_id: int):
@@ -34,12 +34,24 @@ def _submitted_question_pairs(db, assignment_id: int):
     return submission_pairs.union(essay_pairs).subquery()
 
 
+def _assignment_student_ids(db, assignment: Assignment):
+    recipients = db.query(AssignmentClass.classroom_id).filter(
+        AssignmentClass.assignment_id == assignment.id,
+    ).all()
+    if not recipients:
+        return None
+    return [row[0] for row in db.query(ClassroomMember.student_id).filter(
+        ClassroomMember.classroom_id.in_([row[0] for row in recipients]),
+    ).distinct().all()]
+
+
 def students_not_fully_submitted(db, assignment: Assignment) -> List[int]:
     """未提交全部题目的学生 ID（提醒未交 + 教师 Agent 共用）。"""
     question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
     ).scalar_subquery()
     submitted_pairs = _submitted_question_pairs(db, assignment.id)
+    student_ids = _assignment_student_ids(db, assignment)
     done_counts = (
         select(
             submitted_pairs.c.student_id,
@@ -48,8 +60,11 @@ def students_not_fully_submitted(db, assignment: Assignment) -> List[int]:
         .group_by(submitted_pairs.c.student_id)
         .subquery()
     )
+    student_query = select(User.id)
+    if student_ids is not None:
+        student_query = student_query.where(User.id.in_(student_ids))
     return db.execute(
-        select(User.id)
+        student_query
         .select_from(User)
         .outerjoin(done_counts, done_counts.c.student_id == User.id)
         .where(
@@ -61,7 +76,7 @@ def students_not_fully_submitted(db, assignment: Assignment) -> List[int]:
     ).scalars().all()
 
 
-def assignment_status(db, assignment: Assignment) -> Dict:
+def assignment_status(db, assignment: Assignment, student_ids=None) -> Dict:
     """一份作业的提交情况：全部完成 / 部分完成 / 完全没交，三组学生名单。"""
     question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
@@ -75,7 +90,9 @@ def assignment_status(db, assignment: Assignment) -> Dict:
         .group_by(submitted_pairs.c.student_id)
         .subquery()
     )
-    students = (
+    if student_ids is None:
+        student_ids = _assignment_student_ids(db, assignment)
+    student_query = (
         db.query(
             question_count.label("question_count"),
             User.id.label("student_id"),
@@ -85,10 +102,18 @@ def assignment_status(db, assignment: Assignment) -> Dict:
         .select_from(select(literal(1).label("singleton")).subquery())
         .outerjoin(User, User.role == "student")
         .outerjoin(done_counts, done_counts.c.student_id == User.id)
-        .order_by(User.id)
-        .all()
     )
-    question_count = int(students[0].question_count or 0) if students else 0
+    if student_ids is not None:
+        student_query = student_query.filter(User.id.in_(student_ids))
+    students = (
+        student_query.order_by(User.id).all()
+    )
+    question_count = (
+        int(students[0].question_count or 0) if students
+        else int(db.query(func.count(Question.id)).filter(
+            Question.assignment_id == assignment.id,
+        ).scalar() or 0)
+    )
     done_all, partial, none = [], [], []
     for row in students:
         if row.student_id is None:
@@ -112,7 +137,7 @@ def assignment_status(db, assignment: Assignment) -> Dict:
     }
 
 
-def find_assignment_by_hint(db, hint: str) -> Optional[Assignment]:
+def find_assignment_by_hint(db, hint: str, assignment_ids=None) -> Optional[Assignment]:
     """按标题关键词匹配一份作业：标题包含关键词，或关键词包含标题；
     匹配不到返回 None（调用方决定是否回退到最近一份）。"""
     hint = (hint or "").strip().strip("《》\"' ")
@@ -128,8 +153,11 @@ def find_assignment_by_hint(db, hint: str) -> Optional[Assignment]:
         contains = None
 
     if contains is not None:
+        query = db.query(Assignment)
+        if assignment_ids is not None:
+            query = query.filter(Assignment.id.in_(assignment_ids))
         return (
-            db.query(Assignment)
+            query
             .options(load_only(Assignment.id, Assignment.title))
             .filter(or_(
                 contains(Assignment.title, hint) > 0,
@@ -140,7 +168,10 @@ def find_assignment_by_hint(db, hint: str) -> Optional[Assignment]:
         )
 
     # 未知数据库方言沿用 Python 子串判断，保持原有大小写与特殊字符语义。
-    assignments = db.query(Assignment).options(
+    assignments_query = db.query(Assignment)
+    if assignment_ids is not None:
+        assignments_query = assignments_query.filter(Assignment.id.in_(assignment_ids))
+    assignments = assignments_query.options(
         load_only(Assignment.id, Assignment.title)
     ).order_by(Assignment.id).all()
     for a in assignments:
@@ -149,40 +180,49 @@ def find_assignment_by_hint(db, hint: str) -> Optional[Assignment]:
     return None
 
 
-def latest_assignment(db) -> Optional[Assignment]:
-    return db.query(Assignment).options(
+def latest_assignment(db, assignment_ids=None) -> Optional[Assignment]:
+    query = db.query(Assignment)
+    if assignment_ids is not None:
+        query = query.filter(Assignment.id.in_(assignment_ids))
+    return query.options(
         load_only(Assignment.id, Assignment.title)
     ).order_by(Assignment.id.desc()).first()
 
 
-def class_overview(db) -> Dict:
+def class_overview(db, assignment_ids=None, student_ids=None) -> Dict:
     """班级总览：学生数 / 作业份数 / 累计提交数 / 累计错误数。"""
-    counts = db.execute(
-        select(
-            select(func.count(User.id))
-            .where(User.role == "student")
-            .scalar_subquery()
-            .label("student_count"),
-            select(func.count(Assignment.id))
-            .scalar_subquery()
-            .label("assignment_count"),
-            select(func.count(Submission.id))
-            .scalar_subquery()
-            .label("submission_count"),
-            select(func.count(Error.id))
-            .scalar_subquery()
-            .label("error_count"),
-        )
-    ).one()
+    student_query = db.query(func.count(User.id)).filter(User.role == "student")
+    if student_ids is not None:
+        student_query = student_query.filter(User.id.in_(student_ids))
+    assignment_query = db.query(func.count(Assignment.id))
+    if assignment_ids is not None:
+        assignment_query = assignment_query.filter(Assignment.id.in_(assignment_ids))
+    submission_query = db.query(func.count(Submission.id))
+    error_query = db.query(func.count(Error.id)).join(
+        Submission, Submission.id == Error.submission_id,
+    )
+    if assignment_ids is not None:
+        scoped_questions = db.query(Question.id).filter(Question.assignment_id.in_(assignment_ids))
+        submission_query = submission_query.filter(Submission.question_id.in_(scoped_questions))
+        error_query = error_query.filter(Submission.question_id.in_(scoped_questions))
+    if student_ids is not None:
+        submission_query = submission_query.filter(Submission.student_id.in_(student_ids))
+        error_query = error_query.filter(Submission.student_id.in_(student_ids))
+    counts = {
+        "student_count": student_query.scalar() or 0,
+        "assignment_count": assignment_query.scalar() or 0,
+        "submission_count": submission_query.scalar() or 0,
+        "error_count": error_query.scalar() or 0,
+    }
     return {
-        "student_count": counts.student_count,
-        "assignment_count": counts.assignment_count,
-        "submission_count": counts.submission_count,
-        "error_count": counts.error_count,
+        "student_count": counts["student_count"],
+        "assignment_count": counts["assignment_count"],
+        "submission_count": counts["submission_count"],
+        "error_count": counts["error_count"],
     }
 
 
-def uncorrected_overview(db) -> List[Dict]:
+def uncorrected_overview(db, assignment_ids=None, student_ids=None) -> List[Dict]:
     """订正未完成概览：每位学生「出错但尚无一条订正正确」的错题数，降序。
     口径与学生简报的待订正判定一致（corrections 里没有 is_correct=True 即未完成）。"""
     has_correct_correction = db.query(Correction.id).filter(
@@ -196,6 +236,12 @@ def uncorrected_overview(db) -> List[Dict]:
         .join(User, User.id == Submission.student_id)
         .filter(User.role == "student", ~has_correct_correction)
     )
+    if assignment_ids is not None:
+        pending_query = pending_query.join(
+            Question, Question.id == Submission.question_id,
+        ).filter(Question.assignment_id.in_(assignment_ids))
+    if student_ids is not None:
+        pending_query = pending_query.filter(Submission.student_id.in_(student_ids))
     counts_by_student = {}
     knowledge_points_by_student: Dict[int, set] = {}
     grouped_rows = pending_query.with_entities(

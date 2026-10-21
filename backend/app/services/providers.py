@@ -497,14 +497,22 @@ class CloudflareProvider(DeepSeekProvider):
                                 question_context: str = "") -> Dict:
         """让视觉模型直接阅读作业原图、识别学科并逐步判断正误和错因。"""
         from ..config import settings
+        from ..agent.subjects import SUBJECT_AGENTS, normalize_subject
 
         try:
             data_url = "data:{};base64,{}".format(
                 content_type or "image/jpeg",
                 base64.b64encode(image_bytes).decode("ascii"),
             )
+            subject_hint = re.search(r"学科\s*[:：]\s*([A-Za-z_]+|[\u4e00-\u9fff]+)", question_context)
+            subject_code = normalize_subject(subject_hint.group(1)) if subject_hint else None
+            subject_name, subject_instruction = SUBJECT_AGENTS.get(
+                subject_code, ("多学科", "先识别题目学科，再依据该学科知识逐步判断。"),
+            )
             prompt = (
-                "请直接观察这张作业原图，先识别学科，再理解题目、学生实际作答和图形信息并完成批改。"
+                f"请直接观察这张作业原图。当前已路由到{subject_name}专属批改 Agent；"
+                f"遵循该学科要求：{subject_instruction}"
+                "再理解题目、学生实际作答和图形信息并完成批改。"
                 f"已知题目参考：{question_context or '请从图片中理解题目'}。"
                 "本题可能属于数学、英语练习、物理、化学、生物、语文、历史、地理、道德与法治、信息科技、艺术或其他学科；"
                 "若参考信息明确给出学科，优先按该学科判断，否则根据题目内容识别。"
@@ -525,7 +533,7 @@ class CloudflareProvider(DeepSeekProvider):
             )
             content = self._vision_text(
                 data_url,
-                "你是严谨的多学科作业视觉诊断助手。直接分析图片证据，只返回 JSON，不要解释、OCR转写或 Markdown。",
+                f"你是严谨的{subject_name}学科作业视觉批改 Agent。直接分析图片证据，只返回 JSON，不要解释、OCR转写或 Markdown。",
                 prompt,
                 timeout=settings.LLM_TIMEOUT_SECONDS,
             )

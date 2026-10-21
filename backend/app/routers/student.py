@@ -20,8 +20,10 @@ from ..config import settings
 from ..database import get_db
 from ..models import (
     Assignment,
+    AssignmentClass,
     AssignmentExt,
     AssignmentSetting,
+    ClassroomMember,
     ChatMessage,
     Correction,
     Error,
@@ -33,6 +35,7 @@ from ..models import (
     StudentMistakeArchive,
     StudentMistakeCategoryReview,
     StudentMistakeEvent,
+    StudentLearningMemory,
     StudentQuestionCapture,
     Step,
     Submission,
@@ -86,12 +89,14 @@ from ..schemas import (
     StudentMistakeTimelinePageOut,
     StudentCorrectionWallPageOut,
     StudentQuestionCaptureCreate,
+    StudentLearningMemoryOut,
     VerificationCreate,
     VerificationOut,
     VerificationSubmitIn,
     VerificationSubmitOut,
 )
 from ..services import variant_gen
+from ..services.learning_memory import refresh_student_learning_memory
 from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services.streaming import ClosingStreamingResponse
@@ -132,7 +137,7 @@ logger = logging.getLogger(__name__)
 def _student_accessible_question(db: Session, student: User, question_id: int) -> Question:
     """Load a public/teacher question or this student's own private question."""
     row = (
-        db.query(Question, Assignment.created_by, User.role)
+        db.query(Question, Assignment.created_by, User.role, Assignment.id)
         .join(Assignment, Assignment.id == Question.assignment_id)
         .outerjoin(User, User.id == Assignment.created_by)
         .filter(Question.id == question_id)
@@ -140,12 +145,42 @@ def _student_accessible_question(db: Session, student: User, question_id: int) -
     )
     if row is None or (row[2] == "student" and row[1] != student.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    assignment_id = row[3]
+    has_class_scope = db.query(AssignmentClass.assignment_id).filter_by(
+        assignment_id=assignment_id,
+    ).first()
+    if has_class_scope:
+        is_member = db.query(ClassroomMember.student_id).join(
+            AssignmentClass, AssignmentClass.classroom_id == ClassroomMember.classroom_id,
+        ).filter(
+            AssignmentClass.assignment_id == assignment_id,
+            ClassroomMember.student_id == student.id,
+        ).first()
+        if not is_member:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
     return row[0]
 
 
+def _student_assignment_scope(db: Session, student: User):
+    """新作业按名册班级可见；没有班级关联的历史作业维持兼容可见。"""
+    visible_owner = (
+        Assignment.created_by.is_(None)
+        | (~Assignment.created_by.in_(db.query(User.id).filter(User.role == "student")))
+    )
+    has_recipients = db.query(AssignmentClass.assignment_id).filter(
+        AssignmentClass.assignment_id == Assignment.id,
+    ).exists()
+    member_recipient = db.query(AssignmentClass.assignment_id).join(
+        ClassroomMember, ClassroomMember.classroom_id == AssignmentClass.classroom_id,
+    ).filter(
+        AssignmentClass.assignment_id == Assignment.id,
+        ClassroomMember.student_id == student.id,
+    ).exists()
+    return and_(visible_owner, or_(~has_recipients, member_recipient))
+
+
 # ---------- 学生诊断出参 ----------
-# 低置信度诊断会同步进入教师审核队列，但错题和订正流程不等待审核；
-# 学生立即看到诊断并可订正，成绩仍等教师审核后放出。
+# 作业结算后总分低于 60 分才进入教师审核；错题、订正和系统评分立即可见。
 
 def present_for_student(
     submission: Submission,
@@ -155,7 +190,7 @@ def present_for_student(
     errors: Optional[List[Error]] = None,
     review_status: Optional[str] = None,
 ) -> dict:
-    """学生侧诊断出参：诊断立即可见；待审核时只暂缓下发成绩。"""
+    """学生侧诊断出参：诊断和 AI 当前成绩立即可见；待审核表示老师可能调整最终分。"""
     out = present_diagnosis(submission, db, steps=steps, errors=errors)
     rstatus = (
         review_status
@@ -165,9 +200,7 @@ def present_for_student(
     out["review_status"] = rstatus
     if rstatus == review_svc.PENDING:
         out["status"] = "pending_review"
-        out["score"] = None
-        return out
-    # 评分系统：本题分与作业累计分共用进度计算中的批量成绩读取。
+    # 作业分与本题分立即展示；待审核只标明状态，教师改分后再同步更新。
     vis = None
     if submission.question is not None:
         progress = scoring_svc.assignment_progress(
@@ -175,6 +208,7 @@ def present_for_student(
             submission.student_id,
             submission.question.assignment_id,
             current_submission=submission,
+            include_pending=True,
         )
         vis = progress.pop("current_score", None)
         if vis is not None:
@@ -191,12 +225,7 @@ def student_chat_context(
     current: User = Depends(require_student),
 ):
     """只返回聊天选题器实际需要的作业标题、数学题与已提交题目 ID。"""
-    visible_assignment = (
-        Assignment.created_by.is_(None)
-        | (~Assignment.created_by.in_(
-            db.query(User.id).filter(User.role == "student")
-        ))
-    )
+    visible_assignment = _student_assignment_scope(db, current)
     has_submission = db.query(Submission.id).filter(
         Submission.question_id == Question.id,
         Submission.student_id == current.id,
@@ -253,12 +282,7 @@ def list_assignments(
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
-    visible_assignment = (
-        Assignment.created_by.is_(None)
-        | (~Assignment.created_by.in_(
-            db.query(User.id).filter(User.role == "student")
-        ))
-    )
+    visible_assignment = _student_assignment_scope(db, current)
     assignment_scope = visible_assignment
     if created_on is not None:
         day_start = datetime.combine(created_on, datetime.min.time())
@@ -577,6 +601,7 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
             Question.stem, Question.order_num,
         ))
         .filter(Assignment.id == assignment_id)
+        .filter(_student_assignment_scope(db, current))
         .order_by(Question.order_num, Question.id)
         .all()
     )
@@ -679,7 +704,7 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
     if deferred_mode:
         return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
     submission, steps, errors = diagnose_submission(db, current, q, data.steps)
-    # 本次作答正确率或错因置信度低于 60% 时进入教师审核队列。
+    # 整份作业结算后按百分制得分决定是否进入教师审核队列。
     expire_on_commit = db.expire_on_commit
     db.expire_on_commit = False
     try:
@@ -734,22 +759,18 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
         subs = []
         status_by_id = {}
         error_count_by_id = {}
-    visible_subs = [
-        s for s in subs
-        if status_by_id.get(s.id, review_svc.APPROVED) != review_svc.PENDING
-    ]
+    # 待审核表示教师可能调整最终成绩，不隐藏学生当前的 AI 得分。
+    visible_subs = subs
     scores_by_id = scoring_svc.visible_scores(db, visible_subs)
     items = []
     for s in subs:
         rstatus = status_by_id.get(s.id, review_svc.APPROVED)
-        # 错题同步进入错题本和订正区；低置信度提交即使待审核也显示错误数。
+        # 错题同步进入错题本和订正区；低分待审时仍显示错误数。
         err_n = error_count_by_id.get(s.id, 0)
-        # 评分系统：待审核不给分
         score = max_score = None
-        if rstatus != review_svc.PENDING:
-            vis = scores_by_id.get(s.id)
-            if vis:
-                score, max_score = vis["score"], vis["max_score"]
+        vis = scores_by_id.get(s.id)
+        if vis:
+            score, max_score = vis["score"], vis["max_score"]
         question = s.question
         items.append(SubmissionBrief(
             id=s.id, question_id=s.question_id,
@@ -803,11 +824,8 @@ def latest_submission_statuses(db: Session = Depends(get_db),
         .order_by(Submission.question_id)
         .all()
     )
-    visible_submissions = [
-        submission
-        for submission, review_status in rows
-        if review_status != review_svc.PENDING
-    ]
+    # 待教师审核只表示分数可能被老师调整；学生仍可查看 AI 当前评分。
+    visible_submissions = [submission for submission, _review_status in rows]
     scores_by_submission = {}
     for start in range(0, len(visible_submissions), 300):
         scores_by_submission.update(
@@ -974,6 +992,12 @@ def my_mistakes(
         .filter(Submission.student_id == current.id)
         .order_by(Error.created_at.desc(), Error.id.desc())
     )
+    if archive_filter is not None:
+        all_rows_query = all_rows_query.filter(
+            StudentMistakeArchive.archived_at.isnot(None)
+            if archive_filter
+            else StudentMistakeArchive.archived_at.is_(None)
+        )
     # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
     archived_at_by_error = {}
     review_status_by_submission = {}
@@ -994,6 +1018,39 @@ def my_mistakes(
             category_by_values[key] = category
         return category
 
+    def make_representative(
+        error_id: int,
+        error_created_at: datetime,
+        submission_id: int,
+        question_id: int,
+        question_stem: str,
+        assignment_id: int,
+        assignment_title: str,
+        assignment_created_at: datetime,
+    ) -> dict:
+        return {
+            "error_id": error_id,
+            "error_created_at": error_created_at,
+            "submission_id": submission_id,
+            "question_id": question_id,
+            "question_stem": question_stem,
+            "assignment_id": assignment_id,
+            "assignment_title": assignment_title,
+            "assignment_created_at": assignment_created_at,
+        }
+
+    def merge_representative(
+        category_key: str, assignment_id: int, representative: dict
+    ) -> None:
+        category_assignments = latest_by_category_assignment.setdefault(
+            category_key, {}
+        )
+        current = category_assignments.get(assignment_id)
+        if current is None or (
+            representative["error_created_at"], representative["error_id"]
+        ) > (current["error_created_at"], current["error_id"]):
+            category_assignments[assignment_id] = representative
+
     for (
         error,
         submission,
@@ -1005,26 +1062,130 @@ def my_mistakes(
         image_path,
     ) in all_rows_query.yield_per(500):
         row = (error, submission, question, assignment, step)
-        if (
-            archive_filter is None
-            or (archived_at is not None) == archive_filter
-        ):
-            rows.append(row)
+        rows.append(row)
         if review_status is not None:
             review_status_by_submission[submission.id] = review_status
         if image_path is not None:
             image_path_by_submission[submission.id] = image_path
         if archived_at is not None:
             archived_at_by_error[error.id] = archived_at
-        # 查询按错题时间倒序；每个类别和作业只保存首次遇到的最新记录，
-        # 后续生成相似错题只需要这些代表项，无需在内存保留全部历史 ORM 行。
+        # 当前归档视图的完整记录同时提供自己的历史代表项。
         category_key, _ = category_for_fields(
             question.subject, error.error_type, error.knowledge_point
         )
-        category_assignments = latest_by_category_assignment.setdefault(
-            category_key, {}
+        merge_representative(
+            category_key,
+            assignment.id,
+            make_representative(
+                error.id,
+                error.created_at,
+                submission.id,
+                question.id,
+                question.stem,
+                assignment.id,
+                assignment.title,
+                assignment.created_at,
+            )
         )
-        category_assignments.setdefault(assignment.id, row)
+
+    if archive_filter is not None and rows:
+        needed_category_keys = {
+            category_for_fields(
+                question.subject, error.error_type, error.knowledge_point
+            )[0]
+            for error, _, question, _, _ in rows
+        }
+        # 活跃/归档视图只加载所选记录的完整诊断数据；相似错题仍按全部历史计算，
+        # 但历史扫描只取分类、ID 和时间字段，避免为隐藏记录物化答案、解析、步骤及图片。
+        history_archive_match = (
+            StudentMistakeArchive.archived_at.is_(None)
+            if archive_filter
+            else StudentMistakeArchive.archived_at.isnot(None)
+        )
+        history_rows_query = db.query(
+            Error.id,
+            Error.created_at,
+            Error.error_type,
+            Error.knowledge_point,
+            Submission.id.label("submission_id"),
+            Question.id.label("question_id"),
+            Question.subject,
+            Assignment.id.label("assignment_id"),
+        ).join(
+            Submission, Error.submission_id == Submission.id
+        ).join(
+            Question, Submission.question_id == Question.id
+        ).join(
+            Assignment, Question.assignment_id == Assignment.id
+        ).outerjoin(
+            StudentMistakeArchive,
+            and_(
+                StudentMistakeArchive.student_id == current.id,
+                StudentMistakeArchive.error_id == Error.id,
+            ),
+        ).filter(
+            Submission.student_id == current.id,
+            history_archive_match,
+        ).order_by(
+            Error.created_at.desc(), Error.id.desc()
+        )
+        for (
+            error_id,
+            error_created_at,
+            error_type,
+            knowledge_point,
+            submission_id,
+            question_id,
+            subject,
+            assignment_id,
+        ) in history_rows_query.yield_per(500):
+            category_key, _ = category_for_fields(
+                subject, error_type, knowledge_point
+            )
+            if category_key not in needed_category_keys:
+                continue
+            merge_representative(
+                category_key,
+                assignment_id,
+                {
+                    "error_id": error_id,
+                    "error_created_at": error_created_at,
+                    "submission_id": submission_id,
+                    "question_id": question_id,
+                    "assignment_id": assignment_id,
+                },
+            )
+
+        representative_question_ids = {
+            representative["question_id"]
+            for assignments in latest_by_category_assignment.values()
+            for representative in assignments.values()
+            if "question_stem" not in representative
+        }
+        details_by_question = {}
+        question_ids = list(representative_question_ids)
+        for start in range(0, len(question_ids), 500):
+            for question_id, question_stem, assignment_title, assignment_created_at in db.query(
+                Question.id,
+                Question.stem,
+                Assignment.title,
+                Assignment.created_at,
+            ).join(
+                Assignment, Question.assignment_id == Assignment.id
+            ).filter(
+                Question.id.in_(question_ids[start:start + 500])
+            ).all():
+                details_by_question[question_id] = (
+                    question_stem, assignment_title, assignment_created_at
+                )
+        for assignments in latest_by_category_assignment.values():
+            for representative in assignments.values():
+                question_stem, assignment_title, assignment_created_at = details_by_question[
+                    representative["question_id"]
+                ]
+                representative["question_stem"] = question_stem
+                representative["assignment_title"] = assignment_title
+                representative["assignment_created_at"] = assignment_created_at
     visible_assignment_ids = {assignment.id for _, _, _, assignment, _ in rows}
     visible_error_ids = [error.id for error, _, _, _, _ in rows]
     reviewed = set()
@@ -1119,35 +1280,39 @@ def my_mistakes(
     for category_key, latest_by_assignment in latest_by_category_assignment.items():
         representatives = sorted(
             latest_by_assignment.values(),
-            key=lambda entry: (entry[3].created_at, entry[3].id),
-        )
-        current_assignments = sorted(
-            (entry[3] for entry in latest_by_assignment.values()),
-            key=lambda assignment: (assignment.created_at, assignment.id),
+            key=lambda entry: (
+                entry["assignment_created_at"], entry["assignment_id"]
+            ),
         )
         top_five = []
         representative_index = 0
-        for assignment in current_assignments:
+        for assignment in representatives:
             while (
                 representative_index < len(representatives)
-                and representatives[representative_index][3].created_at < assignment.created_at
+                and representatives[representative_index]["assignment_created_at"]
+                < assignment["assignment_created_at"]
             ):
                 entry = representatives[representative_index]
                 representative_index += 1
-                error = entry[0]
                 top_five.append(
-                    (-datetime_order_key(error.created_at), -error.id, entry)
+                    (
+                        -datetime_order_key(entry["error_created_at"]),
+                        -entry["error_id"],
+                        entry,
+                    )
                 )
                 top_five.sort(key=lambda candidate: (candidate[0], candidate[1]))
                 del top_five[5:]
-            similar_by_category_assignment[(category_key, assignment.id)] = [
+            similar_by_category_assignment[
+                (category_key, assignment["assignment_id"])
+            ] = [
                 {
-                    "id": entry[0].id,
-                    "submission_id": entry[1].id,
-                    "assignment_id": entry[3].id,
-                    "assignment_title": entry[3].title,
-                    "assignment_created_at": entry[3].created_at,
-                    "question_stem": entry[2].stem,
+                    "id": entry["error_id"],
+                    "submission_id": entry["submission_id"],
+                    "assignment_id": entry["assignment_id"],
+                    "assignment_title": entry["assignment_title"],
+                    "assignment_created_at": entry["assignment_created_at"],
+                    "question_stem": entry["question_stem"],
                 }
                 for _, _, entry in top_five
             ]
@@ -2011,6 +2176,11 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
     # v0.4.0：订正成功 → 提示可去做二次验证（通过验证才算知识点已修复）
     out.can_verify = is_correct is True
     out.knowledge_point = knowledge_point
+    refresh_student_learning_memory(
+        db, current.id,
+        subject=sub.question.subject if sub.question is not None else None,
+        knowledge_point=knowledge_point, commit=False,
+    )
     db.commit()
     return out
 
@@ -2038,41 +2208,63 @@ def _verification_out(v: Verification) -> dict:
 @router.post("/verifications", response_model=VerificationOut, summary="创建二次验证（变式题）")
 def create_verification(body: VerificationCreate, db: Session = Depends(get_db),
                         current: User = Depends(require_student)):
-    """为某知识点创建一道变式题；已有未完成的（pending）直接复用，不重复出题。
+    """按学科与知识点创建变式题；已有同学科未完成的直接复用。
     已 failed 的不复用——重新 POST 即生成新题重试。"""
     kp = body.knowledge_point.strip()
-    existing = (
-        db.query(Verification)
-        .filter(Verification.student_id == current.id,
-                Verification.knowledge_point == kp,
-                Verification.status == "pending")
-        .order_by(Verification.created_at.desc(), Verification.id.desc())
-        .first()
-    )
-    if existing:
-        return _verification_out(existing)
-
     source_error_id = body.source_error_id
+    source_error = None
     if source_error_id is not None:
         own_error = (
-            db.query(Error.id)
+            db.query(Error, Question.subject)
             .join(Submission, Submission.id == Error.submission_id)
+            .join(Question, Question.id == Submission.question_id)
             .filter(
                 Error.id == source_error_id,
                 Submission.student_id == current.id,
+                Error.knowledge_point == kp,
             )
             .first()
         )
         if own_error is None:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_error_id 不是你的错题记录")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_error_id 与你的错题或知识点不匹配")
+        source_error, source_subject = own_error
+        if body.subject and body.subject != source_subject:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "验证学科与错题学科不匹配")
     else:
         latest_query = (
-            db.query(Error.id)
+            db.query(Error, Question.subject)
             .join(Submission, Error.submission_id == Submission.id)
+            .join(Question, Question.id == Submission.question_id)
             .filter(Submission.student_id == current.id, Error.knowledge_point == kp)
         )
+        if body.subject:
+            latest_query = latest_query.filter(Question.subject == body.subject)
         latest = latest_query.order_by(Error.created_at.desc(), Error.id.desc()).first()
-        source_error_id = latest[0] if latest else None
+        if latest:
+            source_error, source_subject = latest
+            source_error_id = source_error.id
+        else:
+            source_subject = None
+
+    effective_subject = body.subject or source_subject
+    existing_query = db.query(Verification).filter(
+        Verification.student_id == current.id,
+        Verification.knowledge_point == kp,
+        Verification.status == "pending",
+    )
+    if effective_subject:
+        existing_query = existing_query.join(
+            Error, Error.id == Verification.source_error_id,
+        ).join(
+            Submission, Submission.id == Error.submission_id,
+        ).join(
+            Question, Question.id == Submission.question_id,
+        ).filter(Question.subject == effective_subject)
+    existing = existing_query.order_by(
+        Verification.created_at.desc(), Verification.id.desc(),
+    ).first()
+    if existing:
+        return _verification_out(existing)
 
     variant = variant_gen.generate_variant(kp)
     v = Verification(
@@ -2138,6 +2330,9 @@ def submit_verification(verification_id: int, body: VerificationSubmitIn,
         "detail": result["detail"],
         "steps": result["steps"],
     }
+    refresh_student_learning_memory(
+        db, current.id, knowledge_point=v.knowledge_point, commit=False,
+    )
     db.commit()
     return out
 
@@ -2174,6 +2369,21 @@ def my_report_scores(db: Session = Depends(get_db), current: User = Depends(requ
         subjects=[SubjectScoreItem(**s) for s in data["subjects"]],
         overall_avg_rate=data["overall_avg_rate"],
     )
+
+
+@router.get("/learning-memory", response_model=List[StudentLearningMemoryOut], summary="读取我的学科学习记忆")
+def my_learning_memory(
+    db: Session = Depends(get_db), current: User = Depends(require_student),
+):
+    refresh_student_learning_memory(db, current.id)
+    rows = db.query(StudentLearningMemory).filter(
+        StudentLearningMemory.student_id == current.id,
+    ).order_by(
+        StudentLearningMemory.subject,
+        StudentLearningMemory.error_count.desc(),
+        StudentLearningMemory.knowledge_point,
+    ).all()
+    return [StudentLearningMemoryOut.model_validate(row) for row in rows]
 
 
 @router.get(
@@ -2238,8 +2448,8 @@ def _has_recognized_student_work(recognition: dict, step_texts: List[str]) -> bo
 
 
 def _visual_review_confidence(confidence: float, recognition: dict) -> float:
-    """needs_image_review 本身就是低置信信号，确保这次作答进入教师复核。"""
-    return min(confidence, 0.59) if recognition.get("needs_image_review") else confidence
+    """保留旧调用兼容；图片置信度不再影响是否进入教师审核。"""
+    return confidence
 
 
 def _visual_question_context(question: Question) -> str:
@@ -2248,6 +2458,17 @@ def _visual_question_context(question: Question) -> str:
         f"学科：{question.subject}\n题目：{question.stem}\n"
         f"教师参考答案或步骤：{question.standard_answer or '未提供'}"
     )
+
+
+def _visual_question_context_with_agent_rag(db: Session, question: Question) -> str:
+    """按题目学科注入专属批改要求与对应知识库片段。"""
+    from ..agent.subjects import build_subject_context
+    context = _visual_question_context(question)
+    rag_context = build_subject_context(
+        db, question.subject,
+        f"{question.knowledge_point} {question.stem} {question.standard_answer or ''}",
+    )
+    return f"{context}\n{rag_context}" if rag_context else context
 
 
 @router.post("/photo-review", response_model=PhotoReviewOut, summary="识别题目图片并按作答情况分流")
@@ -2288,7 +2509,7 @@ async def photo_review(
     if question_id is not None:
         question = _student_accessible_question(db, current, question_id)
     context = (
-        _visual_question_context(question)
+        _visual_question_context_with_agent_rag(db, question)
         if question else question_context
     )
 
@@ -2690,7 +2911,7 @@ async def photo_diagnose(
         get_provider().diagnose_homework_image,
         data,
         file.content_type,
-        _visual_question_context(question),
+        _visual_question_context_with_agent_rag(db, question),
     )
     confidence = normalize_confidence(recognition.get("confidence", 0.0))
     visual_steps = recognition.get("steps", [])
@@ -2912,6 +3133,8 @@ def agent_chat_legacy(current: User = Depends(require_student)):
 async def agent_vision_chat_stream(
     file: UploadFile = File(...),
     question: str = Form(default=""),
+    subject: str = Form(default=""),
+    db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
     """原图直接进入视觉模型，返回 SSE 文本块；不先 OCR 再交给文本模型。"""
@@ -2925,6 +3148,9 @@ async def agent_vision_chat_stream(
     if len(question.strip()) > _AGENT_MSG_MAX:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "问题有点长，单条最多 2000 字")
     content_type = file.content_type or "image/jpeg"
+    from ..agent.subjects import build_subject_context
+    subject_context = build_subject_context(db, subject, question)
+    vision_question = f"{subject_context}\n{question}" if subject_context else question
     student_id = current.id
 
     def event(name: str, payload: dict) -> str:
@@ -2938,7 +3164,7 @@ async def agent_vision_chat_stream(
         image_stream = None
         try:
             image_stream = get_provider().stream_image_answer(
-                image_bytes, content_type, question
+                image_bytes, content_type, vision_question
             )
             for chunk in image_stream:
                 if not chunk:
@@ -3063,7 +3289,8 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
     def stream_events():
         yield ": connected\n\n"
         reply_stream = agent_reply_stream(
-            db, current, history, text, safe_tools_only=body.safe_tools_only
+            db, current, history, text,
+            safe_tools_only=body.safe_tools_only, subject=body.subject,
         )
         try:
             while True:

@@ -14,6 +14,24 @@ export interface LoginResponse {
   token: string
   token_type: string
   user: User
+  active_subject?: SubjectAgentCode | null
+}
+
+export type SubjectAgentCode =
+  | 'chinese' | 'math' | 'english' | 'politics' | 'history'
+  | 'physics' | 'chemistry' | 'geography' | 'biology'
+
+export interface Classroom {
+  id: number
+  name: string
+  subjects: SubjectAgentCode[]
+  student_count: number
+}
+
+export interface ClassroomStudent {
+  id: number
+  name: string
+  student_no: string
 }
 
 export interface PageResult<T> {
@@ -118,7 +136,7 @@ export interface StudentMistake {
   question_subject: string
   question_order: number
   question_stem: string
-  review_status?: 'pending' | 'approved' // 低置信度错因会边进入订正流程边等待教师复核
+  review_status?: 'pending' | 'approved' // 整份作业总分低于 60 分时待教师审核
   correct_answer: string | null
   solution_steps?: string[]
   knowledge_point: string
@@ -251,7 +269,7 @@ export interface RelatedMistake {
 export interface SubmissionResult {
   submission_id: number
   question_id: number
-  // pending_review 表示低置信度错因正在复核；步骤和错因仍会立即返回给学生
+  // pending_review 表示整份作业总分低于 60 分，步骤、错因和系统评分仍立即返回
   // v0.13.1：新增 'deferred'——已提交、等截止后统一批改，steps/errors 为空
   status: 'submitted' | 'graded' | 'pending_review' | 'deferred'
   first_error_seq: number | null
@@ -259,7 +277,7 @@ export interface SubmissionResult {
   errors: GradingError[]
   follow_up_question?: string | null // v0.4.0：启发式追问，无错时为 null
   review_status?: 'pending' | 'approved' | 'deferred' // 教师复核与订正流程并行；v0.13.1 加 deferred
-  // 本题得分（最终分）与满分；待审核时为 null，分数跟审核一起放行
+  // 本题 AI 当前得分与满分；待审核时仍可见，教师可能调整最终分
   // assignment_* 是这份作业目前的累计得分与总分（成绩单展示用，可能缺失）
   score?: {
     score: number
@@ -278,7 +296,7 @@ export interface SubmissionSummary {
   error_count: number
   submitted_at: string
   review_status?: 'pending' | 'approved' // pending 时仍返回已识别错误数
-  score?: number | null // 评分系统：本题最终分（仅已通过时有值）
+  score?: number | null // 本题 AI 当前分；待审核时也可见
   max_score?: number | null // 评分系统：本题满分
 }
 
@@ -581,6 +599,7 @@ export interface TeacherAssignment {
   workbook_title: string | null
   page_range: string | null
   deadline: string | null
+  class_ids: number[]
 }
 
 export interface TeacherQuestionInput {
@@ -609,6 +628,7 @@ export interface TeacherAssignmentInput {
   page_range?: string
   deadline?: string
   total_score?: number // 评分系统：作业总分（不传 = 100）
+  class_ids: number[]
 }
 
 // ---------- v0.5.0 新增：教师 AI 助手 / 练习册知识库 ----------
@@ -677,6 +697,18 @@ export interface SubjectReport {
   knowledge_points: ReportKnowledgePoint[]
 }
 
+export interface StudentLearningMemory {
+  subject: string
+  knowledge_point: string
+  error_count: number
+  corrected_count: number
+  correction_success_rate: number
+  verification_pass_rate: number
+  state: 'needs_practice' | 'correcting' | 'reinforcing' | 'mastered'
+  summary: string
+  updated_at: string
+}
+
 export interface KnowledgePointErrorItem {
   created_at: string
   assignment_title: string
@@ -719,6 +751,12 @@ export interface Verification {
   source_error_id: number | null
   created_at: string
   completed_at: string | null
+}
+
+export interface AwaitingVerificationKnowledgePoint {
+  subject: string
+  knowledge_point: string
+  source_error_id: number
 }
 
 export interface VerificationStepResult {

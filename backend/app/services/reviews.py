@@ -1,8 +1,9 @@
-# 教师复核流：低置信度 AI 错因同步进入教师队列，学生可立即查看并订正。
-# 分数和审核通过提醒仍等教师处理后放行。
+# 教师复核流：整份作业结算后，百分制总分低于 60 分才进入教师队列。
+# 学生立即查看系统评分、错题和订正任务；教师可改判并同步最终分。
 #
 # 学生的学习报告/画像可以选择排除 pending 记录；错题本与订正待办不排除。
 from datetime import datetime
+from decimal import Decimal
 import math
 from typing import Iterable, List, Optional, Set, Tuple
 
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session, joinedload, load_only
 
 from ..models import (
     Assignment,
+    AssignmentExt,
+    AssignmentScoring,
     Error,
     Notification,
     Question,
@@ -23,7 +26,7 @@ from .confidence import normalize_confidence
 
 PENDING = "pending"
 APPROVED = "approved"
-REVIEW_THRESHOLD = 0.60
+REVIEW_THRESHOLD = 0.60  # 作业最终得分率阈值；不用于单题或模型置信度
 
 
 def low_error_confidence_predicate():
@@ -217,6 +220,170 @@ def assignment_accuracy_contexts(
     return requested
 
 
+def assignment_score_contexts(
+    db: Session,
+    submissions: Iterable[Submission],
+    *,
+    force_complete_keys: Optional[Set[Tuple[int, int]]] = None,
+) -> dict[tuple[int, int], dict]:
+    """按学生和作业汇总每题最新 AI 分；只有全题已批改或截止结算时才定审核。"""
+    requested = {}
+    for submission in submissions:
+        question = submission.question
+        if question is not None:
+            requested[(submission.student_id, question.assignment_id)] = []
+    if not requested:
+        return {}
+
+    force_complete_keys = force_complete_keys or set()
+    keys = list(requested)
+    for start in range(0, len(keys), 400):
+        key_chunk = keys[start:start + 400]
+        latest_ranked = (
+            db.query(
+                Submission.id.label("submission_id"),
+                Question.assignment_id.label("assignment_id"),
+                func.row_number().over(
+                    partition_by=(Submission.student_id, Submission.question_id),
+                    order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+                ).label("rank"),
+            )
+            .join(Question, Question.id == Submission.question_id)
+            .join(Assignment, Assignment.id == Question.assignment_id)
+            .outerjoin(User, User.id == Assignment.created_by)
+            .filter(
+                tuple_(Submission.student_id, Question.assignment_id).in_(key_chunk),
+                Submission.status == "graded",
+                or_(Assignment.created_by.is_(None), User.role != "student"),
+            )
+            .subquery()
+        )
+        rows = (
+            db.query(Submission, latest_ranked.c.assignment_id)
+            .join(latest_ranked, latest_ranked.c.submission_id == Submission.id)
+            .options(joinedload(Submission.question))
+            .filter(latest_ranked.c.rank == 1)
+            .all()
+        )
+        for submission, assignment_id in rows:
+            requested[(submission.student_id, assignment_id)].append(submission)
+
+    assignment_ids = {assignment_id for _, assignment_id in keys}
+    question_counts = dict(db.query(
+        Question.assignment_id, func.count(Question.id)
+    ).filter(
+        Question.assignment_id.in_(assignment_ids)
+    ).group_by(Question.assignment_id).all())
+
+    totals = dict(db.query(
+        AssignmentScoring.assignment_id,
+        AssignmentScoring.total_score,
+    ).filter(
+        AssignmentScoring.assignment_id.in_(assignment_ids)
+    ).all())
+    from . import scoring as scoring_svc
+
+    all_latest = [item for rows in requested.values() for item in rows]
+    score_by_submission = {}
+    for start in range(0, len(all_latest), 300):
+        score_by_submission.update(scoring_svc.visible_scores(
+            db, all_latest[start:start + 300], commit=False
+        ))
+
+    now = datetime.now()
+    due_assignment_ids = {
+        row[0] for row in db.query(AssignmentExt.assignment_id).filter(
+            AssignmentExt.deadline.isnot(None), AssignmentExt.deadline <= now,
+        ).filter(AssignmentExt.assignment_id.in_(assignment_ids)).all()
+    }
+    result = {}
+    for key, latest in requested.items():
+        _student_id, assignment_id = key
+        question_count = int(question_counts.get(assignment_id, 0))
+        configured_total = totals.get(assignment_id)
+        max_score = Decimal(str(configured_total or scoring_svc.DEFAULT_TOTAL))
+        earned_score = sum((
+            Decimal(str(score_by_submission[item.id]["score"]))
+            for item in latest if item.id in score_by_submission
+        ), Decimal("0"))
+        completed = question_count > 0 and len(latest) >= question_count
+        forced = key in force_complete_keys or assignment_id in due_assignment_ids
+        result[key] = {
+            "latest_submissions": latest,
+            "score": earned_score,
+            "max_score": max_score,
+            "percent": earned_score / max_score * Decimal("100") if max_score > 0 else Decimal("0"),
+            "complete": completed or forced,
+            "all_questions_answered": completed,
+        }
+    return result
+
+
+def _release_assignment_reviews(
+    db: Session, student_id: int, assignment_id: int,
+) -> None:
+    """移除旧规则产生的待审状态，不伪装成教师手动审核。"""
+    rows = db.query(SubmissionReview).join(
+        Submission, Submission.id == SubmissionReview.submission_id,
+    ).join(
+        Question, Question.id == Submission.question_id,
+    ).filter(
+        Submission.student_id == student_id,
+        Question.assignment_id == assignment_id,
+        SubmissionReview.status == PENDING,
+    ).all()
+    for row in rows:
+        row.status = APPROVED
+        row.reviewed_by = None
+        row.reviewed_at = datetime.now()
+
+
+def refresh_assignment_review(
+    db: Session,
+    submission: Submission,
+    *,
+    force_complete: bool = False,
+    commit: bool = True,
+) -> Optional[SubmissionReview]:
+    """按当前作业最新提交重算审核状态；可由截止批改强制定为已结算。"""
+    question = submission.question or db.query(Question).filter(
+        Question.id == submission.question_id
+    ).first()
+    if question is None:
+        return None
+    key = (submission.student_id, question.assignment_id)
+    def refresh_memory():
+        from .learning_memory import refresh_student_learning_memory
+        return refresh_student_learning_memory(
+            db, submission.student_id, subject=question.subject,
+            knowledge_point=question.knowledge_point, commit=False,
+        )
+
+    context = assignment_score_contexts(
+        db,
+        [submission],
+        force_complete_keys={key} if force_complete else set(),
+    ).get(key)
+    if not context:
+        refresh_memory()
+        if commit:
+            db.commit()
+        return None
+    if not context["complete"] or context["percent"] >= Decimal("60"):
+        _release_assignment_reviews(db, *key)
+        refresh_memory()
+        if commit:
+            db.commit()
+        return None
+    rows_by_id = create_pending_reviews(
+        db, context["latest_submissions"], commit=False,
+    )
+    refresh_memory()
+    if commit:
+        db.commit()
+    return rows_by_id.get(submission.id)
+
+
 def review_reasons(
     db: Session,
     submission: Submission,
@@ -228,66 +395,26 @@ def review_reasons(
     error_confidences: Optional[Iterable[float]] = None,
     has_low_error_confidence: Optional[bool] = None,
 ) -> List[str]:
-    """返回触发教师复核的原因，统一步骤率、错因和视觉置信度口径。"""
-    reasons = []
-    if step_counts is None:
-        if step_statuses is None:
-            step_statuses = [row[0] for row in db.query(Step.status).filter(
-                Step.submission_id == submission.id,
-                Step.seq >= 1,
-                Step.status.in_(("ok", "error", "unparseable")),
-            ).all()]
-        else:
-            step_statuses = list(step_statuses)
-        step_counts = (
-            sum(1 for value in step_statuses if value == "ok"),
-            len(step_statuses),
-        )
-    correct_steps, total_steps = step_counts
-    if total_steps:
-        accuracy = correct_steps / total_steps
-        if accuracy < REVIEW_THRESHOLD:
-            reasons.append("作答步骤正确率低于 60%")
-
-    if assignment_context is None:
-        assignment_context = assignment_accuracy_context(db, submission)
-    if assignment_context:
-        _, assignment_correct, assignment_total = assignment_context
-        if assignment_total > 0 and assignment_correct / assignment_total < REVIEW_THRESHOLD:
-            reasons.append("本次作业正确率低于 60%")
-
-    if has_low_error_confidence is None:
-        confidences = error_confidences
-        if confidences is None:
-            confidences = [
-                float(row[0])
-                for row in db.query(Error.confidence)
-                .filter(Error.submission_id == submission.id)
-                .all()
-            ]
-        has_low_error_confidence = any(
-            not math.isfinite(value) or value < REVIEW_THRESHOLD
-            for value in confidences
-        )
-    if has_low_error_confidence:
-        reasons.append("错因判断置信度低于 60%")
-
-    normalized_signals = []
-    for raw in confidence_signals:
-        normalized_signals.append(normalize_confidence(raw))
-    if any(value < REVIEW_THRESHOLD for value in normalized_signals):
-        reasons.append("图片或步骤判断置信度低于 60%")
-    return reasons
+    """教师审核只由结算后的整份作业百分制得分严格低于 60 触发。"""
+    question = submission.question or db.query(Question).filter(
+        Question.id == submission.question_id
+    ).first()
+    if question is None:
+        return []
+    context = assignment_score_contexts(db, [submission]).get(
+        (submission.student_id, question.assignment_id)
+    )
+    if not context or not context["complete"] or context["percent"] >= Decimal("60"):
+        return []
+    return [
+        f"整份作业得分低于 60 分（{context['score']}/{context['max_score']} 分）"
+    ]
 
 
 def needs_teacher_review(db: Session, submission: Submission,
                          confidence_signals: Iterable[float] = (), *,
                          assignment_context: Optional[Tuple[List[Submission], int, int]] = None) -> bool:
-    """单题正确率、本次作业已批改部分正确率、错因或视觉置信度低于 60% 时送审。
-
-    正确率按 seq >= 1 且已判定的作答步骤计算；作业累计率跨学科统计已批改提交。
-    视觉路径同时检查整图和每步判断置信度。
-    """
+    """完成整份作业结算后，仅在百分制得分低于 60 分时送审。"""
     return bool(review_reasons(
         db, submission, confidence_signals, assignment_context=assignment_context
     ))
@@ -300,133 +427,78 @@ def create_review_if_needed(
     *,
     commit: bool = True,
 ) -> Optional[SubmissionReview]:
-    """按作答与视觉置信度决定是否建立待审核记录；可交由调用方提交事务。"""
-    assignment_context = assignment_accuracy_context(db, submission)
-    if not needs_teacher_review(
-        db, submission, confidence_signals, assignment_context=assignment_context
-    ):
-        return None
-    submissions_to_review = [submission]
-    if assignment_context:
-        latest_submissions, correct, total = assignment_context
-        if total > 0 and correct / total < REVIEW_THRESHOLD:
-            # 作业整体低于阈值时，把该学生整份作业已批改题目的最新提交一起送审，
-            # 教师窗口能看到完整作业，卡片正确率也按整份作业计算。
-            submissions_to_review = list(latest_submissions)
-            if all(item.id != submission.id for item in submissions_to_review):
-                submissions_to_review.append(submission)
-    rows_by_id = create_pending_reviews(
-        db, submissions_to_review, commit=commit,
-    )
-    return rows_by_id[submission.id]
+    """结算整份作业后按百分制得分决定审核；错题诊断和订正不受审核阻塞。"""
+    return refresh_assignment_review(db, submission, commit=commit)
 
 
 def backfill_missing_review_records(db: Session) -> int:
-    """把尚无审核行、且仍是该生该作业最新作答的待审核提交补入队列。
-
-    正常提交会实时创建审核行；此补偿处理覆盖审核规则上线前已提交、后来才纳入
-    当前作业的数据。按可从数据库恢复的作答率、作业累计率和错因置信度判断；
-    已有 approved 行不回退，旧作答若已被新作答替代也不补审。
-    """
+    """按新规则回填低分待审作业，并清理由旧阈值产生的其他待审状态。"""
     latest_graded = (
         db.query(
             Submission.id.label("submission_id"),
+            Submission.student_id.label("student_id"),
+            Question.assignment_id.label("assignment_id"),
             func.row_number().over(
                 partition_by=(Submission.student_id, Submission.question_id),
                 order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
             ).label("rank"),
         )
+        .join(Question, Question.id == Submission.question_id)
         .filter(Submission.status == "graded")
         .subquery()
     )
-    candidates = (
+    latest_submissions = (
         db.query(Submission)
         .join(latest_graded, latest_graded.c.submission_id == Submission.id)
-        .outerjoin(SubmissionReview, SubmissionReview.submission_id == Submission.id)
         .options(joinedload(Submission.question))
-        .filter(
-            latest_graded.c.rank == 1,
-            SubmissionReview.submission_id.is_(None),
-        )
+        .filter(latest_graded.c.rank == 1)
         .order_by(Submission.submitted_at.asc(), Submission.id.asc())
         .all()
     )
-    contexts = assignment_accuracy_contexts(db, candidates)
-    latest_ids_by_key = {
-        key: {submission.id for submission in context[0]}
-        for key, context in contexts.items()
-        if context
-    }
-    candidate_ids = [submission.id for submission in candidates]
-    step_statuses_by_submission = {}
-    error_confidences_by_submission = {}
-    # Bound IN lists for SQLite while keeping the startup backfill query count
-    # proportional to batches instead of the number of historical submissions.
-    for start in range(0, len(candidate_ids), 500):
-        id_chunk = candidate_ids[start:start + 500]
-        for submission_id, status in db.query(
-            Step.submission_id, Step.status
-        ).filter(
-            Step.submission_id.in_(id_chunk),
-            Step.seq >= 1,
-            Step.status.in_(("ok", "error", "unparseable")),
-        ).all():
-            step_statuses_by_submission.setdefault(submission_id, []).append(status)
-        for submission_id, confidence in db.query(
-            Error.submission_id, Error.confidence
-        ).filter(Error.submission_id.in_(id_chunk)).all():
-            error_confidences_by_submission.setdefault(submission_id, []).append(
-                float(confidence)
-            )
-
-    submissions_to_review = {}
-    for submission in candidates:
-        question = submission.question
-        if question is None:
-            continue
-        key = (submission.student_id, question.assignment_id)
-        context = contexts.get(key)
-        if not context:
-            continue
-
-        latest_submissions, correct, total = context
-        if submission.id not in latest_ids_by_key.get(key, set()):
-            continue
-        if not review_reasons(
-            db,
-            submission,
-            assignment_context=context,
-            step_statuses=step_statuses_by_submission.get(submission.id, []),
-            error_confidences=error_confidences_by_submission.get(submission.id, []),
-        ):
-            continue
-
-        targets = (
-            latest_submissions
-            if total > 0 and correct / total < REVIEW_THRESHOLD
-            else [submission]
-        )
-        submissions_to_review.update({item.id: item for item in targets})
-
-    if not submissions_to_review:
+    if not latest_submissions:
         return 0
-    submission_ids = list(submissions_to_review)
-    existing_rows = {}
-    for start in range(0, len(submission_ids), 500):
-        for row in db.query(SubmissionReview).filter(
-            SubmissionReview.submission_id.in_(submission_ids[start:start + 500])
-        ).all():
-            existing_rows[row.submission_id] = row
-    existing_ids = set(existing_rows)
-    rows = create_pending_reviews(
-        db,
-        submissions_to_review.values(),
-        existing_rows=existing_rows.values(),
+
+    now = datetime.now()
+    due_ids = {
+        row[0] for row in db.query(AssignmentExt.assignment_id).filter(
+            AssignmentExt.assignment_id.in_({
+                sub.question.assignment_id for sub in latest_submissions
+                if sub.question is not None
+            }),
+            AssignmentExt.deadline.isnot(None),
+            AssignmentExt.deadline <= now,
+        ).all()
+    }
+    force_keys = {
+        (sub.student_id, sub.question.assignment_id)
+        for sub in latest_submissions
+        if sub.question is not None and sub.question.assignment_id in due_ids
+    }
+    contexts = assignment_score_contexts(
+        db, latest_submissions, force_complete_keys=force_keys,
     )
-    return sum(
-        1 for submission_id, row in rows.items()
-        if submission_id not in existing_ids and row.status == PENDING
-    )
+    target_ids = set()
+    for context in contexts.values():
+        if context["complete"] and context["percent"] < Decimal("60"):
+            target_ids.update(item.id for item in context["latest_submissions"])
+
+    existing_rows = db.query(SubmissionReview).all()
+    rows_by_id = {row.submission_id: row for row in existing_rows}
+    latest_ids = {sub.id for sub in latest_submissions}
+    for row in existing_rows:
+        if row.status == PENDING and row.submission_id not in target_ids:
+            row.status = APPROVED
+            row.reviewed_by = None
+            row.reviewed_at = now
+
+    added = 0
+    for submission_id in target_ids:
+        row = rows_by_id.get(submission_id)
+        if row is None:
+            db.add(SubmissionReview(submission_id=submission_id, status=PENDING))
+            added += 1
+    db.commit()
+    return added
 
 
 def review_status(db: Session, submission_id: int) -> str:

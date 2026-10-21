@@ -155,7 +155,7 @@
         <div class="form-row">
           <label>学科</label>
           <select v-model="subject">
-            <option v-for="option in SUBJECT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+            <option v-for="option in availableSubjectOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </div>
         <div class="form-row">
@@ -252,6 +252,20 @@
           @input="growDesc"
         ></textarea>
         <p class="hint" style="margin-top: 6px">会显示在学生端交作业页顶部；写得越长，输入框会自动长高。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>接收班级</h3>
+      <p class="hint">只向所选班级发布；新建作业不会自动对其他班级学生开放。</p>
+      <div v-if="classesForSubject.length" class="recipient-classes">
+        <label v-for="room in classesForSubject" :key="room.id" class="recipient-class">
+          <input v-model="selectedClassIds" type="checkbox" :value="room.id" />
+          <span><b>{{ room.name }}</b><small>{{ room.student_count }} 名学生</small></span>
+        </label>
+      </div>
+      <div v-else class="class-empty">
+        还没有负责 {{ subjectLabel }} 的班级。<router-link to="/teacher/students">先到学生页建立班级</router-link>
       </div>
     </div>
 
@@ -502,10 +516,12 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
-import type { QuestionSubject, TeacherAssignmentInput, Workbook } from '../../api/types'
+import type { Classroom, QuestionSubject, SubjectAgentCode, TeacherAssignmentInput, Workbook } from '../../api/types'
+import { useAuthStore } from '../../stores/auth'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
+const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -562,7 +578,16 @@ const SUBJECT_OPTIONS: { value: QuestionSubject; label: string }[] = [
 ]
 const mathStandardStepsPlaceholder = '3x-5=10\n3x=10+5\n3x=15\nx=5'
 const groupMathStandardStepsPlaceholder = 'c²=a²+b²\nc²=3²+4²\nc²=25\nc=5'
-const subject = ref<QuestionSubject>('math')
+const subject = ref<QuestionSubject>((auth.activeSubject as QuestionSubject) || 'math')
+const availableSubjectOptions = computed(() => SUBJECT_OPTIONS.filter(
+  (option) => option.value === (auth.activeSubject || 'math'),
+))
+const classrooms = ref<Classroom[]>([])
+const selectedClassIds = ref<number[]>([])
+const classesForSubject = computed(() => classrooms.value.filter(
+  (room) => room.subjects.includes(subject.value as SubjectAgentCode),
+))
+watch(subject, () => { selectedClassIds.value = [] })
 const subjectLabel = computed(() => SUBJECT_OPTIONS.find((option) => option.value === subject.value)?.label ?? '其他')
 const totalScore = ref(100)   // 评分系统：作业总分（满分），默认 100
 const blankQuestion = (): QuestionForm => ({
@@ -1153,6 +1178,10 @@ async function submit() {
     error.value = '请填写作业标题。'
     return
   }
+  if (!selectedClassIds.value.length) {
+    error.value = `请选择接收班级；如果还没有班级，请先到学生页建立 ${subjectLabel.value} 班级。`
+    return
+  }
   // 截止时间不能早于当前时间（日历已置灰过去的日期，时刻仍可能选到已过点，这里兜底再拦一次）
   if (deadline.value && new Date(deadline.value).getTime() <= Date.now()) {
     error.value = '截止时间不能早于当前时间，请重新选择截止时间。'
@@ -1257,6 +1286,7 @@ async function submit() {
   const payload: TeacherAssignmentInput = {
     title: title.value.trim(),
     subject: subject.value,
+    class_ids: [...selectedClassIds.value],
     total_score: total,
     // v0.13.1：允许修改开关 + 大题（小题经 group_key 挂靠 groups）
     allow_revision: allowRevision.value,
@@ -1302,7 +1332,10 @@ async function submit() {
 }
 
 onMounted(async () => {
-  await loadWorkbooks()
+  await Promise.all([
+    loadWorkbooks(),
+    teacher.fetchClassrooms().then((items) => { classrooms.value = items }),
+  ])
   // 带 mode 的链接直达第二级表单（v0.12.0）：书架跳入 ?mode=offline&workbook_id=<id>、
   // 第一级选方式时写入的 ?mode= 刷新后都停在表单级
   if (route.query.mode === 'offline' || route.query.mode === 'online') {
@@ -1337,6 +1370,12 @@ onMounted(async () => {
 .toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translate(-50%, -8px); }
 .choose-hint { text-align: left; color: var(--text-3); font-size: 13px; margin-top: 16px; }
 .page-head.publish-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.recipient-classes { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.recipient-class { display: inline-flex; align-items: center; gap: 9px; padding: 10px 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); cursor: pointer; }
+.recipient-class input { accent-color: var(--primary); }
+.recipient-class span { display: flex; flex-direction: column; gap: 2px; }
+.recipient-class small, .class-empty { color: var(--text-3); font-size: 12px; }
+.class-empty { padding-top: 10px; }
 .ph-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
 .back-btn { padding-left: 4px; font-weight: 600; }
 .mode-chip {

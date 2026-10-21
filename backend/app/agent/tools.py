@@ -8,8 +8,19 @@ from sqlalchemy.orm import Session
 
 from datetime import datetime
 
-from ..models import Assignment, Question, StudentQuestionCapture, User
+from ..models import (
+    Assignment,
+    Correction,
+    Error,
+    Question,
+    StudentMistakeArchive,
+    StudentQuestionCapture,
+    Submission,
+    SubmissionReview,
+    User,
+)
 from ..services import reviews as review_svc
+from ..services.learning_memory import student_memory_to_text
 from ..services.diagnosis import diagnose_submission
 from ..services.stats import (
     knowledge_point_errors,
@@ -91,6 +102,72 @@ def kp_errors_to_text(knowledge_point: str, items: List[dict]) -> str:
     return "\n".join(lines)
 
 
+def student_notebook_to_text(db: Session, student: User, limit: int = 12) -> str:
+    """读取该学生当前错题和自主收录，明确区分系统判定与待教师复核。"""
+    rows = (
+        db.query(
+            Error,
+            Question.subject,
+            Question.stem,
+            Assignment.title,
+            SubmissionReview.status,
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        )
+        .outerjoin(
+            StudentMistakeArchive,
+            (StudentMistakeArchive.error_id == Error.id)
+            & (StudentMistakeArchive.student_id == student.id),
+        )
+        .filter(
+            Submission.student_id == student.id,
+            StudentMistakeArchive.archived_at.is_(None),
+        )
+        .order_by(Error.created_at.desc(), Error.id.desc())
+        .limit(limit)
+        .all()
+    )
+    lines = []
+    for error, subject, stem, assignment_title, review_status in rows:
+        latest_correction = db.query(Correction).filter(
+            Correction.error_id == error.id,
+            Correction.student_id == student.id,
+        ).order_by(Correction.submitted_at.desc(), Correction.id.desc()).first()
+        correction_status = (
+            "尚未订正" if latest_correction is None
+            else "最近订正正确" if latest_correction.is_correct is True
+            else "最近订正仍需修改" if latest_correction.is_correct is False
+            else "订正已提交，结果待确认"
+        )
+        review_label = "待教师审核" if review_status == review_svc.PENDING else "系统批改记录"
+        lines.append(
+            f"- [{review_label}] {subject} / {error.knowledge_point}，"
+            f"作业《{assignment_title}》，题目：{stem}；错因：{error.error_type}；"
+            f"{correction_status}；记录日期：{_fmt_date(error.created_at)}。"
+        )
+
+    captures = db.query(StudentQuestionCapture).filter(
+        StudentQuestionCapture.student_id == student.id,
+        StudentQuestionCapture.saved_at.isnot(None),
+        StudentQuestionCapture.archived_at.is_(None),
+    ).order_by(
+        StudentQuestionCapture.created_at.desc(),
+        StudentQuestionCapture.id.desc(),
+    ).limit(5).all()
+    lines.extend(
+        f"- [自主收录，未判定为答错] {capture.subject}：{capture.question_text[:180]}。"
+        for capture in captures
+    )
+    if not lines:
+        return "错题本目前没有未归档的批改错题或自主收录记录。"
+    return "学生当前错题本记录（最近记录优先；待审核条目是暂定判断）：\n" + "\n".join(lines)
+
+
 def build_tools(db: Session, student: User) -> tuple[list, dict]:
     """按当前学生构造工具列表（身份闭包注入）。"""
     related_result: dict = {"mistake": None}
@@ -130,18 +207,45 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
     @tool
     def get_my_briefing() -> str:
         """查询学生当前的待办情况：未完成的作业、还没订正的错题数、需要加固的知识点。当学生问"我还有什么没做""作业做完了吗"之类的问题时调用。"""
-        # 成绩和学习报告仍等审核；错题订正待办由 briefing 同步统计 pending 错题。
+        # 待审分数照常展示；待办和错题统计直接读取本人当前记录。
         return briefing_to_text(student_briefing(db, student, visible_only=True))
 
     @tool
     def get_my_report() -> str:
         """查询学生的学习报告摘要：各科目提交次数、正确率，以及每个知识点的错误率和状态（待修复/需要加固/已订正待验证/已修复）。当学生问"我学得怎么样""哪个知识点最弱"时调用。"""
-        return report_to_text(student_report(db, student, visible_only=True))
+        report = student_report(db, student, visible_only=False)
+        text = report_to_text(report)
+        pending_count = db.query(SubmissionReview.submission_id).join(
+            Submission, Submission.id == SubmissionReview.submission_id,
+        ).filter(
+            Submission.student_id == student.id,
+            SubmissionReview.status == review_svc.PENDING,
+        ).count()
+        if pending_count:
+            text = (
+                f"有 {pending_count} 条作答记录仍待教师审核，相关错因是暂定诊断；"
+                "下面统计包含这些记录，教师改判后会同步更新。\n" + text
+            )
+        if not report:
+            text += "\n" + student_notebook_to_text(db, student)
+        return text
+
+    @tool
+    def get_my_mistake_notebook() -> str:
+        """直接读取学生本人错题本与订正状态，包括待教师审核条目和自主收录题。
+        学生询问具体错题、错因、订正进度或最薄弱知识点时调用；待审核诊断必须说明是暂定判断。"""
+        return student_notebook_to_text(db, student)
+
+    @tool
+    def get_my_learning_memory() -> str:
+        """读取从本人错题、订正和变式验证沉淀的学科知识点状态。
+        学生问长期薄弱点、哪些知识点已经掌握或学习变化时调用；教师审核中的暂定错因不会作为已确认记忆。"""
+        return student_memory_to_text(db, student.id)
 
     @tool
     def get_knowledge_point_errors(knowledge_point: str) -> str:
         """查询学生在某个知识点下的错题时间线。参数 knowledge_point 是知识点名称，例如「一元一次方程」。当学生问"我在某个知识点错过哪些题"时调用。"""
-        items = knowledge_point_errors(db, student, knowledge_point, visible_only=True)
+        items = knowledge_point_errors(db, student, knowledge_point, visible_only=False)
         return kp_errors_to_text(knowledge_point, items)
 
     @tool
@@ -205,7 +309,7 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
         pending = review_svc.create_review_if_needed(db, submission) is not None
         if pending:
             summary = (
-                "低置信度错题已同步加入错题本和订正流程，并提交教师复核；"
+                "整份作业得分低于 60 分，错题已同步加入错题本和订正流程，并提交教师复核；"
                 "请继续回答学生的问题，可以说明错因目前待老师复核，老师调整后记录会同步更新。"
             )
         elif errors:
@@ -223,6 +327,8 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
         text_diagnosis_result["submission_id"] = submission.id
         return summary
 
-    return [get_my_briefing, get_my_report, get_knowledge_point_errors,
+    return [get_my_briefing, get_my_report, get_my_mistake_notebook,
+            get_my_learning_memory,
+            get_knowledge_point_errors,
             find_my_related_mistake, save_student_text_question,
             diagnose_student_text_work], related_result

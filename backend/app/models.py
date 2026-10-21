@@ -46,6 +46,92 @@ class Assignment(Base):
     questions = relationship("Question", back_populates="assignment")
 
 
+class Classroom(Base):
+    """班级名册；同名学生由唯一学号区分，班级本身不承担邀请/注册流程。"""
+    __tablename__ = "classrooms"
+    __table_args__ = (Index("ix_classrooms_name", "name"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class TeacherSubject(Base):
+    """教师可负责多门学科；登录态仍无密码，映射只用于数据和 Agent 范围。"""
+    __tablename__ = "teacher_subjects"
+    __table_args__ = (
+        Index("ix_teacher_subjects_teacher_subject", "teacher_id", "subject", unique=True),
+    )
+
+    teacher_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    subject = Column(String(32), primary_key=True)
+
+
+class ClassroomTeacherSubject(Base):
+    """某位学科教师负责的班级；无需邀请链接，教师可按班级名称关联。"""
+    __tablename__ = "classroom_teacher_subjects"
+
+    classroom_id = Column(Integer, ForeignKey("classrooms.id"), primary_key=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    subject = Column(String(32), primary_key=True)
+
+
+class ClassroomMember(Base):
+    __tablename__ = "classroom_members"
+    __table_args__ = (
+        Index("ix_classroom_members_student_class", "student_id", "classroom_id", unique=True),
+    )
+
+    classroom_id = Column(Integer, ForeignKey("classrooms.id"), primary_key=True)
+    student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    joined_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class AssignmentClass(Base):
+    """作业发布范围；没有关联行的历史作业按旧版全体可见规则兼容。"""
+    __tablename__ = "assignment_classes"
+
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
+    classroom_id = Column(Integer, ForeignKey("classrooms.id"), primary_key=True)
+
+
+class SubjectKnowledgeChunk(Base):
+    """按学科隔离的知识库文本片段，供对应学科 Agent 检索。"""
+    __tablename__ = "subject_knowledge_chunks"
+    __table_args__ = (
+        Index("ix_subject_knowledge_chunks_subject_created", "subject", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    subject = Column(String(32), nullable=False)
+    title = Column(String(160), nullable=False)
+    content = Column(Text, nullable=False)
+    source_name = Column(String(200), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class StudentLearningMemory(Base):
+    """由错题、订正和验证状态派生的结构化学生长期记忆。"""
+    __tablename__ = "student_learning_memories"
+    __table_args__ = (
+        Index("ix_student_learning_memories_student_subject", "student_id", "subject"),
+    )
+
+    student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    subject = Column(String(32), primary_key=True)
+    knowledge_point = Column(String(64), primary_key=True)
+    error_count = Column(Integer, nullable=False, default=0)
+    corrected_count = Column(Integer, nullable=False, default=0)
+    correction_success_rate = Column(Float, nullable=False, default=0.0)
+    verification_pass_rate = Column(Float, nullable=False, default=0.0)
+    state = Column(String(24), nullable=False, default="needs_practice",
+                    comment="needs_practice | correcting | reinforcing | mastered")
+    summary = Column(Text, nullable=False, default="")
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class Question(Base):
     __tablename__ = "questions"
     __table_args__ = (
@@ -402,8 +488,8 @@ Index(
 class SubmissionReview(Base):
     """提交审核状态（v0.9.0 新增表）。
     待审核期间，学生仍可查看诊断、错题并开始订正；审核状态控制成绩放行和通过提醒。
-    实时批改入口会创建 pending 行；服务启动时也会将尚未审核、仍为最新作答且正确率
-    低于阈值的历史提交补入队列。没有审核行的其他历史/种子提交仍视为 approved。"""
+    整份作业结算后的百分制总分低于 60 分时，作业各题最新提交进入队列；
+    服务启动时会回填符合新规则的历史作业并清理旧触发条件的待审状态。"""
     __tablename__ = "submission_reviews"
     __table_args__ = (
         Index("ix_submission_reviews_status_submission_id", "status", "submission_id"),

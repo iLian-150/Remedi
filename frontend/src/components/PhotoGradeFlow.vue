@@ -7,7 +7,7 @@
      v0.9.2：点按直达图库——组件内不再有「先展开面板再点一次选图」的中间层：
      父级按钮点击时调 openPicker()（defineExpose）当下就打开系统图库/文件选择；
      未选图取消则组件保持 idle 且不渲染任何可见内容；「再拍一张/重新选图」同理直达。
-     学生端文案口径：批改结果署名统一为「老师批改/批改结果」，不出现「顽固」「置信度」。 -->
+     学生端文案口径：系统评分即时展示，整份作业低于 60 分才进入教师复核。 -->
 <template>
   <div class="pgf">
     <input ref="fileRef" type="file" accept="image/*" hidden @change="onFileChange" />
@@ -54,7 +54,7 @@
       </div>
     </div>
 
-    <!-- 诊断即时展示；低置信度错因同时进入教师复核队列 -->
+    <!-- 诊断、评分和错题即时展示；整份作业低于 60 分才进入教师复核 -->
     <div v-if="phase === 'done' && result" class="pgf-card">
       <p class="pgf-card-title">
         <AppIcon :name="result.status === 'pending_review' ? 'history' : 'check'" :size="16" />
@@ -65,9 +65,15 @@
         <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
         <div>
           <p class="review-pending-title">错题已同步加入错题本和订正区</p>
-          <p class="review-pending-sub">老师也会复核这次低置信度判断；如需调整，错因会同步更新。</p>
+          <p class="review-pending-sub">这份作业总分低于 60 分，老师正在审核；错题和订正任务已同步，你可以先继续订正。</p>
         </div>
       </div>
+      <p v-if="result.score" class="score-line">
+        本题 {{ result.score.score }} / {{ result.score.max_score }} 分
+        <span v-if="result.score.assignment_score !== null && result.score.assignment_score !== undefined">
+          · 作业目前 {{ result.score.assignment_score }} / {{ result.score.assignment_total ?? 0 }} 分
+        </span>
+      </p>
       <template v-if="result.steps.length || result.errors.length">
       <p v-if="result.errors.length" class="pgf-auto-booked">发现 {{ result.errors.length }} 个错误点，已自动加入错题本。</p>
       <div

@@ -5,6 +5,8 @@ import api from '../api/client'
 import { useAuthStore } from './auth'
 import type {
   AgentChatResult,
+  Classroom,
+  ClassroomStudent,
   AgentHistoryCursor,
   AgentHistoryItem,
   AgentHistoryPage,
@@ -27,6 +29,7 @@ import type {
   TeacherAssignmentInput,
   TeacherErrorItem,
   TeacherErrorSummary,
+  SubjectAgentCode,
   TopQuestion,
   Workbook
 } from '../api/types'
@@ -147,6 +150,38 @@ export const useTeacherStore = defineStore('teacher', {
         params: steadyOnly ? { steady_only: true } : undefined
       })
       return data.items
+    },
+    async fetchClassrooms(): Promise<Classroom[]> {
+      const { data } = await api.get<Classroom[]>('/api/teacher/classes')
+      return data
+    },
+    async createClassroom(name: string, subject: SubjectAgentCode): Promise<Classroom> {
+      const { data } = await api.post<Classroom>('/api/teacher/classes', { name, subject })
+      return data
+    },
+    async fetchClassroomStudents(classroomId: number): Promise<ClassroomStudent[]> {
+      const { data } = await api.get<ClassroomStudent[]>(`/api/teacher/classes/${classroomId}/students`)
+      return data
+    },
+    async addClassroomStudent(
+      classroomId: number, payload: { name: string; student_no: string }
+    ): Promise<ClassroomStudent> {
+      const { data } = await api.post<ClassroomStudent>(
+        `/api/teacher/classes/${classroomId}/students`, payload
+      )
+      return data
+    },
+    async fetchSubjectKnowledge(subject: SubjectAgentCode): Promise<{ items: Array<{ id: number; title: string; content: string; source_name: string | null }> }> {
+      const { data } = await api.get(`/api/teacher/knowledge/${subject}`)
+      return data
+    },
+    async addSubjectKnowledge(
+      subject: SubjectAgentCode, payload: { title: string; content: string; source_name?: string }
+    ): Promise<void> {
+      await api.post(`/api/teacher/knowledge/${subject}`, payload)
+    },
+    async deleteSubjectKnowledge(subject: SubjectAgentCode, chunkId: number): Promise<void> {
+      await api.delete(`/api/teacher/knowledge/${subject}/${chunkId}`)
     },
     // 4.6 学生画像查询（结构同 3.10）
     async fetchStudentProfile(id: number): Promise<StudentProfile> {

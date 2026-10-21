@@ -212,114 +212,20 @@ def _enqueue_due_reviews(
     submissions: List[Submission],
     confidence_signals_by_submission: dict[int, List[float]],
 ) -> None:
-    """批量计算本轮延迟批改的复核条件，避免逐提交重算整份作业上下文。"""
+    """截止批改结算整份作业，只按总分是否低于 60 分生成审核项。"""
     if not submissions:
         return
-
-    assignment_contexts = review_svc.assignment_accuracy_contexts(db, submissions)
-    step_counts_by_submission = {}
-    low_confidence_by_submission = {}
-    submission_ids = [submission.id for submission in submissions]
-    low_confidence = review_svc.low_error_confidence_predicate()
-    for start in range(0, len(submission_ids), 500):
-        id_chunk = submission_ids[start:start + 500]
-        batch_submission_ids = (
-            db.query(Submission.id.label("submission_id"))
-            .filter(Submission.id.in_(id_chunk))
-            .cte("batch_submission_ids")
-        )
-        step_counts = (
-            db.query(
-                Step.submission_id.label("submission_id"),
-                func.sum(case((Step.status == "ok", 1), else_=0)).label(
-                    "correct_steps"
-                ),
-                func.count(Step.id).label("total_steps"),
-            )
-            .join(
-                batch_submission_ids,
-                batch_submission_ids.c.submission_id == Step.submission_id,
-            )
-            .filter(
-                Step.seq >= 1,
-                Step.status.in_(("ok", "error", "unparseable")),
-            )
-            .group_by(Step.submission_id)
-            .subquery()
-        )
-        error_confidences = (
-            db.query(
-                Error.submission_id.label("submission_id"),
-                func.max(case((low_confidence, 1), else_=0)).label(
-                    "has_low_confidence"
-                ),
-            )
-            .join(
-                batch_submission_ids,
-                batch_submission_ids.c.submission_id == Error.submission_id,
-            )
-            .group_by(Error.submission_id)
-            .subquery()
-        )
-        summary_rows = db.query(
-            batch_submission_ids.c.submission_id,
-            step_counts.c.correct_steps,
-            step_counts.c.total_steps,
-            error_confidences.c.has_low_confidence,
-        ).outerjoin(
-            step_counts,
-            step_counts.c.submission_id == batch_submission_ids.c.submission_id,
-        ).outerjoin(
-            error_confidences,
-            error_confidences.c.submission_id == batch_submission_ids.c.submission_id,
-        ).all()
-        for (
-            submission_id,
-            correct_steps,
-            total_steps,
-            has_low_confidence,
-        ) in summary_rows:
-            step_counts_by_submission[submission_id] = (
-                int(correct_steps or 0), int(total_steps or 0)
-            )
-            low_confidence_by_submission[submission_id] = bool(
-                has_low_confidence
-            )
-
-    submissions_to_review = {}
+    seen = set()
     for submission in submissions:
-        question = submission.question
-        context = (
-            assignment_contexts.get((submission.student_id, question.assignment_id))
-            if question is not None else None
-        )
-        reasons = review_svc.review_reasons(
-            db,
-            submission,
-            confidence_signals_by_submission.get(submission.id, []),
-            assignment_context=context,
-            step_counts=step_counts_by_submission.get(submission.id, (0, 0)),
-            has_low_error_confidence=low_confidence_by_submission.get(
-                submission.id, False
-            ),
-        )
-        if not reasons:
+        if submission.question is None:
             continue
-
-        targets = [submission]
-        if context:
-            latest_submissions, correct, total = context
-            if total > 0 and correct / total < review_svc.REVIEW_THRESHOLD:
-                targets = list(latest_submissions)
-                latest_ids = {item.id for item in targets}
-                if submission.id not in latest_ids:
-                    targets.append(submission)
-        submissions_to_review.update({
-            item.id: item for item in targets
-        })
-
-    if submissions_to_review:
-        review_svc.create_pending_reviews(db, submissions_to_review.values())
+        key = (submission.student_id, submission.question.assignment_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        review_svc.refresh_assignment_review(
+            db, submission, force_complete=True, commit=False,
+        )
 
 
 def _grade_due_batch(db: Session) -> int:
@@ -419,11 +325,16 @@ def _grade_due_batch(db: Session) -> int:
                     with open(image_path, "rb") as image_file:
                         image_bytes = image_file.read()
                     content_type = mimetypes.guess_type(image_name)[0] or "image/jpeg"
+                    from ..agent.subjects import build_subject_context
+                    rag_context = build_subject_context(
+                        db, question.subject,
+                        f"{question.knowledge_point} {question.stem} {question.standard_answer or ''}",
+                    )
                     vision = get_provider().diagnose_homework_image(
                         image_bytes,
                         content_type,
                         f"学科：{question.subject}\n题目：{question.stem}\n"
-                        f"教师参考答案或步骤：{question.standard_answer or '未提供'}",
+                        f"教师参考答案或步骤：{question.standard_answer or '未提供'}\n{rag_context}",
                     )
                 except Exception:
                     # 模型或文件暂时不可用时保留 deferred 状态，下轮继续重试。

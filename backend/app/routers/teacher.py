@@ -30,6 +30,10 @@ from ..models import (
     ChatSessionMessage,
     ChatSessionMessageImage,
     ChatSessionMessageMistakeLink,
+    AssignmentClass,
+    Classroom,
+    ClassroomMember,
+    ClassroomTeacherSubject,
     Correction,
     Error,
     Essay,
@@ -45,6 +49,8 @@ from ..models import (
     SubmissionImage,
     SubmissionReview,
     SubmissionScore,
+    SubjectKnowledgeChunk,
+    TeacherSubject,
     User,
     Verification,
     Workbook,
@@ -83,6 +89,11 @@ from ..schemas import (
     WorkbookExtractIn,
     WorkbookExtractOut,
     WorkbookOut,
+    ClassroomCreateIn,
+    ClassroomOut,
+    ClassroomStudentCreateIn,
+    ClassroomStudentOut,
+    SubjectKnowledgeCreateIn,
 )
 from ..services import reviews as review_svc
 from ..services.streaming import ClosingStreamingResponse
@@ -101,12 +112,197 @@ from ..services.stats import (
     top_error_questions,
 )
 from ..services.teacher_stats import students_not_fully_submitted
+from ..services.teacher_scope import (
+    teacher_assignment_ids as _scoped_teacher_assignment_ids,
+    teacher_student_ids as _scoped_teacher_student_ids,
+)
 from ..services.upload_files import delete_unreferenced_uploads
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 logger = logging.getLogger(__name__)
 
+SUBJECT_LABELS = {
+    "chinese": "语文", "math": "数学", "english": "英语", "politics": "道法",
+    "history": "历史", "physics": "物理", "chemistry": "化学",
+    "geography": "地理", "biology": "生物",
+}
+
+
+@router.get("/classes", response_model=List[ClassroomOut], summary="读取任教学科的班级名册")
+def list_teacher_classes(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
+    rows = db.query(Classroom, ClassroomTeacherSubject.subject).join(
+        ClassroomTeacherSubject, ClassroomTeacherSubject.classroom_id == Classroom.id,
+    ).filter(ClassroomTeacherSubject.teacher_id == current.id).order_by(
+        Classroom.name, Classroom.id, ClassroomTeacherSubject.subject,
+    ).all()
+    by_id = {}
+    for classroom, subject in rows:
+        item = by_id.setdefault(classroom.id, {
+            "id": classroom.id, "name": classroom.name, "subjects": [], "student_count": 0,
+        })
+        item["subjects"].append(subject)
+    for classroom_id, item in by_id.items():
+        item["student_count"] = db.query(ClassroomMember.student_id).filter_by(
+            classroom_id=classroom_id,
+        ).count()
+    return list(by_id.values())
+
+
+@router.post("/classes", response_model=ClassroomOut, summary="建立或关联班级")
+def create_or_link_classroom(
+    body: ClassroomCreateIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    if not db.query(TeacherSubject.teacher_id).filter_by(
+        teacher_id=current.id, subject=body.subject,
+    ).first():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "请先以该学科教师身份登录。")
+    name = body.name.strip()
+    classroom = db.query(Classroom).filter(Classroom.name == name).first()
+    if classroom is None:
+        classroom = Classroom(name=name, created_by=current.id)
+        db.add(classroom)
+        db.flush()
+    mapping = db.query(ClassroomTeacherSubject).filter_by(
+        classroom_id=classroom.id, teacher_id=current.id, subject=body.subject,
+    ).first()
+    if mapping is None:
+        db.add(ClassroomTeacherSubject(
+            classroom_id=classroom.id, teacher_id=current.id, subject=body.subject,
+        ))
+    db.commit()
+    count = db.query(ClassroomMember.student_id).filter_by(classroom_id=classroom.id).count()
+    subjects = [row[0] for row in db.query(ClassroomTeacherSubject.subject).filter_by(
+        classroom_id=classroom.id, teacher_id=current.id,
+    ).order_by(ClassroomTeacherSubject.subject).all()]
+    return ClassroomOut(id=classroom.id, name=classroom.name, subjects=subjects, student_count=count)
+
+
+@router.get("/classes/{classroom_id}/students", response_model=List[ClassroomStudentOut], summary="读取班级学生")
+def list_classroom_students(
+    classroom_id: int, db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    allowed = db.query(ClassroomTeacherSubject.classroom_id).filter_by(
+        classroom_id=classroom_id, teacher_id=current.id,
+    ).first()
+    if not allowed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "班级不存在或你没有任课权限。")
+    rows = db.query(User).join(ClassroomMember, ClassroomMember.student_id == User.id).filter(
+        ClassroomMember.classroom_id == classroom_id, User.role == "student",
+    ).order_by(User.student_no, User.id).all()
+    return [ClassroomStudentOut(id=row.id, name=row.name, student_no=row.student_no or "") for row in rows]
+
+
+@router.post("/classes/{classroom_id}/students", response_model=ClassroomStudentOut, summary="将学生录入班级名册")
+def add_classroom_student(
+    classroom_id: int,
+    body: ClassroomStudentCreateIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    allowed = db.query(ClassroomTeacherSubject.classroom_id).filter_by(
+        classroom_id=classroom_id, teacher_id=current.id,
+    ).first()
+    if not allowed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "班级不存在或你没有任课权限。")
+    name, student_no = body.name.strip(), body.student_no.strip()
+    student = db.query(User).filter(User.student_no == student_no).first()
+    if student is not None and (student.role != "student" or student.name != name):
+        raise HTTPException(status.HTTP_409_CONFLICT, "学号已被其他学生占用，请核对名册。")
+    if student is None:
+        student = User(name=name, student_no=student_no, role="student")
+        db.add(student)
+        db.flush()
+    membership = db.query(ClassroomMember).filter_by(
+        classroom_id=classroom_id, student_id=student.id,
+    ).first()
+    if membership is None:
+        db.add(ClassroomMember(classroom_id=classroom_id, student_id=student.id))
+    db.commit()
+    return ClassroomStudentOut(id=student.id, name=student.name, student_no=student.student_no)
+
+
+def _require_teacher_subject(db: Session, teacher: User, subject: str) -> None:
+    if not db.query(TeacherSubject.teacher_id).filter_by(
+        teacher_id=teacher.id, subject=subject,
+    ).first():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "你没有该学科 Agent 的管理范围。")
+
+
+@router.get("/knowledge/{subject}", summary="读取学科 Agent 的专属知识库")
+def list_subject_knowledge(
+    subject: str, db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    if subject not in SUBJECT_LABELS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    _require_teacher_subject(db, current, subject)
+    rows = db.query(SubjectKnowledgeChunk).filter(
+        SubjectKnowledgeChunk.subject == subject,
+    ).order_by(SubjectKnowledgeChunk.created_at.desc(), SubjectKnowledgeChunk.id.desc()).all()
+    return {"subject": subject, "agent_name": SUBJECT_LABELS[subject], "total": len(rows), "items": [
+        {"id": row.id, "title": row.title, "content": row.content,
+         "source_name": row.source_name, "created_at": row.created_at}
+        for row in rows
+    ]}
+
+
+@router.post("/knowledge/{subject}", summary="向指定学科 Agent 知识库添加资料")
+def add_subject_knowledge(
+    subject: str,
+    body: SubjectKnowledgeCreateIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    if subject not in SUBJECT_LABELS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    _require_teacher_subject(db, current, subject)
+    row = SubjectKnowledgeChunk(
+        subject=subject, title=body.title.strip(), content=body.content.strip(),
+        source_name=(body.source_name or "").strip() or None, created_by=current.id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "subject": row.subject, "title": row.title,
+            "source_name": row.source_name, "created_at": row.created_at}
+
+
+@router.delete("/knowledge/{subject}/{chunk_id}", summary="删除学科 Agent 知识资料")
+def delete_subject_knowledge(
+    subject: str,
+    chunk_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    if subject not in SUBJECT_LABELS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    _require_teacher_subject(db, current, subject)
+    row = db.query(SubjectKnowledgeChunk).filter_by(id=chunk_id, subject=subject).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "资料不存在。")
+    db.delete(row)
+    db.commit()
+    return {"deleted": True, "id": chunk_id, "subject": subject}
+
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")
+
+
+def _teacher_assignment_ids(db: Session, teacher: User):
+    """教师只能读取自己发布或自己负责班级内对应学科的作业。"""
+    return _scoped_teacher_assignment_ids(db, teacher)
+
+
+def _teacher_student_ids(db: Session, teacher: User):
+    return _scoped_teacher_student_ids(db, teacher)
+
+
+def _require_teacher_assignment(db: Session, teacher: User, assignment_id: int) -> None:
+    if not db.query(Assignment.id).filter(
+        Assignment.id == assignment_id,
+        Assignment.id.in_(_teacher_assignment_ids(db, teacher)),
+    ).first():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在或你没有该学科的查看权限。")
 
 
 def _legacy_review_images(
@@ -235,7 +431,11 @@ def list_errors(
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
-    query = db.query(Error).join(Submission, Error.submission_id == Submission.id)
+    query = db.query(Error).join(
+        Submission, Error.submission_id == Submission.id,
+    ).join(
+        Question, Question.id == Submission.question_id,
+    ).filter(Question.assignment_id.in_(_teacher_assignment_ids(db, current)))
     if error_id is not None:
         query = query.filter(Error.id == error_id)
     if student_id:
@@ -356,6 +556,7 @@ def recent_error_summaries(
         .join(Submission, Error.submission_id == Submission.id)
         .join(User, Submission.student_id == User.id)
         .join(Question, Submission.question_id == Question.id)
+        .filter(Question.assignment_id.in_(_teacher_assignment_ids(db, current)))
         .order_by(Error.created_at.desc())
         .limit(limit)
         .all()
@@ -397,6 +598,9 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "错误记录不存在")
     err, review_status = row
+    if err.submission is None or err.submission.question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "错误记录不存在")
+    _require_teacher_assignment(db, current, err.submission.question.assignment_id)
     old_type = err.error_type
     err.error_type = body.error_type
     err.teacher_note = body.teacher_note
@@ -422,6 +626,12 @@ def correct_error(error_id: int, body: ErrorCorrectIn,
             content=content,
             related_submission_id=sub.id,
         ))
+    if sub is not None and question is not None:
+        from ..services.learning_memory import refresh_student_learning_memory
+        refresh_student_learning_memory(
+            db, sub.student_id, subject=question.subject,
+            knowledge_point=err.knowledge_point, commit=False,
+        )
     # 保留预加载关系，避免提交后为组装响应重新读取学生、题目和步骤。
     expire_on_commit = db.expire_on_commit
     db.expire_on_commit = False
@@ -476,18 +686,13 @@ def _review_pending_item(
         assignment_context = review_svc.assignment_accuracy_context(db, sub)
     assignment_correct_steps = assignment_context[1] if assignment_context else 0
     assignment_total_steps = assignment_context[2] if assignment_context else 0
-    review_reasons = review_svc.review_reasons(
-        db,
-        sub,
-        assignment_context=assignment_context,
-        step_statuses=step_statuses,
-        step_counts=(correct_steps, total_steps),
-        error_confidences=preloaded.get("error_confidences"),
-        has_low_error_confidence=preloaded.get("has_low_error_confidence"),
-    )
-    if not review_reasons:
-        # 当前待审记录没有低步骤率或低错因置信度时，来源是视觉模型判断置信度。
-        review_reasons = ["图片或步骤判断置信度低于 60%"]
+    score_context = preloaded.get("assignment_score_context")
+    if score_context and score_context["complete"]:
+        review_reasons = [
+            f"整份作业得分低于 60 分（{score_context['score']}/{score_context['max_score']} 分）"
+        ]
+    else:
+        review_reasons = ["整份作业结算得分低于 60 分"]
     submission_image = preloaded.get("submission_image")
     if submission_image is None and "submission_image" not in preloaded:
         submission_image = db.query(SubmissionImage).filter_by(submission_id=sub.id).first()
@@ -541,12 +746,10 @@ def _review_pending_item(
 @router.get("/reviews/pending/count", response_model=ReviewPendingCountOut,
             summary="待审核数量（导航角标）")
 def reviews_pending_count(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    count, latest_submission_id = db.query(
-        func.count(SubmissionReview.submission_id),
-        func.max(SubmissionReview.submission_id),
-    ).filter(
-        SubmissionReview.status == review_svc.PENDING
-    ).one()
+    visible_ids = {row[0] for row in _teacher_assignment_ids(db, current).all()}
+    subs = [sub for sub in review_svc.pending_reviews(db)
+            if sub.question is not None and sub.question.assignment_id in visible_ids]
+    count, latest_submission_id = len(subs), max((sub.id for sub in subs), default=None)
     return {
         "count": int(count or 0),
         "latest_submission_id": latest_submission_id,
@@ -556,12 +759,13 @@ def reviews_pending_count(db: Session = Depends(get_db), current: User = Depends
 @router.get("/reviews/pending", response_model=ReviewPendingOut, summary="待审核队列（v0.9.0 新增）")
 def reviews_pending(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """审核页待审核提交列表（按提交时间正序）及其总数。"""
-    subs = review_svc.pending_reviews(db)
+    visible_ids = {row[0] for row in _teacher_assignment_ids(db, current).all()}
+    subs = [sub for sub in review_svc.pending_reviews(db)
+            if sub.question is not None and sub.question.assignment_id in visible_ids]
     submission_ids = [sub.id for sub in subs]
     step_counts_by_submission = {}
     error_summaries_by_submission = {}
     images_by_submission = {}
-    low_confidence = review_svc.low_error_confidence_predicate()
     for start in range(0, len(submission_ids), 500):
         submission_id_chunk = submission_ids[start:start + 500]
         queue_submission_ids = (
@@ -592,9 +796,6 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             db.query(
                 Error.submission_id.label("submission_id"),
                 func.count(Error.id).label("error_count"),
-                func.max(case((low_confidence, 1), else_=0)).label(
-                    "has_low_confidence"
-                ),
             )
             .join(
                 queue_submission_ids,
@@ -608,7 +809,6 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             step_counts.c.correct_steps,
             step_counts.c.total_steps,
             error_summaries.c.error_count,
-            error_summaries.c.has_low_confidence,
             SubmissionImage,
         ).join(
             queue_submission_ids,
@@ -628,19 +828,17 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
             correct_steps,
             total_steps,
             error_count,
-            has_low_confidence,
             image,
         ) in summary_rows:
             step_counts_by_submission[submission_id] = (
                 int(correct_steps or 0), int(total_steps or 0)
             )
-            error_summaries_by_submission[submission_id] = (
-                int(error_count or 0), bool(has_low_confidence)
-            )
+            error_summaries_by_submission[submission_id] = int(error_count or 0)
             if image is not None:
                 images_by_submission[submission_id] = image
     legacy_images_by_submission = _legacy_review_images(db, subs, images_by_submission)
     assignment_contexts = review_svc.assignment_accuracy_contexts(db, subs)
+    score_contexts = review_svc.assignment_score_contexts(db, subs)
     items = []
     for sub in subs:
         question = sub.question
@@ -649,13 +847,15 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
         else:
             key = (sub.student_id, question.assignment_id)
             assignment_context = assignment_contexts.get(key)
-        error_count, has_low_confidence = error_summaries_by_submission.get(
-            sub.id, (0, False)
+        error_count = error_summaries_by_submission.get(sub.id, 0)
+        score_context = (
+            score_contexts.get((sub.student_id, question.assignment_id))
+            if question is not None else None
         )
         preloaded = {
             "step_counts": step_counts_by_submission.get(sub.id, (0, 0)),
             "error_count": error_count,
-            "has_low_error_confidence": has_low_confidence,
+            "assignment_score_context": score_context,
             "submission_image": (
                 images_by_submission.get(sub.id)
                 or legacy_images_by_submission.get(sub.id)
@@ -674,11 +874,20 @@ def reviews_pending(db: Session = Depends(get_db), current: User = Depends(requi
 def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """把当前队列里全部 pending 提交置为 approved，逐个给学生发审核通过提醒。
     评分系统：通过时一并落定最终分（未改分 = AI 初评分）。"""
-    subs = review_svc.pending_reviews(db)
+    visible_ids = {row[0] for row in _teacher_assignment_ids(db, current).all()}
+    subs = [sub for sub in review_svc.pending_reviews(db)
+            if sub.question is not None and sub.question.assignment_id in visible_ids]
     if subs:
         scoring_svc.finalize_on_approve_many(db, subs, current)
         review_svc.approve_submissions(db, subs, current)
         db.commit()
+        from ..services.learning_memory import refresh_student_learning_memory
+        for sub in subs:
+            if sub.question is not None:
+                refresh_student_learning_memory(
+                    db, sub.student_id, subject=sub.question.subject,
+                    knowledge_point=sub.question.knowledge_point,
+                )
     return {"approved_count": len(subs)}
 
 
@@ -710,6 +919,9 @@ def review_detail(submission_id: int, db: Session = Depends(get_db),
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
     sub, review_status = row
+    if sub.question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    _require_teacher_assignment(db, current, sub.question.assignment_id)
     student = sub.student
     question = sub.question
     assignment = question.assignment if question else None
@@ -754,6 +966,9 @@ def review_approve(submission_id: int, body: Optional[ReviewApproveIn] = None,
     ).filter(Submission.id == submission_id).first()
     if not sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    if sub.question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    _require_teacher_assignment(db, current, sub.question.assignment_id)
     if body is not None and body.final_score is not None:
         max_score = scoring_svc.question_max_score(db, sub.question) if sub.question else 0.0
         if body.final_score > max_score:
@@ -769,19 +984,23 @@ def review_approve(submission_id: int, body: Optional[ReviewApproveIn] = None,
         commit=False,
     )
     db.commit()
+    if sub.question is not None:
+        review_svc.refresh_assignment_review(db, sub)
     return {"submission_id": submission_id, "review_status": "approved"}
 
 
 @router.get("/stats/top-questions", summary="高频错题 TopN")
 def stats_top_questions(n: int = Query(default=10, ge=1, le=50),
                         db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    items = top_error_questions(db, n)
+    assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
+    items = top_error_questions(db, n, assignment_ids)
     return {"n": n, "items": [TopQuestionItem(**it) for it in items]}
 
 
 @router.get("/stats/knowledge-points", summary="知识点错误率排行")
 def stats_knowledge_points(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
-    items = knowledge_point_ranking(db)
+    assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
+    items = knowledge_point_ranking(db, assignment_ids)
     return {"items": [KnowledgePointRankItem(**it) for it in items]}
 
 
@@ -789,7 +1008,9 @@ def stats_knowledge_points(db: Session = Depends(get_db), current: User = Depend
 def stats_repair_rate(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """班级知识修复率 + 各知识点修复率：口径与学生学习报告四态一致
     （已修复 = 错题订正后通过二次验证）。"""
-    return class_repair_rate(db)
+    assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
+    student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
+    return class_repair_rate(db, student_ids, assignment_ids)
 
 
 @router.get("/dashboard", response_model=TeacherDashboardOut, summary="教师首页看板汇总")
@@ -800,10 +1021,14 @@ def teacher_dashboard(
     current: User = Depends(require_teacher),
 ):
     """一次返回教师首页各卡片数据，错因分布只读取最近 100 条的类别字段。"""
+    assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
+    student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
     error_total, stubborn_total = db.query(
         func.count(Error.id),
         func.sum(case((Error.is_stubborn.is_(True), 1), else_=0)),
-    ).join(Submission, Error.submission_id == Submission.id).one()
+    ).join(Submission, Error.submission_id == Submission.id).join(
+        Question, Question.id == Submission.question_id,
+    ).filter(Question.assignment_id.in_(assignment_ids)).one()
     graded_submissions, graded_submissions_with_errors = db.query(
         func.count(func.distinct(Submission.id)),
         func.count(func.distinct(Error.submission_id)),
@@ -811,13 +1036,18 @@ def teacher_dashboard(
         Error, Error.submission_id == Submission.id,
     ).filter(
         Submission.status == "graded",
+        Submission.question_id.in_(db.query(Question.id).filter(
+            Question.assignment_id.in_(assignment_ids),
+        )),
     ).one()
 
     recent_error_types = db.query(
         Error.error_type.label("error_type")
     ).join(
         Submission, Error.submission_id == Submission.id,
-    ).order_by(
+    ).join(
+        Question, Question.id == Submission.question_id,
+    ).filter(Question.assignment_id.in_(assignment_ids)).order_by(
         Error.created_at.desc()
     ).limit(100).subquery()
     counts_by_type = dict(db.query(
@@ -827,20 +1057,22 @@ def teacher_dashboard(
 
     # 建议生成也需要前 50 道高频题；一次取回并复用统计结果，避免重复执行聚合查询。
     top_question_rows = top_error_questions(
-        db, max(n, 50) if include_suggestions else n
+        db, max(n, 50) if include_suggestions else n, assignment_ids,
     )
-    knowledge_point_rows = knowledge_point_ranking(db)
+    knowledge_point_rows = knowledge_point_ranking(db, assignment_ids)
     top_questions = [
         TopQuestionItem(**item) for item in top_question_rows[:n]
     ]
     knowledge_points = [
         KnowledgePointRankItem(**item) for item in knowledge_point_rows
     ]
-    students_list = [StudentBrief(**item) for item in list_students(db)]
+    students_list = [StudentBrief(**item) for item in list_students(
+        db, student_ids=student_ids, assignment_ids=assignment_ids,
+    )]
 
     repair_rate_data = None
     try:
-        repair_rate_data = class_repair_rate(db)
+        repair_rate_data = class_repair_rate(db, student_ids, assignment_ids)
         repair_rate = ClassRepairRateOut(**repair_rate_data)
     except Exception:
         # 和旧看板单独请求修复率时的降级口径一致：该卡为空值，其余统计仍可展示。
@@ -857,6 +1089,8 @@ def teacher_dashboard(
                 "repair_rate": repair_rate_data or {},
                 "knowledge_points": knowledge_point_rows,
                 "top_questions": top_question_rows,
+                "assignment_ids": assignment_ids,
+                "student_ids": student_ids,
             })
         except Exception:
             logger.exception("教师首页教学建议生成失败")
@@ -885,7 +1119,12 @@ def students(
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
-    items = list_students(db, steady_only=steady_only)
+    allowed_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
+    assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
+    items = list_students(
+        db, steady_only=steady_only,
+        student_ids=allowed_ids, assignment_ids=assignment_ids,
+    )
     return {"total": len(items), "items": [StudentBrief(**it) for it in items]}
 
 
@@ -895,7 +1134,15 @@ def student_profile_view(student_id: int, db: Session = Depends(get_db),
     st = db.query(User).filter(User.id == student_id, User.role == "student").first()
     if not st:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学生不存在")
-    return student_profile(db, st)
+    if not db.query(ClassroomTeacherSubject.classroom_id).join(
+        ClassroomMember, ClassroomMember.classroom_id == ClassroomTeacherSubject.classroom_id,
+    ).filter(
+        ClassroomTeacherSubject.teacher_id == current.id,
+        ClassroomMember.student_id == student_id,
+    ).first():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学生不存在或你没有该班级的查看权限。")
+    assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
+    return student_profile(db, st, assignment_ids=assignment_ids)
 
 
 # ---------- 发布作业（v0.2.0 新增） ----------
@@ -955,6 +1202,11 @@ def _teacher_assignments_out(
             yield ids[start:start + size]
 
     assignment_ids = [assignment.id for assignment in assignments]
+    class_ids_by_assignment = defaultdict(list)
+    for assignment_id, classroom_id in db.query(
+        AssignmentClass.assignment_id, AssignmentClass.classroom_id,
+    ).filter(AssignmentClass.assignment_id.in_(assignment_ids)).all():
+        class_ids_by_assignment[assignment_id].append(classroom_id)
     questions = []
     weights = {}
     for assignment_id_chunk in id_chunks(assignment_ids):
@@ -1088,6 +1340,7 @@ def _teacher_assignments_out(
             deadline=extension.deadline if extension else None,
             total_score=total_scores.get(assignment.id, 100.0),
             allow_revision=bool(setting.allow_revision) if setting else False,
+            class_ids=class_ids_by_assignment.get(assignment.id, []),
         ))
     return result
 
@@ -1100,6 +1353,33 @@ def create_assignment(body: TeacherAssignmentCreate,
     v0.5.0：mode=offline 时把 mode/workbook_id/page_range/deadline 写进 assignment_ext；
     workbook_id 必须指向本人上传的练习册。"""
     workbook = None
+    class_ids = sorted(set(body.class_ids))
+    if not class_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "发布作业前请先建立班级并选择接收班级。")
+    question_subjects = {
+        q.subject or ("math" if q.type == "math" else "english")
+        for q in body.questions
+    }
+    for subject in question_subjects:
+        _require_teacher_subject(db, current, subject)
+    mapped_pairs = set(db.query(
+        ClassroomTeacherSubject.classroom_id,
+        ClassroomTeacherSubject.subject,
+    ).filter(
+        ClassroomTeacherSubject.teacher_id == current.id,
+        ClassroomTeacherSubject.classroom_id.in_(class_ids),
+        ClassroomTeacherSubject.subject.in_(question_subjects),
+    ).all())
+    missing_pairs = [
+        (class_id, subject)
+        for class_id in class_ids for subject in question_subjects
+        if (class_id, subject) not in mapped_pairs
+    ]
+    if missing_pairs:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "所选班级没有关联当前作业的全部学科，请检查班级任课设置。",
+        )
     if body.mode == "offline" and body.workbook_id is not None:
         workbook = (
             db.query(Workbook)
@@ -1146,6 +1426,8 @@ def create_assignment(body: TeacherAssignmentCreate,
         page_range=((body.page_range or "").strip() or None) if body.mode == "offline" else None,
         deadline=body.deadline,
     ))
+    for classroom_id in class_ids:
+        db.add(AssignmentClass(assignment_id=assignment.id, classroom_id=classroom_id))
     # v0.13.1：提交设置（允许修改）与大题分组
     if body.allow_revision:
         db.add(AssignmentSetting(assignment_id=assignment.id, allow_revision=True))
@@ -1199,6 +1481,7 @@ def create_assignment(body: TeacherAssignmentCreate,
         deadline=body.deadline,
         total_score=float(body.total_score) if body.total_score is not None else 100.0,
         allow_revision=body.allow_revision,
+        class_ids=class_ids,
     )
 
 
@@ -1208,7 +1491,9 @@ def list_teacher_assignments(
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
-    query = db.query(Assignment)
+    query = db.query(Assignment).filter(
+        Assignment.id.in_(_teacher_assignment_ids(db, current)),
+    )
     if created_on is not None:
         day_start = datetime.combine(created_on, datetime.min.time())
         query = query.filter(
@@ -1233,6 +1518,7 @@ def teacher_assignment_calendar_marks(
             func.count(Assignment.id).label("assignment_count"),
         )
         .group_by(created_on)
+        .filter(Assignment.id.in_(_teacher_assignment_ids(db, current)))
         .all()
     )
     return {
@@ -1289,6 +1575,7 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
     )
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    _require_teacher_assignment(db, current, assignment_id)
     question_ids = select(Question.id).where(Question.assignment_id == assignment.id)
     submission_ids = (
         select(Submission.id)
@@ -1364,6 +1651,9 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
     # 评分系统：作业分值设置行一并删除
     db.query(AssignmentScoring).filter(AssignmentScoring.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
+    db.query(AssignmentClass).filter(
+        AssignmentClass.assignment_id == assignment.id,
+    ).delete(synchronize_session=False)
     # 错题本学习/归档状态随作业一并清理，避免留下孤儿记录
     db.query(StudentMistakeCategoryReview).filter(StudentMistakeCategoryReview.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
@@ -1383,11 +1673,12 @@ def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
     只统计/只提醒未全交的学生；全部完成的学生不会收到。仅限本人发布的作业。"""
     assignment = (
         db.query(Assignment)
-        .filter(Assignment.id == assignment_id, Assignment.created_by == current.id)
+        .filter(Assignment.id == assignment_id)
         .first()
     )
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    _require_teacher_assignment(db, current, assignment_id)
     targets = students_not_fully_submitted(db, assignment)
     for student_id in targets:
         db.add(Notification(
@@ -1876,5 +2167,12 @@ def teaching_suggestions(db: Session = Depends(get_db),
     每条 {kind, title, knowledge_point, evidence, action, sample_questions}，按严重度排序、最多 6 条；
     数据不足返回空列表。生成逻辑在 services/suggestions.py，异常已在服务层收敛，不会 500。"""
     from ..services.suggestions import build_teaching_suggestions
-
-    return build_teaching_suggestions(db)
+    assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
+    student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
+    return build_teaching_suggestions(db, precomputed_stats={
+        "repair_rate": class_repair_rate(db, student_ids, assignment_ids),
+        "knowledge_points": knowledge_point_ranking(db, assignment_ids),
+        "top_questions": top_error_questions(db, 50, assignment_ids),
+        "assignment_ids": assignment_ids,
+        "student_ids": student_ids,
+    })

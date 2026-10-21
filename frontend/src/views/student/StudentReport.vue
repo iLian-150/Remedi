@@ -69,6 +69,19 @@
         <p class="hint" style="margin-top: 10px">点上方任意一块科目牌，就能进详情看知识点明细、错题时间线，还能做验证题修复知识点。</p>
       </div>
 
+      <div class="card summary-card">
+        <h3><AppIcon name="sparkles" :size="18" /> 学习记忆</h3>
+        <p class="hint">系统把错题、最近订正和变式验证连在一起；待教师审核的暂定判断不会记作已确认薄弱点。</p>
+        <div v-if="learningMemory.length" class="memory-list">
+          <div v-for="item in learningMemory" :key="`${item.subject}:${item.knowledge_point}`" class="memory-row">
+            <span class="memory-tag">{{ SUBJECT_TEXT[item.subject] ?? item.subject }}</span>
+            <div><b>{{ item.knowledge_point }}</b><p>{{ item.summary }}</p></div>
+            <span class="memory-state" :class="`state-${item.state}`">{{ memoryStateLabel(item.state) }}</span>
+          </div>
+        </div>
+        <div v-else class="empty">还没有足够的错题、订正和验证记录形成学习记忆。</div>
+      </div>
+
       <!-- 成绩分析（评分系统）：只统计老师审核通过并出分的作业 -->
       <div class="card summary-card">
         <h3><AppIcon name="chart" :size="18" /> 成绩分析</h3>
@@ -102,7 +115,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { ReportScores, SubjectReport } from '../../api/types'
+import type { ReportScores, StudentLearningMemory, SubjectReport } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import { AsyncEChartLine as EChart } from '../../components/AsyncEChart'
 
@@ -113,11 +126,19 @@ const SUBJECT_TEXT: Record<string, string> = { math: '数学', english: '英语'
 
 const report = ref<SubjectReport[]>([])
 const scoreData = ref<ReportScores | null>(null)
+const learningMemory = ref<StudentLearningMemory[]>([])
 const loading = ref(false)
 const error = ref('')
 
 function fmtScore(v: number): string {
   return String(Math.round(v * 10) / 10)
+}
+
+function memoryStateLabel(state: StudentLearningMemory['state']): string {
+  return ({
+    needs_practice: '需要订正', correcting: '订正中',
+    reinforcing: '需要加固', mastered: '验证稳定'
+  })[state]
 }
 
 /** 成绩走势折线：历次作业得分率（%），tooltip 带得分/满分 */
@@ -194,6 +215,7 @@ onMounted(async () => {
   loading.value = true
   const reportRequest = student.fetchReport()
   const scoresRequest = student.fetchReportScores()
+  const memoryRequest = student.fetchLearningMemory()
   try {
     report.value = await reportRequest
   } catch (e) {
@@ -205,6 +227,11 @@ onMounted(async () => {
   // 成绩分析独立加载：失败不影响报告主体
   try {
     scoreData.value = await scoresRequest
+  } catch (e) {
+    console.error(e)
+  }
+  try {
+    learningMemory.value = await memoryRequest
   } catch (e) {
     console.error(e)
   }
@@ -296,6 +323,15 @@ onMounted(async () => {
 .summary-subject { font-size: 15px; font-weight: 700; min-width: 44px; }
 .summary-nums { font-size: 13.5px; color: var(--text-2); }
 .summary-nums b { color: var(--text); }
+.memory-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.memory-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: 11px; background: var(--bg); }
+.memory-tag { min-width: 46px; color: var(--primary); font-size: 12px; font-weight: 700; }
+.memory-row > div { flex: 1; min-width: 0; }
+.memory-row b { font-size: 14px; }
+.memory-row p { margin: 4px 0 0; color: var(--text-2); font-size: 13px; }
+.memory-state { flex: none; font-size: 12px; color: var(--text-3); }
+.state-mastered { color: var(--green); }
+.state-needs_practice, .state-reinforcing { color: var(--amber); }
 
 /* ---------- 成绩分析 ---------- */
 .score-overall { font-size: 14.5px; margin-bottom: 6px; }
