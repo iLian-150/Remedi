@@ -497,7 +497,16 @@ async function loadMistakes(): Promise<boolean> {
     openRequestedReview()
     return true
   } catch (reason) {
-    loadError.value = '错题本加载失败，请确认后端已启动。'
+    const status = typeof reason === 'object' && reason !== null && 'response' in reason
+      ? (reason as { response?: { status?: number } }).response?.status
+      : undefined
+    if (status === 401) {
+      loadError.value = '登录状态已失效，请重新登录后再试。'
+    } else if (status !== undefined) {
+      loadError.value = `错题本加载失败（HTTP ${status}），请刷新重试。`
+    } else {
+      loadError.value = '暂时无法连接错题本服务，请检查网络后刷新重试。'
+    }
     console.error(reason)
     return false
   } finally { loading.value = false }

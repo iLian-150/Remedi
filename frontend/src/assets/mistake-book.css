@@ -28,6 +28,63 @@
 .remedi-mistake-book .is-notebook .mistake-view-switch button.selected, .remedi-mistake-book.is-notebook .mistake-view-switch button.selected { background: var(--primary); }
 .remedi-mistake-book .is-notebook .mistake-board-refresh, .remedi-mistake-book.is-notebook .mistake-board-refresh { color: var(--text); }
 
+/* 默认卡片笔记视图不加载图谱专用补充样式，因此这里也提供工具栏基础布局。 */
+.remedi-mistake-book .mistake-board-toolbar, .remedi-mistake-book .mistake-view-switch {
+  display: flex;
+  align-items: center;
+}
+.remedi-mistake-book .mistake-board-toolbar { gap: 8px; }
+.remedi-mistake-book .mistake-view-switch {
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.941);
+  box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.063);
+  backdrop-filter: blur(10px);
+}
+.remedi-mistake-book .mistake-view-switch button {
+  min-width: 74px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-2);
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.remedi-mistake-book .mistake-view-switch button:hover:not(.selected) {
+  color: var(--text);
+  background: var(--bg);
+}
+.remedi-mistake-book .mistake-view-switch button.selected {
+  color: var(--card);
+  background: var(--primary);
+  font-weight: 600;
+}
+.remedi-mistake-book .mistake-board-refresh {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.941);
+  box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.063);
+  cursor: pointer;
+}
+.remedi-mistake-book .mistake-board-refresh:hover:not(:disabled) { background: var(--bg); }
+.remedi-mistake-book .mistake-board-refresh:disabled { cursor: wait; opacity: .6; }
+.remedi-mistake-book .mistake-board-toolbar button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 .remedi-mistake-book .is-notebook .mistake-removal-notice, .remedi-mistake-book.is-notebook .mistake-removal-notice {
   position: relative;
   top: auto;

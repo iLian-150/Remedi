@@ -1180,9 +1180,26 @@ def my_mistakes(
                 )
         for assignments in latest_by_category_assignment.values():
             for representative in assignments.values():
-                question_stem, assignment_title, assignment_created_at = details_by_question[
-                    representative["question_id"]
-                ]
+                question_id = representative["question_id"]
+                details = details_by_question.get(question_id)
+                if details is None:
+                    # The history scan and detail lookup are separate read queries. If a
+                    # question or its assignment is removed between them, keep the notebook
+                    # available and retain the occurrence using a safe display fallback.
+                    logger.warning(
+                        "Missing representative details while building mistake notebook "
+                        "(student_id=%s, question_id=%s)",
+                        current.id,
+                        question_id,
+                    )
+                    details = (
+                        representative.get("question_stem", ""),
+                        representative.get("assignment_title", "历史作业"),
+                        representative.get(
+                            "assignment_created_at", representative["error_created_at"]
+                        ),
+                    )
+                question_stem, assignment_title, assignment_created_at = details
                 representative["question_stem"] = question_stem
                 representative["assignment_title"] = assignment_title
                 representative["assignment_created_at"] = assignment_created_at
