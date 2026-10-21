@@ -6,20 +6,15 @@
      （全局侧栏在对话页挂 SidebarSessions），本页回归普通内容布局。 -->
 <template>
   <div class="chat-layout">
-    <!-- 顶部：智能批改标题（会话操作在左侧栏会话区，v0.8.1） -->
+    <!-- 单一学习入口：按消息内容自动识别处理意图与学科。 -->
     <div class="chat-header">
       <div class="chat-inner">
         <div class="chat-title">
           <span class="chat-title-mark"><AppIcon name="sparkles" :size="17" /></span>
           <span class="chat-title-copy">
-            <strong>Remedi {{ agentSubjectLabel }} Agent</strong>
-            <small>专属学科讲解 · 错题记忆 · 学习问答</small>
+            <strong>Remedi 学习助手</strong>
+            <small>一个入口，自动识别闲聊、错题分析、作业批改和学习答疑</small>
           </span>
-          <label class="agent-subject-picker"><span>切换学科</span>
-            <select v-model="agentSubject">
-              <option v-for="item in agentSubjects" :key="item.value" :value="item.value">{{ item.label }}</option>
-            </select>
-          </label>
           <span class="chat-status"><i></i> 随时可以提问</span>
         </div>
       </div>
@@ -32,7 +27,7 @@
         <section v-if="isWelcomeScreen" class="welcome-home">
           <div class="welcome-kicker">今日学习</div>
           <h1>{{ auth.name || '同学' }}，今天想聊点什么？</h1>
-          <p class="welcome-description">学习中遇到的问题、作业批改或错题复习，都可以在这里聊。</p>
+          <p class="welcome-description">直接输入内容或上传题目图片，助手会自动判断意图并进入对应处理流程。</p>
 
           <div v-if="welcomeBriefing" class="welcome-briefing">
             <div class="welcome-briefing-heading">
@@ -411,14 +406,14 @@
             class="chat-text-input"
             :class="{ 'chat-text-input-welcome': isWelcomeScreen }"
             rows="1"
-            :placeholder="isWelcomeScreen ? '有什么想问的，或说说你正在学习的内容…' : '输入你的问题，回车发送'"
+            :placeholder="isWelcomeScreen ? '说说你想做什么：闲聊、总结错题、批改作业或问学习问题…' : '输入内容，助手会自动识别并处理'"
             :disabled="chatSending"
             @keydown.enter.exact.prevent="sendChat()"
           ></textarea>
           <div class="composer-bottom-row">
             <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
             <div class="composer-tools">
-              <button class="composer-photo-btn" type="button" aria-label="拍照批改" title="拍照批改" :disabled="busy" @click="fileRef?.click()">
+              <button class="composer-photo-btn" type="button" aria-label="上传题目图片" title="上传题目图片" :disabled="busy" @click="fileRef?.click()">
                 <AppIcon name="camera" :size="18" />
               </button>
               <span v-if="selectedQuestion" class="composer-context"><AppIcon name="clipboard" :size="13" /> {{ selectedQuestion.stem }}</span>
@@ -454,7 +449,6 @@ import type {
   PendingAssignment,
   PhotoReviewResult,
   RelatedMistake,
-  SubjectAgentCode,
   StepStatus,
   StudentBriefing,
   SubmissionResult,
@@ -472,15 +466,6 @@ const auth = useAuthStore()
 const student = useStudentStore()
 const route = useRoute()
 const router = useRouter()
-const agentSubjects: { value: SubjectAgentCode; label: string }[] = [
-  { value: 'chinese', label: '语文' }, { value: 'math', label: '数学' },
-  { value: 'english', label: '英语' }, { value: 'politics', label: '道法' },
-  { value: 'history', label: '历史' }, { value: 'physics', label: '物理' },
-  { value: 'chemistry', label: '化学' }, { value: 'geography', label: '地理' },
-  { value: 'biology', label: '生物' }
-]
-const agentSubject = ref<SubjectAgentCode>('math')
-const agentSubjectLabel = computed(() => agentSubjects.find((item) => item.value === agentSubject.value)?.label ?? '学习')
 
 // ---------- 对话消息 ----------
 interface ChatMsg {
@@ -1042,7 +1027,7 @@ async function streamAssistantReply(
       }
       wait.text += text
       scrollToBottom()
-    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId, controller.signal, agentSubject.value)
+    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId, controller.signal)
     wait.pending = false
     if (!wait.text) wait.text = result.reply
     wait.relatedMistake = result.related_mistake ?? null
@@ -1135,7 +1120,7 @@ async function streamVisionReply(wait: ChatMsg, file: File, question: string): P
       }
       wait.text += text
       scrollToBottom()
-    }, controller.signal, agentSubject.value)
+    }, controller.signal)
     if (!wait.text) wait.text = reply
     return reply
   } finally {
@@ -1469,17 +1454,15 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.chat-layout { position: relative; display: flex; width: calc(100% - 20px); min-width: 0; min-height: 0; flex-direction: column; height: calc(100dvh - 20px); margin: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--card); box-shadow: 0 2px 8px rgba(31, 49, 77, 0.035); }
+.chat-layout { position: relative; display: flex; width: calc(100% - 20px); min-width: 0; min-height: 0; flex-direction: column; height: calc(100dvh - 20px); margin: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: linear-gradient(180deg, #f8faff 0%, var(--card) 30%); box-shadow: 0 12px 34px rgba(31, 49, 77, 0.06); }
 .chat-inner { max-width: 1280px; width: 100%; margin: 0 auto; padding: 0 20px; }
-.chat-header { flex: 0 0 auto; background: var(--card); border-bottom: 0; padding: 9px 0; }
+.chat-header { flex: 0 0 auto; background: rgba(255, 255, 255, 0.76); border-bottom: 1px solid rgba(221, 228, 239, 0.72); padding: 12px 0; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 .chat-title { display: flex; align-items: center; gap: 10px; color: var(--text); }
-.chat-title-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 11px; background: var(--primary-50); color: var(--primary); }
+.chat-title-mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(29, 78, 216, 0.08); border-radius: 12px; background: linear-gradient(145deg, #eff5ff, #e8efff); color: var(--primary); }
 .chat-title-copy { display: flex; flex-direction: column; gap: 1px; }
-.chat-title-copy strong { font-size: 14px; font-weight: 700; line-height: 1.25; }
-.chat-title-copy small { color: var(--text-3); font-size: 11px; font-weight: 400; }
-.agent-subject-picker { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--text-3); font-size: 11px; white-space: nowrap; }
-.agent-subject-picker select { border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; background: var(--card); color: var(--text); font: inherit; }
-.chat-status { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; color: var(--text-3); font-size: 12px; font-weight: 500; }
+.chat-title-copy strong { font-size: 15px; font-weight: 720; line-height: 1.3; letter-spacing: -0.01em; }
+.chat-title-copy small { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
+.chat-status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(16, 185, 129, 0.13); border-radius: 999px; background: rgba(236, 253, 245, 0.78); padding: 6px 10px; color: #16805b; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .chat-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
@@ -1511,23 +1494,24 @@ onMounted(async () => {
 .related-mistake-link:hover { text-decoration: underline; }
 
 .chat-content-shell { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
-.chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 28px 24px 168px; }
+.chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 24px 24px 168px; }
 /* 底部留白给悬浮输入卡让位（v0.8.1）：最后的消息不被卡片遮住 */
 .chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 0 168px; background: var(--card); }
 .chat-body-welcome { flex: 0 0 auto; overflow: visible; padding: 0; }
-.welcome-mode .chat-inner { max-width: 780px; padding: 0; }
-.welcome-home { padding: 0 2px; }
+.welcome-mode .chat-inner { max-width: 820px; padding: 0; }
+.welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
 .welcome-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--text-2); font-size: 12px; font-weight: 600; }
 .welcome-kicker::before { width: 18px; height: 2px; border-radius: 2px; background: var(--primary); content: ''; }
-.welcome-home h1 { color: var(--text); font-size: clamp(29px, 2.8vw, 37px); font-weight: 650; line-height: 1.3; letter-spacing: -0.025em; }
-.welcome-description { margin-top: 8px; color: var(--text-2); font-size: 14px; }
-.welcome-briefing { margin-top: 22px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; background: rgba(255, 255, 255, 0.88); }
+.welcome-home h1 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
+.welcome-description { max-width: 650px; margin-top: 10px; color: var(--text-2); font-size: 14px; line-height: 1.7; }
+.welcome-briefing { margin-top: 22px; padding: 17px 19px; border: 1px solid rgba(220, 228, 240, 0.9); border-radius: 17px; background: rgba(255, 255, 255, 0.92); box-shadow: 0 10px 28px rgba(31, 49, 77, 0.045); }
 .welcome-briefing-heading { display: flex; align-items: center; gap: 9px; color: var(--text); }
 .welcome-briefing-heading > div { display: flex; flex-direction: column; gap: 1px; }
 .welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
 .welcome-briefing-heading small { color: var(--text-3); font-size: 11px; }
 .welcome-briefing-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; background: var(--primary-50); color: var(--text-2); }
 .welcome-briefing-book { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; color: var(--primary); font-size: 12px; font-weight: 600; white-space: nowrap; }
+@keyframes welcome-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 /* 欢迎屏简报卡组（v0.9.0）：复用对话内简报卡的大数字+色块规格，整卡可点跳转 */
 .welcome-brief-grid { margin-top: 14px; }
 .brief-clickable { cursor: pointer; transition: box-shadow 0.2s ease, transform 0.2s ease; }
@@ -1711,12 +1695,12 @@ onMounted(async () => {
 .chat-composer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; background: transparent; padding: 10px 0 14px; }
 .chat-composer-welcome { background: transparent; }
 .composer-panel {
-  border: 1px solid var(--border); border-radius: 20px;
-  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(211, 221, 235, 0.95); border-radius: 20px;
+  background: rgba(255, 255, 255, 0.94);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
   backdrop-filter: blur(14px) saturate(1.4);
   padding: 13px 15px 11px;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.11), 0 2px 8px rgba(15, 23, 42, 0.045);
   transition: border-color 0.18s ease, box-shadow 0.25s ease;
 }
 .composer-panel:focus-within {
@@ -1745,11 +1729,11 @@ onMounted(async () => {
 .send-btn:hover:not(:disabled) { transform: scale(1.07); }
 .send-btn:disabled { background: var(--gray-bg); color: var(--text-3); cursor: default; }
 .send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
-.chat-composer-welcome .chat-inner { max-width: 780px; padding: 0; }
+.chat-composer-welcome .chat-inner { max-width: 820px; padding: 0; }
 .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .suggest-chip { animation: none; transition: none; }
+  .suggest-chip, .welcome-home { animation: none; transition: none; }
   .composer-panel, .send-btn, .composer-photo-btn { transition: none; }
   .send-btn:hover:not(:disabled) { transform: none; }
 }
@@ -1768,8 +1752,9 @@ onMounted(async () => {
 @media (max-width: 620px) {
   .chat-header { padding: 7px 0; }
   .chat-inner { padding-right: 14px; padding-left: 14px; }
-  .chat-title-mark { width: 31px; height: 31px; }
-  .chat-title-copy small { font-size: 10px; }
+  .chat-title-mark { width: 32px; height: 32px; }
+  .chat-title-copy small { max-width: 66vw; font-size: 10px; line-height: 1.35; }
+  .chat-status { display: none; }
   .welcome-kicker { margin-bottom: 10px; }
   .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
   .welcome-description { max-width: 330px; font-size: 13px; }
