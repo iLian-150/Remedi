@@ -1015,7 +1015,7 @@ async function streamAssistantReply(
 ) {
   let firstText = true
   const controller = createStreamAbortController()
-  wait.text = '正在生成回复…'
+  wait.text = '正在识别需求并准备回答…'
   wait.pending = true
   wait.streaming = true
   try {

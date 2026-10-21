@@ -1,28 +1,117 @@
-# LangGraph 图组装：agent 节点（带工具的 LLM）+ tools 节点（ToolNode）+ 条件边。
+# 学生文字消息先经模型意图路由，再由 LangGraph 执行 agent 节点 + tools 节点。
 #
+#   意图路由 → 闲聊 / 错题总结 / 批改 / 学科答疑 / 学习数据
 #   START → agent ──(tools_condition: 有 tool_calls)──→ tools → agent（循环）
 #                 └──(无 tool_calls)──→ END
 #
 # LLM 走 Cloudflare Workers AI；配置缺失或调用失败时明确报错，不生成模拟回复。
 import logging
 from time import perf_counter
-from typing import Annotated, List, TypedDict
+from typing import Annotated, List, Literal, TypedDict
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import User
 from ..services.stats import student_briefing
 from .prompts import build_system_prompt
-from .subjects import build_subject_context, detect_subject
+from .subjects import SUBJECT_AGENTS, build_subject_context, detect_subject, normalize_subject
 from ..services.learning_memory import student_memory_to_text
 from .tools import build_tools, student_notebook_to_text
 
 logger = logging.getLogger(__name__)
 
+_STUDENT_INTENTS = {
+    "smalltalk": "闲聊或问候",
+    "mistake_summary": "错题总结或个人薄弱点分析",
+    "grading": "检查或批改学生作答",
+    "tutoring": "学科学习答疑",
+    "learning_data": "作业、订正进度或学习报告查询",
+}
 
-def _build_llm(*, streaming: bool = True):
+
+@tool("route_student_request")
+def _route_student_request(
+    intent: Literal["smalltalk", "mistake_summary", "grading", "tutoring", "learning_data"],
+    subject: Literal[
+        "chinese", "math", "english", "politics", "history", "physics",
+        "chemistry", "geography", "biology", "unknown",
+    ] = "unknown",
+) -> str:
+    """只记录学生本轮主要意图和学科，不回答问题、不读取或修改任何数据。"""
+    return "路由已记录。"
+
+
+def _fallback_student_route(user_text: str, fallback_subject: str | None = None) -> tuple[str, str | None]:
+    """路由模型不可用时的保守兜底；只识别高置信度意图。"""
+    text = (user_text or "").strip().lower()
+    if any(word in text for word in ("错题", "错因", "以前做错", "我哪里错", "薄弱点", "最弱")):
+        intent = "mistake_summary"
+    elif any(word in text for word in ("作业", "订正", "学习报告", "进度", "完成了多少", "还剩几")):
+        intent = "learning_data"
+    elif any(word in text for word in ("批改", "检查一下", "对不对", "帮我看", "我写的是", "我的答案")):
+        intent = "grading"
+    elif len(text) <= 24 and any(word in text for word in ("你好", "您好", "在吗", "早上好", "晚上好", "你是谁", "谢谢", "hi", "hello")):
+        intent = "smalltalk"
+    else:
+        intent = "tutoring"
+    return intent, detect_subject(user_text, fallback_subject)
+
+
+def _classify_student_request(
+    history: List[BaseMessage], user_text: str, fallback_subject: str | None = None,
+) -> tuple[str, str | None]:
+    """用模型对统一文字入口做一次结构化分流；失败时回退到保守规则。"""
+    fallback = _fallback_student_route(user_text, fallback_subject)
+    system = SystemMessage(content=(
+        "你是 Remedi 学习助手的意图路由器，只做分类，不回答学生。"
+        "根据最后一条学生消息和必要的对话上下文，选择一个主要 intent 并调用 route_student_request。"
+        "smalltalk=问候、闲聊、询问助手身份；mistake_summary=查询或总结本人错题、错因、薄弱点；"
+        "grading=学生提交了本人作答并希望检查、批改或评分；tutoring=学科问题、只发题目求讲解；"
+        "learning_data=作业/订正进度、学习报告等个人数据查询。"
+        "只发题目而没有本人作答时选 tutoring。明确给出本人作答过程、即使没说检查，也选 grading。"
+        "subject 只在本轮确实涉及某一学科题目或作答时填写九个代码之一；纯闲聊、个人数据查询、"
+        "多学科比较或无法确定时填写 unknown。必须调用 route_student_request，不要输出自然语言。"
+    ))
+    try:
+        router = _build_llm(
+            streaming=False,
+            temperature=0,
+            timeout_seconds=min(settings.LLM_TIMEOUT_SECONDS, 15),
+        ).bind_tools([_route_student_request])
+        response = router.invoke([
+            system,
+            *history[-6:],
+            HumanMessage(content=user_text),
+        ])
+        calls = getattr(response, "tool_calls", None) or []
+        args = next((call.get("args", {}) for call in calls
+                     if call.get("name") == "route_student_request"), {})
+        intent = args.get("intent")
+        if intent not in _STUDENT_INTENTS:
+            logger.info("学生 Agent 路由未返回结构化结果，采用保守路由")
+            fallback_intent, fallback_detected_subject = fallback
+            return (
+                fallback_intent,
+                fallback_detected_subject
+                if fallback_intent in {"grading", "tutoring"} else None,
+            )
+        subject = normalize_subject(args.get("subject")) or detect_subject(user_text, fallback_subject)
+        if intent not in {"grading", "tutoring"}:
+            subject = None
+        return intent, subject
+    except Exception:
+        logger.warning("学生 Agent 意图识别失败，使用保守路由", exc_info=True)
+        intent, subject = fallback
+        return intent, subject if intent in {"grading", "tutoring"} else None
+
+
+def _build_llm(
+    *, streaming: bool = True, temperature: float = 0.5,
+    timeout_seconds: int | None = None,
+):
     """构造统一使用 Cloudflare Workers AI 的对话模型。"""
     from langchain_openai import ChatOpenAI
 
@@ -66,8 +155,8 @@ def _build_llm(*, streaming: bool = True):
         base_url=f"https://api.cloudflare.com/client/v4/accounts/{settings.CLOUDFLARE_ACCOUNT_ID}/ai/v1",
         api_key=settings.CLOUDFLARE_API_TOKEN,
         model=settings.CLOUDFLARE_MODEL,
-        temperature=0.5,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
+        temperature=temperature,
+        timeout=timeout_seconds or settings.LLM_TIMEOUT_SECONDS,
         max_retries=0,
         streaming=streaming,
     )
@@ -129,7 +218,15 @@ def agent_reply_stream(db: Session, student: User,
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
     # 流式响应中的非文本 content 会在模型适配层被过滤；回复可以边生成边发送。
     llm = _build_llm(streaming=True)
-    subject = detect_subject(user_text, subject)
+    if safe_tools_only:
+        intent = "tutoring"
+        subject = detect_subject(user_text, subject)
+    else:
+        intent, subject = _classify_student_request(history, user_text, subject)
+        logger.info(
+            "学生 Agent 意图路由完成（intent=%s, subject=%s, student_id=%s）",
+            intent, subject or "unknown", student.id,
+        )
     subject_context = build_subject_context(db, subject, user_text)
     if safe_tools_only:
         # 不传整段会话历史，但提供该学生最近错题作为个性化讲解依据。
@@ -153,13 +250,23 @@ def agent_reply_stream(db: Session, student: User,
         )
         messages = [SystemMessage(content=system), HumanMessage(content=user_text)]
     else:
-        system = build_system_prompt(
-            student.name, _context_summary(db, student), subject_context,
+        route_context = f"主要意图：{_STUDENT_INTENTS[intent]}。"
+        if subject:
+            route_context += f"自动识别学科：{SUBJECT_AGENTS[subject][0]}。"
+        else:
+            route_context += "本轮无需指定单一学科。"
+        context_summary = (
+            "本轮是闲聊，不读取或引用学生学习数据。"
+            if intent == "smalltalk" else _context_summary(db, student)
         )
-        try:
-            system += "\n\n学生学科记忆：\n" + student_memory_to_text(db, student.id, limit=5)
-        except Exception:
-            logger.exception("读取学习记忆失败，student_id=%s", student.id)
+        system = build_system_prompt(
+            student.name, context_summary, subject_context, route_context,
+        )
+        if intent != "smalltalk":
+            try:
+                system += "\n\n学生学科记忆：\n" + student_memory_to_text(db, student.id, limit=5)
+            except Exception:
+                logger.exception("读取学习记忆失败，student_id=%s", student.id)
         messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
     related_result: dict = {"mistake": None}
     reply_parts: list[str] = []
@@ -186,7 +293,24 @@ def agent_reply_stream(db: Session, student: User,
             llm_with_tools = llm
         else:
             tools, related_result = build_tools(db, student)
-            llm_with_tools = llm.bind_tools(tools)
+            if intent == "smalltalk":
+                # 闲聊分支不开放任何学生数据工具，避免无关问题触发个人信息查询。
+                tools = []
+            elif intent == "mistake_summary":
+                # 错题总结只开放读取工具，不能在查询历史时意外写入新诊断。
+                read_only = {
+                    "get_my_report", "get_my_mistake_notebook",
+                    "get_my_learning_memory", "get_knowledge_point_errors",
+                }
+                tools = [item for item in tools if item.name in read_only]
+            elif intent == "learning_data":
+                # 进度/报告查询只开放读取工具。
+                read_only = {
+                    "get_my_briefing", "get_my_report", "get_my_mistake_notebook",
+                    "get_my_learning_memory", "get_knowledge_point_errors",
+                }
+                tools = [item for item in tools if item.name in read_only]
+            llm_with_tools = llm.bind_tools(tools) if tools else llm
 
         def call_model(state: AgentState):
             started_at = perf_counter()

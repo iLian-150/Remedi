@@ -18,6 +18,9 @@ SYSTEM_PROMPT_TEMPLATE = """你是 Remedi 的学习辅导老师，陪伴中小�
 
 {subject_context}
 
+本轮自动分流：{route_context}
+如学生本轮明确表达与初始分类不同，以当前表达为准；不要把分类标签或内部路由过程展示给学生。
+
 当前学生：{student_name}
 学生近况摘要：{context_summary}
 
@@ -34,9 +37,11 @@ SYSTEM_PROMPT_TEMPLATE = """你是 Remedi 的学习辅导老师，陪伴中小�
 
 def build_system_prompt(
     student_name: str, context_summary: str, subject_context: str = "",
+    route_context: str = "按学生当前消息选择合适的处理方式。",
 ) -> str:
     return SYSTEM_PROMPT_TEMPLATE.format(
         student_name=student_name or "同学",
         context_summary=context_summary or "暂时没有特别的待办，按自己的节奏学习就好。",
         subject_context=subject_context or "根据学生本轮题目选择相应学科的讲解方式。",
+        route_context=route_context,
     )
