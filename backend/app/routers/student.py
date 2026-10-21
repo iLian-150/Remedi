@@ -1483,22 +1483,9 @@ def my_mistakes(
 def correction_calendar_marks(db: Session = Depends(get_db),
                               current: User = Depends(require_student)):
     """按提交日期统计本人诊断错题，供订正日历使用，不组装错题详情。"""
-    submitted_date_filter = None
-    if submitted_on is not None:
-        submitted_start = datetime.combine(submitted_on, datetime.min.time())
-        submitted_end = submitted_start + timedelta(days=1)
-        submitted_date_filter = or_(
-            and_(
-                Submission.submitted_at.isnot(None),
-                Submission.submitted_at >= submitted_start,
-                Submission.submitted_at < submitted_end,
-            ),
-            and_(
-                Submission.submitted_at.is_(None),
-                Error.created_at >= submitted_start,
-                Error.created_at < submitted_end,
-            ),
-        )
+    submission_date = func.date(
+        func.coalesce(Submission.submitted_at, Error.created_at)
+    )
     rows = (
         db.query(
             submission_date.label("submission_date"),
@@ -1532,6 +1519,23 @@ def correction_wall_page(
         raise HTTPException(
             status_code=422,
             detail="before_created_at 与 before_id 必须同时提供",
+        )
+
+    submitted_date_filter = None
+    if submitted_on is not None:
+        submitted_start = datetime.combine(submitted_on, datetime.min.time())
+        submitted_end = submitted_start + timedelta(days=1)
+        submitted_date_filter = or_(
+            and_(
+                Submission.submitted_at.isnot(None),
+                Submission.submitted_at >= submitted_start,
+                Submission.submitted_at < submitted_end,
+            ),
+            and_(
+                Submission.submitted_at.is_(None),
+                Error.created_at >= submitted_start,
+                Error.created_at < submitted_end,
+            ),
         )
 
     submission_date = func.date(
