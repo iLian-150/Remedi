@@ -24,6 +24,10 @@ class RagQualityTests(unittest.TestCase):
         self.assertEqual(formula_tokens("2x+3=7"), expected)
         self.assertEqual(formula_tokens("2 * x + 3 = 7"), expected)
 
+    def test_formula_tokens_preserve_unary_signs(self):
+        self.assertEqual(formula_tokens("-2x+3=7"), ["formula:-2*x+3=7"])
+        self.assertEqual(formula_tokens("x=-2"), ["formula:x=-2"])
+
     def test_document_spread_preserves_rank_inside_each_document(self):
         candidates = [
             {"document_id": 1}, {"document_id": 1}, {"document_id": 1},

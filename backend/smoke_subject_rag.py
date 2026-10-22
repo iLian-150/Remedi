@@ -237,6 +237,12 @@ class SubjectRagTests(unittest.TestCase):
             [],
         )
 
+    def test_equations_with_opposite_signs_do_not_match(self):
+        self.document("负系数方程", "-2x+3=7。")
+        self.document("正数解方程", "x=2。")
+        self.assertEqual(subject_rag.search_knowledge(self.db, "math", "2x+3=7")["items"], [])
+        self.assertEqual(subject_rag.search_knowledge(self.db, "math", "x=-2")["items"], [])
+
     def test_uncommitted_passage_ids_cannot_reach_milvus(self):
         document = SubjectKnowledgeChunk(subject="math", title="方程", content="解方程的依据。")
         self.db.add(document)

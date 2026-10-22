@@ -4,8 +4,9 @@ import unicodedata
 
 
 _FORMULA_ATOM = r"(?:[a-z][a-z0-9_]*|\d+(?:\.\d+)?)"
+_FORMULA_TERM = rf"[+-]?\s*{_FORMULA_ATOM}"
 _FORMULA_RE = re.compile(
-    rf"(?<![a-z0-9_]){_FORMULA_ATOM}(?:\s*(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)\s*{_FORMULA_ATOM})+(?![a-z0-9_])",
+    rf"(?<![a-z0-9_]){_FORMULA_TERM}(?:\s*(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)\s*{_FORMULA_TERM})+(?![a-z0-9_])",
     re.IGNORECASE,
 )
 _FORMULA_REPLACEMENTS = (
