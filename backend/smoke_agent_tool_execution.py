@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.graph import _classify_student_request, _fallback_student_route, agent_reply_stream
 from app.agent.subjects import detect_subject
+from app.agent.suggestions import teacher_intent, teacher_suggestions
 from app.agent.teacher_graph import teacher_agent_reply_stream
 from app.database import Base
 from app.models import StudentQuestionCapture, TeacherSubject, User
@@ -146,6 +147,17 @@ class AgentToolExecutionTests(unittest.TestCase):
             _fallback_student_route("Explain force in physics"),
             ("tutoring", "physics"),
         )
+
+    def test_teacher_followup_suggestions_match_rag_and_teaching_tools(self):
+        knowledge = teacher_suggestions("求讲解", ["search_teaching_knowledge"])
+        self.assertEqual(teacher_intent("求讲解", ["search_teaching_knowledge"]), "knowledge")
+        self.assertIn("课堂讲解提纲", knowledge[0])
+        self.assertIn("课堂练习", knowledge[1])
+
+        teaching = teacher_suggestions("给教学建议", ["get_teaching_suggestions"])
+        self.assertEqual(teacher_intent("给教学建议", ["get_teaching_suggestions"]), "teaching_suggestions")
+        self.assertIn("分层讲解", teaching[0])
+        self.assertIn("辅导顺序", teaching[1])
 
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
         model = ScriptedToolModel()

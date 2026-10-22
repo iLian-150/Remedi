@@ -66,6 +66,8 @@ _TEACHER_TOOL_INTENT = {
     "get_uncorrected_students": "uncorrected",
     "get_student_profile": "profile",
     "get_class_overview": "overview",
+    "search_teaching_knowledge": "knowledge",
+    "get_teaching_suggestions": "teaching_suggestions",
 }
 
 _TEACHER_SUGGESTIONS = {
@@ -75,6 +77,16 @@ _TEACHER_SUGGESTIONS = {
     "uncorrected": ["今天谁还没交作业", "哪个知识点错误率最高", "班级知识修复率怎么样"],
     "profile": ["哪个知识点错误率最高", "谁的订正还没完成", "班级知识修复率怎么样"],
     "overview": ["今天谁还没交作业", "哪个知识点错误率最高", "班级知识修复率怎么样"],
+    "knowledge": [
+        "根据刚才检索的资料，整理一份课堂讲解提纲",
+        "基于这份资料设计一道课堂练习并附答案",
+        "指出这份资料中学生容易混淆的概念",
+    ],
+    "teaching_suggestions": [
+        "展开错误率最高知识点的分层讲解方案",
+        "根据订正积压情况安排辅导顺序",
+        "为最需要巩固的知识点设计一份练习",
+    ],
     "greeting": ["今天谁还没交作业", "哪个知识点错误率最高", "班级知识修复率怎么样"],
     "default": ["今天谁还没交作业", "哪个知识点错误率最高", "班级知识修复率怎么样"],
 }
