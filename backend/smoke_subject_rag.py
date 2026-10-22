@@ -237,6 +237,13 @@ class SubjectRagTests(unittest.TestCase):
             [],
         )
 
+    def test_parenthesized_equations_do_not_match_by_inner_expression(self):
+        self.document("括号方程", "2(x+1)=7。")
+        self.assertEqual(
+            subject_rag.search_knowledge(self.db, "math", "3(x+1)=7")["items"],
+            [],
+        )
+
     def test_equations_with_opposite_signs_do_not_match(self):
         self.document("负系数方程", "-2x+3=7。")
         self.document("正数解方程", "x=2。")

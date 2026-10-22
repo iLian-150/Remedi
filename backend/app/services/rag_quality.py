@@ -3,10 +3,23 @@ import re
 import unicodedata
 
 
-_FORMULA_ATOM = r"(?:[a-z][a-z0-9_]*|\d+(?:\.\d+)?)"
+_FORMULA_GROUP_CHARS = r"a-z0-9_.+\-*/^=<>≤≥≠≈×÷·⋅\s"
+
+
+def _formula_group_pattern(depth: int) -> str:
+    """Build a bounded, balanced-parenthesis atom pattern for Python's regex engine."""
+    content = rf"[{_FORMULA_GROUP_CHARS}]"
+    if depth > 0:
+        content = rf"(?:{content}|{_formula_group_pattern(depth - 1)})"
+    return rf"\((?:{content})+\)"
+
+
+_FORMULA_GROUP = _formula_group_pattern(6)
+_FORMULA_VARIABLE = r"[a-z][a-z0-9_]*"
+_FORMULA_ATOM = rf"(?:{_FORMULA_VARIABLE}{_FORMULA_GROUP}|{_FORMULA_VARIABLE}|\d+(?:\.\d+)?|{_FORMULA_GROUP})"
 _FORMULA_TERM = rf"[+-]?\s*{_FORMULA_ATOM}"
 _FORMULA_RE = re.compile(
-    rf"(?<![a-z0-9_]){_FORMULA_TERM}(?:\s*(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)\s*{_FORMULA_TERM})+(?![a-z0-9_])",
+    rf"(?<![a-z0-9_(]){_FORMULA_TERM}(?:\s*(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)\s*{_FORMULA_TERM})+(?![a-z0-9_)])",
     re.IGNORECASE,
 )
 _SUPERSCRIPT_RE = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]+")
@@ -51,6 +64,9 @@ def formula_tokens(text: str) -> list[str]:
     # Normalize it before matching so the regex cannot fall through to a shared suffix
     # such as `3=7` and treat distinct equations as the same evidence.
     value = re.sub(r"(?<=\d)(?=[a-z])", "*", value)
+    # Parenthesized groups are formula atoms too, with implicit multiplication
+    # normalized before them so `2(x+1)` remains distinct from `3(x+1)`.
+    value = re.sub(r"(?<=\d)\s*(?=\()", "*", value)
     found = []
     for match in _FORMULA_RE.finditer(value):
         formula = re.sub(r"\s+", "", match.group(0))
