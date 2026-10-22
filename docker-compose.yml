@@ -18,17 +18,19 @@ services:
       - DATABASE_URL=sqlite:////data/remedi.db
       - UPLOAD_DIR=/data/uploads
       - CORS_ORIGINS=*
-      # 所有 AI 提问固定使用 Cloudflare；凭证通过服务器本地 override 或宿主环境变量提供。
-      - LLM_PROVIDER=cloudflare
+      - SEED_DEMO_DATA=${SEED_DEMO_DATA:-true}
+      # 百炼配置统一从服务器 .env 读取；API Key 可先留空。
+      - LLM_PROVIDER=${LLM_PROVIDER:-bailian}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-120}
-      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
-      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
-      - CLOUDFLARE_MODEL=${CLOUDFLARE_MODEL:-@cf/qwen/qwen3-30b-a3b-fp8}
-      - CLOUDFLARE_VISION_MODEL=${CLOUDFLARE_VISION_MODEL:-@cf/qwen/qwen3.8-27b}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - DASHSCOPE_MODEL=${DASHSCOPE_MODEL:-qwen-plus}
+      - DASHSCOPE_VISION_MODEL=${DASHSCOPE_VISION_MODEL:-qwen3-vl-plus}
       - RAG_MILVUS_URI=${RAG_MILVUS_URI:-}
       - RAG_MILVUS_TOKEN=${RAG_MILVUS_TOKEN:-}
-      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge}
-      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-@cf/baai/bge-m3}
+      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge_bailian_v4}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-text-embedding-v4}
+      - RAG_EMBEDDING_DIMENSIONS=${RAG_EMBEDDING_DIMENSIONS:-1024}
       - RAG_TIMEOUT_SECONDS=${RAG_TIMEOUT_SECONDS:-8}
     restart: unless-stopped
     healthcheck:

@@ -17,6 +17,7 @@ Remedi 的常规发布流程是：本地修改 → 推送到 GitHub → 服务�
 - 主机：`root@129.153.206.96`（ARM64）
 - 仓库目录：`/remedi`；只操作该目录和本项目 Docker 资源，不修改其他目录或项目。
 - 模型凭证及 Compose 参数统一放服务器 `/remedi/.env`，权限 `600`；不要打印或提交真实凭证。该文件通过 `COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml` 启用完整服务，后续发布保留此配置。
+- 用户当前指定阿里云百炼：`LLM_PROVIDER=bailian`，文字 `qwen-plus`、视觉 `qwen3-vl-plus`、向量 `text-embedding-v4`；`DASHSCOPE_API_KEY` 先留空，待用户后续补充。保留模型名称和 Milvus 参数，使用 `SEED_DEMO_DATA=false`，不得自行恢复旧 Cloudflare 凭证。模型缺失不应阻止网站、数据库或健康检查启动。
 - Python 使用虚拟环境：本地 `.venv`，后端 Docker 镜像内 `/app/.venv`；不要向宿主机全局 Python 安装项目依赖。
 - 前端发布 `5001`，后端发布 `5000`；Milvus 端口仅绑定本机，etcd/MinIO 不发布公网端口。
 - 服务器若重启或重建网络，先启动 Milvus，再运行 `bash deploy/enable_project_network.sh` 检查本项目转发规则；不改系统默认防火墙策略或其他项目规则。

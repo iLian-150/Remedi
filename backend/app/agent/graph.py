@@ -4,7 +4,7 @@
 #   START → agent ──(tools_condition: 有 tool_calls)──→ tools → agent（循环）
 #                 └──(无 tool_calls)──→ END
 #
-# LLM 走 Cloudflare Workers AI；配置缺失或调用失败时明确报错，不生成模拟回复。
+# LLM 走阿里云百炼；配置缺失或调用失败时明确报错，不生成模拟回复。
 import logging
 from time import perf_counter
 from typing import Annotated, List, Literal, TypedDict
@@ -112,16 +112,15 @@ def _build_llm(
     *, streaming: bool = True, temperature: float = 0.5,
     timeout_seconds: int | None = None,
 ):
-    """构造统一使用 Cloudflare Workers AI 的对话模型。"""
+    """构造使用百炼 OpenAI 兼容 Chat Completions 的对话与工具模型。"""
+    if settings.LLM_PROVIDER.strip().lower() not in {"bailian", "dashscope", "aliyun"}:
+        raise RuntimeError("提问模型必须配置为阿里云百炼（bailian）")
+    if not settings.DASHSCOPE_API_KEY.strip():
+        raise RuntimeError("未配置 DASHSCOPE_API_KEY（阿里云百炼）")
     from langchain_openai import ChatOpenAI
 
-    if settings.LLM_PROVIDER != "cloudflare":
-        raise RuntimeError("提问模型必须配置为 Cloudflare Workers AI")
-    if not settings.CLOUDFLARE_ACCOUNT_ID or not settings.CLOUDFLARE_API_TOKEN:
-        raise RuntimeError("Cloudflare 模型凭证未配置")
-
     class TextSafeChatOpenAI(ChatOpenAI):
-        """修正 Cloudflare 偶发返回的非文本 content，保留其余流式字段。"""
+        """过滤兼容接口的非文本 content，保留工具调用与其余流式字段。"""
 
         def _convert_chunk_to_generation_chunk(
             self, chunk, default_chunk_class, base_generation_info
@@ -144,7 +143,7 @@ def _build_llm(
                         safe_chunk["chunk"] = nested
                     chunk = safe_chunk
                     logger.debug(
-                        "忽略 Cloudflare 流式响应中的非文本 content（%s）",
+                        "忽略百炼流式响应中的非文本 content（%s）",
                         type(content).__name__,
                     )
             return super()._convert_chunk_to_generation_chunk(
@@ -152,13 +151,15 @@ def _build_llm(
             )
 
     return TextSafeChatOpenAI(
-        base_url=f"https://api.cloudflare.com/client/v4/accounts/{settings.CLOUDFLARE_ACCOUNT_ID}/ai/v1",
-        api_key=settings.CLOUDFLARE_API_TOKEN,
-        model=settings.CLOUDFLARE_MODEL,
+        base_url=settings.DASHSCOPE_BASE_URL,
+        api_key=settings.DASHSCOPE_API_KEY,
+        model=settings.DASHSCOPE_MODEL,
         temperature=temperature,
         timeout=timeout_seconds or settings.LLM_TIMEOUT_SECONDS,
         max_retries=0,
         streaming=streaming,
+        use_responses_api=False,
+        extra_body={"enable_thinking": False},
     )
 
 

@@ -74,7 +74,7 @@
             <button class="btn ghost small" :disabled="loading || mutating || !vectorEnabled || !items.length" @click="reindex">{{ reindexing ? '正在更新索引…' : '重建检索索引' }}</button>
           </div>
         </div>
-        <p v-if="!loading" class="section-hint">{{ vectorEnabled ? '已配置向量检索。首次连接或更换向量库后，请重建检索索引。' : '关键词检索可用；连接向量库后可重建索引。' }}</p>
+        <p v-if="!loading" class="section-hint">{{ vectorEnabled ? '已配置向量库。完成模型配置后，首次连接或更换向量库请重建检索索引。' : '关键词检索可用；连接向量库后可重建索引。' }}</p>
         <div v-if="loading" class="loading">加载中…</div>
         <div v-else-if="!items.length" class="empty">这个学科的知识库目前为空。</div>
         <article v-for="item in items" :key="item.id" class="knowledge-item">

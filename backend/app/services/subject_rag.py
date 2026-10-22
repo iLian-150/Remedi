@@ -28,7 +28,7 @@ _STOP_TOKENS = {
     "知识", "问题", "资料", "内容", "方法", "学习", "讲解", "解释", "分析",
     "the", "and", "for", "are", "what", "how", "please", "this", "that", "with",
 }
-_VECTOR_WARNING = "Milvus 向量服务暂不可用，当前使用 BM25 检索；服务恢复后可重新建立向量索引。"
+_VECTOR_WARNING = "向量检索尚未就绪，请检查向量模型和 Milvus 配置；当前使用 BM25，恢复后可重新建立向量索引。"
 _WRITE_TRANSACTION = "_remedi_rag_write_transaction"
 
 

@@ -12,8 +12,9 @@ ARG PIP_INDEX_URL=https://pypi.org/simple
 RUN pip install --no-cache-dir -r requirements.txt --index-url "$PIP_INDEX_URL"
 
 COPY . .
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# seed.py 幂等：库里没数据时写入演示数据（含 20 天前的历史错题，用于演示"顽固误区"识别）
-CMD ["sh", "-c", "python seed.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# 服务器可通过 SEED_DEMO_DATA=false 跳过演示数据和其中的模型调用。
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]

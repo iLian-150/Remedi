@@ -2,7 +2,7 @@
 
 多学科智能作业批改与学习诊断系统（MVP）：跑通「提交作业 → 分步诊断 → 学习记忆 → 班级反馈」完整闭环。
 
-技术栈：Python 3.12 + FastAPI + SQLAlchemy + SQLite（表结构按 PostgreSQL 兼容设计）+ sympy + pydantic。
+技术栈：Python 3.11+ + FastAPI + SQLAlchemy + SQLite（表结构按 PostgreSQL 兼容设计）+ sympy + pydantic。
 
 ## 快速开始
 
@@ -13,7 +13,7 @@ cd ~/workspace/remedi/backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
-# 2. 写入演示数据（1 名教师、2 名学生、1 份作业、2 条历史错误）
+# 2. 写入演示数据（仅本地演示可选，需配置可用模型凭证）
 .venv/bin/python seed.py
 # 重新来一遍：.venv/bin/python seed.py --reset
 
@@ -25,6 +25,8 @@ python3 -m venv .venv
 - 健康检查：http://localhost:8000/api/health
 - 接口契约：`../docs/api-contract.md`（冻结版，前后端联调依据）
 - 表设计：`../docs/schema-design.md`
+
+服务器使用 Docker 部署，前端对外端口为 `5001`，后端对外端口为 `5000`，后端容器内部仍监听 `8000`。后端容器的 Python 虚拟环境位于 `/app/.venv`；本地依赖同样安装到 `.venv`，不要安装到宿主机全局 Python。服务器配置统一保存在 `/remedi/.env`，其中 `SEED_DEMO_DATA=false` 跳过启动时的演示数据初始化。完整部署步骤见 [Milvus 与 Remedi 部署说明](../docs/milvus-rag.md)。
 
 ## 演示流程（curl）
 
@@ -68,16 +70,21 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./remedi.db` | 数据库连接串；切 PG 改为 `postgresql+psycopg2://…` |
-| `LLM_PROVIDER` | `cloudflare` | 当前固定使用 Cloudflare Workers AI；其他值会明确报错，不自动切 Mock |
-| `CLOUDFLARE_ACCOUNT_ID` | 空 | Cloudflare 账号 ID；必填 |
-| `CLOUDFLARE_API_TOKEN` | 空 | Workers AI API Token；必填 |
-| `CLOUDFLARE_MODEL` | `@cf/qwen/qwen3-30b-a3b-fp8` | 文本问答模型 |
-| `CLOUDFLARE_VISION_MODEL` | `@cf/qwen/qwen3.8-27b` | 图片识别模型 |
+| `LLM_PROVIDER` | `bailian` | 阿里云百炼；模型未配置或调用失败时明确报错，不自动切 Mock |
+| `DASHSCOPE_API_KEY` | 空 | 百炼 API Key，当前先留空，后续由用户补充 |
+| `DASHSCOPE_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 北京地域的 OpenAI 兼容接口，需与 Key 的开通地域一致 |
+| `DASHSCOPE_MODEL` | `qwen-plus` | 文本问答模型 |
+| `DASHSCOPE_VISION_MODEL` | `qwen3-vl-plus` | 图片识别模型 |
+| `RAG_EMBEDDING_MODEL` | `text-embedding-v4` | 学科知识库向量化模型，通过百炼接口调用 |
+| `RAG_EMBEDDING_DIMENSIONS` | `1024` | 向量维度；变更模型或维度后按部署说明使用匹配的 Milvus 集合并重建索引 |
+| `SEED_DEMO_DATA` | 服务器为 `false` | 关闭 Docker 启动时的演示数据初始化，保留已有数据 |
 | `LLM_TIMEOUT_SECONDS` | `120` | 对话模型等待上限（秒） |
 | `STUBBORN_WINDOW_DAYS` | `30` | 顽固误区判定窗口（天） |
 | `CORS_ORIGINS` | `*` | 允许的前端来源，逗号分隔 |
 
 **注意**：不要在代码或文档里硬编码任何真实 API key，一律走环境变量。
+
+新加坡地域账号使用 `DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1`。当前 `DASHSCOPE_API_KEY` 保持为空；网站、数据库与健康检查可以正常启动，知识库先使用 BM25 关键词检索。AI 问答、图片识别和 embedding 需要后续补齐有效 Key；补齐配置后，可从教师端学科知识库重建检索索引。
 
 ## 目录结构
 
@@ -93,7 +100,7 @@ backend/
 │   ├── services/
 │   │   ├── mathparse.py   # sympy 安全解析（parse_expr 白名单）
 │   │   ├── diagnosis.py   # 分步诊断、等价性判定、误区模式库、顽固判定、订正判定
-│   │   ├── providers.py   # Cloudflare Workers AI Provider；失败明确报错
+│   │   ├── providers.py   # 阿里云百炼 Provider；失败明确报错
 │   │   ├── essays.py      # 作文评分落库
 │   │   └── stats.py       # TopN / 知识点排行 / 学生画像
 │   └── routers/
@@ -114,7 +121,7 @@ backend/
 - 找到**第一个**不等价步骤即停止（后续记 skipped），做错因分类。
 - 解析失败的步骤记 `无法解析`（置信度 0.3），流程继续、基准不变。
 
-**错因分类**（先规则后模型）：误区模式库（(a±b)² 漏交叉项 / 移项不变号 / 分配律漏乘）命中→概念混淆（0.85）；数字微调 ±1/±2/±3 后等价→计算失误（0.7）；兜底→审题遗漏（0.5）。之后由 Cloudflare Workers AI 复核；模型不可用时只保留本地规则判断，不拼接模拟回复。
+**错因分类**（先规则后模型）：误区模式库（(a±b)² 漏交叉项 / 移项不变号 / 分配律漏乘）命中→概念混淆（0.85）；数字微调 ±1/±2/±3 后等价→计算失误（0.7）；兜底→审题遗漏（0.5）。之后由阿里云百炼模型复核；模型不可用时只保留本地规则判断，不拼接模拟回复。
 
 **顽固误区**：同学生同知识点过去 N 天（默认 30）内已有错误 → `is_stubborn=true`。
 
@@ -127,5 +134,5 @@ backend/
 3. **算术偏差检测只试 ±1/±2/±3 的数字微调**，复杂口算错误（如 7×8=54）识别不到。
 4. **隐式乘法与符号**：`2x` 可解析；但 `xy` 会被当作单个变量名；中文注释会被剥离，残留中文则整步记无法解析。
 5. **订正判定**只验证"订正内容与出错前一步等价"，不检查订正是否真正修复了错误类型。
-6. 当前部署不启用 Mock 作文评分；作文评分使用 Cloudflare Workers AI，调用失败会返回模型错误。
+6. 当前部署不启用 Mock 作文评分；作文评分使用阿里云百炼模型，API Key 未配置或调用失败会返回模型错误。
 7. SQLite 已启用 WAL，并会等待数据库锁最多 30 秒，以减少读写竞争；但 SQLite 仍然一次只能有一个写事务。写并发较高时应切换到 PostgreSQL（表结构已兼容，改 `DATABASE_URL` 即可）。

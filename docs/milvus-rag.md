@@ -1,6 +1,6 @@
 # 学科 RAG 与 Milvus 部署
 
-学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、Cloudflare 超时或索引暂不可用时，问答继续使用本地检索。
+学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、百炼向量模型超时或索引暂不可用时，资料检索继续使用本地 BM25。
 
 ## 镜像与 ARM64
 
@@ -10,7 +10,7 @@
 
 ## 配置统一放在 .env
 
-部署目录为 `/remedi`。在该目录的服务器本地 `.env` 中保留已有 Cloudflare 配置并添加以下配置，不要提交真实凭证：
+部署目录为 `/remedi`。文字、视觉、向量化统一使用阿里云百炼；配置放在服务器本地 `.env`，不要提交真实凭证：
 
 ```dotenv
 COMPOSE_PROJECT_NAME=remedi
@@ -18,9 +18,16 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml
 WEB_PORT=5001
 API_PORT=5000
 BUILD_NETWORK=host
+SEED_DEMO_DATA=false
+LLM_PROVIDER=bailian
+DASHSCOPE_API_KEY=
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_MODEL=qwen-plus
+DASHSCOPE_VISION_MODEL=qwen3-vl-plus
 RAG_MILVUS_URI=http://milvus:19530
-RAG_MILVUS_COLLECTION=remedi_subject_knowledge
-RAG_EMBEDDING_MODEL=@cf/baai/bge-m3
+RAG_MILVUS_COLLECTION=remedi_subject_knowledge_bailian_v4
+RAG_EMBEDDING_MODEL=text-embedding-v4
+RAG_EMBEDDING_DIMENSIONS=1024
 RAG_TIMEOUT_SECONDS=8
 RAG_MINIO_ROOT_USER=remedi-rag
 RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
@@ -30,20 +37,34 @@ RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 
 `BUILD_NETWORK=host` 使镜像构建阶段使用宿主机的网络与 DNS，适配本服务器构建桥接网络无法解析域名的情况；API、前端和向量服务运行时仍使用项目 Docker 内网。无需修改全局 Docker 配置或系统 DNS。
 
+`SEED_DEMO_DATA=false` 跳过启动时的演示数据生成及其模型请求，不删除已有数据。当前服务器按用户要求将 `DASHSCOPE_API_KEY` 留空；数据库健康检查不实例化模型，网站、后端和 BM25 资料检索可独立启动。AI 问答及向量化在补齐可用凭证后启用，不会返回模拟答案。旧 Cloudflare 配置不再参与运行。
+
+后续在 `/remedi/.env` 填写 `DASHSCOPE_API_KEY`，再执行：
+
+```bash
+cd /remedi
+docker compose up -d --force-recreate api
+```
+
+之后在教师知识库点击“重建检索索引”，将模型未配置期间导入的资料同步到 Milvus。模型名称、向量库和 MinIO 参数已经预置，无需将真实令牌加入 Git 或镜像。默认地址对应北京地域；若账号使用新加坡等地域，按[百炼兼容接口文档](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)修改 `DASHSCOPE_BASE_URL`，API Key 须与地域匹配。
+
 | 环境变量 | 默认值 / 用途 |
 | --- | --- |
 | `RAG_MILVUS_URI` | 应用默认空；overlay 默认 `http://milvus:19530` |
 | `RAG_MILVUS_TOKEN` | 空；外部实例启用鉴权时填写对应 token |
-| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge` |
-| `RAG_EMBEDDING_MODEL` | `@cf/baai/bge-m3` |
+| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_bailian_v4` |
+| `RAG_EMBEDDING_MODEL` | `text-embedding-v4` |
+| `RAG_EMBEDDING_DIMENSIONS` | `1024`；入库与查询一致 |
 | `RAG_TIMEOUT_SECONDS` | `8`；单次网络操作超时，上限 30 秒 |
-| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | 复用 Workers AI 凭证 |
+| `DASHSCOPE_API_KEY` | 百炼 API Key，当前留空，用户后续填写 |
+| `DASHSCOPE_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `DASHSCOPE_MODEL` / `DASHSCOPE_VISION_MODEL` | `qwen-plus` / `qwen3-vl-plus` |
 | `RAG_MINIO_ROOT_USER` / `RAG_MINIO_ROOT_PASSWORD` | overlay 必填；独立 MinIO 账户和密码 |
 | `RAG_MILVUS_IMAGE` | `milvusdb/milvus:v2.6.25` |
 | `RAG_ETCD_IMAGE` | `quay.io/coreos/etcd:v3.5.25` |
 | `RAG_MINIO_IMAGE` | `milvusdb/minio:RELEASE.2024-12-18T13-15-44Z` |
 
-向量化使用 [Cloudflare BGE-M3 批量接口](https://developers.cloudflare.com/workers-ai/models/bge-m3/)，每批最多 16 个片段。集合保存片段 ID、文档 ID、学科、模型和向量，使用 COSINE / AUTOINDEX。[服务端检索](https://milvus.io/api-reference/pymilvus/v2.6.x/MilvusClient/Vector/search.md)同时过滤学科和向量模型；业务层还会核验片段仍存在于当前学科。更换模型时更换集合名并重新索引，避免混用向量空间。
+向量化使用[百炼 OpenAI 兼容 Embeddings 接口](https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api)，`text-embedding-v4` 每批最多 10 个片段，显式指定 1024 维，按响应 `index` 恢复输入顺序并验证数量、维数和数值。集合保存片段 ID、文档 ID、学科、模型和向量，使用 COSINE / AUTOINDEX。[服务端检索](https://milvus.io/api-reference/pymilvus/v2.6.x/MilvusClient/Vector/search.md)同时过滤学科和向量模型；业务层还会核验片段仍存在于当前学科。更换模型或维数时更换集合名并重新索引，避免混用向量空间。
 
 ## 启动与数据位置
 
@@ -140,4 +161,4 @@ cd backend
 python smoke_rag_milvus.py
 ```
 
-脚本使用真实 PyMilvus SDK 构造 schema 和索引参数，模拟全部网络调用，验证维数、批次、学科/模型过滤、连接/集合复用和异常处理。它不连接真实 Milvus 或 Cloudflare，不能替代服务启动后的集成验证。
+脚本使用真实 PyMilvus SDK 构造 schema 和索引参数，模拟全部网络调用，验证维数、批次、学科/模型过滤、连接/集合复用和异常处理。它不连接真实 Milvus 或百炼，不能替代服务启动后的集成验证。

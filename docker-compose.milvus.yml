@@ -7,8 +7,9 @@ services:
     environment:
       - RAG_MILVUS_URI=${RAG_MILVUS_URI:-http://milvus:19530}
       - RAG_MILVUS_TOKEN=${RAG_MILVUS_TOKEN:-}
-      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge}
-      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-@cf/baai/bge-m3}
+      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge_bailian_v4}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-text-embedding-v4}
+      - RAG_EMBEDDING_DIMENSIONS=${RAG_EMBEDDING_DIMENSIONS:-1024}
       - RAG_TIMEOUT_SECONDS=${RAG_TIMEOUT_SECONDS:-8}
 
   milvus-etcd:

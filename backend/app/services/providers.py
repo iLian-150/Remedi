@@ -1,6 +1,6 @@
 # LLM Provider 抽象层。
 #   - LLMProvider：抽象类，定义 classify_error / score_essay / generate_feedback
-#   - CloudflareProvider：统一调用 Cloudflare Workers AI；未配置凭证或调用失败时明确报错，
+#   - BailianProvider：统一调用阿里云百炼 OpenAI 兼容接口；未配置凭证或调用失败时明确报错，
 #     不返回 Mock 模拟结果。
 import base64
 import json
@@ -71,7 +71,7 @@ class LLMProvider(ABC):
         """按题干猜知识点名（v0.13.0）：发布页知识点栏「AI 识别」的兜底实现。
 
         关键词启发式（离线可用）；命中不了返回空串，前端会提示教师手动填。
-        真实 Provider（DeepSeekProvider 及继承它的 Cloudflare）覆写为文本模型判断。
+        真实 Provider 覆写为文本模型判断。
         结果只是建议：教师可改，且知识点归类不经过它判对错。"""
         s = question_stem or ""
         rules = [
@@ -93,14 +93,14 @@ class LLMProvider(ABC):
                                     hint: str = "") -> List[Dict]:
         """从练习册页面图里提取题目草稿（v0.13.0）：返回 [{prompt, knowledge_point}]。
 
-        未实现视觉识别的 Provider 明确报错；CloudflareProvider 由视觉模型逐页拆题。
+        未实现视觉识别的 Provider 明确报错；视觉 Provider 由模型逐页拆题。
         契约：返回值永远只是草稿——发布前必须由教师在题目卡里检查修改。"""
         raise RuntimeError("当前模型 Provider 不支持练习册页面识别")
 
     def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:
         """拍照识别大题（v0.13.11）：一张图 → {stem, sub_questions:[{question_text, steps}]}。
 
-        未实现视觉识别的 Provider 明确报错；CloudflareProvider 由视觉模型一次拆出共同题干与全部小题——
+        未实现视觉识别的 Provider 明确报错；视觉 Provider 由模型一次拆出共同题干与全部小题——
         识别入口在大题层级，不再逐个小题拍照。与单题转写同一契约：
         返回值永远只是草稿，教师检查修改后才发布。"""
         raise RuntimeError("当前模型 Provider 不支持大题图片识别")
@@ -109,7 +109,7 @@ class LLMProvider(ABC):
 # ---------------------------------------------------------------- DeepSeek
 
 class DeepSeekProvider(LLMProvider):
-    """调 OpenAI 兼容 Chat Completions。CloudflareProvider 复用此请求实现。"""
+    """OpenAI 兼容 Chat Completions 的公共请求和教学任务实现。"""
 
     def __init__(self, api_key: str, base_url: str, model: str):
         if not api_key:
@@ -117,6 +117,10 @@ class DeepSeekProvider(LLMProvider):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
+
+    def _extra_request_body(self) -> Dict:
+        """提供方特有参数直接合入 HTTP 请求体。"""
+        return {}
 
     def _chat(self, system: str, user: str, temperature: float = 0.2) -> str:
         import requests
@@ -132,6 +136,7 @@ class DeepSeekProvider(LLMProvider):
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                **self._extra_request_body(),
             },
             timeout=settings.LLM_TIMEOUT_SECONDS,
         )
@@ -155,6 +160,7 @@ class DeepSeekProvider(LLMProvider):
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                **self._extra_request_body(),
             },
             timeout=settings.LLM_TIMEOUT_SECONDS,
             stream=True,
@@ -294,57 +300,19 @@ class DeepSeekProvider(LLMProvider):
             raise RuntimeError("变式题生成失败，请稍后重试") from e
 
 
-# ---------------------------------------------------------------- Cloudflare Workers AI
+# ---------------------------------------------------------------- OpenAI 兼容视觉任务
 
-class CloudflareProvider(DeepSeekProvider):
-    """调 Cloudflare Workers AI 的 OpenAI 兼容接口。
+class OpenAICompatibleVisionProvider(DeepSeekProvider):
+    """通用多模态请求和识别任务；不包含任何厂商专属 URL 或路由。"""
 
-    base_url 形如 https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1，
-    其 /chat/completions 与 DeepSeek 的请求/响应结构一致，直接复用父类逻辑。
-    默认模型 @cf/qwen/qwen3.8-27b（质量更高；单价约为旧 30b-a3b 的 9 倍，免费额度内约数十次对话/天）。
-    未配置 account_id / token 时构造抛错；模型不可用时明确报错，不生成模拟内容。
-    """
-
-    def __init__(self, account_id: str, api_token: str, model: str,
-                 vision_model: str = "@cf/qwen/qwen3.8-27b"):
-        if not account_id or not api_token:
-            raise RuntimeError("未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN")
-        base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
-        super().__init__(api_key=api_token, base_url=base_url, model=model)
+    def __init__(self, api_key: str, base_url: str, model: str, vision_model: str):
+        super().__init__(api_key=api_key, base_url=base_url, model=model)
         self.vision_model = vision_model
-        self.account_id = account_id
 
     def _vision_text(self, data_url: str, system_text: str, prompt: str,
                      timeout: int) -> str:
-        """视觉调用分流（v0.13.7）：统一返回模型的文本输出，JSON 解析由调用方做。
-
-        - Moondream 3.1 不走 OpenAI 兼容的 /chat/completions，而是 Workers AI 的
-          任务式接口 POST /ai/run/{model}，入参 {task:"query", image:<data URI>,
-          question:<指令>, reasoning:false}，文本结果在 result.answer 里。
-        - 其余聊天式视觉模型（如 llama 系列）继续走原来的 /chat/completions。
-        """
+        """通过标准 image_url 内容块读取图片；JSON 结果由教学任务解析。"""
         import requests
-        if "moondream" in self.vision_model:
-            resp = requests.post(
-                "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}".format(
-                    self.account_id, self.vision_model),
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "task": "query",
-                    "image": data_url,
-                    "question": f"{system_text}\n{prompt}",
-                    "reasoning": False,
-                    "temperature": 0.1,
-                    "max_tokens": 4096,
-                },
-                timeout=timeout,
-            )
-            resp.raise_for_status()
-            payload = resp.json()
-            answer = (payload.get("result") or {}).get("answer")
-            if not answer:
-                raise RuntimeError(f"Moondream 未返回 answer: {str(payload)[:200]}")
-            return str(answer)
         resp = requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
@@ -361,6 +329,7 @@ class CloudflareProvider(DeepSeekProvider):
                         ],
                     },
                 ],
+                **self._extra_request_body(),
             },
             timeout=timeout,
         )
@@ -384,17 +353,6 @@ class CloudflareProvider(DeepSeekProvider):
             "用户的问题：{}".format(question.strip() or "请讲解图片中的题目。")
         )
 
-        # Moondream 的任务式接口暂不提供 OpenAI SSE；仍让视觉模型直接看图，
-        # 前端会逐字呈现返回文本，其他视觉模型使用原生流式接口。
-        if "moondream" in self.vision_model:
-            yield self._vision_text(
-                data_url,
-                "你是认真、耐心的学习辅导老师。",
-                prompt,
-                timeout=settings.LLM_TIMEOUT_SECONDS,
-            )
-            return
-
         response = requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
@@ -413,6 +371,7 @@ class CloudflareProvider(DeepSeekProvider):
                         ],
                     },
                 ],
+                **self._extra_request_body(),
             },
             timeout=settings.LLM_TIMEOUT_SECONDS,
             stream=True,
@@ -705,26 +664,91 @@ class CloudflareProvider(DeepSeekProvider):
             raise RuntimeError("练习册页面识别失败，请稍后重试") from e
 
 
+# ---------------------------------------------------------------- 阿里云百炼
+
+class BailianProvider(OpenAICompatibleVisionProvider):
+    """百炼文本和视觉均走 DashScope OpenAI 兼容 Chat Completions。"""
+
+    def __init__(self, api_key: str, base_url: str, model: str,
+                 vision_model: str = "qwen3-vl-plus"):
+        if not api_key or not api_key.strip():
+            raise RuntimeError("未配置 DASHSCOPE_API_KEY（阿里云百炼）")
+        if not base_url or not base_url.strip() or not model.strip() or not vision_model.strip():
+            raise RuntimeError("阿里云百炼接口地址或模型名称未配置")
+        super().__init__(api_key=api_key.strip(), base_url=base_url.strip(),
+                         model=model.strip(), vision_model=vision_model.strip())
+
+    def _extra_request_body(self) -> Dict:
+        # 直接 HTTP 请求须放在顶层；同步任务和工具调用不输出思考过程。
+        return {"enable_thinking": False}
+
+
+# ---------------------------------------------------------------- 旧 Cloudflare 兼容类（工厂不再使用）
+
+class CloudflareProvider(OpenAICompatibleVisionProvider):
+    """保留旧调用方的类型与 Moondream 适配；不会被活动提供方工厂选择。"""
+
+    def __init__(self, account_id: str, api_token: str, model: str,
+                 vision_model: str = "@cf/qwen/qwen3.8-27b"):
+        if not account_id or not api_token:
+            raise RuntimeError("未配置 CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN")
+        self.account_id = account_id
+        super().__init__(api_key=api_token,
+                         base_url=f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+                         model=model, vision_model=vision_model)
+
+    def _vision_text(self, data_url: str, system_text: str, prompt: str, timeout: int) -> str:
+        if "moondream" not in self.vision_model:
+            return super()._vision_text(data_url, system_text, prompt, timeout)
+        import requests
+
+        response = requests.post(
+            f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.vision_model}",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={"task": "query", "image": data_url, "question": f"{system_text}\n{prompt}",
+                  "reasoning": False, "temperature": 0.1, "max_tokens": 4096},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        answer = (response.json().get("result") or {}).get("answer")
+        if not answer:
+            raise RuntimeError("Moondream 未返回 answer")
+        return str(answer)
+
+    def stream_image_answer(self, image_bytes: bytes, content_type: str, question: str = ""):
+        if "moondream" not in self.vision_model:
+            yield from super().stream_image_answer(image_bytes, content_type, question)
+            return
+        from ..config import settings
+
+        data_url = "data:{};base64,{}".format(
+            content_type or "image/jpeg", base64.b64encode(image_bytes).decode("ascii"),
+        )
+        yield self._vision_text(data_url, "你是认真、耐心的学习辅导老师。",
+                                "请直接观察原图并讲解题目。用户的问题：" + (question or "请讲解图片中的题目。"),
+                                settings.LLM_TIMEOUT_SECONDS)
+
+
 # ---------------------------------------------------------------- 工厂
 
 _provider = None
 
 
 def get_provider() -> LLMProvider:
-    """只返回 Cloudflare Provider；配置或服务异常时抛错，不自动切换到模拟实现。"""
+    """只返回百炼 Provider；缺少 Key 或调用异常时明确报错，不生成假答案。"""
     global _provider
     if _provider is not None:
         return _provider
     from ..config import settings
-    if settings.LLM_PROVIDER != "cloudflare":
-        raise RuntimeError("LLM_PROVIDER 必须设为 cloudflare，当前不提供 Mock 或其他模型")
-    _provider = CloudflareProvider(
-        account_id=settings.CLOUDFLARE_ACCOUNT_ID,
-        api_token=settings.CLOUDFLARE_API_TOKEN,
-        model=settings.CLOUDFLARE_MODEL,
-        vision_model=settings.CLOUDFLARE_VISION_MODEL,
+    if settings.LLM_PROVIDER.strip().lower() not in {"bailian", "dashscope", "aliyun"}:
+        raise RuntimeError("LLM_PROVIDER 必须设为 bailian（阿里云百炼），当前不提供 Mock 或其他模型")
+    _provider = BailianProvider(
+        api_key=settings.DASHSCOPE_API_KEY,
+        base_url=settings.DASHSCOPE_BASE_URL,
+        model=settings.DASHSCOPE_MODEL,
+        vision_model=settings.DASHSCOPE_VISION_MODEL,
     )
-    logger.info("LLM Provider: cloudflare (%s)", settings.CLOUDFLARE_MODEL)
+    logger.info("LLM Provider: bailian (%s)", settings.DASHSCOPE_MODEL)
     return _provider
 
 

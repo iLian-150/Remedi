@@ -22,5 +22,5 @@ def health(db: Session = Depends(get_db)):
 
 
 def get_provider_name() -> str:
-    from ..services.providers import get_provider
-    return type(get_provider()).__name__.replace("Provider", "").lower()
+    """返回配置的提供方名称；进程健康检查不初始化或探测 AI 服务。"""
+    return settings.LLM_PROVIDER
