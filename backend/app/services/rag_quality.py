@@ -9,6 +9,12 @@ _FORMULA_RE = re.compile(
     rf"(?<![a-z0-9_]){_FORMULA_TERM}(?:\s*(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)\s*{_FORMULA_TERM})+(?![a-z0-9_])",
     re.IGNORECASE,
 )
+_SUPERSCRIPT_RE = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]+")
+_SUPERSCRIPT_MAP = str.maketrans({
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+    "⁺": "+", "⁻": "-",
+})
 _FORMULA_REPLACEMENTS = (
     (r"\\(?:times|cdot)", "*"),
     (r"\\div", "/"),
@@ -28,12 +34,17 @@ _FORMULA_REPLACEMENTS = (
 def formula_tokens(text: str) -> list[str]:
     """Return exact, whitespace/operator-normalized equation tokens.
 
+    Common superscripts and Unicode fraction bars are normalized before matching.
     A formula token contains its operators, so a one-letter variable can be
     useful evidence without making arbitrary single letters searchable. Pure
     arithmetic expressions are omitted unless they state an equation or
     comparison; this keeps a shared number such as ``2`` from becoming a hit.
     """
-    value = unicodedata.normalize("NFKC", text or "").lower()
+    value = _SUPERSCRIPT_RE.sub(
+        lambda match: "^" + match.group(0).translate(_SUPERSCRIPT_MAP),
+        text or "",
+    )
+    value = unicodedata.normalize("NFKC", value).lower().replace("⁄", "/")
     for source, replacement in _FORMULA_REPLACEMENTS:
         value = re.sub(source, replacement, value) if source.startswith("\\") else value.replace(source, replacement)
     # A numeric coefficient immediately before a variable is implicit multiplication.

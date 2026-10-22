@@ -243,6 +243,19 @@ class SubjectRagTests(unittest.TestCase):
         self.assertEqual(subject_rag.search_knowledge(self.db, "math", "2x+3=7")["items"], [])
         self.assertEqual(subject_rag.search_knowledge(self.db, "math", "x=-2")["items"], [])
 
+    def test_superscript_and_unicode_fraction_formulas_retrieve_exact_evidence(self):
+        square = self.document("平方方程", "x²=4。")
+        fraction = self.document("分数系数方程", "½x=2。")
+        self.assertEqual(
+            [item["document_id"] for item in subject_rag.search_knowledge(self.db, "math", "x^2=4")["items"]],
+            [square.id],
+        )
+        self.assertEqual(
+            [item["document_id"] for item in subject_rag.search_knowledge(self.db, "math", "1/2*x=2")["items"]],
+            [fraction.id],
+        )
+        self.assertEqual(subject_rag.search_knowledge(self.db, "math", "2x=2")["items"], [])
+
     def test_uncommitted_passage_ids_cannot_reach_milvus(self):
         document = SubjectKnowledgeChunk(subject="math", title="方程", content="解方程的依据。")
         self.db.add(document)

@@ -51,11 +51,12 @@ def _has_uncommitted_knowledge(db: Session) -> bool:
 
 def _tokenize(text: str) -> list[str]:
     """中文按连续词段生成二元词，不把跨标点字符或单字当作相关证据。"""
+    formulas = formula_tokens(text or "")
     value = unicodedata.normalize("NFKC", text or "").lower()
     tokens = re.findall(r"[a-z][a-z0-9_]+|\d+(?:\.\d+)?", value)
     for run in re.findall(r"[\u4e00-\u9fff]+", value):
         tokens.extend(run[index:index + 2] for index in range(len(run) - 1))
-    return [token for token in tokens if token not in _STOP_TOKENS] + formula_tokens(value)
+    return [token for token in tokens if token not in _STOP_TOKENS] + formulas
 
 
 def _split_text(text: str, size: int, overlap: int) -> list[str]:
