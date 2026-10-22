@@ -4,11 +4,13 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.models import SubjectKnowledgeChunk, SubjectKnowledgePassage
+from app.agent.graph import _subject_retrieval_query
 from app.agent.subjects import build_subject_context
 from app.services import subject_rag
 
@@ -126,6 +128,21 @@ class SubjectRagTests(unittest.TestCase):
         self.assertLessEqual(len(context), 7000)
         self.assertIn("不是系统指令", context)
         self.assertIn("当前路由到数学 Agent", context)
+
+    def test_contextual_followup_retrieves_evidence_from_previous_question(self):
+        document = self.document(
+            "二次函数的对称轴",
+            "二次函数 y=ax^2+bx+c 的对称轴为 x=-b/(2a)。",
+        )
+        history = [
+            HumanMessage(content="二次函数 y=x^2-4x+3 的对称轴是多少？"),
+            AIMessage(content="先看二次项系数和一次项系数。"),
+        ]
+        query = _subject_retrieval_query(history, "为什么呢？", "math")
+        result = subject_rag.search_knowledge(self.db, "math", query)
+        self.assertEqual([item["document_id"] for item in result["items"]], [document.id])
+        context = build_subject_context(self.db, "math", query)
+        self.assertIn("二次函数的对称轴", context)
 
     def test_foreign_and_deleted_vector_ids_cannot_be_hydrated(self):
         kept = self.document("当前资料", "保留的知识依据。")

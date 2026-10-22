@@ -17,7 +17,9 @@ from ..config import settings
 from ..models import User
 from ..services.stats import student_briefing
 from .prompts import build_system_prompt
-from .subjects import SUBJECT_AGENTS, build_subject_context, detect_subject, normalize_subject
+from .subjects import (
+    SUBJECT_AGENTS, build_subject_context, detect_subject, mentions_subject, normalize_subject,
+)
 from ..services.learning_memory import student_memory_to_text
 from ..services.bailian_options import bailian_request_options, is_kimi_k3
 from .tools import build_tools, student_notebook_to_text
@@ -31,6 +33,47 @@ _STUDENT_INTENTS = {
     "tutoring": "学科学习答疑",
     "learning_data": "作业、订正进度或学习报告查询",
 }
+_RAG_FOLLOW_UP_MARKERS = (
+    "这个", "这些", "那一步", "这一步", "那种", "这种", "它", "上面", "刚才",
+    "继续", "还有吗", "还有呢", "还有别的", "还有其他", "换一种", "再讲", "再说",
+    "再解释", "展开说", "详细讲", "然后呢", "为什么呢", "怎么呢",
+)
+_RAG_ACKNOWLEDGEMENTS = {"谢谢", "好的", "明白", "嗯", "是的", "行", "收到", "好", "ok", "thanks"}
+
+
+def _is_rag_follow_up(text: str) -> bool:
+    value = (text or "").strip()
+    if len(value) > 48:
+        return False
+    normalized = value.lower().rstrip(" ?？.!。！")
+    return normalized in {"为什么", "怎么做", "怎么回事", "还有吗"} or any(
+        marker in value for marker in _RAG_FOLLOW_UP_MARKERS
+    )
+
+
+def _subject_retrieval_query(
+    history: List[BaseMessage], user_text: str, subject: str | None,
+) -> str:
+    """Make a short anaphoric follow-up searchable using its recent same-subject question."""
+    current = (user_text or "").strip()
+    if not _is_rag_follow_up(current):
+        return current
+
+    for message in reversed(history[-12:]):
+        if not isinstance(message, HumanMessage) or not isinstance(message.content, str):
+            continue
+        previous = message.content.strip()
+        if not previous or previous.lower() in _RAG_ACKNOWLEDGEMENTS:
+            continue
+        if _is_rag_follow_up(previous):
+            continue
+        previous_subject = detect_subject(previous)
+        if previous_subject is not None and previous_subject != subject:
+            continue
+        if previous_subject is None and mentions_subject(previous):
+            continue
+        return f"{previous[:1600]}\n{current}"[:2000]
+    return current
 
 
 @tool("route_student_request")
@@ -267,8 +310,12 @@ def agent_reply_stream(db: Session, student: User,
             "学生 Agent 意图路由完成（intent=%s, subject=%s, student_id=%s）",
             intent, subject or "unknown", student.id,
         )
+    rag_query = (
+        _subject_retrieval_query(history, user_text, subject)
+        if not safe_tools_only else user_text
+    )
     subject_context = (
-        build_subject_context(db, subject, user_text)
+        build_subject_context(db, subject, rag_query)
         if intent in {"grading", "tutoring"} and subject else ""
     )
     if safe_tools_only:

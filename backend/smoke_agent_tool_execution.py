@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from langchain_core.language_models.chat_models import BaseChatModel, generate_from_stream
-from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGenerationChunk
 from pydantic import Field
 from sqlalchemy import create_engine
@@ -147,6 +147,40 @@ class AgentToolExecutionTests(unittest.TestCase):
         ), patch("app.agent.graph.build_subject_context") as retrieve:
             self.student_reply(model)
         retrieve.assert_not_called()
+
+    def test_student_rag_followup_reuses_recent_question_as_search_context(self):
+        history = [
+            HumanMessage(content="二次函数 y=x^2-4x+3 的对称轴是多少？"),
+            AIMessage(content="先看二次项系数和一次项系数。"),
+        ]
+        model = ScriptedToolModel()
+        with patch(
+            "app.agent.graph._classify_student_request",
+            return_value=("tutoring", "math"),
+        ), patch("app.agent.graph.build_subject_context") as retrieve, patch(
+            "app.agent.graph._build_llm", return_value=model,
+        ):
+            result = consume(agent_reply_stream(self.db, self.student, history, "为什么呢？"))
+        self.assertEqual(result["reply"], "已处理本次工具结果。")
+        retrieval_query = retrieve.call_args.args[2]
+        self.assertIn("二次函数", retrieval_query)
+        self.assertIn("为什么呢？", retrieval_query)
+
+    def test_student_rag_followup_does_not_mix_an_explicit_other_subject(self):
+        history = [
+            HumanMessage(content="生物的光合作用过程是什么？"),
+            AIMessage(content="植物利用光能合成有机物。"),
+        ]
+        model = ScriptedToolModel()
+        with patch(
+            "app.agent.graph._classify_student_request",
+            return_value=("tutoring", "physics"),
+        ), patch("app.agent.graph.build_subject_context") as retrieve, patch(
+            "app.agent.graph._build_llm", return_value=model,
+        ):
+            consume(agent_reply_stream(self.db, self.student, history, "这个过程如何理解？"))
+        retrieval_query = retrieve.call_args.args[2]
+        self.assertEqual(retrieval_query, "这个过程如何理解？")
 
     @contextmanager
     def observe_overlap(self, method):
