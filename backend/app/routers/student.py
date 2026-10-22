@@ -719,13 +719,21 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
     q = _student_accessible_question(db, current, data.question_id)
     if q.subject != "math":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题是作文题，请使用 /api/student/essays 提交")
-    # v0.13.1：按请求接收时刻检查提交锁，并固定本次是否进入延迟批改窗口。
+    # 先快速拒绝重复提交；写入前再持数据库锁复查，关闭并发双击竞态。
+    received_at = deferral_svc.deadline_now()
     deferred_mode = deferral_svc.assert_can_submit(
-        db, current, q, received_at=deferral_svc.deadline_now()
+        db, current, q, received_at=received_at,
+    )
+    before_save = lambda: deferral_svc.lock_and_assert_can_submit(
+        db, current, q, received_at=received_at,
     )
     if deferred_mode:
-        return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
-    submission, steps, errors = diagnose_submission(db, current, q, data.steps)
+        return deferral_svc.deferred_out(deferral_svc.create_deferred(
+            db, current, q, data.steps, before_save=before_save,
+        ))
+    submission, steps, errors = diagnose_submission(
+        db, current, q, data.steps, before_save=before_save,
+    )
     # 整份作业结算后按百分制得分决定是否进入教师审核队列。
     expire_on_commit = db.expire_on_commit
     db.expire_on_commit = False
@@ -2135,15 +2143,23 @@ def submit_essay(body: EssayCreate, db: Session = Depends(get_db),
                  current: User = Depends(require_student)):
     question = None
     deferred = False
+    received_at = None
     if body.question_id:
         question = _student_accessible_question(db, current, body.question_id)
         if question.subject != "english":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题不是作文题")
+        received_at = deferral_svc.deadline_now()
         deferred = deferral_svc.assert_can_submit_essay(
-            db, current, question, received_at=deferral_svc.deadline_now(),
+            db, current, question, received_at=received_at,
         )
+    before_save = (
+        lambda: deferral_svc.lock_and_assert_can_submit(
+            db, current, question, received_at=received_at, essay=True,
+        ) if question is not None else None
+    )
     return score_and_save_essay(
         db, current, body.text.strip(), question, deferred=deferred,
+        before_save=before_save,
     )
 
 
@@ -2742,6 +2758,9 @@ async def photo_review(
     deferred_mode = deferral_svc.assert_can_submit(
         db, current, question, received_at=received_at
     )
+    before_save = lambda: deferral_svc.lock_and_assert_can_submit(
+        db, current, question, received_at=received_at,
+    )
     if deferred_mode:
         if stored_image_path is None:
             os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -2763,6 +2782,7 @@ async def photo_review(
             submission = deferral_svc.create_deferred(
                 db, current, question, steps,
                 image_path=stored_image_path, image_name=image_name,
+                before_save=before_save,
             )
         except Exception:
             _remove_unreferenced_upload(db, stored_image_path)
@@ -2784,7 +2804,8 @@ async def photo_review(
         }
 
     submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
-        db, current, question, visual_steps, commit=False
+        db, current, question, visual_steps, commit=False,
+        before_save=before_save,
     )
     if stored_image_path is None:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -2984,6 +3005,10 @@ async def photo_diagnose(
             "照片中没有识别到学生作答，没有生成错题记录。请上传包含作答过程的照片。",
         )
 
+    before_save = lambda: deferral_svc.lock_and_assert_can_submit(
+        db, current, question, received_at=received_at,
+    )
+
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     image_path = "{}_{}{}".format(
         datetime.now().strftime("%Y%m%d%H%M%S"),
@@ -3004,6 +3029,7 @@ async def photo_diagnose(
             submission = deferral_svc.create_deferred(
                 db, current, question, steps,
                 image_path=image_path, image_name=image_name,
+                before_save=before_save,
             )
         except Exception:
             _remove_unreferenced_upload(db, image_path)
@@ -3017,7 +3043,8 @@ async def photo_diagnose(
         return out
     try:
         submission, diagnosed_steps, diagnosed_errors = diagnose_visual_submission(
-            db, current, question, visual_steps, commit=False
+            db, current, question, visual_steps, commit=False,
+            before_save=before_save,
         )
         _add_submission_image_link(db, submission, image_path, image_name)
         review = review_svc.create_review_if_needed(

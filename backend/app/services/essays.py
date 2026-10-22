@@ -8,7 +8,8 @@ from .providers import get_provider
 
 
 def score_and_save_essay(db, student: User, text: str,
-                         question: Question = None, *, deferred: bool = False) -> Dict:
+                         question: Question = None, *, deferred: bool = False,
+                         before_save=None) -> Dict:
     """Save an essay immediately scored or deferred until its assignment deadline."""
     result = (
         {"scores": {}, "grammar_issues": [], "overall": None}
@@ -16,6 +17,8 @@ def score_and_save_essay(db, student: User, text: str,
             text=text, prompt=question.stem if question else None,
         )
     )
+    if before_save is not None:
+        before_save()
     essay = Essay(
         student_id=student.id,
         question_id=question.id if question else None,

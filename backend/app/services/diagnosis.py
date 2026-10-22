@@ -254,7 +254,8 @@ def _commit_diagnosis_and_score(
 
 def diagnose_submission(db, student: User, question: Question,
                         step_texts: List[str],
-                        reuse: Optional[Submission] = None) -> Tuple[Submission, List[Step], List[Error]]:
+                        reuse: Optional[Submission] = None,
+                        *, before_save=None) -> Tuple[Submission, List[Step], List[Error]]:
     """执行一次数学诊断，落库 Submission/Step/Error，返回 ORM 对象。
 
     reuse（v0.13.1）：延迟批改到期时复用原延迟提交行——分析完成后替换占位
@@ -361,6 +362,8 @@ def diagnose_submission(db, student: User, question: Question,
     if reuse is not None:
         db.query(Step).filter(Step.submission_id == submission.id).delete()
         db.query(Error).filter(Error.submission_id == submission.id).delete()
+    elif before_save is not None:
+        before_save()
     db.add(submission)
     db.add_all(steps)
     db.add_all(errors)
@@ -372,8 +375,11 @@ def diagnose_submission(db, student: User, question: Question,
 def diagnose_visual_submission(db, student: User, question: Question,
                                visual_steps: List[dict],
                                reuse: Optional[Submission] = None,
-                               *, commit: bool = True) -> Tuple[Submission, List[Step], List[Error]]:
+                               *, commit: bool = True,
+                               before_save=None) -> Tuple[Submission, List[Step], List[Error]]:
     """持久化视觉判断；commit=False 时由调用方与关联记录一起提交。"""
+    if reuse is None and before_save is not None:
+        before_save()
     if reuse is not None:
         submission = reuse
         db.query(Error).filter(Error.submission_id == submission.id).delete()

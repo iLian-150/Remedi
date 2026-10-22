@@ -10,12 +10,14 @@ import json
 import logging
 import mimetypes
 import os
+import sqlite3
 from datetime import datetime
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, case, func, or_, true
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
@@ -52,6 +54,49 @@ def normalize_deadline(deadline: Optional[datetime]) -> Optional[datetime]:
     if deadline is None or deadline.tzinfo is None:
         return deadline
     return deadline.astimezone(_DEADLINE_TIMEZONE).replace(tzinfo=None)
+
+
+def _lock_question_for_submission(db: Session, question: Question) -> None:
+    """Serialize the final duplicate check and insert across API workers."""
+    connection = db.connection()
+    if connection.dialect.name != "sqlite":
+        exists = db.query(Question.id).filter_by(id=question.id).with_for_update().first()
+        if exists is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在。")
+        return
+
+    raw_connection = connection.connection.driver_connection
+    if not raw_connection.in_transaction:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        return
+    try:
+        # SQLite has no row-level FOR UPDATE. A no-op write reserves its writer
+        # slot; this also upgrades sessions that already read during validation.
+        connection.exec_driver_sql(
+            "UPDATE questions SET id = id WHERE id = ?", (question.id,),
+        )
+    except OperationalError as exc:
+        error_code = getattr(exc.orig, "sqlite_errorcode", 0) or 0
+        if error_code & 0xFF not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise
+        # WAL readers can hold an obsolete snapshot that cannot be upgraded.
+        # Restart after the competing writer commits, then re-check under lock.
+        db.rollback()
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def lock_and_assert_can_submit(
+    db: Session,
+    student: User,
+    question: Question,
+    *,
+    received_at: Optional[datetime] = None,
+    essay: bool = False,
+) -> bool:
+    """Recheck submission rules while holding the DB write/row lock until commit."""
+    _lock_question_for_submission(db, question)
+    checker = assert_can_submit_essay if essay else assert_can_submit
+    return checker(db, student, question, received_at=received_at)
 
 
 def allow_revision(db: Session, assignment_id: int) -> bool:
@@ -235,8 +280,11 @@ def create_deferred(
     *,
     image_path: Optional[str] = None,
     image_name: Optional[str] = None,
+    before_save=None,
 ) -> Submission:
     """落一份延迟提交：只存原始步骤（seq 从 1 开始，status=deferred 占位），不诊断。"""
+    if before_save is not None:
+        before_save()
     submission = Submission(student_id=student.id, question_id=question.id, status=DEFERRED)
     db.add(submission)
     db.flush()

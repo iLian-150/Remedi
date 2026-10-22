@@ -236,6 +236,101 @@ class AgentToolExecutionTests(unittest.TestCase):
                     )
                 self.assertEqual(expired.exception.status_code, 400)
 
+    def test_concurrent_single_submissions_are_rechecked_before_save(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier, local
+        from app.routers.student import submit_essay, submit_math
+        from app.schemas import EssayCreate, SubmissionCreate
+        from app.services import deferral as deferral_svc
+
+        with self.engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+            connection.commit()
+
+        for subject in ("math", "english"):
+            with self.subTest(subject=subject):
+                assignment = Assignment(
+                    title=f"并发单次提交-{subject}", created_by=self.teacher.id,
+                )
+                self.db.add(assignment)
+                self.db.flush()
+                question = Question(
+                    assignment_id=assignment.id, subject=subject,
+                    knowledge_point="并发提交", stem="并发回归题",
+                )
+                self.db.add(question)
+                self.db.commit()
+                question_id = question.id
+                barrier = Barrier(2)
+                thread_state = local()
+                checker_name = "assert_can_submit" if subject == "math" else "assert_can_submit_essay"
+                real_checker = getattr(deferral_svc, checker_name)
+
+                def synchronized_checker(*args, **kwargs):
+                    result = real_checker(*args, **kwargs)
+                    if not getattr(thread_state, "initial_check_done", False):
+                        thread_state.initial_check_done = True
+                        barrier.wait(timeout=5)
+                    return result
+
+                scorer = Mock()
+                scorer.score_essay.return_value = {
+                    "scores": {
+                        "content": 80, "structure": 80, "grammar": 80,
+                        "vocabulary": 80, "expression": 80, "total": 80,
+                    },
+                    "grammar_issues": [], "overall": "作文评分完成",
+                }
+
+                def submit_once():
+                    db = Session(self.engine, expire_on_commit=False)
+                    try:
+                        student = db.get(User, self.student.id)
+                        try:
+                            if subject == "math":
+                                submit_math(
+                                    SubmissionCreate(
+                                        question_id=question_id, steps=["x=1"],
+                                    ),
+                                    db, student,
+                                )
+                            else:
+                                submit_essay(
+                                    EssayCreate(
+                                        question_id=question_id,
+                                        text="A valid concurrent essay response.",
+                                    ),
+                                    db, student,
+                                )
+                        except HTTPException as exc:
+                            if exc.status_code == 400:
+                                return "rejected"
+                            raise
+                        return "saved"
+                    finally:
+                        db.close()
+
+                checker_patch = patch.object(
+                    deferral_svc, checker_name, side_effect=synchronized_checker,
+                )
+                model_path = (
+                    "app.services.diagnosis.get_provider"
+                    if subject == "math" else "app.services.essays.get_provider"
+                )
+                with checker_patch, patch(model_path, return_value=scorer):
+                    with ThreadPoolExecutor(max_workers=2) as pool:
+                        results = list(pool.map(lambda _index: submit_once(), range(2)))
+                self.assertCountEqual(results, ["saved", "rejected"])
+                if subject == "math":
+                    saved_count = self.db.query(Submission).filter_by(
+                        student_id=self.student.id, question_id=question_id,
+                    ).count()
+                else:
+                    saved_count = self.db.query(Essay).filter_by(
+                        student_id=self.student.id, question_id=question_id,
+                    ).count()
+                self.assertEqual(saved_count, 1)
+
     def test_explicit_unknown_route_does_not_guess_one_subject_from_comparison(self):
         model = Mock()
         model.bind_tools.return_value.invoke.return_value = AIMessage(
