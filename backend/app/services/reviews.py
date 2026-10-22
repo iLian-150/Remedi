@@ -23,6 +23,7 @@ from ..models import (
     SubmissionReview,
     User,
 )
+from .app_time import deadline_now
 from .confidence import normalize_confidence
 
 PENDING = "pending"
@@ -328,10 +329,10 @@ def assignment_score_contexts(
             db, all_latest[start:start + 300], commit=False
         ))
 
-    now = datetime.now()
+    deadline_time = deadline_now()
     due_assignment_ids = {
         row[0] for row in db.query(AssignmentExt.assignment_id).filter(
-            AssignmentExt.deadline.isnot(None), AssignmentExt.deadline <= now,
+            AssignmentExt.deadline.isnot(None), AssignmentExt.deadline <= deadline_time,
         ).filter(AssignmentExt.assignment_id.in_(assignment_ids)).all()
     }
     result = {}
@@ -496,7 +497,8 @@ def backfill_missing_review_records(db: Session) -> int:
     if not latest_submissions:
         return 0
 
-    now = datetime.now()
+    deadline_time = deadline_now()
+    reviewed_at = datetime.now()
     due_ids = {
         row[0] for row in db.query(AssignmentExt.assignment_id).filter(
             AssignmentExt.assignment_id.in_({
@@ -504,7 +506,7 @@ def backfill_missing_review_records(db: Session) -> int:
                 if sub.question is not None
             }),
             AssignmentExt.deadline.isnot(None),
-            AssignmentExt.deadline <= now,
+            AssignmentExt.deadline <= deadline_time,
         ).all()
     }
     force_keys = {
@@ -527,7 +529,7 @@ def backfill_missing_review_records(db: Session) -> int:
         if row.status == PENDING and row.submission_id not in target_ids:
             row.status = APPROVED
             row.reviewed_by = None
-            row.reviewed_at = now
+            row.reviewed_at = reviewed_at
 
     added = 0
     for submission_id in target_ids:

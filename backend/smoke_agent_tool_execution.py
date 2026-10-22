@@ -236,6 +236,65 @@ class AgentToolExecutionTests(unittest.TestCase):
                     )
                 self.assertEqual(expired.exception.status_code, 400)
 
+    def test_review_deadline_uses_configured_timezone_on_utc_server(self):
+        from datetime import timezone
+        from app.models import AssignmentExt, SubmissionReview
+        from app.services.app_time import deadline_now
+        from app.services.reviews import (
+            assignment_score_contexts,
+            backfill_missing_review_records,
+        )
+
+        class UtcServerClock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                instant = datetime.now(timezone.utc)
+                return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+        assignment = Assignment(
+            title="UTC 服务器审核截止时间", created_by=self.teacher.id,
+        )
+        self.db.add(assignment)
+        self.db.flush()
+        first_question = Question(
+            assignment_id=assignment.id, subject="math",
+            knowledge_point="时区结算", stem="第一道结算题",
+        )
+        second_question = Question(
+            assignment_id=assignment.id, subject="math",
+            knowledge_point="时区结算", stem="第二道结算题",
+        )
+        submission = Submission(
+            student_id=self.student.id,
+            question=first_question,
+            status="graded",
+        )
+        self.db.add_all([
+            first_question,
+            second_question,
+            AssignmentExt(
+                assignment_id=assignment.id,
+                deadline=deadline_now() - timedelta(minutes=1),
+            ),
+            submission,
+        ])
+        self.db.commit()
+
+        score_result = {submission.id: {"score": 40.0}}
+        with (
+            patch("app.services.reviews.datetime", UtcServerClock),
+            patch("app.services.scoring.visible_scores", return_value=score_result),
+        ):
+            key = (self.student.id, assignment.id)
+            context = assignment_score_contexts(self.db, [submission])[key]
+            self.assertTrue(context["complete"])
+            self.assertFalse(context["all_questions_answered"])
+            self.assertEqual(backfill_missing_review_records(self.db), 1)
+
+        review = self.db.get(SubmissionReview, submission.id)
+        self.assertIsNotNone(review)
+        self.assertEqual(review.status, "pending")
+
     def test_concurrent_single_submissions_are_rechecked_before_save(self):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier, local

@@ -13,7 +13,6 @@ import os
 import sqlite3
 from datetime import datetime
 from typing import List, Optional
-from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, case, func, or_, true
@@ -36,26 +35,12 @@ from ..models import (
 from .confidence import normalize_confidence
 from .diagnosis import diagnose_submission, diagnose_visual_submission
 from . import reviews as review_svc
+from .app_time import deadline_now, normalize_deadline
 from .providers import get_provider
 
 DEFERRED = "deferred"
 SUPERSEDED = "superseded"
 logger = logging.getLogger(__name__)
-_DEADLINE_TIMEZONE = ZoneInfo(settings.APP_TIMEZONE)
-
-
-def deadline_now() -> datetime:
-    """Return the current app-local wall time used by naive DB deadlines."""
-    return datetime.now(_DEADLINE_TIMEZONE).replace(tzinfo=None)
-
-
-def normalize_deadline(deadline: Optional[datetime]) -> Optional[datetime]:
-    """Store deadlines as naive app-local wall time for existing DB/API compatibility."""
-    if deadline is None or deadline.tzinfo is None:
-        return deadline
-    return deadline.astimezone(_DEADLINE_TIMEZONE).replace(tzinfo=None)
-
-
 def _lock_question_for_submission(db: Session, question: Question) -> None:
     """Serialize the final duplicate check and insert across API workers."""
     connection = db.connection()
