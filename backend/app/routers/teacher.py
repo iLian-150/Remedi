@@ -1791,7 +1791,7 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
 def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_teacher)):
     """给「还没提交全部题目」的学生各写一条站内提醒（便利贴通知），
-    只统计/只提醒未全交的学生；全部完成的学生不会收到。仅限本人发布的作业。"""
+    只提醒作业接收名单中且在教师任教范围内的未全交学生。"""
     assignment = (
         db.query(Assignment)
         .filter(Assignment.id == assignment_id)
@@ -1800,7 +1800,8 @@ def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     _require_teacher_assignment(db, current, assignment_id)
-    targets = students_not_fully_submitted(db, assignment)
+    student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
+    targets = students_not_fully_submitted(db, assignment, student_ids=student_ids)
     for student_id in targets:
         db.add(Notification(
             user_id=student_id,

@@ -45,13 +45,30 @@ def _assignment_student_ids(db, assignment: Assignment):
     ).distinct().all()]
 
 
-def students_not_fully_submitted(db, assignment: Assignment) -> List[int]:
-    """未提交全部题目的学生 ID（提醒未交 + 教师 Agent 共用）。"""
+def _scoped_assignment_student_ids(db, assignment: Assignment, authorized_student_ids=None):
+    """Intersect assignment recipients with an optional caller access scope.
+
+    ``None`` recipients means a legacy assignment visible to all students; an
+    explicit caller scope still limits which of those students the caller may act on.
+    """
+    recipients = _assignment_student_ids(db, assignment)
+    if authorized_student_ids is None:
+        return recipients
+    if recipients is None:
+        return list(dict.fromkeys(authorized_student_ids))
+    authorized = set(authorized_student_ids)
+    return [student_id for student_id in recipients if student_id in authorized]
+
+
+def students_not_fully_submitted(
+    db, assignment: Assignment, student_ids=None,
+) -> List[int]:
+    """未提交全部题目的学生 ID；可按调用者授权范围限制作业接收学生。"""
     question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
     ).scalar_subquery()
     submitted_pairs = _submitted_question_pairs(db, assignment.id)
-    student_ids = _assignment_student_ids(db, assignment)
+    student_ids = _scoped_assignment_student_ids(db, assignment, student_ids)
     done_counts = (
         select(
             submitted_pairs.c.student_id,
@@ -90,14 +107,8 @@ def assignment_status(db, assignment: Assignment, student_ids=None) -> Dict:
         .group_by(submitted_pairs.c.student_id)
         .subquery()
     )
-    recipients = _assignment_student_ids(db, assignment)
-    if student_ids is None:
-        student_ids = recipients
-    elif recipients is not None:
-        # 先按作业接收班级，再按调用者的授权范围取交集；否则一份发布给
-        # 多个班级的作业会暴露其他班级名单，或混入其未接收作业的学生。
-        authorized_ids = set(student_ids)
-        student_ids = [student_id for student_id in recipients if student_id in authorized_ids]
+    # 先按作业接收班级，再按调用者的授权范围取交集。
+    student_ids = _scoped_assignment_student_ids(db, assignment, student_ids)
     student_query = (
         db.query(
             question_count.label("question_count"),

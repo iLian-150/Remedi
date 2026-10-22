@@ -183,7 +183,7 @@ class AgentToolExecutionTests(unittest.TestCase):
         from app.agent.teacher_tools import build_teacher_tools
         from app.models import (
             Assignment, AssignmentClass, Classroom, ClassroomMember,
-            ClassroomTeacherSubject, Question,
+            ClassroomTeacherSubject, Notification, Question,
         )
 
         other_teacher = User(name="其他班教师", role="teacher")
@@ -229,6 +229,17 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertIn(self.student.name, result)
         self.assertNotIn(other_student.name, result)
         self.assertNotIn(unrelated_student.name, result)
+
+        from app.routers.teacher import remind_assignment
+
+        reminded = remind_assignment(assignment.id, self.db, self.teacher)
+        self.assertEqual(reminded["reminded_count"], 1)
+        notified_ids = {
+            row[0] for row in self.db.query(Notification.user_id).filter(
+                Notification.type == "teacher_reminder",
+            )
+        }
+        self.assertEqual(notified_ids, {self.student.id})
 
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
         model = ScriptedToolModel()
