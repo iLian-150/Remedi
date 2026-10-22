@@ -38,10 +38,27 @@ def detect_subject(text: str, fallback: Optional[str] = None) -> Optional[str]:
     explicit = normalize_subject(fallback)
     if explicit:
         return explicit
-    for label in sorted(SUBJECT_ALIASES, key=len, reverse=True):
-        if label in text:
-            return SUBJECT_ALIASES[label]
-    return None
+    # Resolve overlapping aliases left-to-right, preferring the longest alias
+    # at the same position (`生物` must not also match the trailing `物理`).
+    value = text or ""
+    matches = []
+    for label, subject in SUBJECT_ALIASES.items():
+        start = 0
+        while True:
+            start = value.find(label, start)
+            if start < 0:
+                break
+            matches.append((start, -len(label), start + len(label), subject))
+            start += 1
+    matches.sort()
+    subjects = set()
+    covered_until = 0
+    for start, _negative_length, end, subject in matches:
+        if start < covered_until:
+            continue
+        subjects.add(subject)
+        covered_until = end
+    return next(iter(subjects)) if len(subjects) == 1 else None
 
 
 def retrieve_subject_knowledge(

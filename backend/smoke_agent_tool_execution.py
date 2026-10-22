@@ -18,7 +18,8 @@ from pydantic import Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.agent.graph import _classify_student_request, agent_reply_stream
+from app.agent.graph import _classify_student_request, _fallback_student_route, agent_reply_stream
+from app.agent.subjects import detect_subject
 from app.agent.teacher_graph import teacher_agent_reply_stream
 from app.database import Base
 from app.models import StudentQuestionCapture, TeacherSubject, User
@@ -127,6 +128,16 @@ class AgentToolExecutionTests(unittest.TestCase):
                 _classify_student_request([], "比较数学和物理的区别", "math"),
                 ("tutoring", "math"),
             )
+
+    def test_rule_subject_detection_handles_overlaps_and_ambiguity(self):
+        self.assertEqual(detect_subject("生物理解题"), "biology")
+        self.assertIsNone(detect_subject("比较数学和物理的区别"))
+        self.assertEqual(detect_subject("比较道法和政治"), "politics")
+        self.assertEqual(detect_subject("比较数学和物理的区别", "math"), "math")
+        self.assertEqual(
+            _fallback_student_route("比较数学和物理的区别"),
+            ("tutoring", None),
+        )
 
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
         model = ScriptedToolModel()
