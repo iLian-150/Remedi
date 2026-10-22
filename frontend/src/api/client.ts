@@ -21,15 +21,20 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截器：401 时清掉登录态并回到登录页
+// 只有当前登录态发起的 401 才退出，避免旧请求在换人登录后清掉新会话。
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       const auth = useAuthStore()
-      auth.logout()
-      if (window.location.pathname !== '/') {
-        window.location.href = '/'
+      const requestAuthorization = err.config?.headers?.get?.('Authorization')
+        ?? err.config?.headers?.Authorization
+      const currentAuthorization = auth.token ? `Bearer ${auth.token}` : undefined
+      if (requestAuthorization === currentAuthorization) {
+        auth.logout()
+        if (window.location.pathname !== '/') {
+          window.location.href = '/'
+        }
       }
     }
     return Promise.reject(err)

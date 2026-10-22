@@ -252,6 +252,49 @@ class MilvusAdapterTests(unittest.TestCase):
         self.assertEqual(state.client.delete.call_args.kwargs["timeout"], 2)
         state.client.create_collection.assert_not_called()
 
+    def test_passage_cleanup_deletes_only_captured_ids_in_bounded_batches(self):
+        state = self.state(existing=True)
+        # A new document can reuse document_id=9 while getting a new passage ID.
+        vectors = {index: 9 for index in range(1, 302)}
+
+        def delete(**request):
+            self.assertNotIn("filter", request)
+            for passage_id in request["ids"]:
+                vectors.pop(passage_id, None)
+
+        state.client.delete.side_effect = delete
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
+            rag.delete_passages(list(range(1, 301)) + [1])
+        self.assertEqual(vectors, {301: 9})
+        batches = [call.kwargs["ids"] for call in state.client.delete.call_args_list]
+        self.assertEqual([len(batch) for batch in batches], [256, 44])
+        self.assertEqual([value for batch in batches for value in batch], list(range(1, 301)))
+        self.assertTrue(all(call.kwargs["timeout"] == 2 for call in state.client.delete.call_args_list))
+
+    def test_empty_or_invalid_passage_cleanup_does_not_connect(self):
+        with patch.object(rag, "_client_state") as connect:
+            rag.delete_passages([])
+            for ids in ([0], [-1], [True], ["1"], [2 ** 63]):
+                with self.subTest(ids=ids), self.assertRaises(ValueError):
+                    rag.delete_passages(ids)
+        connect.assert_not_called()
+        state = self.state(existing=False)
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
+            rag.delete_passages([1])
+        state.client.delete.assert_not_called()
+        state.client.create_collection.assert_not_called()
+
+    def test_failed_passage_cleanup_sanitizes_errors_and_invalidates_cache(self):
+        state = self.state(existing=True)
+        state.ready["remedi_test"] = 3
+        state.client.delete.side_effect = RuntimeError("test-milvus-token private delete response")
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")), self.assertRaises(RuntimeError) as raised:
+            rag.delete_passages([1])
+        self.assertNotIn("test-milvus-token", str(raised.exception))
+        self.assertNotIn("private delete response", str(raised.exception))
+        self.assertTrue(raised.exception.__suppress_context__)
+        self.assertNotIn("remedi_test", state.ready)
+
     def test_failed_search_invalidates_cached_collection_and_sanitizes_error(self):
         state = self.state(existing=True)
         state.ready["remedi_test"] = 3

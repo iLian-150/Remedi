@@ -305,7 +305,10 @@ export const useStudentStore = defineStore('student', {
     sessionsError: '',
     sessionsLoadPromise: null as Promise<void> | null,
     sessionsRefreshPromise: null as Promise<void> | null,
+    sessionCreatePromise: null as Promise<ChatSession> | null,
+    sessionCreatePreservesView: false,
     sessionsGeneration: 0,
+    sessionsMutationVersion: 0,
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
@@ -914,6 +917,7 @@ export const useStudentStore = defineStore('student', {
           return
         }
         const generation = this.sessionsGeneration
+        const ownerId = useAuthStore().user?.id
         const refreshTask = (async () => {
           if (this.sessionsLoadPromise) {
             try {
@@ -922,7 +926,7 @@ export const useStudentStore = defineStore('student', {
               // 即使初次请求失败，强制刷新仍继续重试。
             }
           }
-          if (generation !== this.sessionsGeneration) return
+          if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) return
           await this.fetchSessionsIntoStore()
         })()
         this.sessionsRefreshPromise = refreshTask
@@ -947,14 +951,43 @@ export const useStudentStore = defineStore('student', {
 
       await this.fetchSessionsIntoStore()
     },
+    /** CRUD 完成后，重取与本地变更版本一致的快照；持续变更时明确报错供重试。 */
+    async applyStableSessionsPage(applyPage: (page: ChatSessionPage) => void, cursor?: ChatSessionCursor) {
+      const generation = this.sessionsGeneration
+      const ownerId = useAuthStore().user?.id
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) return
+        const version = this.sessionsMutationVersion
+        const page = await this.fetchSessions(cursor)
+        if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) return
+        if (version === this.sessionsMutationVersion) {
+          // 校验和应用放在同一个同步步骤，避免 await 间隙又完成一次 CRUD。
+          applyPage(page)
+          return
+        }
+      }
+      throw new Error('会话列表持续变化，请重试。')
+    },
     async fetchSessionsIntoStore() {
+      if (this.sessionsLoadPromise) {
+        await this.sessionsLoadPromise
+        return
+      }
       this.sessionsLoading = true
       this.sessionsError = ''
       const generation = this.sessionsGeneration
-      const task = (async () => {
-        const page = await this.fetchSessions()
-        if (generation !== this.sessionsGeneration) return
+      const ownerId = useAuthStore().user?.id
+      const task = this.applyStableSessionsPage((page) => {
+        // 请求发出后可能改选了分页中的旧会话；首页缺项不代表该会话已删除。
+        const selected = this.sessionView.id === this.activeSessionId
+          ? this.sessions.find((session) => session.id === this.activeSessionId)
+          : undefined
         this.sessions = page.items
+        if (selected && !this.sessions.some((session) => session.id === selected.id)) {
+          this.sessions = [...this.sessions, selected].sort((a, b) =>
+            Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id
+          )
+        }
         this.sessionsHasMore = page.has_more
         this.sessionsCursor = page.before_updated_at && page.before_id != null
           ? { before_updated_at: page.before_updated_at, before_id: page.before_id }
@@ -970,12 +1003,12 @@ export const useStudentStore = defineStore('student', {
             : this.sessions[0]?.id ?? null
           persistActiveSessionId(this.activeSessionId)
         }
-      })()
+      })
       this.sessionsLoadPromise = task
       try {
         await task
       } catch (e) {
-        if (generation === this.sessionsGeneration) {
+        if (generation === this.sessionsGeneration && ownerId === useAuthStore().user?.id) {
           this.sessionsError = '历史对话加载失败，请重试。'
         }
         console.error(e)
@@ -989,45 +1022,98 @@ export const useStudentStore = defineStore('student', {
     async loadMoreSessions() {
       if (!this.sessionsHasMore || this.sessionsPageLoading || !this.sessionsCursor) return
       const generation = this.sessionsGeneration
+      const ownerId = useAuthStore().user?.id
       this.sessionsPageLoading = true
       this.sessionsPageError = ''
       try {
-        const page = await this.fetchSessions(this.sessionsCursor)
-        if (generation !== this.sessionsGeneration) return
-        const sessionsById = new Map(this.sessions.map((session) => [session.id, session]))
-        for (const session of page.items) sessionsById.set(session.id, session)
-        this.sessions = [...sessionsById.values()].sort((a, b) =>
-          Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id
-        )
-        this.sessionsHasMore = page.has_more
-        this.sessionsCursor = page.before_updated_at && page.before_id != null
-          ? { before_updated_at: page.before_updated_at, before_id: page.before_id }
-          : null
+        await this.applyStableSessionsPage((page) => {
+          const sessionsById = new Map(this.sessions.map((session) => [session.id, session]))
+          for (const session of page.items) sessionsById.set(session.id, session)
+          this.sessions = [...sessionsById.values()].sort((a, b) =>
+            Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id
+          )
+          this.sessionsHasMore = page.has_more
+          this.sessionsCursor = page.before_updated_at && page.before_id != null
+            ? { before_updated_at: page.before_updated_at, before_id: page.before_id }
+            : null
+        }, this.sessionsCursor)
       } catch (e) {
-        if (generation === this.sessionsGeneration) {
+        if (generation === this.sessionsGeneration && ownerId === useAuthStore().user?.id) {
           this.sessionsPageError = '更多历史对话加载失败，请重试。'
         }
         console.error(e)
       } finally {
-        if (generation === this.sessionsGeneration) this.sessionsPageLoading = false
+        if (generation === this.sessionsGeneration && ownerId === useAuthStore().user?.id) {
+          this.sessionsPageLoading = false
+        }
       }
     },
     /** 首次发送消息时提前准备会话，让左侧历史列表在 AI 长耗时处理期间也能显示当前对话。 */
     async ensureActiveChatSession(): Promise<number> {
-      if (!this.sessionsLoaded) await this.loadSessions()
-      const active = this.sessions.find((session) => session.id === this.activeSessionId)
-        ?? this.sessions[0]
-      if (active) {
-        this.activeSessionId = active.id
-        persistActiveSessionId(active.id)
-        return active.id
+      const generation = this.sessionsGeneration
+      const ownerId = useAuthStore().user?.id
+      const session = await this.prepareActiveChatSession(true)
+      if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) {
+        const error = new Error('登录状态已变化，请重新操作。')
+        error.name = 'AbortError'
+        throw error
       }
-      const session = await this.createSession()
-      this.sessions = [session, ...this.sessions.filter((item) => item.id !== session.id)]
-      this.activeSessionId = session.id
-      this.sessionsLoaded = true
-      persistActiveSessionId(session.id)
       return session.id
+    },
+    /** 首次发送与侧栏共享创建任务；发送参与时保留已显示的用户消息和待回复占位。 */
+    async prepareActiveChatSession(preserveView: boolean): Promise<ChatSession> {
+      if (this.sessionCreatePromise) {
+        if (preserveView) this.sessionCreatePreservesView = true
+        return this.sessionCreatePromise
+      }
+      const generation = this.sessionsGeneration
+      const ownerId = useAuthStore().user?.id
+      const assertCurrentSession = () => {
+        if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) {
+          const error = new Error('登录状态已变化，请重新操作。')
+          error.name = 'AbortError'
+          throw error
+        }
+      }
+      this.sessionCreatePreservesView = preserveView
+      const task = (async () => {
+        if (preserveView) {
+          if (!this.sessionsLoaded) await this.loadSessions()
+          assertCurrentSession()
+          const active = this.sessions.find((session) => session.id === this.activeSessionId)
+            ?? this.sessions[0]
+          if (active) {
+            this.activeSessionId = active.id
+            persistActiveSessionId(active.id)
+            return active
+          }
+        }
+        const session = await (preserveView ? this.createSession() : this.newAgentSession())
+        assertCurrentSession()
+        this.sessionsMutationVersion += 1
+        this.sessions = [session, ...this.sessions.filter((item) => item.id !== session.id)]
+        this.activeSessionId = session.id
+        if (preserveView) this.sessionsLoaded = true
+        persistActiveSessionId(session.id)
+        if (!this.sessionCreatePreservesView) {
+          this.sessionView = { id: session.id, fresh: true, seq: this.sessionView.seq + 1 }
+        }
+        // 发送加入侧栏创建时，也完成原本由首次发送负责的历史加载。
+        if (!preserveView && this.sessionCreatePreservesView && !this.sessionsLoaded) {
+          await this.loadSessions()
+          assertCurrentSession()
+        }
+        return session
+      })()
+      this.sessionCreatePromise = task
+      try {
+        return await task
+      } finally {
+        if (this.sessionCreatePromise === task) {
+          this.sessionCreatePromise = null
+          this.sessionCreatePreservesView = false
+        }
+      }
     },
     setActiveSession(id: number | null) {
       this.activeSessionId = id
@@ -1037,18 +1123,14 @@ export const useStudentStore = defineStore('student', {
      * v0.9.0 防重复：当前激活会话还是空会话（message_count=0）时不再新建，
      * 直接切回它，避免连点攒出一串空会话（会话列表接口已返回 message_count）。 */
     async startSidebarSession(): Promise<ChatSession> {
+      if (this.sessionCreatePromise) return this.sessionCreatePromise
       const active = this.sessions.find((x) => x.id === this.activeSessionId)
       if (active && active.message_count === 0) {
         this.sessionView = { id: active.id, fresh: true, seq: this.sessionView.seq + 1 }
         persistActiveSessionId(active.id)
         return active
       }
-      const s = await this.newAgentSession()
-      this.sessions = [s, ...this.sessions.filter((x) => x.id !== s.id)]
-      this.activeSessionId = s.id
-      persistActiveSessionId(s.id)
-      this.sessionView = { id: s.id, fresh: true, seq: this.sessionView.seq + 1 }
-      return s
+      return this.prepareActiveChatSession(false)
     },
     /** 侧栏点选某条会话：通知对话页加载该会话的消息 */
     selectSidebarSession(id: number) {
@@ -1059,7 +1141,11 @@ export const useStudentStore = defineStore('student', {
     },
     /** 侧栏删除会话：删的是当前会话时自动切到最新一条（都没有则空白态），并通知对话页 */
     async removeSidebarSession(id: number) {
+      const generation = this.sessionsGeneration
+      const ownerId = useAuthStore().user?.id
       await this.deleteSession(id)
+      if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) return
+      this.sessionsMutationVersion += 1
       const wasActive = id === this.activeSessionId
       this.sessions = this.sessions.filter((x) => x.id !== id)
       if (wasActive) {
@@ -1075,6 +1161,7 @@ export const useStudentStore = defineStore('student', {
     /** 退出登录时清空会话区状态，避免换人后残留 */
     clearSessionState() {
       this.sessionsGeneration += 1
+      this.sessionsMutationVersion = 0
       this.sessions = []
       this.activeSessionId = null
       persistActiveSessionId(null)
@@ -1087,6 +1174,8 @@ export const useStudentStore = defineStore('student', {
       this.sessionsError = ''
       this.sessionsLoadPromise = null
       this.sessionsRefreshPromise = null
+      this.sessionCreatePromise = null
+      this.sessionCreatePreservesView = false
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     /** 退出登录时重置提醒未读数（v0.8.2），避免换人登录后角标残留 */

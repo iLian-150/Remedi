@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.13.317（2026-10-23）
+> 版本：v0.13.318（2026-10-23）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -1395,9 +1395,9 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.29 GET/POST/DELETE /api/teacher/knowledge/{subject}[/{chunk_id}] —— 学科 Agent 知识库
 
-权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET` 返回该学科资料，新增顶层 `vector_enabled`（是否配置 Milvus）及每条资料的 `passage_count`；`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；标题、正文不能仅含空白。`DELETE` 删除整条资料及关系库片段，提交本地删除后清理 Milvus 索引，向量清理失败返回 `warnings`，残留向量不能引用已删除资料。
+权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET` 返回该学科资料，新增顶层 `vector_enabled`（是否配置 Milvus）及每条资料的 `passage_count`；`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；标题、正文不能仅含空白。`DELETE` 删除整条资料及关系库片段，先在短事务内锁定并校验资料，再提交本地删除；并发写入导致 SQLite 旧快照失效时返回 409，请求可重试。提交后按删除前捕获的确切片段 ID 清理 Milvus 索引；文档 ID 被新资料复用时，延迟到达的旧清理不会误删新资料向量。向量清理失败返回 `warnings`，残留向量不能引用已删除资料。
 
-新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、模型重排及父块去重；重排模型为 `qwen3.7-text-rerank`，默认超时 10 秒，不可用时回退本地重排并返回安全警告。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
+新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、跨资料候选分散、模型重排及父块去重；BM25 也会匹配规范化的公式表达式，保留单字母变量及运算符关系。重排模型为 `qwen3.7-text-rerank`，默认超时 10 秒，不可用时回退本地重排并返回安全警告。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
 
 - `POST /api/teacher/knowledge/{subject}/import-pdf`：multipart 必填 `file`，选填 `title`、`source_name`。最大 10MB、80 页、12 万字，读取带文字层的 PDF；纯扫描件返回 `422` 并提示先 OCR，超大小返回 `413`。保存物理页码；空白/无文字页不索引且返回警告。响应除上述资料字段外新增 `page_count` 和 `indexed_pages`（均为数量）。
 - `POST /api/teacher/knowledge/{subject}/search`：请求 `{ "query": "一次函数如何判断增减性", "limit": 4 }`，query 为 1–2000 字且不能纯空白，limit 为 1–8。响应 `{ "items": [...], "retrieval_mode": "bm25 | hybrid", "rerank_mode": "model | local", "warnings": [] }`；`rerank_mode` 为 v0.13.317 新增非 breaking 字段，分别表示完成模型重排或采用本地重排，不改变 `retrieval_mode` 的召回语义。每项含 `document_id`、`title`、`source_name`、`page_number`（文本资料为 null）、`passage_id`（未建立片段的旧资料为 null）、`content`（父块）、`score`（排序分而非可信度）、`citation`（如 `[资料12-片段3]`）。已配置的重排模型调用失败或超时时，返回 `rerank_mode=local` 及安全警告；未配置凭证或关闭重排模型时直接采用本地重排。`warnings` 不包含凭证或原始上游响应。
@@ -1420,7 +1420,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```json
 {
   "status": "ok",
-  "version": "0.13.317",
+  "version": "0.13.318",
   "provider": "bailian",
   "time": "2026-10-06T15:40:35"
 }
@@ -1791,3 +1791,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.315 | 2026-10-22 | 学科 RAG 增加父子分块、BM25/Milvus 混合检索、PDF 导入、引用追溯与教师试查；支持 ARM64 Docker 部署。 |
 | v0.13.316 | 2026-10-23 | 文字、视觉和向量化统一使用阿里云百炼；API Key 可先留空，健康检查与模型解耦，支持关闭启动演示数据。 |
 | v0.13.317 | 2026-10-23 | 文字模型改为 Kimi-K3 并保留工具轮所需思考字段，隐藏推理不进入界面或聊天持久化；向量模型改为 qwen3.7-text-embedding-flash（1024 维）并使用新集合，新增 qwen3.7-text-rerank 模型重排与本地降级，试查响应新增 rerank_mode。工作空间 APIHost 以控制台为准。 |
+| v0.13.318 | 2026-10-23 | 同一请求内共享数据库会话的工具按序执行，避免重复保存与并发事务冲突；跨模型轮次准确记录 tools_used。资料删除在短事务内锁定并校验目标，提交后仅清理捕获的旧片段向量；文档 ID 复用不会误删新资料。BM25 支持规范化公式匹配，候选截断与重排前跨资料分散。登录和双端会话的创建、删除及列表响应校验当前身份与变更版本，旧请求不会覆盖新状态；损坏缓存可恢复。 |

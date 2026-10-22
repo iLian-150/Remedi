@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import secrets
+import sqlite3
 from bisect import bisect_right
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -12,6 +13,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
@@ -366,16 +368,40 @@ def delete_subject_knowledge(
 ):
     if subject not in SUBJECT_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
-    _require_teacher_subject(db, current, subject)
-    row = db.query(SubjectKnowledgeChunk).filter_by(id=chunk_id, subject=subject).first()
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "资料不存在。")
     from ..services.subject_rag import delete_knowledge_index, delete_vector_index
 
-    delete_knowledge_index(db, row.id)
-    db.delete(row)
-    db.commit()
-    warnings = delete_vector_index(chunk_id)
+    try:
+        connection = db.connection()
+        if connection.dialect.name == "sqlite":
+            # Authentication may already have opened a SQLAlchemy transaction;
+            # legacy sqlite3 SELECTs do not necessarily start a DB transaction.
+            # Reserve the writer before reading the document, so its reusable
+            # ID cannot be replaced between authorization and SQL deletion.
+            if connection.connection.driver_connection.in_transaction:
+                connection.exec_driver_sql("UPDATE subject_knowledge_chunks SET id = id WHERE 0")
+            else:
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+        _require_teacher_subject(db, current, subject)
+        row = db.query(SubjectKnowledgeChunk).filter_by(
+            id=chunk_id, subject=subject,
+        ).with_for_update().first()
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "资料不存在。")
+        deleted_passage_ids = delete_knowledge_index(db, row.id)
+        db.delete(row)
+        db.commit()
+    except OperationalError as exc:
+        db.rollback()
+        error_code = getattr(exc.orig, "sqlite_errorcode", 0) or 0
+        if error_code & 0xFF in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise HTTPException(status.HTTP_409_CONFLICT, "资料正在变更，请稍后重试删除。") from exc
+        raise
+    except Exception:
+        # Release the SQLite reservation on 403/404 as well as write failures.
+        db.rollback()
+        raise
+    # Remote cleanup must never hold the local transaction's write lock.
+    warnings = delete_vector_index(deleted_passage_ids)
     return {"deleted": True, "id": chunk_id, "subject": subject, "warnings": warnings}
 
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")

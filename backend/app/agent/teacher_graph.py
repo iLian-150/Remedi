@@ -10,7 +10,7 @@ from ..models import User
 from ..services.stats import knowledge_point_ranking
 from ..services.teacher_stats import class_overview, uncorrected_overview
 from ..services.teacher_scope import teacher_assignment_ids, teacher_student_ids
-from .graph import _build_llm, _message_chunk_text
+from .graph import _build_llm, _message_chunk_text, _tools_used
 from .teacher_prompts import build_teacher_system_prompt
 from .teacher_tools import build_teacher_tools
 
@@ -53,13 +53,19 @@ def teacher_agent_reply_stream(db: Session, teacher: User,
 
     tools = build_teacher_tools(db, teacher)
     llm_with_tools = llm.bind_tools(tools)
+    tool_names: list[str] = []
 
     def call_model(state: AgentState):
-        return {"messages": [llm_with_tools.invoke(state["messages"])]}
+        response = llm_with_tools.invoke(state["messages"])
+        for name in _tools_used([response]):
+            if name not in tool_names:
+                tool_names.append(name)
+        return {"messages": [response]}
 
     builder = StateGraph(AgentState)
     builder.add_node("agent", call_model)
-    builder.add_node("tools", ToolNode(tools))
+    # 工具闭包共享当前教师的 Session，仅在工具节点内部顺序执行。
+    builder.add_node("tools", ToolNode(tools).with_config(max_concurrency=1))
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")
@@ -68,7 +74,6 @@ def teacher_agent_reply_stream(db: Session, teacher: User,
     system = build_teacher_system_prompt(teacher.name, _teacher_context_summary(db, teacher))
     messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
     reply_parts: list[str] = []
-    tool_names: dict[int, str] = {}
     try:
         graph_stream = graph.stream(
             {"messages": messages},
@@ -87,11 +92,6 @@ def teacher_agent_reply_stream(db: Session, teacher: User,
                 if text:
                     reply_parts.append(text)
                     yield text
-                for call in getattr(message_chunk, "tool_call_chunks", None) or []:
-                    name = call.get("name")
-                    if name:
-                        index = call.get("index", len(tool_names))
-                        tool_names[index] = tool_names.get(index, "") + name
         finally:
             close = getattr(graph_stream, "close", None)
             if close is not None:
@@ -100,7 +100,7 @@ def teacher_agent_reply_stream(db: Session, teacher: User,
         reply = "".join(reply_parts).strip()
         if not reply:
             raise ValueError("模型返回了空回复")
-        return {"reply": reply, "tools_used": list(dict.fromkeys(n for n in tool_names.values() if n))}
+        return {"reply": reply, "tools_used": list(tool_names)}
     except Exception:
         logger.exception("教师 Agent 流式调用失败")
         raise

@@ -18,6 +18,7 @@ from ..config import settings
 
 
 _BATCH_SIZE = 10
+_DELETE_BATCH_SIZE = 256
 _states_lock = RLock()
 
 
@@ -254,8 +255,34 @@ def upsert_passages(subject: str, passages: list[dict]) -> None:
         raise RuntimeError("Milvus 索引同步失败") from None
 
 
+def delete_passages(passage_ids: list[int]) -> None:
+    """Delete exact committed passage IDs captured before the SQL deletion.
+
+    Document IDs may be reused by SQLite. Delayed cleanup must never select
+    by document_id, because that could match a newly uploaded document.
+    """
+    if not passage_ids:
+        return
+    if any(isinstance(value, bool) or not isinstance(value, int) or not 0 < value < 2 ** 63 for value in passage_ids):
+        raise ValueError("Milvus 片段 ID 必须为有效的正整数")
+    unique_ids = list(dict.fromkeys(passage_ids))
+    state, collection = _client_state()
+    try:
+        if not state.client.has_collection(collection_name=collection, timeout=state.timeout):
+            return
+        state.client.load_collection(collection_name=collection, timeout=state.timeout)
+        for start in range(0, len(unique_ids), _DELETE_BATCH_SIZE):
+            state.client.delete(
+                collection_name=collection, ids=unique_ids[start:start + _DELETE_BATCH_SIZE],
+                timeout=state.timeout,
+            )
+    except Exception:
+        _invalidate(state, collection)
+        raise RuntimeError("Milvus 片段索引删除失败") from None
+
+
 def delete_document(document_id: int) -> None:
-    """Remove all model versions for one SQLite document, without creating a collection."""
+    """Legacy maintenance helper; online deletion must use exact passage IDs."""
     document_id = int(document_id)
     state, collection = _client_state()
     try:

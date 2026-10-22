@@ -72,7 +72,9 @@ docker compose up -d --force-recreate api
 
 向量化通过工作空间的 OpenAI 兼容 Embeddings 接口调用 `qwen3.7-text-embedding-flash`，分批提交片段，显式指定 1024 维，按响应 `index` 恢复输入顺序并验证数量、维数和数值。集合保存片段 ID、文档 ID、学科、模型和向量，使用 COSINE / AUTOINDEX。[服务端检索](https://milvus.io/api-reference/pymilvus/v2.6.x/MilvusClient/Vector/search.md)同时过滤学科和向量模型；业务层还会核验片段仍存在于当前学科。更换模型或维数时更换集合名并重新索引，避免混用向量空间。
 
-候选片段经 `qwen3.7-text-rerank` 重排后再恢复父块并去重。模型超时或返回异常时，保留召回候选并使用本地重排；未配置凭证或将 `RAG_RERANK_MODEL` 设为空时，直接使用本地重排。试查响应中的 `rerank_mode=model|local` 表示实际重排方式，与 `retrieval_mode=bm25|hybrid` 分别报告。`warnings` 只返回安全说明，不回传密钥、工作空间请求头或原始上游错误。
+BM25 和 Milvus 的早期候选会在截断前按资料来源分散，避免一本长资料的相邻片段占满重排输入；Milvus 会先扩大召回窗口，候选分散只改变入选范围，不抬高原始排序分。BM25 还会将 LaTeX、Unicode 运算符和空格差异归一为公式 token，支持 `x+y=z` 这类短公式在向量不可用时召回，同时不把孤立数字当作证据。候选片段经 `qwen3.7-text-rerank` 重排后再恢复父块并去重。模型超时或返回异常时，保留召回候选并使用本地重排；未配置凭证或将 `RAG_RERANK_MODEL` 设为空时，直接使用本地重排。试查响应中的 `rerank_mode=model|local` 表示实际重排方式，与 `retrieval_mode=bm25|hybrid` 分别报告。`warnings` 只返回安全说明，不回传密钥、工作空间请求头或原始上游错误。
+
+删除资料时，先捕获其片段 ID 并提交本地删除，再仅清理这些确切的 Milvus 主键。SQLite 文档 ID 被后续上传复用时，延迟到达的旧删除不会误删新资料向量。清理失败仍保留安全警告，查询时继续核验 SQL 中片段的存活状态和学科。
 
 ## 启动与数据位置
 

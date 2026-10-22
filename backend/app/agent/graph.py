@@ -302,7 +302,7 @@ def agent_reply_stream(db: Session, student: User,
         messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
     related_result: dict = {"mistake": None}
     reply_parts: list[str] = []
-    tool_names: dict[int, str] = {}
+    tool_names: list[str] = []
     reply = ""
 
     def direct_photo_explanation():
@@ -347,6 +347,9 @@ def agent_reply_stream(db: Session, student: User,
         def call_model(state: AgentState):
             started_at = perf_counter()
             response = llm_with_tools.invoke(state["messages"])
+            for name in _tools_used([response]):
+                if name not in tool_names:
+                    tool_names.append(name)
             if safe_tools_only:
                 logger.info(
                     "照片讲解模型轮次完成（耗时 %.2f 秒，工具调用数 %d）",
@@ -359,7 +362,8 @@ def agent_reply_stream(db: Session, student: User,
         builder.add_node("agent", call_model)
         builder.add_edge(START, "agent")
         if tools:
-            builder.add_node("tools", ToolNode(tools))
+            # 只限制工具节点；顶层流式调度还需要独立线程等待消息。
+            builder.add_node("tools", ToolNode(tools).with_config(max_concurrency=1))
             builder.add_conditional_edges("agent", tools_condition)
             builder.add_edge("tools", "agent")
         else:
@@ -391,11 +395,6 @@ def agent_reply_stream(db: Session, student: User,
                         )
                     reply_parts.append(text)
                     yield text
-                for call in getattr(message_chunk, "tool_call_chunks", None) or []:
-                    name = call.get("name")
-                    if name:
-                        index = call.get("index", len(tool_names))
-                        tool_names[index] = tool_names.get(index, "") + name
         finally:
             close = getattr(graph_stream, "close", None)
             if close is not None:
@@ -460,9 +459,8 @@ def agent_reply_stream(db: Session, student: User,
             logger.exception("照片讲解的直接流式兜底也失败")
             raise
 
-    names = list(dict.fromkeys(name for name in tool_names.values() if name))
     return {
         "reply": reply,
-        "tools_used": names,
+        "tools_used": list(tool_names),
         "related_mistake": related_result.get("mistake"),
     }

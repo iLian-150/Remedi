@@ -1,11 +1,17 @@
 """学科 RAG 接口回归：临时数据库与模型替身，不连接线上服务。"""
+import faulthandler
+import tempfile
+import threading
 import unittest
-from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pymupdf
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -148,11 +154,59 @@ class KnowledgeApiTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertIsNotNone(db.get(SubjectKnowledgeChunk, saved["id"]))
         with patch("app.services.rag_milvus.configured", return_value=True), \
-                patch("app.services.rag_milvus.delete_document", side_effect=ConnectionError):
+                patch("app.services.rag_milvus.delete_passages", side_effect=ConnectionError):
             deleted = self.client.delete(f"/api/teacher/knowledge/math/{saved['id']}", headers=self.headers)
         self.assertTrue(deleted.json()["warnings"])
         with self.sessions() as db:
             self.assertEqual(db.query(SubjectKnowledgePassage).count(), 0)
+
+    def test_delayed_delete_cannot_remove_new_subject_vectors_with_reused_document_id(self):
+        from app.services import rag_milvus, subject_rag
+
+        saved = self.add()
+        with self.sessions() as db:
+            old_passage_ids = [row[0] for row in db.query(SubjectKnowledgePassage.id).filter_by(document_id=saved["id"])]
+        vectors = {passage_id: saved["id"] for passage_id in old_passage_ids}
+        created = {}
+        client = Mock()
+        client.has_collection.return_value = True
+
+        def upsert(_subject, records):
+            for record in records:
+                vectors[record["id"]] = record["document_id"]
+
+        def finish_delayed_delete(**request):
+            self.assertNotIn("filter", request)
+            self.assertEqual(request["ids"], old_passage_ids)
+            # The route has committed its SQL deletion. A concurrent English
+            # upload now reuses the document ID and finishes its vector sync.
+            with self.sessions() as db:
+                new = SubjectKnowledgeChunk(subject="english", title="新资料", content="New English source.")
+                db.add(new)
+                subject_rag.prepare_knowledge(db, new)
+                db.commit()
+                created["id"] = new.id
+                created["status"] = subject_rag.sync_knowledge(db, new.id)["vector_status"]
+                created["passage_ids"] = [row[0] for row in db.query(SubjectKnowledgePassage.id).filter_by(document_id=new.id)]
+            for passage_id in request["ids"]:
+                vectors.pop(passage_id, None)
+
+        client.delete.side_effect = finish_delayed_delete
+        with patch.object(rag_milvus, "configured", return_value=True), patch.object(
+            rag_milvus, "_client_state", return_value=(rag_milvus._ClientState(client, 2), "test"),
+        ), patch.object(rag_milvus, "upsert_passages", side_effect=upsert), patch.object(
+            rag_milvus, "delete_document",
+        ) as legacy:
+            response = self.client.delete(f"/api/teacher/knowledge/math/{saved['id']}", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["warnings"], [])
+        self.assertEqual(created["id"], saved["id"])
+        self.assertEqual(created["status"], "ready")
+        self.assertTrue(set(created["passage_ids"]).isdisjoint(old_passage_ids))
+        self.assertEqual(set(vectors), set(created["passage_ids"]))
+        legacy.assert_not_called()
+        with self.sessions() as db:
+            self.assertEqual(db.get(SubjectKnowledgeChunk, created["id"]).subject, "english")
 
     def test_teacher_knowledge_tool_scope(self):
         from app.agent.teacher_tools import build_teacher_tools
@@ -164,6 +218,224 @@ class KnowledgeApiTests(unittest.TestCase):
             answer = tool.invoke({"query": "二次函数的对称轴"})
             self.assertIn("资料", answer)
             self.assertIn("教学讲义", answer)
+
+
+class KnowledgeDeleteConcurrencyTests(unittest.TestCase):
+    """Real file SQLite connections exercise the route's local lock boundary."""
+
+    def setUp(self):
+        faulthandler.dump_traceback_later(20, exit=True)
+        self.addCleanup(faulthandler.cancel_dump_traceback_later)
+        temporary = tempfile.TemporaryDirectory(prefix="remedi-delete-")
+        self.addCleanup(temporary.cleanup)
+        database_path = Path(temporary.name) / "knowledge.sqlite"
+        self.engine = create_engine(
+            f"sqlite:///{database_path.as_posix()}",
+            connect_args={"check_same_thread": False, "timeout": 0.2},
+        )
+        self.addCleanup(self.engine.dispose)
+        with self.engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+        Base.metadata.create_all(self.engine)
+        self.sessions = sessionmaker(self.engine, autoflush=False, expire_on_commit=False)
+        with self.sessions() as db:
+            db.add_all([User(id=1, name="数学老师", role="teacher"),
+                        User(id=2, name="英语老师", role="teacher")])
+            db.flush()
+            db.add_all([TeacherSubject(teacher_id=1, subject="math"),
+                        TeacherSubject(teacher_id=2, subject="english")])
+            db.commit()
+        self.before_request = None
+        self.finished_transactions = []
+        app = FastAPI()
+        app.include_router(router)
+
+        def database():
+            with self.sessions() as db:
+                try:
+                    if self.before_request:
+                        self.before_request(db)
+                    yield db
+                finally:
+                    self.finished_transactions.append(db.in_transaction())
+
+        app.dependency_overrides[get_db] = database
+        self.client = TestClient(app)
+        self.addCleanup(self.client.close)
+        self.headers = {"Authorization": "Bearer mock-1"}
+        self.enterContext(patch("app.services.rag_milvus.configured", return_value=False))
+        self.enterContext(patch("app.services.bailian_rerank.configured", return_value=False))
+
+    def save_document(self, subject="math"):
+        from app.services.subject_rag import prepare_knowledge
+
+        with self.sessions() as db:
+            document = SubjectKnowledgeChunk(subject=subject, title="并发资料", content="二次函数并发删除回归。")
+            db.add(document)
+            prepare_knowledge(db, document)
+            db.commit()
+            return document.id, [row[0] for row in db.query(SubjectKnowledgePassage.id).filter_by(document_id=document.id)]
+
+    def assert_document(self, document_id, subject, passage_ids):
+        with self.sessions() as db:
+            self.assertEqual(db.get(SubjectKnowledgeChunk, document_id).subject, subject)
+            self.assertEqual(
+                [row[0] for row in db.query(SubjectKnowledgePassage.id).filter_by(document_id=document_id)],
+                passage_ids,
+            )
+
+    def check_replacement_waits_for_authorized_delete(self, replacement_subject):
+        from app.services import subject_rag
+
+        document_id, old_passage_ids = self.save_document()
+        authorized_read = threading.Event()
+        continue_delete = threading.Event()
+        original_delete = subject_rag.delete_knowledge_index
+
+        def pause_after_authorized_read(db, selected_document_id):
+            self.assertEqual(selected_document_id, document_id)
+            self.assertTrue(db.connection().connection.driver_connection.in_transaction)
+            authorized_read.set()
+            if not continue_delete.wait(3):
+                raise TimeoutError("delete test did not release the local transaction")
+            return original_delete(db, selected_document_id)
+
+        with patch.object(subject_rag, "delete_knowledge_index", side_effect=pause_after_authorized_read), \
+                patch.object(subject_rag, "delete_vector_index", return_value=[]) as cleanup, \
+                ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(
+                self.client.delete, f"/api/teacher/knowledge/math/{document_id}", headers=self.headers,
+            )
+            try:
+                self.assertTrue(authorized_read.wait(3), "route never reached its authorized document snapshot")
+                # A second connection attempts the exact replacement that used
+                # to erase a new document through the first request's stale ID.
+                with self.sessions() as competing:
+                    old = competing.get(SubjectKnowledgeChunk, document_id)
+                    self.assertIsNotNone(old)
+                    with self.assertRaises(OperationalError) as failure:
+                        original_delete(competing, document_id)
+                        competing.delete(old)
+                        competing.commit()
+                    self.assertEqual(failure.exception.orig.sqlite_errorcode & 0xFF, 5)
+                    competing.rollback()
+            finally:
+                continue_delete.set()
+            response = pending.result(timeout=5)
+        self.assertEqual(response.status_code, 200, response.text)
+        cleanup.assert_called_once_with(old_passage_ids)
+        new_id, new_passage_ids = self.save_document(replacement_subject)
+        self.assertEqual(new_id, document_id, "regression requires a reused document ID")
+        self.assertTrue(set(old_passage_ids).isdisjoint(new_passage_ids))
+        self.assert_document(new_id, replacement_subject, new_passage_ids)
+
+    def test_same_subject_replacement_cannot_enter_authorized_delete_window(self):
+        self.check_replacement_waits_for_authorized_delete("math")
+
+    def test_other_subject_replacement_cannot_enter_authorized_delete_window(self):
+        self.check_replacement_waits_for_authorized_delete("english")
+
+    def test_existing_real_read_transaction_does_not_begin_twice(self):
+        document_id, _ = self.save_document()
+
+        def begin_read(db):
+            db.connection().exec_driver_sql("BEGIN")
+            db.query(SubjectKnowledgeChunk.id).first()
+            self.assertTrue(db.connection().connection.driver_connection.in_transaction)
+
+        self.before_request = begin_read
+        response = self.client.delete(f"/api/teacher/knowledge/math/{document_id}", headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(self.finished_transactions[-1])
+
+    def test_changed_existing_read_snapshot_returns_conflict_and_preserves_replacement(self):
+        from app.services import subject_rag
+
+        document_id, old_ids = self.save_document()
+        snapshot_read = threading.Event()
+        resume_request = threading.Event()
+
+        def begin_old_snapshot(db):
+            db.connection().exec_driver_sql("BEGIN")
+            db.query(SubjectKnowledgeChunk.id).filter_by(id=document_id).first()
+            snapshot_read.set()
+            if not resume_request.wait(3):
+                raise TimeoutError("delete test did not release its old read snapshot")
+
+        self.before_request = begin_old_snapshot
+        with patch.object(subject_rag, "delete_vector_index", return_value=[]) as cleanup, \
+                ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(
+                self.client.delete, f"/api/teacher/knowledge/math/{document_id}", headers=self.headers,
+            )
+            try:
+                self.assertTrue(snapshot_read.wait(3), "request did not establish the old read snapshot")
+                with self.sessions() as competing:
+                    old = competing.get(SubjectKnowledgeChunk, document_id)
+                    subject_rag.delete_knowledge_index(competing, document_id)
+                    competing.delete(old)
+                    competing.commit()
+                new_id, new_ids = self.save_document("english")
+            finally:
+                resume_request.set()
+            response = pending.result(timeout=5)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertFalse(self.finished_transactions[-1])
+        cleanup.assert_not_called()
+        self.assertEqual(new_id, document_id)
+        self.assertTrue(set(old_ids).isdisjoint(new_ids))
+        self.assert_document(new_id, "english", new_ids)
+
+    def test_rejected_delete_rolls_back_before_request_session_closes(self):
+        from app.services import subject_rag
+
+        document_id, passage_ids = self.save_document("english")
+        for subject, selected_id, expected in (("english", document_id, 403), ("math", document_id, 404)):
+            with self.subTest(subject=subject):
+                with patch.object(subject_rag, "delete_vector_index") as cleanup:
+                    response = self.client.delete(
+                        f"/api/teacher/knowledge/{subject}/{selected_id}", headers=self.headers,
+                    )
+                self.assertEqual(response.status_code, expected, response.text)
+                self.assertFalse(self.finished_transactions[-1])
+                cleanup.assert_not_called()
+                self.save_document()
+        self.assert_document(document_id, "english", passage_ids)
+
+    def test_remote_cleanup_runs_after_commit_and_allows_independent_writer(self):
+        from app.services import subject_rag
+
+        document_id, old_ids = self.save_document()
+        cleanup_started = threading.Event()
+        finish_cleanup = threading.Event()
+
+        def delayed_cleanup(passage_ids):
+            self.assertEqual(passage_ids, old_ids)
+            cleanup_started.set()
+            if not finish_cleanup.wait(3):
+                raise TimeoutError("delete test did not finish its remote cleanup")
+            return []
+
+        with patch.object(subject_rag, "delete_vector_index", side_effect=delayed_cleanup), \
+                ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(
+                self.client.delete, f"/api/teacher/knowledge/math/{document_id}", headers=self.headers,
+            )
+            try:
+                self.assertTrue(cleanup_started.wait(3), "route never reached remote cleanup")
+                with self.sessions() as independent:
+                    self.assertIsNone(independent.get(SubjectKnowledgeChunk, document_id))
+                    self.assertEqual(independent.query(SubjectKnowledgePassage).count(), 0)
+                # This independently committed write must succeed while remote
+                # cleanup is paused, rather than waiting on the delete lock.
+                new_id, new_ids = self.save_document("english")
+            finally:
+                finish_cleanup.set()
+            response = pending.result(timeout=5)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(new_id, document_id)
+        self.assertTrue(set(old_ids).isdisjoint(new_ids))
+        self.assert_document(new_id, "english", new_ids)
 
 
 if __name__ == "__main__":

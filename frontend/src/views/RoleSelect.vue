@@ -29,41 +29,41 @@
       </aside>
 
       <!-- 右：登录卡 -->
-      <div class="card login-card">
+      <form class="card login-card" :aria-busy="loading" @submit.prevent="login">
         <h2>欢迎回来</h2>
         <p class="subtitle">教师选择任教学科；学生使用班级名册中的姓名和学号登录。</p>
 
         <div class="form-row">
           <label>我是</label>
           <div class="role-btns">
-            <button :class="['btn', 'inline-icon', role === 'teacher' ? '' : 'secondary']" @click="switchRole('teacher')"><AppIcon name="cap" :size="18" /> 教师</button>
-            <button :class="['btn', 'inline-icon', role === 'student' ? '' : 'secondary']" @click="switchRole('student')"><AppIcon name="book" :size="18" /> 学生</button>
+            <button type="button" :class="['btn', 'inline-icon', role === 'teacher' ? '' : 'secondary']" :disabled="loading" @click="switchRole('teacher')"><AppIcon name="cap" :size="18" /> 教师</button>
+            <button type="button" :class="['btn', 'inline-icon', role === 'student' ? '' : 'secondary']" :disabled="loading" @click="switchRole('student')"><AppIcon name="book" :size="18" /> 学生</button>
           </div>
         </div>
 
         <div class="form-row">
           <label>{{ role === 'teacher' ? '教师姓名' : '学生姓名' }}</label>
-          <input v-model="username" type="text" :placeholder="role === 'teacher' ? '例如：陈老师' : '按班级名册填写'" />
+          <input v-model="username" type="text" :disabled="loading" :placeholder="role === 'teacher' ? '例如：陈老师' : '按班级名册填写'" />
         </div>
 
         <div v-if="role === 'student'" class="form-row">
           <label>学号</label>
-          <input v-model="studentNo" type="text" placeholder="输入班级名册中的学号" />
+          <input v-model="studentNo" type="text" :disabled="loading" placeholder="输入班级名册中的学号" />
         </div>
         <div v-else class="form-row">
           <label>任教学科</label>
-          <select v-model="teacherSubject">
+          <select v-model="teacherSubject" :disabled="loading">
             <option v-for="item in subjects" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </div>
 
         <div v-if="error" class="error-msg">{{ error }}</div>
 
-        <button class="btn full" :disabled="loading" @click="login">
+        <button type="submit" class="btn full" :disabled="loading">
           {{ loading ? '登录中…' : '一键进入演示' }}
         </button>
         <p class="hint">测试版免密码。学生账号由任课老师录入班级名册；姓名可重复，学号必须唯一。</p>
-      </div>
+      </form>
     </div>
   </div>
 </template>
@@ -81,7 +81,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const role = ref<'teacher' | 'student'>('student')
-const username = ref('林小夏')
+const username = ref('')
 const studentNo = ref('')
 const teacherSubject = ref('math')
 const subjects = [
@@ -94,33 +94,37 @@ const subjects = [
 const loading = ref(false)
 const error = ref('')
 
-// 一键角色切换：切换角色即预填对应演示账号
+// 请求期间冻结登录身份；切换角色后重新填写对应姓名和学号。
 function switchRole(r: 'teacher' | 'student') {
+  if (loading.value || r === role.value) return
   role.value = r
-  username.value = r === 'teacher' ? '陈老师' : ''
+  username.value = ''
+  studentNo.value = ''
   error.value = ''
 }
 
 async function login() {
-  if (!username.value.trim()) {
+  if (loading.value) return
+  const payload = {
+    username: username.value.trim(),
+    role: role.value,
+    student_no: role.value === 'student' ? studentNo.value.trim() : undefined,
+    subject: role.value === 'teacher' ? teacherSubject.value : undefined
+  }
+  if (!payload.username) {
     error.value = '请输入用户名'
+    return
+  }
+  if (payload.role === 'student' && !payload.student_no) {
+    error.value = '请输入学号'
     return
   }
   loading.value = true
   error.value = ''
   try {
-    if (role.value === 'student' && !studentNo.value.trim()) {
-      error.value = '请输入学号'
-      return
-    }
-    const { data } = await api.post<LoginResponse>('/api/auth/login', {
-      username: username.value.trim(),
-      role: role.value,
-      student_no: role.value === 'student' ? studentNo.value.trim() : undefined,
-      subject: role.value === 'teacher' ? teacherSubject.value : undefined
-    })
+    const { data } = await api.post<LoginResponse>('/api/auth/login', payload)
     auth.setSession(data.token, data.user, data.active_subject ?? '')
-    router.push(role.value === 'teacher' ? '/teacher/dashboard' : '/student/chat')
+    await router.push(data.user.role === 'teacher' ? '/teacher/dashboard' : '/student/chat')
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
     error.value = typeof detail === 'string'

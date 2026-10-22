@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..models import SubjectKnowledgeChunk, SubjectKnowledgePassage
 from . import bailian_rerank, rag_milvus
+from .rag_quality import formula_tokens, spread_by_document
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def _tokenize(text: str) -> list[str]:
     tokens = re.findall(r"[a-z][a-z0-9_]+|\d+(?:\.\d+)?", value)
     for run in re.findall(r"[\u4e00-\u9fff]+", value):
         tokens.extend(run[index:index + 2] for index in range(len(run) - 1))
-    return [token for token in tokens if token not in _STOP_TOKENS]
+    return [token for token in tokens if token not in _STOP_TOKENS] + formula_tokens(value)
 
 
 def _split_text(text: str, size: int, overlap: int) -> list[str]:
@@ -173,19 +174,22 @@ def reindex_subject(db: Session, subject: str) -> dict:
             "vector_status": vector_status, "warnings": warnings}
 
 
-def delete_knowledge_index(db: Session, document_id: int) -> list[str]:
-    """仅移除 SQL 片段；调用方提交后用 delete_vector_index 清理远程索引。"""
+def delete_knowledge_index(db: Session, document_id: int) -> list[int]:
+    """捕获即将删除的片段 ID；提交本地删除后仅清理这批确切的远程 ID。"""
+    passage_ids = [row[0] for row in db.query(SubjectKnowledgePassage.id).filter_by(
+        document_id=document_id,
+    ).order_by(SubjectKnowledgePassage.id).all()]
     db.query(SubjectKnowledgePassage).filter_by(document_id=document_id).delete(synchronize_session=False)
-    return []
+    return passage_ids
 
 
-def delete_vector_index(document_id: int) -> list[str]:
-    """已提交的本地删除不受远程故障影响；残留向量仍受 SQL 存活校验。"""
-    if rag_milvus.configured():
+def delete_vector_index(passage_ids: list[int]) -> list[str]:
+    """只删除旧片段向量，避免复用的文档 ID 让延迟清理误删新资料。"""
+    if passage_ids and rag_milvus.configured():
         try:
-            rag_milvus.delete_document(document_id)
+            rag_milvus.delete_passages(passage_ids)
         except Exception as exc:
-            logger.warning("移除向量索引失败（document_id=%s, error=%s）", document_id, type(exc).__name__)
+            logger.warning("移除向量索引失败（passage_count=%s, error=%s）", len(passage_ids), type(exc).__name__)
             return ["资料已移除；Milvus 中的旧索引暂未清理，检索会忽略这些已删除资料。"]
     return []
 
@@ -251,26 +255,40 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
     lexical = _bm25_rank(candidates, query_tokens) if query_tokens else []
     scores = defaultdict(float)
     candidate_limit = max(24, min(int(limit), 10) * 6)
-    for rank, (index, _) in enumerate(lexical[:candidate_limit], 1):
-        scores[index] += 1 / (_RRF_K + rank)
+    lexical_ranks = {index: rank for rank, (index, _) in enumerate(lexical, 1)}
+    lexical_candidates = spread_by_document(
+        [index for index, _ in lexical], candidates, candidate_limit,
+    )
+    for index in lexical_candidates:
+        # Candidate spreading changes only who survives the cap; keep each hit's
+        # original BM25 rank so a later result does not receive an artificial boost.
+        scores[index] += 1 / (_RRF_K + lexical_ranks[index])
     warnings = []
     dense = []
     if rag_milvus.configured():
         try:
-            vector_hits = rag_milvus.search_passages(subject, query, candidate_limit)
+            # Long documents can occupy every early vector slot with near-duplicate
+            # passages. Overfetch first, then keep a cross-document candidate pool.
+            vector_hits = rag_milvus.search_passages(subject, query, min(candidate_limit * 4, 256))
             # Milvus 结果只能对应当前学科、当前仍存在的 SQL 片段；旧/异科 ID 不可用。
             positions = {item["passage_id"]: index for index, item in enumerate(candidates)
                          if item["passage_id"] is not None}
             seen = set()
+            dense_ranks = {}
             for passage_id, similarity in vector_hits:
                 if passage_id not in positions or passage_id in seen:
                     continue
                 if not math.isfinite(similarity) or similarity < (0.45 if lexical else 0.55):
                     continue
                 seen.add(passage_id)
-                dense.append(positions[passage_id])
-            for rank, index in enumerate(dense, 1):
-                scores[index] += 1 / (_RRF_K + rank)
+                index = positions[passage_id]
+                dense_ranks[index] = len(dense_ranks) + 1
+            dense_candidates = spread_by_document(
+                list(dense_ranks), candidates, candidate_limit,
+            )
+            for index in dense_candidates:
+                dense.append(index)
+                scores[index] += 1 / (_RRF_K + dense_ranks[index])
         except Exception as exc:
             logger.warning("Milvus 检索失败（subject=%s, error=%s）", subject, type(exc).__name__)
             warnings.append(_VECTOR_WARNING)
@@ -287,7 +305,9 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
     rerank_mode = "local"
     if bailian_rerank.configured():
         try:
-            rerank_indices = ranked[:bailian_rerank.MAX_CANDIDATES]
+            rerank_indices = spread_by_document(
+                ranked, candidates, bailian_rerank.MAX_CANDIDATES,
+            )
             model_scores = bailian_rerank.rerank_documents(query, [
                 f"{candidates[index]['title'][:160]}\n{candidates[index]['content'][:800]}".strip()
                 for index in rerank_indices

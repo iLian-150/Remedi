@@ -51,6 +51,63 @@ class SubjectRagTests(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertEqual(subject_rag.search_knowledge(self.db, "math", query)["items"], [])
 
+    def test_formula_only_query_uses_bm25_and_keeps_subject_boundary(self):
+        math_document = self.document("代数关系", r"关系式为 x + y = z，变量之间满足这个等式。")
+        self.document("其他学科", r"关系式为 x + y = z。", subject="physics")
+        result = subject_rag.search_knowledge(self.db, "math", "x+y=z")
+        self.assertEqual([item["document_id"] for item in result["items"]], [math_document.id])
+        self.assertEqual(result["retrieval_mode"], "bm25")
+
+    def test_equivalent_formula_operators_match_without_numeric_noise(self):
+        document = self.document("乘法关系", r"x \times y = z")
+        result = subject_rag.search_knowledge(self.db, "math", "x × y = z")
+        self.assertEqual(result["items"][0]["document_id"], document.id)
+        self.document("面积公式", "三角形面积为底乘高再除以2。")
+        self.assertEqual(subject_rag.search_knowledge(self.db, "math", "2+2")["items"], [])
+
+    def test_candidate_cap_retains_a_related_short_document(self):
+        long_document = self.document(
+            "斜率基础教材",
+            "斜率表示函数图像的倾斜变化率，斜率描述图像变化。" * 320,
+        )
+        short_document = self.document(
+            "两点求斜率例题",
+            "直线斜率可以根据两点坐标计算，等于纵坐标差除以横坐标差。",
+        )
+        result = subject_rag.search_knowledge(self.db, "math", "斜率变化率图像", limit=4)
+        ids = [item["document_id"] for item in result["items"]]
+        self.assertIn(long_document.id, ids)
+        self.assertIn(short_document.id, ids)
+
+    def test_vector_overfetch_spreads_candidates_before_model_reranking(self):
+        long_document = self.document("长资料", "long_unique 斜率变化率。" * 1400)
+        short_document = self.document("短资料", "short_unique 两点计算斜率变化率。")
+        long_passage_ids = [row[0] for row in self.db.query(SubjectKnowledgePassage.id).filter_by(
+            document_id=long_document.id,
+        ).order_by(SubjectKnowledgePassage.id)]
+        short_passage_id = self.db.query(SubjectKnowledgePassage.id).filter_by(
+            document_id=short_document.id,
+        ).scalar()
+        self.assertGreaterEqual(len(long_passage_ids), 24)
+        query = "量子涡旋焦点弦"
+
+        def rerank(_query, documents):
+            self.assertTrue(any("short_unique" in text for text in documents))
+            return [0.99 if "short_unique" in text else 0.01 for text in documents]
+
+        with patch.object(subject_rag.rag_milvus, "configured", return_value=True), patch.object(
+            subject_rag.rag_milvus, "search_passages", return_value=[
+                *[(passage_id, 0.9) for passage_id in long_passage_ids[:24]],
+                (short_passage_id, 0.8),
+            ],
+        ) as search, patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents", side_effect=rerank,
+        ):
+            result = subject_rag.search_knowledge(self.db, "math", query, limit=4)
+        self.assertEqual(search.call_args.args[2], 96)
+        self.assertEqual(result["rerank_mode"], "model")
+        self.assertEqual(result["items"][0]["document_id"], short_document.id)
+
     def test_parent_context_is_deduplicated_and_cited(self):
         document = self.document("二次函数", ("二次函数的顶点决定图像位置，求顶点需要配方法。" * 55))
         result = subject_rag.search_knowledge(self.db, "math", "二次函数顶点配方法", limit=10)
@@ -81,6 +138,50 @@ class SubjectRagTests(unittest.TestCase):
             result = subject_rag.search_knowledge(self.db, "math", "冷门概念")
         self.assertEqual([item["document_id"] for item in result["items"]], [kept.id])
         self.assertEqual(result["retrieval_mode"], "hybrid")
+
+    def test_delayed_cleanup_does_not_delete_new_vectors_when_document_id_reuses(self):
+        old = self.document("旧资料", "旧版本的数学依据。")
+        old_document_id = old.id
+        old_passage_ids = subject_rag.delete_knowledge_index(self.db, old_document_id)
+        self.assertTrue(old_passage_ids)
+        self.db.delete(old)
+        self.db.commit()
+        new = self.document("新资料", "新版本的英语依据。", subject="english")
+        self.assertEqual(new.id, old_document_id, "回归必须实际覆盖 SQLite 文档 ID 复用")
+        new_passage_ids = [row[0] for row in self.db.query(SubjectKnowledgePassage.id).filter_by(document_id=new.id)]
+        self.assertTrue(set(old_passage_ids).isdisjoint(new_passage_ids))
+        vectors = {passage_id: old_document_id for passage_id in old_passage_ids + new_passage_ids}
+
+        def cleanup(ids):
+            for passage_id in ids:
+                vectors.pop(passage_id, None)
+
+        with patch.object(subject_rag.rag_milvus, "configured", return_value=True), patch.object(
+            subject_rag.rag_milvus, "delete_passages", side_effect=cleanup,
+        ) as delete, patch.object(subject_rag.rag_milvus, "delete_document") as legacy:
+            self.assertEqual(subject_rag.delete_vector_index(old_passage_ids), [])
+        delete.assert_called_once_with(old_passage_ids)
+        legacy.assert_not_called()
+        self.assertEqual(set(vectors), set(new_passage_ids))
+        self.assertIsNotNone(self.db.get(SubjectKnowledgeChunk, new.id))
+
+    def test_cleanup_failure_still_filters_deleted_vectors_from_results(self):
+        removed = self.document("删除资料", "旧版本的数学依据。")
+        kept = self.document("保留资料", "当前版本的数学依据。")
+        deleted_ids = subject_rag.delete_knowledge_index(self.db, removed.id)
+        kept_id = self.db.query(SubjectKnowledgePassage.id).filter_by(document_id=kept.id).scalar()
+        self.db.delete(removed)
+        self.db.commit()
+        with patch.object(subject_rag.rag_milvus, "configured", return_value=True), patch.object(
+            subject_rag.rag_milvus, "delete_passages", side_effect=TimeoutError("private remote details"),
+        ), patch.object(subject_rag.rag_milvus, "search_passages", return_value=[
+            (deleted_ids[0], 0.99), (kept_id, 0.9),
+        ]):
+            warnings = subject_rag.delete_vector_index(deleted_ids)
+            result = subject_rag.search_knowledge(self.db, "math", "冷门概念")
+        self.assertTrue(warnings)
+        self.assertNotIn("private remote details", str(warnings))
+        self.assertEqual([item["document_id"] for item in result["items"]], [kept.id])
 
     def test_vector_failures_preserve_local_index_and_bm25(self):
         document = SubjectKnowledgeChunk(subject="math", title="分式方程", content="分式方程求解后必须验根。")
