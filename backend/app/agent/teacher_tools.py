@@ -16,7 +16,9 @@ from ..services.teacher_stats import (
     latest_assignment,
     uncorrected_overview,
 )
-from ..services.teacher_scope import teacher_assignment_ids, teacher_student_ids
+from ..services.teacher_scope import (
+    teacher_assignment_ids, teacher_student_ids, teacher_submission_ids,
+)
 
 
 def overview_to_text(overview: dict) -> str:
@@ -138,6 +140,7 @@ def resolve_assignment(db: Session, hint: str, assignment_ids=None):
 def build_teacher_tools(db: Session, teacher: User) -> list:
     """按当前教师构造工具列表（身份闭包注入）。"""
     assignment_ids, student_ids = _teacher_scope(db, teacher)
+    submission_ids = teacher_submission_ids(db, teacher)
     teaching_subjects = {row[0] for row in db.query(TeacherSubject.subject).filter_by(teacher_id=teacher.id)}
 
     @tool
@@ -180,7 +183,9 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
     @tool
     def get_knowledge_point_ranking() -> str:
         """查询知识点错误率排行（从高到低），用于判断哪个知识点最严重、最需要优先讲解。"""
-        return ranking_to_text(knowledge_point_ranking(db, assignment_ids))
+        return ranking_to_text(knowledge_point_ranking(
+            db, assignment_ids, submission_ids=submission_ids,
+        ))
 
     @tool
     def get_class_repair_rate() -> str:
@@ -198,9 +203,15 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         try:
             scoped_stats = {
                 "repair_rate": class_repair_rate(db, student_ids, assignment_ids),
-                "knowledge_points": knowledge_point_ranking(db, assignment_ids),
-                "top_questions": top_error_questions(db, 50, assignment_ids),
+                "knowledge_points": knowledge_point_ranking(
+                    db, assignment_ids, submission_ids=submission_ids,
+                ),
+                "top_questions": top_error_questions(
+                    db, 50, assignment_ids, submission_ids=submission_ids,
+                ),
                 "assignment_ids": assignment_ids,
+                "student_ids": student_ids,
+                "submission_ids": submission_ids,
             }
             return suggestions_to_text(build_teaching_suggestions(db, scoped_stats))
         except Exception:

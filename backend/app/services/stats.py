@@ -7,7 +7,9 @@ from sqlalchemy.orm import joinedload, load_only
 from ..models import Assignment, AssignmentClass, AssignmentExt, AssignmentSetting, ClassroomMember, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
 
 
-def top_error_questions(db, n: int = 10, assignment_ids=None) -> List[Dict]:
+def top_error_questions(
+    db, n: int = 10, assignment_ids=None, submission_ids=None,
+) -> List[Dict]:
     """高频错题 TopN：按 error 数降序。"""
     if assignment_ids is not None and not assignment_ids:
         return []
@@ -28,6 +30,8 @@ def top_error_questions(db, n: int = 10, assignment_ids=None) -> List[Dict]:
     )
     if assignment_ids is not None:
         query = query.filter(Question.assignment_id.in_(assignment_ids))
+    if submission_ids is not None:
+        query = query.filter(Submission.id.in_(submission_ids))
     rows = (
         query.group_by(Question.id)
         .order_by(func.count(Error.id).desc(), Question.id.asc())
@@ -47,7 +51,7 @@ def top_error_questions(db, n: int = 10, assignment_ids=None) -> List[Dict]:
     ]
 
 
-def knowledge_point_ranking(db, assignment_ids=None) -> List[Dict]:
+def knowledge_point_ranking(db, assignment_ids=None, submission_ids=None) -> List[Dict]:
     """知识点错误率排行。
     口径：submissions = 该知识点题目的提交总数；errors = 该知识点累计 error 数；
     error_rate = errors / submissions。按 error_rate 降序。"""
@@ -74,6 +78,9 @@ def knowledge_point_ranking(db, assignment_ids=None) -> List[Dict]:
     if assignment_ids is not None:
         attempts_query = attempts_query.filter(Question.assignment_id.in_(assignment_ids))
         errors_query = errors_query.filter(Question.assignment_id.in_(assignment_ids))
+    if submission_ids is not None:
+        attempts_query = attempts_query.filter(Submission.id.in_(submission_ids))
+        errors_query = errors_query.filter(Error.submission_id.in_(submission_ids))
     combined_counts = (
         attempts_query.group_by(Question.knowledge_point).union_all(
             errors_query.group_by(Error.knowledge_point)

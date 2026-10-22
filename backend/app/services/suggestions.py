@@ -77,6 +77,10 @@ def build_teaching_suggestions(
         precomputed_stats.get("student_ids")
         if precomputed_stats is not None else None
     )
+    submission_ids = (
+        precomputed_stats.get("submission_ids")
+        if precomputed_stats is not None else None
+    )
 
     # ---- reteach：修复率低且波及多名学生 ----
     reteach_kps = set()
@@ -117,6 +121,8 @@ def build_teaching_suggestions(
             stubborn_query = stubborn_query.filter(Question.assignment_id.in_(assignment_ids))
         if student_ids is not None:
             stubborn_query = stubborn_query.filter(Submission.student_id.in_(student_ids))
+        if submission_ids is not None:
+            stubborn_query = stubborn_query.filter(Submission.id.in_(submission_ids))
         rows = stubborn_query.group_by(Error.knowledge_point).all()
     except Exception:
         rows = []
@@ -232,6 +238,8 @@ def build_teaching_suggestions(
             score_rows = score_rows.filter(Assignment.id.in_(assignment_ids))
         if student_ids is not None:
             score_rows = score_rows.filter(Submission.student_id.in_(student_ids))
+        if submission_ids is not None:
+            score_rows = score_rows.filter(Submission.id.in_(submission_ids))
         per_assignment: Dict[int, tuple[str, int, float]] = {}
         created_missing_score = False
         for row in score_rows.yield_per(1000):

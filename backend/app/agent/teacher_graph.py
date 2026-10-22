@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from ..models import User
 from ..services.stats import knowledge_point_ranking
 from ..services.teacher_stats import class_overview, uncorrected_overview
-from ..services.teacher_scope import teacher_assignment_ids, teacher_student_ids
+from ..services.teacher_scope import (
+    teacher_assignment_ids, teacher_student_ids, teacher_submission_ids,
+)
 from .graph import _build_llm, _message_chunk_text, _tools_used
 from .teacher_prompts import build_teacher_system_prompt
 from .teacher_tools import build_teacher_tools
@@ -22,9 +24,12 @@ def _teacher_context_summary(db: Session, teacher: User) -> str:
     try:
         assignment_ids = [row[0] for row in teacher_assignment_ids(db, teacher).all()]
         student_ids = [row[0] for row in teacher_student_ids(db, teacher).all()]
+        submission_ids = teacher_submission_ids(db, teacher)
         ov = class_overview(db, assignment_ids, student_ids)
         parts = [f"共 {ov['student_count']} 名学生、{ov['assignment_count']} 份作业"]
-        ranking = knowledge_point_ranking(db, assignment_ids)
+        ranking = knowledge_point_ranking(
+            db, assignment_ids, submission_ids=submission_ids,
+        )
         if ranking:
             top = ranking[0]
             parts.append(

@@ -677,9 +677,9 @@ def approve_submissions(db: Session, submissions: Iterable[Submission], teacher)
     return approved_ids
 
 
-def pending_reviews(db: Session) -> List[Submission]:
-    """教师端待审核队列：pending 的提交按提交时间正序（先交先审）。"""
-    return (
+def pending_reviews(db: Session, submission_ids=None) -> List[Submission]:
+    """教师端待审核队列：按提交时间排序，可限制到调用者获准访问的提交。"""
+    query = (
         db.query(Submission)
         .join(SubmissionReview, SubmissionReview.submission_id == Submission.id)
         .options(
@@ -704,6 +704,7 @@ def pending_reviews(db: Session) -> List[Submission]:
             .load_only(Assignment.id, Assignment.title),
         )
         .filter(SubmissionReview.status == PENDING)
-        .order_by(Submission.submitted_at.asc(), Submission.id.asc())
-        .all()
     )
+    if submission_ids is not None:
+        query = query.filter(Submission.id.in_(submission_ids))
+    return query.order_by(Submission.submitted_at.asc(), Submission.id.asc()).all()

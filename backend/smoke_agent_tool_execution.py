@@ -183,7 +183,8 @@ class AgentToolExecutionTests(unittest.TestCase):
         from app.agent.teacher_tools import build_teacher_tools
         from app.models import (
             Assignment, AssignmentClass, Classroom, ClassroomMember,
-            ClassroomTeacherSubject, Notification, Question,
+            ClassroomTeacherSubject, Error, Notification, Question, Submission,
+            SubmissionReview,
         )
 
         other_teacher = User(name="其他班教师", role="teacher")
@@ -240,6 +241,94 @@ class AgentToolExecutionTests(unittest.TestCase):
             )
         }
         self.assertEqual(notified_ids, {self.student.id})
+
+        review_assignment = Assignment(title="跨班待审核作业", created_by=other_teacher.id)
+        self.db.add(review_assignment)
+        self.db.flush()
+        review_question = Question(
+            assignment_id=review_assignment.id, subject="math", knowledge_point="方程",
+            stem="x+2=3", standard_answer="1", order_num=1,
+        )
+        self.db.add_all([
+            review_question,
+            AssignmentClass(assignment_id=review_assignment.id, classroom_id=own_class.id),
+            AssignmentClass(assignment_id=review_assignment.id, classroom_id=other_class.id),
+        ])
+        self.db.flush()
+        own_submission = Submission(student_id=self.student.id, question_id=review_question.id)
+        other_submission = Submission(student_id=other_student.id, question_id=review_question.id)
+        self.db.add_all([own_submission, other_submission])
+        self.db.flush()
+        self.db.add_all([
+            SubmissionReview(submission_id=own_submission.id, status="pending"),
+            SubmissionReview(submission_id=other_submission.id, status="pending"),
+            Error(
+                submission_id=own_submission.id, knowledge_point="方程", error_type="计算失误",
+                confidence=0.9, detail="任教班诊断",
+            ),
+            Error(
+                submission_id=other_submission.id, knowledge_point="方程", error_type="概念混淆",
+                confidence=0.9, detail="其他班诊断",
+            ),
+        ])
+        self.db.commit()
+
+        from fastapi import HTTPException
+        from app.routers.teacher import (
+            correct_error, list_errors, recent_error_summaries, review_approve,
+            review_detail, reviews_approve_all, reviews_pending,
+            reviews_pending_count, stats_knowledge_points, stats_top_questions,
+            teacher_dashboard, teaching_suggestions,
+        )
+
+        errors = list_errors(
+            error_id=None, student_id=None, knowledge_point=None, error_type=None,
+            stubborn_only=False, limit=20, offset=0,
+            db=self.db, current=self.teacher,
+        )
+        self.assertEqual(errors["total"], 1)
+        self.assertEqual(errors["items"][0].student.id, self.student.id)
+        summaries = recent_error_summaries(limit=100, db=self.db, current=self.teacher)
+        self.assertEqual([item["student"]["id"] for item in summaries["items"]], [self.student.id])
+        top_questions = stats_top_questions(n=10, db=self.db, current=self.teacher)
+        self.assertEqual(top_questions["items"][0].error_count, 1)
+        self.assertEqual(top_questions["items"][0].student_count, 1)
+        rankings = stats_knowledge_points(db=self.db, current=self.teacher)
+        self.assertEqual(rankings["items"][0].submissions, 1)
+        self.assertEqual(rankings["items"][0].errors, 1)
+        dashboard = teacher_dashboard(
+            n=10, include_suggestions=False, db=self.db, current=self.teacher,
+        )
+        self.assertEqual(dashboard.total_errors, 1)
+        tool_ranking = next(
+            tool for tool in build_teacher_tools(self.db, self.teacher)
+            if tool.name == "get_knowledge_point_ranking"
+        ).invoke({})
+        self.assertIn("提交 1 次、出错 1 次", tool_ranking)
+        suggestions = teaching_suggestions(db=self.db, current=self.teacher)
+        self.assertTrue(any("提交 1 次、出错 1 次" in item["evidence"] for item in suggestions))
+        other_error = self.db.query(Error).filter_by(submission_id=other_submission.id).one()
+        with self.assertRaises(HTTPException) as denied_correction:
+            correct_error(other_error.id, None, self.db, self.teacher)
+        self.assertEqual(denied_correction.exception.status_code, 404)
+        self.assertEqual(reviews_pending_count(self.db, self.teacher)["count"], 1)
+        queue = reviews_pending(self.db, self.teacher)
+        self.assertEqual(queue["count"], 1)
+        self.assertEqual(queue["items"][0].student.id, self.student.id)
+        with self.assertRaises(HTTPException) as denied_detail:
+            review_detail(other_submission.id, self.db, self.teacher)
+        self.assertEqual(denied_detail.exception.status_code, 404)
+        with self.assertRaises(HTTPException) as denied_approval:
+            review_approve(other_submission.id, None, self.db, self.teacher)
+        self.assertEqual(denied_approval.exception.status_code, 404)
+        with patch("app.routers.teacher.scoring_svc.finalize_on_approve_many"), patch(
+            "app.services.learning_memory.refresh_student_learning_memory",
+        ):
+            approved = reviews_approve_all(self.db, self.teacher)
+        self.assertEqual(approved["approved_count"], 1)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(SubmissionReview, own_submission.id).status, "approved")
+        self.assertEqual(self.db.get(SubmissionReview, other_submission.id).status, "pending")
 
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
         model = ScriptedToolModel()
