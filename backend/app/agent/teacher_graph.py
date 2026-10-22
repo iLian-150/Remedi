@@ -25,7 +25,7 @@ def _teacher_context_summary(db: Session, teacher: User) -> str:
         assignment_ids = [row[0] for row in teacher_assignment_ids(db, teacher).all()]
         student_ids = [row[0] for row in teacher_student_ids(db, teacher).all()]
         submission_ids = teacher_submission_ids(db, teacher)
-        ov = class_overview(db, assignment_ids, student_ids)
+        ov = class_overview(db, assignment_ids, student_ids, submission_ids)
         parts = [f"共 {ov['student_count']} 名学生、{ov['assignment_count']} 份作业"]
         ranking = knowledge_point_ranking(
             db, assignment_ids, submission_ids=submission_ids,
@@ -35,7 +35,9 @@ def _teacher_context_summary(db: Session, teacher: User) -> str:
             parts.append(
                 f"错误率最高的知识点是「{top['knowledge_point']}」（{round(top['error_rate'] * 100)}%）"
             )
-        pending = uncorrected_overview(db, assignment_ids, student_ids)
+        pending = uncorrected_overview(
+            db, assignment_ids, student_ids, submission_ids,
+        )
         if pending:
             parts.append(f"有 {len(pending)} 名学生的订正还没完成")
         return "；".join(parts) + "。"

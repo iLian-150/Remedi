@@ -1142,7 +1142,8 @@ def stats_repair_rate(db: Session = Depends(get_db), current: User = Depends(req
     （已修复 = 错题订正后通过二次验证）。"""
     assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
     student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
-    return class_repair_rate(db, student_ids, assignment_ids)
+    submission_ids = _teacher_submission_ids(db, current)
+    return class_repair_rate(db, student_ids, assignment_ids, submission_ids)
 
 
 @router.get("/dashboard", response_model=TeacherDashboardOut, summary="教师首页看板汇总")
@@ -1217,7 +1218,9 @@ def teacher_dashboard(
 
     repair_rate_data = None
     try:
-        repair_rate_data = class_repair_rate(db, student_ids, assignment_ids)
+        repair_rate_data = class_repair_rate(
+            db, student_ids, assignment_ids, authorized_submission_ids,
+        )
         repair_rate = ClassRepairRateOut(**repair_rate_data)
     except Exception:
         # 和旧看板单独请求修复率时的降级口径一致：该卡为空值，其余统计仍可展示。
@@ -1288,7 +1291,10 @@ def student_profile_view(student_id: int, db: Session = Depends(get_db),
     ).first():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学生不存在或你没有该班级的查看权限。")
     assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
-    return student_profile(db, st, assignment_ids=assignment_ids)
+    return student_profile(
+        db, st, assignment_ids=assignment_ids,
+        submission_ids=_teacher_submission_ids(db, current),
+    )
 
 
 # ---------- 发布作业（v0.2.0 新增） ----------
@@ -2318,7 +2324,9 @@ def teaching_suggestions(db: Session = Depends(get_db),
     student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
     submission_ids = _teacher_submission_ids(db, current)
     return build_teaching_suggestions(db, precomputed_stats={
-        "repair_rate": class_repair_rate(db, student_ids, assignment_ids),
+        "repair_rate": class_repair_rate(
+            db, student_ids, assignment_ids, submission_ids,
+        ),
         "knowledge_points": knowledge_point_ranking(
             db, assignment_ids, submission_ids=submission_ids,
         ),

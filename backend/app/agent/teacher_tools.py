@@ -166,7 +166,9 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
     @tool
     def get_class_overview() -> str:
         """查询班级总览：学生人数、已发布作业份数、累计提交次数与累计错误数。老师问"班级整体情况""多少人交了作业"时调用。"""
-        return overview_to_text(class_overview(db, assignment_ids, student_ids))
+        return overview_to_text(class_overview(
+            db, assignment_ids, student_ids, submission_ids,
+        ))
 
     @tool
     def get_assignment_status(assignment_hint: str) -> str:
@@ -190,19 +192,25 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
     @tool
     def get_class_repair_rate() -> str:
         """查询班级知识修复率：已修复的（学生×知识点）占出过错组合的比例，以及各知识点的修复率。口径：订正正确后再做对一道同知识点变式题才算已修复。"""
-        return repair_rate_to_text(class_repair_rate(db, student_ids, assignment_ids))
+        return repair_rate_to_text(class_repair_rate(
+            db, student_ids, assignment_ids, submission_ids,
+        ))
 
     @tool
     def get_uncorrected_students() -> str:
         """查询订正还没完成的学生：每人还有几处错题没订正、涉及哪些知识点。"""
-        return uncorrected_to_text(uncorrected_overview(db, assignment_ids, student_ids))
+        return uncorrected_to_text(uncorrected_overview(
+            db, assignment_ids, student_ids, submission_ids,
+        ))
 
     @tool
     def get_teaching_suggestions() -> str:
         """查询教学建议：下节课建议重讲什么知识点、哪些知识点错误率需要预警、哪些学生需要分组辅导、哪份作业需要巩固练习。老师问"下节课讲什么""有什么教学建议""备课重点"时调用。"""
         try:
             scoped_stats = {
-                "repair_rate": class_repair_rate(db, student_ids, assignment_ids),
+                "repair_rate": class_repair_rate(
+                    db, student_ids, assignment_ids, submission_ids,
+                ),
                 "knowledge_points": knowledge_point_ranking(
                     db, assignment_ids, submission_ids=submission_ids,
                 ),
@@ -235,7 +243,10 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         if st is None:
             return f"在你任课的班级中没有找到学生「{student_name}」，请检查姓名和学号。"
         return profile_to_text(
-            student_profile(db, st, assignment_ids=assignment_ids),
+            student_profile(
+                db, st, assignment_ids=assignment_ids,
+                submission_ids=submission_ids,
+            ),
             include_student_no=include_student_no,
         )
 

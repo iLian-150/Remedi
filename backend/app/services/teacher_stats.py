@@ -206,7 +206,7 @@ def latest_assignment(db, assignment_ids=None) -> Optional[Assignment]:
     ).order_by(Assignment.id.desc()).first()
 
 
-def class_overview(db, assignment_ids=None, student_ids=None) -> Dict:
+def class_overview(db, assignment_ids=None, student_ids=None, submission_ids=None) -> Dict:
     """班级总览：学生数 / 作业份数 / 累计提交数 / 累计错误数。"""
     student_query = db.query(func.count(User.id)).filter(User.role == "student")
     if student_ids is not None:
@@ -225,6 +225,9 @@ def class_overview(db, assignment_ids=None, student_ids=None) -> Dict:
     if student_ids is not None:
         submission_query = submission_query.filter(Submission.student_id.in_(student_ids))
         error_query = error_query.filter(Submission.student_id.in_(student_ids))
+    if submission_ids is not None:
+        submission_query = submission_query.filter(Submission.id.in_(submission_ids))
+        error_query = error_query.filter(Submission.id.in_(submission_ids))
     counts = {
         "student_count": student_query.scalar() or 0,
         "assignment_count": assignment_query.scalar() or 0,
@@ -239,7 +242,7 @@ def class_overview(db, assignment_ids=None, student_ids=None) -> Dict:
     }
 
 
-def uncorrected_overview(db, assignment_ids=None, student_ids=None) -> List[Dict]:
+def uncorrected_overview(db, assignment_ids=None, student_ids=None, submission_ids=None) -> List[Dict]:
     """订正未完成概览：每位学生「出错但尚无一条订正正确」的错题数，降序。
     口径与学生简报的待订正判定一致（corrections 里没有 is_correct=True 即未完成）。"""
     has_correct_correction = db.query(Correction.id).filter(
@@ -259,6 +262,8 @@ def uncorrected_overview(db, assignment_ids=None, student_ids=None) -> List[Dict
         ).filter(Question.assignment_id.in_(assignment_ids))
     if student_ids is not None:
         pending_query = pending_query.filter(Submission.student_id.in_(student_ids))
+    if submission_ids is not None:
+        pending_query = pending_query.filter(Submission.id.in_(submission_ids))
     counts_by_student = {}
     knowledge_points_by_student: Dict[int, set] = {}
     grouped_rows = pending_query.with_entities(

@@ -23,7 +23,27 @@ from app.agent.subjects import detect_subject
 from app.agent.suggestions import teacher_intent, teacher_suggestions
 from app.agent.teacher_graph import teacher_agent_reply_stream
 from app.database import Base
-from app.models import StudentQuestionCapture, TeacherSubject, User
+from app.models import (
+    Assignment,
+    AssignmentClass,
+    Classroom,
+    ClassroomMember,
+    ClassroomTeacherSubject,
+    Error,
+    Question,
+    StudentQuestionCapture,
+    Submission,
+    TeacherSubject,
+    User,
+)
+from app.services.stats import class_repair_rate, student_profile
+from app.services.teacher_scope import (
+    teacher_assignment_ids,
+    teacher_student_ids,
+    teacher_submission_ids,
+)
+from app.services.teacher_stats import class_overview, uncorrected_overview
+from app.agent.teacher_tools import build_teacher_tools
 
 
 class ScriptedToolModel(BaseChatModel):
@@ -432,6 +452,107 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertGreater(observed["calls"], 1)
         self.assertEqual(observed["peak"], 1)
         self.assertEqual(result["tools_used"], ["get_class_overview", "get_class_repair_rate"])
+
+    def test_teacher_aggregates_filter_by_authorized_submissions(self):
+        math_class = Classroom(name="逻辑回归数学班", created_by=self.teacher.id)
+        physics_class = Classroom(name="逻辑回归物理班", created_by=self.teacher.id)
+        physics_student = User(name="逻辑回归物理学生", role="student", student_no="agent-physics")
+        self.db.add_all([
+            math_class, physics_class, physics_student,
+            TeacherSubject(teacher_id=self.teacher.id, subject="physics"),
+        ])
+        self.db.flush()
+        self.db.add_all([
+            ClassroomTeacherSubject(
+                classroom_id=math_class.id, teacher_id=self.teacher.id, subject="math",
+            ),
+            ClassroomTeacherSubject(
+                classroom_id=physics_class.id, teacher_id=self.teacher.id, subject="physics",
+            ),
+            ClassroomMember(classroom_id=math_class.id, student_id=self.student.id),
+            ClassroomMember(classroom_id=physics_class.id, student_id=physics_student.id),
+        ])
+        math_assignment = Assignment(title="范围回归数学作业")
+        physics_assignment = Assignment(title="范围回归物理作业")
+        self.db.add_all([math_assignment, physics_assignment])
+        self.db.flush()
+        self.db.add_all([
+            AssignmentClass(assignment_id=math_assignment.id, classroom_id=math_class.id),
+            AssignmentClass(assignment_id=physics_assignment.id, classroom_id=physics_class.id),
+        ])
+        math_question = Question(
+            assignment_id=math_assignment.id, subject="math",
+            knowledge_point="授权数学", stem="数学题",
+        )
+        physics_question = Question(
+            assignment_id=physics_assignment.id, subject="physics",
+            knowledge_point="班级物理", stem="物理题",
+        )
+        self.db.add_all([math_question, physics_question])
+        self.db.flush()
+        math_submission = Submission(student_id=self.student.id, question_id=math_question.id)
+        unauthorized_submission = Submission(
+            student_id=self.student.id, question_id=physics_question.id,
+        )
+        physics_submission = Submission(
+            student_id=physics_student.id, question_id=physics_question.id,
+        )
+        self.db.add_all([math_submission, unauthorized_submission, physics_submission])
+        self.db.flush()
+        self.db.add_all([
+            Error(
+                submission_id=math_submission.id, knowledge_point="授权数学",
+                error_type="conceptual", confidence=0.9,
+            ),
+            Error(
+                submission_id=unauthorized_submission.id, knowledge_point="越权物理",
+                error_type="conceptual", confidence=0.9,
+            ),
+            Error(
+                submission_id=physics_submission.id, knowledge_point="班级物理",
+                error_type="conceptual", confidence=0.9,
+            ),
+        ])
+        self.db.commit()
+
+        assignments = [row[0] for row in teacher_assignment_ids(self.db, self.teacher).all()]
+        students = [row[0] for row in teacher_student_ids(self.db, self.teacher).all()]
+        submissions = teacher_submission_ids(self.db, self.teacher)
+        authorized_submission_ids = {row[0] for row in submissions.all()}
+        self.assertEqual(
+            authorized_submission_ids,
+            {math_submission.id, physics_submission.id},
+        )
+
+        overview = class_overview(self.db, assignments, students, submissions)
+        self.assertEqual(overview["submission_count"], 2)
+        self.assertEqual(overview["error_count"], 2)
+        pending = uncorrected_overview(self.db, assignments, students, submissions)
+        self.assertEqual(
+            {kp for row in pending for kp in row["knowledge_points"]},
+            {"授权数学", "班级物理"},
+        )
+        repair = class_repair_rate(self.db, students, assignments, submissions)
+        self.assertEqual(repair["total_knowledge_point_pairs"], 2)
+        profile = student_profile(
+            self.db, self.student, assignment_ids=assignments,
+            submission_ids=submissions,
+        )
+        self.assertEqual(
+            {item["knowledge_point"] for item in profile["knowledge_points"]},
+            {"授权数学"},
+        )
+
+        tools = {item.name: item for item in build_teacher_tools(self.db, self.teacher)}
+        self.assertIn("累计提交 2 次", tools["get_class_overview"].invoke({}))
+        self.assertIn("共 2 组", tools["get_class_repair_rate"].invoke({}))
+        self.assertNotIn("越权物理", tools["get_uncorrected_students"].invoke({}))
+        teacher_profile = tools["get_student_profile"].invoke({
+            "student_name": self.student.name,
+            "student_no": "",
+            "include_student_no": False,
+        })
+        self.assertNotIn("越权物理", teacher_profile)
 
     def test_student_tool_names_survive_index_reuse_and_deduplicate(self):
         model = ScriptedToolModel(rounds=[
