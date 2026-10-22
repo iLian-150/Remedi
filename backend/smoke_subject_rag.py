@@ -283,6 +283,17 @@ class SubjectRagTests(unittest.TestCase):
         result = subject_rag.search_knowledge(self.db, "math", "x²=4")
         self.assertEqual([item["document_id"] for item in result["items"]], [power.id])
 
+    def test_nth_root_and_subscript_queries_retrieve_latex_evidence_exactly(self):
+        root = self.document("根式方程", r"\sqrt[3]{x}=2。")
+        self.document("平方根方程", r"\sqrt{x}=2。")
+        result = subject_rag.search_knowledge(self.db, "math", "∛x=2")
+        self.assertEqual([item["document_id"] for item in result["items"]], [root.id])
+
+        first = self.document("下标方程甲", r"x_{1}=2。")
+        self.document("下标方程乙", r"x_{2}=2。")
+        result = subject_rag.search_knowledge(self.db, "math", "x₁=2")
+        self.assertEqual([item["document_id"] for item in result["items"]], [first.id])
+
     def test_equations_with_opposite_signs_do_not_match(self):
         self.document("负系数方程", "-2x+3=7。")
         self.document("正数解方程", "x=2。")

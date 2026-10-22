@@ -3,7 +3,7 @@ import re
 import unicodedata
 
 
-_FORMULA_GROUP_CHARS = r"a-z0-9_.+\-*/^=<>≤≥≠≈×÷·⋅\s"
+_FORMULA_GROUP_CHARS = r"a-z0-9_.,+\-*/^=<>≤≥≠≈×÷·⋅\s"
 
 
 def _formula_group_pattern(depth: int) -> str:
@@ -58,6 +58,15 @@ _SUPERSCRIPT_MAP = str.maketrans({
     "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
     "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
     "⁺": "+", "⁻": "-",
+})
+_SUBSCRIPT_RE = re.compile(r"[₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₒₓₕₖₗₘₙₚₛₜ]+")
+_SUBSCRIPT_MAP = str.maketrans({
+    "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+    "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+    "₊": "+", "₋": "-", "₌": "=", "₍": "(", "₎": ")",
+    "ₐ": "a", "ₑ": "e", "ₒ": "o", "ₓ": "x", "ₕ": "h",
+    "ₖ": "k", "ₗ": "l", "ₘ": "m", "ₙ": "n", "ₚ": "p",
+    "ₛ": "s", "ₜ": "t",
 })
 _FORMULA_REPLACEMENTS = (
     (r"\\(?:times|cdot)", "*"),
@@ -124,6 +133,24 @@ def _format_latex_fraction(numerator: str, denominator: str) -> str:
     return f"{numerator}/{denominator}"
 
 
+def _normalize_unicode_subscripts(value: str) -> str:
+    def replace(match: re.Match) -> str:
+        subscript = match.group(0).translate(_SUBSCRIPT_MAP)
+        if subscript.startswith("(") and subscript.endswith(")"):
+            subscript = subscript[1:-1]
+        if any(operator in subscript for operator in "+-="):
+            return f"_({subscript})"
+        return f"_{subscript}"
+
+    return _SUBSCRIPT_RE.sub(replace, value)
+
+
+def _format_latex_root(degree: str | None, radicand: str) -> str:
+    if degree is None or degree == "2":
+        return f"sqrt({radicand})"
+    return f"root({degree},{radicand})"
+
+
 def _normalize_latex_commands(value: str, depth: int = 0) -> str:
     """Lower common LaTeX fractions, roots, and braced exponents to formula syntax."""
     if depth >= 16:
@@ -148,34 +175,61 @@ def _normalize_latex_commands(value: str, depth: int = 0) -> str:
                     index = denominator_group[1]
                     continue
             elif command == "sqrt":
-                radicand_group = _read_latex_group(value, command_end, "{", "}")
+                degree_group = _read_latex_group(value, command_end, "[", "]")
+                radicand_group = _read_latex_group(
+                    value, degree_group[1] if degree_group else command_end, "{", "}"
+                )
                 if radicand_group:
                     radicand = _normalize_latex_commands(radicand_group[0], depth + 1).strip()
-                    result.append(f"sqrt({radicand})")
+                    degree = (
+                        _normalize_latex_commands(degree_group[0], depth + 1).strip()
+                        if degree_group else None
+                    )
+                    result.append(_format_latex_root(degree, radicand))
                     index = radicand_group[1]
                     continue
             result.append(command_match.group(0))
             index = command_end
             continue
 
-        if value[index] == "√":
+        if value[index] in "√∛∜":
+            default_degree = {"√": "2", "∛": "3", "∜": "4"}[value[index]]
             start = index + 1
             while start < len(value) and value[start].isspace():
                 start += 1
-            group = _read_latex_group(value, start, "(", ")")
+            degree_group = _read_latex_group(value, start, "[", "]")
+            degree = (
+                _normalize_latex_commands(degree_group[0], depth + 1).strip()
+                if degree_group else default_degree
+            )
+            radicand_start = degree_group[1] if degree_group else start
+            group = _read_latex_group(value, radicand_start, "{", "}")
+            if group is None:
+                group = _read_latex_group(value, radicand_start, "(", ")")
             if group:
                 radicand = _normalize_latex_commands(group[0], depth + 1).strip()
-                result.append(f"sqrt({radicand})")
+                result.append(_format_latex_root(degree, radicand))
                 index = group[1]
                 continue
-            variable = re.match(r"[a-z][a-z0-9_]*|\d+(?:\.\d+)?", value[start:])
+            variable = re.match(r"[a-z][a-z0-9_]*|\d+(?:\.\d+)?", value[radicand_start:])
             if variable:
-                result.append(f"sqrt({variable.group(0)})")
-                index = start + len(variable.group(0))
+                result.append(_format_latex_root(degree, variable.group(0)))
+                index = radicand_start + len(variable.group(0))
                 continue
             result.append(value[index])
             index += 1
             continue
+
+        if value[index] == "_":
+            subscript_group = _read_latex_group(value, index + 1, "{", "}")
+            if subscript_group:
+                subscript = _normalize_latex_commands(subscript_group[0], depth + 1).strip()
+                if re.fullmatch(r"[a-z0-9]+", subscript):
+                    result.append("_" + subscript)
+                else:
+                    result.append("_(" + subscript + ")")
+                index = subscript_group[1]
+                continue
 
         if value[index] == "^":
             exponent_group = _read_latex_group(value, index + 1, "{", "}")
@@ -206,6 +260,7 @@ def formula_tokens(text: str) -> list[str]:
         lambda match: "^" + match.group(0).translate(_SUPERSCRIPT_MAP),
         text or "",
     )
+    value = _normalize_unicode_subscripts(value)
     value = unicodedata.normalize("NFKC", value).lower().replace("⁄", "/")
     value = _LATEX_GREEK_RE.sub(lambda match: _LATEX_GREEK_SYMBOLS[match.group(1)], value)
     for source, replacement in _FORMULA_REPLACEMENTS:

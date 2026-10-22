@@ -55,6 +55,15 @@ class RagQualityTests(unittest.TestCase):
         self.assertEqual(formula_tokens(r"x^{2}=4"), ["formula:x^2=4"])
         self.assertEqual(formula_tokens(r"x^{n+1}=y"), ["formula:x^(n+1)=y"])
 
+    def test_formula_tokens_normalize_nth_roots_and_subscripts(self):
+        self.assertEqual(formula_tokens(r"\sqrt[3]{x}=2"), ["formula:root(3,x)=2"])
+        self.assertEqual(formula_tokens("∛x=2"), ["formula:root(3,x)=2"])
+        self.assertEqual(formula_tokens("√[3]{x}=2"), ["formula:root(3,x)=2"])
+        self.assertEqual(formula_tokens(r"x_{1}+x_{2}=3"), ["formula:x_1+x_2=3"])
+        self.assertEqual(formula_tokens("x₁+x₂=3"), ["formula:x_1+x_2=3"])
+        self.assertEqual(formula_tokens(r"a_{n+1}=a_n+d"), ["formula:a_(n+1)=a_n+d"])
+        self.assertEqual(formula_tokens("aₙ₊₁=aₙ+d"), ["formula:a_(n+1)=a_n+d"])
+
     def test_formula_tokens_preserve_parenthesized_terms_and_coefficients(self):
         self.assertEqual(formula_tokens("2(x+1)=7"), ["formula:2*(x+1)=7"])
         self.assertEqual(formula_tokens("2 (x+1) = 7"), ["formula:2*(x+1)=7"])
