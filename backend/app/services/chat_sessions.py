@@ -7,10 +7,12 @@
 # 迁移口径：用户首次触碰任一会话接口时，若其在旧 chat_messages 有记录
 # 且尚无任何会话 → 生成一条标题「之前的对话」的会话，把旧消息按序复制进来，
 # 再删掉该用户在旧表的行（防重复迁移）。学生/教师按 user_id 各自独立迁移。
+import sqlite3
 from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import and_, func, insert, literal, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -28,54 +30,102 @@ DEFAULT_SESSION_TITLE = "新对话"
 TITLE_MAX_CHARS = 20
 
 
-def _migrate_legacy_messages(db: Session, user: User) -> bool:
-    """调用方已确认没有会话时，将旧消息迁入新会话表。"""
-    legacy_count, first_created_at, last_created_at = (
-        db.query(
-            func.count(ChatMessage.id),
-            func.min(ChatMessage.created_at),
-            func.max(ChatMessage.created_at),
-        )
-        .filter(ChatMessage.user_id == user.id)
-        .one()
-    )
-    if not legacy_count:
-        return False
-    session = ChatSession(
-        user_id=user.id,
-        title=LEGACY_SESSION_TITLE,
-        message_count=int(legacy_count),
-        created_at=first_created_at,
-        updated_at=last_created_at,
-    )
-    db.add(session)
-    db.flush()  # 先拿到 session.id 再挂消息
+def _reserve_legacy_migration(db: Session, user_id: int) -> None:
+    """Serialize a user's one-time migration before rechecking its source rows."""
+    connection = db.connection()
+    if connection.dialect.name != "sqlite":
+        db.query(User.id).filter(User.id == user_id).with_for_update().first()
+        return
 
-    legacy_messages = (
-        db.query(
-            literal(session.id),
-            ChatMessage.role,
-            ChatMessage.content,
-            ChatMessage.created_at,
+    raw_connection = connection.connection.driver_connection
+    if not raw_connection.in_transaction:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        return
+
+    try:
+        # A prior authentication/read query may have opened a real SQLite read
+        # transaction. A no-op write obtains the writer reservation in place.
+        connection.exec_driver_sql("UPDATE users SET id = id WHERE id = ?", (user_id,))
+    except OperationalError as exc:
+        error_code = getattr(exc.orig, "sqlite_errorcode", 0) or 0
+        if error_code != getattr(sqlite3, "SQLITE_BUSY_SNAPSHOT", 517):
+            raise
+        if db.new or db.dirty or db.deleted:
+            raise
+        # A WAL read snapshot cannot be upgraded after another request commits.
+        # These call sites run before route writes, so discard only the stale
+        # read snapshot and acquire a fresh writer reservation before rechecking.
+        db.rollback()
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def _migrate_legacy_messages(db: Session, user: User) -> bool:
+    """Migrate legacy messages once and notice a concurrent request's result."""
+    user_id = user.id
+    try:
+        legacy_exists = db.query(ChatMessage.id).filter(ChatMessage.user_id == user_id).first()
+        if legacy_exists is None:
+            # The caller may have observed an empty list just before another
+            # request completed migration; signal it to reload the new session.
+            return db.query(ChatSession.id).filter(ChatSession.user_id == user_id).first() is not None
+
+        _reserve_legacy_migration(db, user_id)
+        existing_session = db.query(ChatSession.id).filter(ChatSession.user_id == user_id).first()
+        if existing_session is not None:
+            db.commit()
+            return True
+
+        legacy_count, first_created_at, last_created_at = (
+            db.query(
+                func.count(ChatMessage.id),
+                func.min(ChatMessage.created_at),
+                func.max(ChatMessage.created_at),
+            )
+            .filter(ChatMessage.user_id == user_id)
+            .one()
         )
-        .filter(ChatMessage.user_id == user.id)
-        .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
-        .statement
-    )
-    db.execute(
-        insert(ChatSessionMessage).from_select(
-            ["session_id", "role", "content", "created_at"],
-            legacy_messages,
+        if not legacy_count:
+            db.commit()
+            return False
+
+        session = ChatSession(
+            user_id=user_id,
+            title=LEGACY_SESSION_TITLE,
+            message_count=int(legacy_count),
+            created_at=first_created_at,
+            updated_at=last_created_at,
         )
-    )
-    db.query(ChatMessage).filter(ChatMessage.user_id == user.id) \
-        .delete(synchronize_session=False)
-    db.commit()
-    return True
+        db.add(session)
+        db.flush()  # 先拿到 session.id 再挂消息
+
+        legacy_messages = (
+            db.query(
+                literal(session.id),
+                ChatMessage.role,
+                ChatMessage.content,
+                ChatMessage.created_at,
+            )
+            .filter(ChatMessage.user_id == user_id)
+            .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+            .statement
+        )
+        db.execute(
+            insert(ChatSessionMessage).from_select(
+                ["session_id", "role", "content", "created_at"],
+                legacy_messages,
+            )
+        )
+        db.query(ChatMessage).filter(ChatMessage.user_id == user_id) \
+            .delete(synchronize_session=False)
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        raise
 
 
 def ensure_migrated(db: Session, user: User) -> bool:
-    """幂等迁移旧消息；仅本次实际迁移时返回 True。"""
+    """幂等迁移旧消息；并发请求已完成迁移时也返回 True 供调用方刷新。"""
     has_session = (
         db.query(ChatSession.id).filter(ChatSession.user_id == user.id).first()
     )
