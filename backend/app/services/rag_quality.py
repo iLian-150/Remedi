@@ -75,6 +75,124 @@ _FORMULA_REPLACEMENTS = (
 )
 
 
+def _read_latex_group(text: str, position: int, opening: str, closing: str) -> tuple[str, int] | None:
+    while position < len(text) and text[position].isspace():
+        position += 1
+    if position >= len(text) or text[position] != opening:
+        return None
+    depth = 0
+    index = position
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text[index] == opening:
+            depth += 1
+        elif text[index] == closing:
+            depth -= 1
+            if depth == 0:
+                return text[position + 1:index], index + 1
+        index += 1
+    return None
+
+
+def _has_top_level_operator(expression: str, operators: str) -> bool:
+    depth = 0
+    previous = ""
+    for character in expression:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0 and character in operators:
+            if character in "+-" and (not previous or previous in "+-*/^=<>≤≥≠≈"):
+                previous = character
+                continue
+            return True
+        if not character.isspace():
+            previous = character
+    return False
+
+
+def _format_latex_fraction(numerator: str, denominator: str) -> str:
+    numerator = numerator.strip()
+    denominator = denominator.strip()
+    if _has_top_level_operator(numerator, "+-"):
+        numerator = f"({numerator})"
+    if _has_top_level_operator(denominator, "+-*/"):
+        denominator = f"({denominator})"
+    return f"{numerator}/{denominator}"
+
+
+def _normalize_latex_commands(value: str, depth: int = 0) -> str:
+    """Lower common LaTeX fractions, roots, and braced exponents to formula syntax."""
+    if depth >= 16:
+        return value
+    result = []
+    index = 0
+    while index < len(value):
+        command_match = re.match(r"\\([a-z]+)", value[index:]) if value[index] == "\\" else None
+        if command_match:
+            command = command_match.group(1)
+            command_end = index + len(command_match.group(0))
+            if command in {"frac", "dfrac", "tfrac"}:
+                numerator_group = _read_latex_group(value, command_end, "{", "}")
+                denominator_group = (
+                    _read_latex_group(value, numerator_group[1], "{", "}")
+                    if numerator_group else None
+                )
+                if numerator_group and denominator_group:
+                    numerator = _normalize_latex_commands(numerator_group[0], depth + 1)
+                    denominator = _normalize_latex_commands(denominator_group[0], depth + 1)
+                    result.append(_format_latex_fraction(numerator, denominator))
+                    index = denominator_group[1]
+                    continue
+            elif command == "sqrt":
+                radicand_group = _read_latex_group(value, command_end, "{", "}")
+                if radicand_group:
+                    radicand = _normalize_latex_commands(radicand_group[0], depth + 1).strip()
+                    result.append(f"sqrt({radicand})")
+                    index = radicand_group[1]
+                    continue
+            result.append(command_match.group(0))
+            index = command_end
+            continue
+
+        if value[index] == "√":
+            start = index + 1
+            while start < len(value) and value[start].isspace():
+                start += 1
+            group = _read_latex_group(value, start, "(", ")")
+            if group:
+                radicand = _normalize_latex_commands(group[0], depth + 1).strip()
+                result.append(f"sqrt({radicand})")
+                index = group[1]
+                continue
+            variable = re.match(r"[a-z][a-z0-9_]*|\d+(?:\.\d+)?", value[start:])
+            if variable:
+                result.append(f"sqrt({variable.group(0)})")
+                index = start + len(variable.group(0))
+                continue
+            result.append(value[index])
+            index += 1
+            continue
+
+        if value[index] == "^":
+            exponent_group = _read_latex_group(value, index + 1, "{", "}")
+            if exponent_group:
+                exponent = _normalize_latex_commands(exponent_group[0], depth + 1).strip()
+                if re.fullmatch(r"(?:[a-z][a-z0-9_]*|\d+(?:\.\d+)?|[α-ω])", exponent):
+                    result.append("^" + exponent)
+                else:
+                    result.append("^(" + exponent + ")")
+                index = exponent_group[1]
+                continue
+
+        result.append(value[index])
+        index += 1
+    return "".join(result)
+
+
 def formula_tokens(text: str) -> list[str]:
     """Return exact, whitespace/operator-normalized equation tokens.
 
@@ -92,6 +210,7 @@ def formula_tokens(text: str) -> list[str]:
     value = _LATEX_GREEK_RE.sub(lambda match: _LATEX_GREEK_SYMBOLS[match.group(1)], value)
     for source, replacement in _FORMULA_REPLACEMENTS:
         value = re.sub(source, replacement, value) if source.startswith("\\") else value.replace(source, replacement)
+    value = _normalize_latex_commands(value)
     # NFKC turns the micro sign into Greek mu; preserve common SI prefixes as `u`.
     value = _MICRO_UNIT_RE.sub("u", value)
     # Transliterate Greek variables for portable token matching. Insert explicit

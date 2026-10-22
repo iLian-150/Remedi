@@ -45,6 +45,16 @@ class RagQualityTests(unittest.TestCase):
         self.assertEqual(formula_tokens(r"\Delta x=3"), ["formula:delta*x=3"])
         self.assertEqual(formula_tokens(r"\theta^2=1"), ["formula:theta^2=1"])
 
+    def test_formula_tokens_normalize_latex_fractions_roots_and_exponents(self):
+        self.assertEqual(formula_tokens(r"\frac{1}{2}x=2"), ["formula:1/2*x=2"])
+        self.assertEqual(formula_tokens(r"\frac{x+1}{x-1}=2"), ["formula:(x+1)/(x-1)=2"])
+        self.assertEqual(formula_tokens(r"\frac{1}{\frac{1}{2}}=2"), ["formula:1/(1/2)=2"])
+        self.assertEqual(formula_tokens(r"\sqrt{x}=2"), ["formula:sqrt(x)=2"])
+        self.assertEqual(formula_tokens("√x=2"), ["formula:sqrt(x)=2"])
+        self.assertEqual(formula_tokens("√(x+1)=3"), ["formula:sqrt(x+1)=3"])
+        self.assertEqual(formula_tokens(r"x^{2}=4"), ["formula:x^2=4"])
+        self.assertEqual(formula_tokens(r"x^{n+1}=y"), ["formula:x^(n+1)=y"])
+
     def test_formula_tokens_preserve_parenthesized_terms_and_coefficients(self):
         self.assertEqual(formula_tokens("2(x+1)=7"), ["formula:2*(x+1)=7"])
         self.assertEqual(formula_tokens("2 (x+1) = 7"), ["formula:2*(x+1)=7"])
