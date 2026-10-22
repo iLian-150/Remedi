@@ -18,8 +18,9 @@ _FORMULA_GROUP = _formula_group_pattern(6)
 _FORMULA_VARIABLE = r"[a-z][a-z0-9_]*"
 _FORMULA_ATOM = rf"(?:{_FORMULA_VARIABLE}{_FORMULA_GROUP}|{_FORMULA_VARIABLE}|\d+(?:\.\d+)?|{_FORMULA_GROUP})"
 _FORMULA_TERM = rf"[+-]?\s*{_FORMULA_ATOM}"
+_FORMULA_OPERATOR = r"(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)"
 _FORMULA_RE = re.compile(
-    rf"(?<![a-z0-9_(]){_FORMULA_TERM}(?:\s*(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)\s*{_FORMULA_TERM})+(?![a-z0-9_)])",
+    rf"(?<![a-z0-9_(]){_FORMULA_TERM}(?:\s*{_FORMULA_OPERATOR}\s*{_FORMULA_TERM})+(?![a-z0-9_)])",
     re.IGNORECASE,
 )
 _SUPERSCRIPT_RE = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻]+")
@@ -67,6 +68,12 @@ def formula_tokens(text: str) -> list[str]:
     # Parenthesized groups are formula atoms too, with implicit multiplication
     # normalized before them so `2(x+1)` remains distinct from `3(x+1)`.
     value = re.sub(r"(?<=\d)\s*(?=\()", "*", value)
+    # A closing group followed by another group is multiplication. Before a
+    # variable or number, require a following formula operator to avoid treating
+    # ordinary prose such as `(x+1) is useful` as an equation.
+    value = re.sub(r"(?<=\))\s*(?=\()", "*", value)
+    value = re.sub(rf"(?<=\))\s*(?={_FORMULA_VARIABLE}\s*{_FORMULA_OPERATOR})", "*", value)
+    value = re.sub(rf"(?<=\))\s*(?=\d+(?:\.\d+)?\s*{_FORMULA_OPERATOR})", "*", value)
     found = []
     for match in _FORMULA_RE.finditer(value):
         formula = re.sub(r"\s+", "", match.group(0))

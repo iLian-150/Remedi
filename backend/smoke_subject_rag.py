@@ -244,6 +244,14 @@ class SubjectRagTests(unittest.TestCase):
             [],
         )
 
+    def test_adjacent_parenthesized_factors_retrieve_as_one_formula(self):
+        document = self.document("平方差公式", "(x+1)(x-1)=0。")
+        result = subject_rag.search_knowledge(self.db, "math", "(x+1)*(x-1)=0")
+        self.assertEqual([item["document_id"] for item in result["items"]], [document.id])
+        linear = self.document("括号乘变量", "(x+1)x=7。")
+        result = subject_rag.search_knowledge(self.db, "math", "(x+1)*x=7")
+        self.assertEqual([item["document_id"] for item in result["items"]], [linear.id])
+
     def test_equations_with_opposite_signs_do_not_match(self):
         self.document("负系数方程", "-2x+3=7。")
         self.document("正数解方程", "x=2。")

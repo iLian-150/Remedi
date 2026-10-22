@@ -32,6 +32,11 @@ class RagQualityTests(unittest.TestCase):
         self.assertEqual(formula_tokens("2((x+1)*(y-2))=7"), ["formula:2*((x+1)*(y-2))=7"])
         self.assertEqual(formula_tokens("sin(x)=y"), ["formula:sin(x)=y"])
 
+    def test_formula_tokens_normalize_implicit_products_after_parenthesized_groups(self):
+        self.assertEqual(formula_tokens("(x+1)(x-1)=0"), ["formula:(x+1)*(x-1)=0"])
+        self.assertEqual(formula_tokens("(x+1)x=7"), ["formula:(x+1)*x=7"])
+        self.assertEqual(formula_tokens("(x+1) 2=7"), ["formula:(x+1)*2=7"])
+
     def test_formula_tokens_preserve_unary_signs(self):
         self.assertEqual(formula_tokens("-2x+3=7"), ["formula:-2*x+3=7"])
         self.assertEqual(formula_tokens("x=-2"), ["formula:x=-2"])
