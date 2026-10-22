@@ -18,6 +18,7 @@ services:
       - DATABASE_URL=sqlite:////data/remedi.db
       - UPLOAD_DIR=/data/uploads
       - CORS_ORIGINS=*
+      - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Shanghai}
       - SEED_DEMO_DATA=${SEED_DEMO_DATA:-true}
       # 百炼配置统一从服务器 .env 读取；API Key 可先留空。
       - LLM_PROVIDER=${LLM_PROVIDER:-bailian}

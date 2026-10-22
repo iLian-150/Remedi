@@ -185,6 +185,57 @@ class AgentToolExecutionTests(unittest.TestCase):
         with patch("app.agent.teacher_graph._build_llm", return_value=model):
             return consume(teacher_agent_reply_stream(self.db, self.teacher, [], "查询班级概况与修复率"))
 
+    def test_deadline_timezone_uses_configured_wall_clock(self):
+        from datetime import datetime, timedelta, timezone
+        from zoneinfo import ZoneInfo
+        from app.config import settings
+        from app.models import AssignmentExt, AssignmentSetting
+        from app.services.deferral import (
+            assert_can_submit,
+            assert_can_submit_essay,
+            normalize_deadline,
+        )
+
+        received_at_utc = datetime(2026, 1, 1, 14, tzinfo=timezone.utc)
+        expected = received_at_utc.astimezone(
+            ZoneInfo(settings.APP_TIMEZONE)
+        ).replace(tzinfo=None)
+        self.assertEqual(normalize_deadline(received_at_utc), expected)
+
+        for subject, check_submit in (
+            ("math", assert_can_submit),
+            ("english", assert_can_submit_essay),
+        ):
+            with self.subTest(subject=subject):
+                assignment = Assignment(
+                    title=f"时区截止回归-{subject}", created_by=self.teacher.id,
+                )
+                self.db.add(assignment)
+                self.db.flush()
+                question = Question(
+                    assignment_id=assignment.id,
+                    subject=subject,
+                    knowledge_point="截止时间",
+                    stem="时区回归问题",
+                )
+                self.db.add_all([
+                    question,
+                    AssignmentExt(
+                        assignment_id=assignment.id,
+                        deadline=expected - timedelta(minutes=1),
+                    ),
+                    AssignmentSetting(
+                        assignment_id=assignment.id, allow_revision=True,
+                    ),
+                ])
+                self.db.commit()
+                with self.assertRaises(HTTPException) as expired:
+                    check_submit(
+                        self.db, self.student, question,
+                        received_at=received_at_utc,
+                    )
+                self.assertEqual(expired.exception.status_code, 400)
+
     def test_explicit_unknown_route_does_not_guess_one_subject_from_comparison(self):
         model = Mock()
         model.bind_tools.return_value.invoke.return_value = AIMessage(
@@ -687,7 +738,7 @@ class AgentToolExecutionTests(unittest.TestCase):
         from app.models import AssignmentExt, AssignmentSetting
         from app.routers.student import list_essays, submit_essay
         from app.schemas import EssayCreate, EssayOut
-        from app.services.deferral import grade_due
+        from app.services.deferral import deadline_now, grade_due
 
         score_result = {
             "scores": {
@@ -736,7 +787,7 @@ class AgentToolExecutionTests(unittest.TestCase):
             assignment_id=deferred_assignment.id, subject="english",
             knowledge_point="写作", stem="Write about your future plans.",
         )
-        deadline = datetime.now() + timedelta(hours=1)
+        deadline = deadline_now() + timedelta(hours=1)
         self.db.add_all([
             deferred_question,
             AssignmentExt(assignment_id=deferred_assignment.id, deadline=deadline),
@@ -779,7 +830,7 @@ class AgentToolExecutionTests(unittest.TestCase):
         latest.submitted_at = datetime(2026, 1, 2)
         self.db.query(AssignmentExt).filter_by(
             assignment_id=deferred_assignment.id,
-        ).update({AssignmentExt.deadline: datetime.now() - timedelta(seconds=1)})
+        ).update({AssignmentExt.deadline: deadline_now() - timedelta(seconds=1)})
         self.db.commit()
 
         with patch("app.services.deferral.get_provider", return_value=scorer):

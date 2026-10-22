@@ -99,6 +99,7 @@ from ..schemas import (
     SubjectKnowledgeCreateIn,
     SubjectKnowledgeSearchIn,
 )
+from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services.streaming import ClosingStreamingResponse
 from ..services import scoring as scoring_svc
@@ -1523,6 +1524,7 @@ def create_assignment(body: TeacherAssignmentCreate,
     v0.5.0：mode=offline 时把 mode/workbook_id/page_range/deadline 写进 assignment_ext；
     workbook_id 必须指向本人上传的练习册。"""
     workbook = None
+    assignment_deadline = deferral_svc.normalize_deadline(body.deadline)
     class_ids = sorted(set(body.class_ids))
     if not class_ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "发布作业前请先建立班级并选择接收班级。")
@@ -1594,7 +1596,7 @@ def create_assignment(body: TeacherAssignmentCreate,
         mode=body.mode,
         workbook_id=workbook.id if (body.mode == "offline" and workbook) else None,
         page_range=((body.page_range or "").strip() or None) if body.mode == "offline" else None,
-        deadline=body.deadline,
+        deadline=assignment_deadline,
     ))
     for classroom_id in class_ids:
         db.add(AssignmentClass(assignment_id=assignment.id, classroom_id=classroom_id))
@@ -1648,7 +1650,7 @@ def create_assignment(body: TeacherAssignmentCreate,
             ((body.page_range or "").strip() or None)
             if body.mode == "offline" else None
         ),
-        deadline=body.deadline,
+        deadline=assignment_deadline,
         total_score=float(body.total_score) if body.total_score is not None else 100.0,
         allow_revision=body.allow_revision,
         class_ids=class_ids,

@@ -12,6 +12,7 @@ import mimetypes
 import os
 from datetime import datetime
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, case, func, or_, true
@@ -38,6 +39,19 @@ from .providers import get_provider
 DEFERRED = "deferred"
 SUPERSEDED = "superseded"
 logger = logging.getLogger(__name__)
+_DEADLINE_TIMEZONE = ZoneInfo(settings.APP_TIMEZONE)
+
+
+def deadline_now() -> datetime:
+    """Return the current app-local wall time used by naive DB deadlines."""
+    return datetime.now(_DEADLINE_TIMEZONE).replace(tzinfo=None)
+
+
+def normalize_deadline(deadline: Optional[datetime]) -> Optional[datetime]:
+    """Store deadlines as naive app-local wall time for existing DB/API compatibility."""
+    if deadline is None or deadline.tzinfo is None:
+        return deadline
+    return deadline.astimezone(_DEADLINE_TIMEZONE).replace(tzinfo=None)
 
 
 def allow_revision(db: Session, assignment_id: int) -> bool:
@@ -59,7 +73,7 @@ def is_deferred_mode(db: Session, assignment_id: int) -> bool:
     if not allow_revision(db, assignment_id):
         return False
     deadline = assignment_deadline(db, assignment_id)
-    return bool(deadline and datetime.now() < deadline)
+    return bool(deadline and deadline_now() < deadline)
 
 
 def latest_submission(db: Session, student_id: int, question_id: int) -> Optional[Submission]:
@@ -86,7 +100,7 @@ def assert_can_submit(
     allow_revision 且有截止时间的作业：截止前接收的首次提交进入 deferred；
     只有最新提交仍为 deferred 时才允许在截止前继续修改。截止后拒绝首次提交
     和修改。无截止时间的允许修改作业沿用立即批改口径。"""
-    now = received_at or datetime.now()
+    now = normalize_deadline(received_at) if received_at is not None else deadline_now()
     latest_submission = (
         db.query(
             Submission.id.label("submission_id"),
@@ -166,7 +180,7 @@ def assert_can_submit_essay(
     attempts live in their own table, so they cannot use the math Submission
     lookup in ``assert_can_submit``.
     """
-    now = received_at or datetime.now()
+    now = normalize_deadline(received_at) if received_at is not None else deadline_now()
     settings = (
         db.query(
             AssignmentSetting.allow_revision.label("allow_revision"),
@@ -293,7 +307,7 @@ def _grade_due_batch(db: Session) -> int:
     """到期统一批改：扫所有 allow_revision 作业，截止已过的，把每道题
     每个学生的最后一次延迟提交批改掉；返回本次批改的提交数。
     幂等：已批改的提交不再是 deferred，不会重复处理。"""
-    now = datetime.now()
+    now = deadline_now()
     deferred_query = (
         db.query(Submission)
         .join(Question, Question.id == Submission.question_id)
@@ -443,7 +457,7 @@ def _grade_due_batch(db: Session) -> int:
 
 def _grade_due_essays(db: Session) -> int:
     """Score only each student's latest deferred essay after its deadline."""
-    now = datetime.now()
+    now = deadline_now()
     due_essays = (
         db.query(Essay, Question.stem)
         .join(Question, Question.id == Essay.question_id)

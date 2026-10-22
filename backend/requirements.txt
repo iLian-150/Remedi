@@ -4,6 +4,7 @@ sqlalchemy>=2.0
 pydantic>=2.0
 sympy>=1.12
 requests>=2.31
+tzdata>=2024.1
 python-multipart>=0.0.9
 langgraph>=1.2
 langchain-core>=1.6

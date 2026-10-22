@@ -63,7 +63,12 @@ class Settings:
     # CORS。默认放行所有来源方便前端 dev server 联调；生产请收紧。
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    APP_VERSION: str = "0.13.353"
+    # Teacher-entered assignment deadlines are local wall times in this zone.
+    APP_TIMEZONE: str = (
+        os.getenv("APP_TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai"
+    )
+
+    APP_VERSION: str = "0.13.354"
 
 
 settings = Settings()

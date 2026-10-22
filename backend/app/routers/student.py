@@ -721,7 +721,7 @@ def submit_math(data: SubmissionCreate, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题是作文题，请使用 /api/student/essays 提交")
     # v0.13.1：按请求接收时刻检查提交锁，并固定本次是否进入延迟批改窗口。
     deferred_mode = deferral_svc.assert_can_submit(
-        db, current, q, received_at=datetime.now()
+        db, current, q, received_at=deferral_svc.deadline_now()
     )
     if deferred_mode:
         return deferral_svc.deferred_out(deferral_svc.create_deferred(db, current, q, data.steps))
@@ -2140,7 +2140,7 @@ def submit_essay(body: EssayCreate, db: Session = Depends(get_db),
         if question.subject != "english":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题不是作文题")
         deferred = deferral_svc.assert_can_submit_essay(
-            db, current, question, received_at=datetime.now(),
+            db, current, question, received_at=deferral_svc.deadline_now(),
         )
     return score_and_save_essay(
         db, current, body.text.strip(), question, deferred=deferred,
@@ -2564,7 +2564,7 @@ async def photo_review(
         if len(model_data) > _PHOTO_MAX_BYTES:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "模型处理图片大小不能超过 10MB")
         model_content_type = model_file.content_type or "image/jpeg"
-    received_at = datetime.now()
+    received_at = deferral_svc.deadline_now()
 
     question = None
     if question_id is not None:
@@ -2959,7 +2959,7 @@ async def photo_diagnose(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
     if len(data) > _PHOTO_MAX_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
-    received_at = datetime.now()
+    received_at = deferral_svc.deadline_now()
 
     question = _student_accessible_question(db, current, question_id)
 
