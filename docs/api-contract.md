@@ -445,7 +445,7 @@
 
 - `question_text`：转写出的题干；`steps`：学生作答步骤（按顺序，**不含题干**）。
 - `save_image=true` 时图片只存服务器本地目录（环境变量 `UPLOAD_DIR`，默认 `backend/uploads/`），不落库；`image_url` 为静态回读路径。设为 `false` 时跳过写盘，`image_id` 与 `image_url` 返回 `null`。
-- 转写由 Cloudflare Workers AI 视觉模型完成，默认 `@cf/qwen/qwen3.8-27b`（可用 `CLOUDFLARE_VISION_MODEL` 覆盖）；未配置凭证或识别失败时明确返回错误，不使用 Mock 罐头转写。
+- 转写由阿里云百炼视觉模型完成，默认 `qwen3-vl-plus`（可用 `DASHSCOPE_VISION_MODEL` 覆盖）；未配置凭证或识别失败时明确返回错误，不使用 Mock 罐头转写。
 - 本接口**不产生提交记录**：学生确认/编辑转写结果后，仍走 3.3 `POST /api/student/submissions`（question_id + steps）完成诊断。
 
 错误：`400`（格式不支持 / 内容为空 / 超过 10MB，detail 为中文说明）；`403`（教师调用学生接口）。
@@ -541,13 +541,13 @@
 
 ### 3.15 POST /api/student/agent/chat —— 旧接口停用
 
-为保证问答统一使用 Cloudflare Workers AI 并逐字流式呈现，旧 JSON 接口返回 `410 Gone`。请调用 3.15.1 的 SSE 接口；该接口失败时明确发送错误，不返回 Mock/规则拼接回复。模型等待上限为 120 秒。
+问答统一使用阿里云百炼并逐字流式呈现，旧 JSON 接口返回 `410 Gone`。请调用 3.15.1 的 SSE 接口；该接口失败时明确发送错误，不返回 Mock/规则拼接回复。模型等待上限为 120 秒。
 
 ### 3.15.1 POST /api/student/agent/chat/stream —— 学习助手流式对话
 
 学生使用统一文字入口。服务端先调用路由模型识别闲聊、错题总结、作业批改、学科答疑或学习数据查询，并在学科题目/作答中自动识别学科；随后进入对应提示与工具分支。闲聊不开放学生数据工具，错题总结和进度查询仅开放只读工具。选填 `subject`（九个学科代码之一）保留作兼容兜底。图片仍由照片批改流程识别学科、题目和学生作答。
 
-权限：学生。请求 `{ "message": "我哪个知识点最需要加固？", "session_id": 3 }`；`message` 必填且最长 2000 字，`session_id` 选填。另可传 `persist_user_message`（默认 `true`）；用户消息会在开始生成前写入会话，避免刷新或中断时丢失提问。照片讲解可传 `safe_tools_only=true`，此模式直接生成回复；若图片识别阶段已查到历史同类错题，可传 `related_mistake_error_id`，服务端会再次校验错题归属并关联到助手回复，避免生成过程中再走一次工具调用。响应为 `text/event-stream`，通过 SSE 事件发送 Cloudflare 模型的流式回复；前端将每个文本块按 Unicode 字符逐字呈现。复用已保存的拍照消息时可传 `false`，避免重复保存内部提示词。模型调用失败会发 `error` 事件，不返回模拟内容。
+权限：学生。请求 `{ "message": "我哪个知识点最需要加固？", "session_id": 3 }`；`message` 必填且最长 2000 字，`session_id` 选填。另可传 `persist_user_message`（默认 `true`）；用户消息会在开始生成前写入会话，避免刷新或中断时丢失提问。照片讲解可传 `safe_tools_only=true`，此模式直接生成回复；若图片识别阶段已查到历史同类错题，可传 `related_mistake_error_id`，服务端会再次校验错题归属并关联到助手回复，避免生成过程中再走一次工具调用。响应为 `text/event-stream`，通过 SSE 事件发送百炼模型的流式回复；前端将每个文本块按 Unicode 字符逐字呈现。复用已保存的拍照消息时可传 `false`，避免重复保存内部提示词。模型调用失败会发 `error` 事件，不返回模拟内容。
 
 ```text
 event: token
@@ -1239,7 +1239,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.12 POST /api/teacher/agent/chat —— 旧接口停用
 
-为保证问答统一使用 Cloudflare Workers AI 并逐字流式呈现，旧 JSON 接口返回 `410 Gone`。请调用 4.12.1 的 SSE 接口；该接口失败时明确发送错误，不返回 Mock/规则拼接回复。模型等待上限为 120 秒。
+问答统一使用阿里云百炼并逐字流式呈现，旧 JSON 接口返回 `410 Gone`。请调用 4.12.1 的 SSE 接口；该接口失败时明确发送错误，不返回 Mock/规则拼接回复。模型等待上限为 120 秒。
 
 ### 4.12.1 POST /api/teacher/agent/chat/stream —— 班级数据助理流式对话
 
@@ -1414,14 +1414,14 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```json
 {
   "status": "ok",
-  "version": "0.13.47",
-  "provider": "cloudflare",
+  "version": "0.13.316",
+  "provider": "bailian",
   "time": "2026-10-06T15:40:35"
 }
 ```
 
-- `provider`：当前 LLM Provider（`mock` | `deepseek` | `cloudflare`）。
-- 服务会通过数据库查询验证数据存储可用；数据库连接或核心表不可用时返回 `503`，Docker 健康探针据此标记服务异常。
+- `provider`：配置的模型提供方，当前为 `bailian`。此字段不表示模型已完成认证或可调用。
+- 服务会通过数据库查询验证数据存储可用；数据库连接或核心表不可用时返回 `503`，Docker 健康探针据此标记服务异常。健康检查不初始化模型，`DASHSCOPE_API_KEY` 留空时仍可返回 `200`。
 
 ---
 
@@ -1781,3 +1781,6 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.312 | 2026-10-17 | 做题页跳过纯在线数学作业的历史同类错题请求，减少未使用的数据查询。 |
 | v0.13.313 | 2026-10-17 | 错题本按归档范围加载完整记录，使用轻量历史字段保留相似错题关系，降低归档记录多时的读取开销。 |
 | v0.13.314 | 2026-10-21 | 学生无密码登录改为名册姓名+学号校验；教师按任教学科区分，增加班级名册与目标班级发布。新增九个学科 Agent 专属提示词、分科文本知识库检索、学生错题/订正/验证记忆，并允许学生 Agent 查询本人错题本。教师作业、审核、统计、建议和教师 Agent 按学科及任课班级收口。批改错误即时进入错题本和订正待办；仅整份作业结算后百分制低于 60 分才进入教师审核，单题或图片置信度不再独立送审。新增表 `classrooms`、`teacher_subjects`、`classroom_teacher_subjects`、`classroom_members`、`assignment_classes`、`subject_knowledge_chunks`、`student_learning_memories`，不修改旧表列。 |
+
+| v0.13.315 | 2026-10-22 | 学科 RAG 增加父子分块、BM25/Milvus 混合检索、PDF 导入、引用追溯与教师试查；支持 ARM64 Docker 部署。 |
+| v0.13.316 | 2026-10-23 | 文字、视觉和向量化统一使用阿里云百炼；API Key 可先留空，健康检查与模型解耦，支持关闭启动演示数据。 |
