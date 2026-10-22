@@ -39,6 +39,7 @@ class KnowledgeApiTests(unittest.TestCase):
         self.headers = {"Authorization": "Bearer mock-1"}
         self.disabled = patch("app.services.rag_milvus.configured", return_value=False)
         self.disabled.start()
+        self.enterContext(patch("app.services.bailian_rerank.configured", return_value=False))
 
     def tearDown(self):
         self.disabled.stop()
