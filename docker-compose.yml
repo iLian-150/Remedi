@@ -4,7 +4,9 @@
 
 services:
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      network: ${BUILD_NETWORK:-default}
     expose:
       - "8000"
     ports:
@@ -40,6 +42,7 @@ services:
     build:
       context: .
       dockerfile: deploy/web.Dockerfile
+      network: ${BUILD_NETWORK:-default}
     ports:
       - "${WEB_PORT:-5001}:80"
     depends_on:

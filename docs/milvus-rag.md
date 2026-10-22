@@ -17,6 +17,7 @@ COMPOSE_PROJECT_NAME=remedi
 COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml
 WEB_PORT=5001
 API_PORT=5000
+BUILD_NETWORK=host
 RAG_MILVUS_URI=http://milvus:19530
 RAG_MILVUS_COLLECTION=remedi_subject_knowledge
 RAG_EMBEDDING_MODEL=@cf/baai/bge-m3
@@ -26,6 +27,8 @@ RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 ```
 
 `COMPOSE_FILE` 的冒号分隔方式适用于 Linux 服务器。配置后，每次运行普通 `docker compose up -d --build` 都会合并 Milvus overlay。不要在后续发布时去掉该变量或仅指定基础文件，否则 API 容器会失去 Milvus 环境配置。所有凭证通过 `.env` 提供，无需另建包含秘密的 override。
+
+`BUILD_NETWORK=host` 使镜像构建阶段使用宿主机的网络与 DNS，适配本服务器构建桥接网络无法解析域名的情况；API、前端和向量服务运行时仍使用项目 Docker 内网。无需修改全局 Docker 配置或系统 DNS。
 
 | 环境变量 | 默认值 / 用途 |
 | --- | --- |
