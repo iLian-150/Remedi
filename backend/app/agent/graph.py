@@ -99,7 +99,15 @@ def _classify_student_request(
                 fallback_detected_subject
                 if fallback_intent in {"grading", "tutoring"} else None,
             )
-        subject = normalize_subject(args.get("subject")) or detect_subject(user_text, fallback_subject)
+        raw_subject = args.get("subject")
+        subject = normalize_subject(raw_subject)
+        if subject is None:
+            if isinstance(raw_subject, str) and raw_subject.strip().lower() == "unknown":
+                # The router uses `unknown` intentionally for multi-subject or
+                # ambiguous requests; don't override that decision from keywords.
+                subject = normalize_subject(fallback_subject)
+            else:
+                subject = detect_subject(user_text, fallback_subject)
         if intent not in {"grading", "tutoring"}:
             subject = None
         return intent, subject
@@ -259,7 +267,10 @@ def agent_reply_stream(db: Session, student: User,
             "学生 Agent 意图路由完成（intent=%s, subject=%s, student_id=%s）",
             intent, subject or "unknown", student.id,
         )
-    subject_context = build_subject_context(db, subject, user_text)
+    subject_context = (
+        build_subject_context(db, subject, user_text)
+        if intent in {"grading", "tutoring"} and subject else ""
+    )
     if safe_tools_only:
         # 不传整段会话历史，但提供该学生最近错题作为个性化讲解依据。
         try:

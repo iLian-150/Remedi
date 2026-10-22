@@ -9,16 +9,16 @@ from threading import Barrier, Lock
 import time
 from typing import Any
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from langchain_core.language_models.chat_models import BaseChatModel, generate_from_stream
-from langchain_core.messages import AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langchain_core.outputs import ChatGenerationChunk
 from pydantic import Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.agent.graph import agent_reply_stream
+from app.agent.graph import _classify_student_request, agent_reply_stream
 from app.agent.teacher_graph import teacher_agent_reply_stream
 from app.database import Base
 from app.models import StudentQuestionCapture, TeacherSubject, User
@@ -107,6 +107,35 @@ class AgentToolExecutionTests(unittest.TestCase):
     def teacher_reply(self, model):
         with patch("app.agent.teacher_graph._build_llm", return_value=model):
             return consume(teacher_agent_reply_stream(self.db, self.teacher, [], "查询班级概况与修复率"))
+
+    def test_explicit_unknown_route_does_not_guess_one_subject_from_comparison(self):
+        model = Mock()
+        model.bind_tools.return_value.invoke.return_value = AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "route_student_request",
+                "args": {"intent": "tutoring", "subject": "unknown"},
+                "id": "route-1",
+            }],
+        )
+        with patch("app.agent.graph._build_llm", return_value=model):
+            self.assertEqual(
+                _classify_student_request([], "比较数学和物理的区别"),
+                ("tutoring", None),
+            )
+            self.assertEqual(
+                _classify_student_request([], "比较数学和物理的区别", "math"),
+                ("tutoring", "math"),
+            )
+
+    def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
+        model = ScriptedToolModel()
+        with patch(
+            "app.agent.graph._classify_student_request",
+            return_value=("tutoring", None),
+        ), patch("app.agent.graph.build_subject_context") as retrieve:
+            self.student_reply(model)
+        retrieve.assert_not_called()
 
     @contextmanager
     def observe_overlap(self, method):
