@@ -223,6 +223,16 @@ class KnowledgeApiTests(unittest.TestCase):
             self.assertIn("教师端", answer)
             self.assertIn("教师知识库检索结果", answer)
             self.assertNotIn("当前路由到数学 Agent", answer)
+            conflicting_subject = tool.invoke({
+                "query": "数学中的二次函数，对称轴如何判断？",
+                "subject": "english",
+            })
+            self.assertIn("教师端数学", conflicting_subject)
+            ambiguous_with_subject = tool.invoke({
+                "query": "比较数学和英语教材中的函数定义",
+                "subject": "math",
+            })
+            self.assertIn("请先确认要检索哪一门", ambiguous_with_subject)
             no_hits = tool.invoke({"query": "量子引力弦动力矩", "subject": "math"})
             self.assertIn("教师知识库没有检索到", no_hits)
 
