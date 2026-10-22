@@ -181,11 +181,13 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         question_student_pairs = teacher_assignment_question_student_pairs(
             db, teacher, target.id,
         )
+        status_student_ids = student_ids if question_student_pairs is None else None
         authorized_question_ids = teacher_assignment_question_ids(
             db, teacher, [target.id],
         )
         text = assignment_status_to_text(assignment_status(
-            db, target, question_student_pairs=question_student_pairs,
+            db, target, student_ids=status_student_ids,
+            question_student_pairs=question_student_pairs,
             question_ids=authorized_question_ids,
         ))
         if fallback:

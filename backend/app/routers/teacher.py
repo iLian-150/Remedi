@@ -1873,8 +1873,17 @@ def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
     question_student_pairs = _scoped_teacher_assignment_question_student_pairs(
         db, current, assignment_id,
     )
+    student_ids = question_ids = None
+    if question_student_pairs is None:
+        # Legacy assignments without recipient classes still need the caller's
+        # classroom and subject scope before the reminder can fan out.
+        student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
+        question_ids = _scoped_teacher_assignment_question_ids(
+            db, current, [assignment_id],
+        )
     targets = students_not_fully_submitted(
-        db, assignment, question_student_pairs=question_student_pairs,
+        db, assignment, student_ids=student_ids,
+        question_student_pairs=question_student_pairs, question_ids=question_ids,
     )
     for student_id in targets:
         db.add(Notification(

@@ -9,8 +9,11 @@ from sqlalchemy.orm import load_only
 from ..models import Assignment, AssignmentClass, ClassroomMember, Correction, Error, Essay, Question, Submission, User
 
 
-def _submitted_question_pairs(db, assignment_id: int):
+def _submitted_question_pairs(db, assignment_id: int, question_ids=None):
     """数据库内合并并去重学生在作业中的提交题目与作文题目。"""
+    question_scope = (
+        (Question.id.in_(question_ids),) if question_ids is not None else ()
+    )
     submission_pairs = select(
         Submission.student_id.label("student_id"),
         Submission.question_id.label("question_id"),
@@ -19,7 +22,8 @@ def _submitted_question_pairs(db, assignment_id: int):
     ).join(
         User, User.id == Submission.student_id
     ).where(
-        User.role == "student", Question.assignment_id == assignment_id
+        User.role == "student", Question.assignment_id == assignment_id,
+        *question_scope,
     )
     essay_pairs = select(
         Essay.student_id.label("student_id"),
@@ -29,7 +33,8 @@ def _submitted_question_pairs(db, assignment_id: int):
     ).join(
         User, User.id == Essay.student_id
     ).where(
-        User.role == "student", Question.assignment_id == assignment_id
+        User.role == "student", Question.assignment_id == assignment_id,
+        *question_scope,
     )
     return submission_pairs.union(essay_pairs).subquery()
 
@@ -62,17 +67,25 @@ def _scoped_assignment_student_ids(db, assignment: Assignment, authorized_studen
 
 def students_not_fully_submitted(
     db, assignment: Assignment, student_ids=None, question_student_pairs=None,
+    question_ids=None,
 ) -> List[int]:
     """Return recipients missing at least one question in their authorized scope."""
     if question_student_pairs is not None:
         pair_source = question_student_pairs.subquery()
-        authorized_pairs = db.query(
+        authorized_pair_query = db.query(
             pair_source.c.student_id.label("student_id"),
             pair_source.c.question_id.label("question_id"),
         ).join(
             User, User.id == pair_source.c.student_id,
-        ).filter(User.role == "student").distinct().subquery()
-        submitted_pairs = _submitted_question_pairs(db, assignment.id)
+        ).filter(User.role == "student")
+        if question_ids is not None:
+            authorized_pair_query = authorized_pair_query.filter(
+                pair_source.c.question_id.in_(question_ids),
+            )
+        authorized_pairs = authorized_pair_query.distinct().subquery()
+        submitted_pairs = _submitted_question_pairs(
+            db, assignment.id, question_ids=question_ids,
+        )
         missing = db.query(authorized_pairs.c.student_id).outerjoin(
             submitted_pairs,
             and_(
@@ -86,10 +99,15 @@ def students_not_fully_submitted(
             authorized_pairs.c.student_id,
         ).all()]
 
-    question_count = select(func.count(Question.id)).where(
+    question_count_query = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
-    ).scalar_subquery()
-    submitted_pairs = _submitted_question_pairs(db, assignment.id)
+    )
+    if question_ids is not None:
+        question_count_query = question_count_query.where(Question.id.in_(question_ids))
+    question_count = question_count_query.scalar_subquery()
+    submitted_pairs = _submitted_question_pairs(
+        db, assignment.id, question_ids=question_ids,
+    )
     student_ids = _scoped_assignment_student_ids(db, assignment, student_ids)
     done_counts = (
         select(
@@ -120,15 +138,22 @@ def assignment_status(
     question_ids=None,
 ) -> Dict:
     """Summarize completion against each recipient's authorized question set."""
-    submitted_pairs = _submitted_question_pairs(db, assignment.id)
+    submitted_pairs = _submitted_question_pairs(
+        db, assignment.id, question_ids=question_ids,
+    )
     if question_student_pairs is not None:
         pair_source = question_student_pairs.subquery()
-        authorized_pairs = db.query(
+        authorized_pair_query = db.query(
             pair_source.c.student_id.label("student_id"),
             pair_source.c.question_id.label("question_id"),
         ).join(
             User, User.id == pair_source.c.student_id,
-        ).filter(User.role == "student").distinct().subquery()
+        ).filter(User.role == "student")
+        if question_ids is not None:
+            authorized_pair_query = authorized_pair_query.filter(
+                pair_source.c.question_id.in_(question_ids),
+            )
+        authorized_pairs = authorized_pair_query.distinct().subquery()
         expected_counts = db.query(
             authorized_pairs.c.student_id,
             func.count(authorized_pairs.c.question_id).label("expected_count"),
@@ -168,9 +193,14 @@ def assignment_status(
                 func.count(func.distinct(authorized_pairs.c.question_id)),
             ).scalar() or 0)
     else:
-        question_count_expr = select(func.count(Question.id)).where(
+        question_count_query = select(func.count(Question.id)).where(
             Question.assignment_id == assignment.id
-        ).scalar_subquery()
+        )
+        if question_ids is not None:
+            question_count_query = question_count_query.where(
+                Question.id.in_(question_ids),
+            )
+        question_count_expr = question_count_query.scalar_subquery()
         done_counts = (
             select(
                 submitted_pairs.c.student_id,
@@ -197,9 +227,7 @@ def assignment_status(
         students = student_query.order_by(User.id).all()
         question_count = (
             int(students[0].expected_count or 0) if students
-            else int(db.query(func.count(Question.id)).filter(
-                Question.assignment_id == assignment.id,
-            ).scalar() or 0)
+            else int(db.execute(question_count_query).scalar() or 0)
         )
 
     done_all, partial, none = [], [], []

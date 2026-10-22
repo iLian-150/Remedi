@@ -456,6 +456,68 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertEqual(self.db.get(SubmissionReview, own_submission.id).status, "approved")
         self.assertEqual(self.db.get(SubmissionReview, other_submission.id).status, "pending")
 
+    def test_legacy_mixed_assignment_status_and_reminders_respect_teacher_scope(self):
+        from app.agent.teacher_tools import build_teacher_tools
+        from app.models import Assignment, Classroom, ClassroomMember, ClassroomTeacherSubject
+
+        outside_student = User(
+            name="旧作业范围外学生", role="student", student_no="legacy-outside",
+        )
+        outside_teacher = User(name="旧作业其他教师", role="teacher")
+        self.db.add_all([outside_student, outside_teacher])
+        self.db.flush()
+        own_class = Classroom(name="旧作业任教班", created_by=self.teacher.id)
+        outside_class = Classroom(name="旧作业其他班", created_by=outside_teacher.id)
+        self.db.add_all([own_class, outside_class])
+        self.db.flush()
+        self.db.add_all([
+            ClassroomTeacherSubject(
+                classroom_id=own_class.id, teacher_id=self.teacher.id,
+                subject="math",
+            ),
+            ClassroomMember(classroom_id=own_class.id, student_id=self.student.id),
+            ClassroomMember(classroom_id=outside_class.id, student_id=outside_student.id),
+        ])
+        assignment = Assignment(title="旧版混合学科作业", created_by=self.teacher.id)
+        self.db.add(assignment)
+        self.db.flush()
+        math_question = Question(
+            assignment_id=assignment.id, subject="math", knowledge_point="方程",
+            stem="数学题", order_num=1,
+        )
+        physics_question = Question(
+            assignment_id=assignment.id, subject="physics", knowledge_point="力学",
+            stem="物理题", order_num=2,
+        )
+        self.db.add_all([math_question, physics_question])
+        self.db.flush()
+        # An unrelated subject submission must not satisfy the teacher's math
+        # completion count for this legacy assignment.
+        self.db.add(Submission(
+            student_id=self.student.id, question_id=physics_question.id,
+        ))
+        self.db.commit()
+
+        status_tool = next(
+            tool for tool in build_teacher_tools(self.db, self.teacher)
+            if tool.name == "get_assignment_status"
+        )
+        status_text = status_tool.invoke({"assignment_hint": assignment.title})
+        self.assertIn("共 1 道题，班级 1 名学生", status_text)
+        self.assertIn(f"完全没交 1 人：{self.student.name}", status_text)
+        self.assertNotIn(outside_student.name, status_text)
+
+        self.assertEqual(
+            remind_assignment(assignment.id, self.db, self.teacher),
+            {"reminded_count": 1},
+        )
+        notified_ids = {
+            row[0] for row in self.db.query(Notification.user_id).filter_by(
+                type="teacher_reminder",
+            ).all()
+        }
+        self.assertEqual(notified_ids, {self.student.id})
+
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
         model = ScriptedToolModel()
         with patch(
