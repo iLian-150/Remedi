@@ -8,6 +8,7 @@ import math
 from typing import Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy import case, func, or_, tuple_, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, load_only
 
 from ..models import (
@@ -66,13 +67,50 @@ def create_pending_reviews(
                 ).all()
             )
     rows_by_id = {row.submission_id: row for row in existing_rows}
+    missing_ids = [
+        submission_id for submission_id in unique_submissions
+        if submission_id not in rows_by_id
+    ]
     added = False
-    for submission_id in unique_submissions:
-        if submission_id not in rows_by_id:
-            row = SubmissionReview(submission_id=submission_id, status=PENDING)
-            db.add(row)
-            rows_by_id[submission_id] = row
-            added = True
+    dialect = db.get_bind().dialect.name
+    insert_factory = None
+    if dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as insert_factory
+    elif dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as insert_factory
+    elif missing_ids:
+        # Flush unrelated work before per-row savepoints on other SQL dialects.
+        db.flush()
+
+    for start in range(0, len(missing_ids), 300):
+        batch_ids = missing_ids[start:start + 300]
+        now = datetime.now()
+        values = [
+            {"submission_id": submission_id, "status": PENDING, "created_at": now}
+            for submission_id in batch_ids
+        ]
+        if insert_factory is not None:
+            result = db.execute(
+                insert_factory(SubmissionReview)
+                .values(values)
+                .on_conflict_do_nothing(index_elements=[SubmissionReview.submission_id])
+            )
+            added = added or bool(result.rowcount)
+        else:
+            for value in values:
+                try:
+                    with db.begin_nested():
+                        db.add(SubmissionReview(**value))
+                        db.flush()
+                    added = True
+                except IntegrityError:
+                    # A concurrent caller inserted this primary key first.
+                    pass
+    for start in range(0, len(missing_ids), 500):
+        rows = db.query(SubmissionReview).filter(
+            SubmissionReview.submission_id.in_(missing_ids[start:start + 500])
+        ).all()
+        rows_by_id.update({row.submission_id: row for row in rows})
     if added and commit:
         db.commit()
     return rows_by_id

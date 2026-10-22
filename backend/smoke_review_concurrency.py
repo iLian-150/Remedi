@@ -160,6 +160,54 @@ class ReviewApprovalConcurrencyTests(unittest.TestCase):
         self.assertEqual(sorted(result["approved_count"] for result in results), [0, 1])
         self._assert_one_approval_notification()
 
+    def test_parallel_pending_review_creation_is_idempotent(self):
+        with Session(self.engine) as db:
+            db.query(SubmissionReview).filter_by(
+                submission_id=self.submission_id,
+            ).delete()
+            db.commit()
+
+        barrier = threading.Barrier(2)
+        thread_state = threading.local()
+
+        def wait_until_both_observe_empty_queue(
+            _connection, _cursor, statement, _parameters, _context, _executemany,
+        ):
+            sql = statement.lower()
+            if "from submission_reviews" in sql and "submission_reviews.submission_id in" in sql and not getattr(
+                thread_state, "waited", False,
+            ):
+                thread_state.waited = True
+                barrier.wait(timeout=5)
+
+        def create_pending_review():
+            with Session(self.engine) as db:
+                submission = db.get(Submission, self.submission_id)
+                try:
+                    review_service.create_pending_reviews(db, [submission])
+                except Exception as exc:
+                    db.rollback()
+                    return type(exc).__name__
+                return "created"
+
+        event.listen(self.engine, "after_cursor_execute", wait_until_both_observe_empty_queue)
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = [future.result(timeout=8) for future in [
+                    pool.submit(create_pending_review),
+                    pool.submit(create_pending_review),
+                ]]
+        finally:
+            event.remove(self.engine, "after_cursor_execute", wait_until_both_observe_empty_queue)
+
+        self.assertEqual(results, ["created", "created"])
+        with Session(self.engine) as db:
+            rows = db.query(SubmissionReview).filter_by(
+                submission_id=self.submission_id,
+            ).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].status, review_service.PENDING)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
