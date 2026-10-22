@@ -639,6 +639,56 @@ class AgentToolExecutionTests(unittest.TestCase):
         )
         self.assertIsNone(self.db.get(Assignment, physics_assignment.id))
 
+    def test_student_assignment_progress_counts_essay_questions_as_submitted(self):
+        from app.routers.student import list_assignments
+
+        assignment = Assignment(title="作文与数学进度", created_by=self.teacher.id)
+        self.db.add(assignment)
+        self.db.flush()
+        math_question = Question(
+            assignment_id=assignment.id, subject="math", knowledge_point="方程",
+            stem="数学题", order_num=1,
+        )
+        essay_question = Question(
+            assignment_id=assignment.id, subject="english", knowledge_point="写作",
+            stem="作文题", order_num=2,
+        )
+        self.db.add_all([math_question, essay_question])
+        self.db.flush()
+        math_submission = Submission(
+            student_id=self.student.id, question_id=math_question.id,
+        )
+        self.db.add(math_submission)
+        self.db.flush()
+        self.db.add_all([
+            SubmissionReview(submission_id=math_submission.id, status="pending"),
+            Essay(
+                student_id=self.student.id, question_id=essay_question.id,
+                text="A sufficiently long essay response.", scores_json="{}",
+                grammar_issues_json="[]", overall_comment="已完成",
+            ),
+        ])
+        self.db.commit()
+
+        result = list_assignments(
+            include_questions=False,
+            include_submission_status=True,
+            include_pending_count=True,
+            include_chat_questions=False,
+            created_on=None,
+            db=self.db,
+            current=self.student,
+        )
+        item = next(row for row in result["items"] if row["id"] == assignment.id)
+        self.assertEqual(item["question_count"], 2)
+        self.assertEqual(item["submitted_count"], 2)
+        self.assertEqual(
+            set(item["submitted_question_ids"]),
+            {math_question.id, essay_question.id},
+        )
+        self.assertEqual(item["pending_count"], 1)
+        self.assertEqual(item["pending_question_ids"], [math_question.id])
+
     def test_shared_mixed_subject_assignment_uses_class_subject_question_scope(self):
         from app.services.teacher_scope import (
             teacher_assignment_class_pairs,

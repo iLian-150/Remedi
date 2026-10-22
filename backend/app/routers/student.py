@@ -226,7 +226,7 @@ def student_chat_context(
 ):
     """只返回聊天选题器实际需要的作业标题、数学题与已提交题目 ID。"""
     visible_assignment = _student_assignment_scope(db, current)
-    has_submission = db.query(Submission.id).filter(
+    has_math_submission = db.query(Submission.id).filter(
         Submission.question_id == Question.id,
         Submission.student_id == current.id,
     ).exists()
@@ -237,7 +237,7 @@ def student_chat_context(
             Question.id,
             Question.stem,
             Question.order_num,
-            has_submission.label("is_submitted"),
+            has_math_submission.label("is_submitted"),
         )
         .outerjoin(
             Question,
@@ -312,14 +312,19 @@ def list_assignments(
         .outerjoin(AssignmentSetting, AssignmentSetting.assignment_id == Assignment.id)
         .outerjoin(Workbook, Workbook.id == AssignmentExt.workbook_id)
     )
-    has_submission = db.query(Submission.id).filter(
+    has_math_submission = db.query(Submission.id).filter(
         Submission.question_id == Question.id,
         Submission.student_id == current.id,
     ).exists()
+    has_essay = db.query(Essay.id).filter(
+        Essay.question_id == Question.id,
+        Essay.student_id == current.id,
+    ).exists()
+    has_any_activity = or_(has_math_submission, has_essay)
     question_stats_query = db.query(
         Question.assignment_id.label("assignment_id"),
         func.count(Question.id).label("question_count"),
-        func.sum(case((has_submission, 1), else_=0)).label(
+        func.sum(case((has_any_activity, 1), else_=0)).label(
             "submitted_count"
         ),
     )
@@ -443,6 +448,19 @@ def list_assignments(
     assignment_rows = list(assignment_rows_by_id.values())
     assignment_ids = list(assignment_rows_by_id)
 
+    if include_submission_status and assignment_ids:
+        essay_question_rows = db.query(
+            Question.assignment_id,
+            Essay.question_id,
+        ).join(
+            Question, Question.id == Essay.question_id,
+        ).filter(
+            Essay.student_id == current.id,
+            Question.assignment_id.in_(assignment_ids),
+        ).distinct().all()
+        for assignment_id, question_id in essay_question_rows:
+            submitted_question_ids.setdefault(assignment_id, []).append(question_id)
+
     questions_by_assignment = {}
     groups_by_assignment = {}
     chat_questions_by_assignment = {}
@@ -463,7 +481,7 @@ def list_assignments(
                 )
                 if include_chat_questions:
                     question_query = question_query.add_columns(
-                        has_submission.label("is_submitted")
+                        has_math_submission.label("is_submitted")
                     )
                 question_rows.extend(
                     question_query
@@ -482,7 +500,7 @@ def list_assignments(
                         Question.assignment_id,
                         Question.stem,
                         Question.order_num,
-                        has_submission.label("is_submitted"),
+                        has_math_submission.label("is_submitted"),
                     )
                     .filter(
                         Question.assignment_id.in_(assignment_batch),
@@ -567,8 +585,12 @@ def list_assignments(
             item["chat_questions"] = chat_questions_by_assignment.get(a.id, [])
             item["submitted_chat_question_ids"] = submitted_chat_question_ids.get(a.id, [])
         if include_submission_status:
-            item["submitted_question_ids"] = submitted_question_ids.get(a.id, [])
-            item["pending_question_ids"] = pending_question_ids.get(a.id, [])
+            item["submitted_question_ids"] = sorted(set(
+                submitted_question_ids.get(a.id, []),
+            ))
+            item["pending_question_ids"] = sorted(set(
+                pending_question_ids.get(a.id, []),
+            ))
         if include_pending_count:
             item["pending_count"] = pending_count_by_assignment.get(a.id, 0)
         result.append(item)
