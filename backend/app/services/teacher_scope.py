@@ -41,6 +41,58 @@ def teacher_assignment_ids(db, teacher: User):
     ).distinct()
 
 
+def teacher_assignment_question_ids(db, teacher: User, assignment_ids=None):
+    """Return question IDs the teacher may see, including reference answers."""
+    subjects = db.query(TeacherSubject.subject).filter(
+        TeacherSubject.teacher_id == teacher.id,
+    )
+    owned = db.query(Question.id).join(
+        Assignment, Assignment.id == Question.assignment_id,
+    ).filter(
+        Assignment.created_by == teacher.id,
+        Question.subject.in_(subjects),
+    )
+    assigned = db.query(Question.id).join(
+        AssignmentClass, AssignmentClass.assignment_id == Question.assignment_id,
+    ).join(
+        ClassroomTeacherSubject,
+        and_(
+            ClassroomTeacherSubject.classroom_id == AssignmentClass.classroom_id,
+            ClassroomTeacherSubject.subject == Question.subject,
+        ),
+    ).filter(ClassroomTeacherSubject.teacher_id == teacher.id)
+    if assignment_ids is not None:
+        owned = owned.filter(Question.assignment_id.in_(assignment_ids))
+        assigned = assigned.filter(Question.assignment_id.in_(assignment_ids))
+    return owned.union(assigned)
+
+
+def teacher_assignment_class_pairs(db, teacher: User, assignment_ids=None):
+    """Return (assignment, classroom) pairs visible to this teacher."""
+    owned = db.query(
+        AssignmentClass.assignment_id.label("assignment_id"),
+        AssignmentClass.classroom_id.label("classroom_id"),
+    ).join(
+        Assignment, Assignment.id == AssignmentClass.assignment_id,
+    ).filter(Assignment.created_by == teacher.id)
+    assigned = db.query(
+        AssignmentClass.assignment_id.label("assignment_id"),
+        AssignmentClass.classroom_id.label("classroom_id"),
+    ).join(
+        Question, Question.assignment_id == AssignmentClass.assignment_id,
+    ).join(
+        ClassroomTeacherSubject,
+        and_(
+            ClassroomTeacherSubject.classroom_id == AssignmentClass.classroom_id,
+            ClassroomTeacherSubject.subject == Question.subject,
+        ),
+    ).filter(ClassroomTeacherSubject.teacher_id == teacher.id)
+    if assignment_ids is not None:
+        owned = owned.filter(AssignmentClass.assignment_id.in_(assignment_ids))
+        assigned = assigned.filter(AssignmentClass.assignment_id.in_(assignment_ids))
+    return owned.union(assigned)
+
+
 def teacher_student_ids(db, teacher: User):
     """Return students in classrooms for which this teacher has a subject assignment."""
     return db.query(ClassroomMember.student_id).join(
@@ -96,6 +148,66 @@ def teacher_assignment_student_ids(db, teacher: User, assignment_id: int):
         AssignmentClass.assignment_id == assignment_id,
         ClassroomTeacherSubject.teacher_id == teacher.id,
     ).distinct().all()]
+
+
+def teacher_assignment_question_student_pairs(db, teacher: User, assignment_id: int):
+    """Return each recipient's questions in this teacher's class+subject scope.
+
+    ``None`` preserves legacy behavior for assignments with no explicit class
+    recipients. For an owner, the assignment's recipient classes are paired
+    with questions in subjects the owner teaches. For another teacher, both
+    the recipient class and question subject must match their mapping.
+    """
+    has_recipients = db.query(AssignmentClass.assignment_id).filter(
+        AssignmentClass.assignment_id == assignment_id,
+    ).first()
+    if not has_recipients:
+        return None
+
+    subjects = db.query(TeacherSubject.subject).filter(
+        TeacherSubject.teacher_id == teacher.id,
+    )
+    owns_assignment = db.query(Question.id).join(
+        Assignment, Assignment.id == Question.assignment_id,
+    ).filter(
+        Assignment.id == assignment_id,
+        Assignment.created_by == teacher.id,
+        Question.subject.in_(subjects),
+    ).first()
+    if owns_assignment:
+        return db.query(
+            ClassroomMember.student_id.label("student_id"),
+            Question.id.label("question_id"),
+        ).join(
+            AssignmentClass,
+            AssignmentClass.classroom_id == ClassroomMember.classroom_id,
+        ).join(
+            Question,
+            Question.assignment_id == AssignmentClass.assignment_id,
+        ).filter(
+            AssignmentClass.assignment_id == assignment_id,
+            Question.subject.in_(subjects),
+        ).distinct()
+
+    return db.query(
+        ClassroomMember.student_id.label("student_id"),
+        Question.id.label("question_id"),
+    ).join(
+        AssignmentClass,
+        AssignmentClass.classroom_id == ClassroomMember.classroom_id,
+    ).join(
+        ClassroomTeacherSubject,
+        ClassroomTeacherSubject.classroom_id == AssignmentClass.classroom_id,
+    ).join(
+        Question,
+        and_(
+            Question.assignment_id == AssignmentClass.assignment_id,
+            Question.subject == ClassroomTeacherSubject.subject,
+        ),
+    ).filter(
+        AssignmentClass.assignment_id == assignment_id,
+        ClassroomTeacherSubject.teacher_id == teacher.id,
+    ).distinct()
 
 
 def _teacher_activity_ids(db, teacher: User, activity_model):

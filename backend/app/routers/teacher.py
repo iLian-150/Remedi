@@ -118,7 +118,9 @@ from ..services.stats import (
 from ..services.teacher_stats import students_not_fully_submitted
 from ..services.teacher_scope import (
     teacher_assignment_ids as _scoped_teacher_assignment_ids,
-    teacher_assignment_student_ids as _scoped_teacher_assignment_student_ids,
+    teacher_assignment_class_pairs as _scoped_teacher_assignment_class_pairs,
+    teacher_assignment_question_ids as _scoped_teacher_assignment_question_ids,
+    teacher_assignment_question_student_pairs as _scoped_teacher_assignment_question_student_pairs,
     teacher_essay_ids as _scoped_teacher_essay_ids,
     teacher_submission_ids as _scoped_teacher_submission_ids,
     teacher_student_ids as _scoped_teacher_student_ids,
@@ -1346,7 +1348,8 @@ def guess_knowledge_point(body: KnowledgePointGuessIn,
 
 def _teacher_assignments_out(
     assignments: List[Assignment], db: Session, teacher: User,
-    submission_ids=None, essay_ids=None,
+    submission_ids=None, essay_ids=None, question_ids=None,
+    visible_class_pairs=None,
 ) -> List[TeacherAssignmentOut]:
     """批量组装教师作业列表，避免逐作业、逐题查询统计和配置。"""
     if not assignments:
@@ -1361,20 +1364,27 @@ def _teacher_assignments_out(
     for assignment_id, classroom_id in db.query(
         AssignmentClass.assignment_id, AssignmentClass.classroom_id,
     ).filter(AssignmentClass.assignment_id.in_(assignment_ids)).all():
-        class_ids_by_assignment[assignment_id].append(classroom_id)
+        if (
+            visible_class_pairs is None
+            or (assignment_id, classroom_id) in visible_class_pairs
+        ):
+            class_ids_by_assignment[assignment_id].append(classroom_id)
     questions = []
     weights = {}
     for assignment_id_chunk in id_chunks(assignment_ids):
-        for question, weight_pct in (
+        question_query = (
             db.query(Question, QuestionWeight.weight_pct)
             .outerjoin(
                 QuestionWeight,
                 QuestionWeight.question_id == Question.id,
             )
             .filter(Question.assignment_id.in_(assignment_id_chunk))
-            .order_by(Question.assignment_id, Question.order_num, Question.id)
-            .all()
-        ):
+        )
+        if question_ids is not None:
+            question_query = question_query.filter(Question.id.in_(question_ids))
+        for question, weight_pct in question_query.order_by(
+            Question.assignment_id, Question.order_num, Question.id,
+        ).all():
             questions.append(question)
             if weight_pct is not None:
                 weights[question.id] = float(weight_pct)
@@ -1662,12 +1672,22 @@ def list_teacher_assignments(
             Assignment.created_at < day_start + timedelta(days=1),
         )
     assignments = query.order_by(Assignment.id).all()
+    visible_class_pairs = {
+        (assignment_id, classroom_id)
+        for assignment_id, classroom_id in _scoped_teacher_assignment_class_pairs(
+            db, current, [assignment.id for assignment in assignments],
+        ).all()
+    }
     items = _teacher_assignments_out(
         assignments,
         db,
         current,
         submission_ids=_teacher_submission_ids(db, current),
         essay_ids=_scoped_teacher_essay_ids(db, current),
+        question_ids=_scoped_teacher_assignment_question_ids(
+            db, current, [assignment.id for assignment in assignments],
+        ),
+        visible_class_pairs=visible_class_pairs,
     )
     return {"total": len(items), "items": items}
 
@@ -1848,10 +1868,12 @@ def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     _require_teacher_assignment(db, current, assignment_id)
-    student_ids = _scoped_teacher_assignment_student_ids(
+    question_student_pairs = _scoped_teacher_assignment_question_student_pairs(
         db, current, assignment_id,
     )
-    targets = students_not_fully_submitted(db, assignment, student_ids=student_ids)
+    targets = students_not_fully_submitted(
+        db, assignment, question_student_pairs=question_student_pairs,
+    )
     for student_id in targets:
         db.add(Notification(
             user_id=student_id,

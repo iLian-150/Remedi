@@ -639,6 +639,135 @@ class AgentToolExecutionTests(unittest.TestCase):
         )
         self.assertIsNone(self.db.get(Assignment, physics_assignment.id))
 
+    def test_shared_mixed_subject_assignment_uses_class_subject_question_scope(self):
+        from app.services.teacher_scope import (
+            teacher_assignment_class_pairs,
+            teacher_assignment_question_ids,
+            teacher_assignment_question_student_pairs,
+        )
+
+        physics_teacher = User(name="共享作业物理教师", role="teacher")
+        owner = User(name="共享作业发布教师", role="teacher")
+        completed_student = User(
+            name="数学已完成学生", role="student", student_no="mixed-math-done",
+        )
+        missing_student = User(
+            name="数学未完成学生", role="student", student_no="mixed-math-missing",
+        )
+        physics_student = User(
+            name="物理班学生", role="student", student_no="mixed-physics-student",
+        )
+        self.db.add_all([
+            physics_teacher, owner, completed_student, missing_student,
+            physics_student,
+        ])
+        self.db.flush()
+        math_class = Classroom(name="共享混合数学班", created_by=owner.id)
+        physics_class = Classroom(name="共享混合物理班", created_by=owner.id)
+        self.db.add_all([math_class, physics_class])
+        self.db.flush()
+        self.db.add_all([
+            TeacherSubject(teacher_id=owner.id, subject="math"),
+            TeacherSubject(teacher_id=owner.id, subject="physics"),
+            TeacherSubject(teacher_id=physics_teacher.id, subject="physics"),
+            ClassroomTeacherSubject(
+                classroom_id=math_class.id, teacher_id=self.teacher.id, subject="math",
+            ),
+            ClassroomTeacherSubject(
+                classroom_id=math_class.id, teacher_id=physics_teacher.id, subject="physics",
+            ),
+            ClassroomTeacherSubject(
+                classroom_id=physics_class.id, teacher_id=physics_teacher.id, subject="physics",
+            ),
+            # 发布者在两个接收班级都负责这份混合学科作业中的全部学科。
+            ClassroomTeacherSubject(
+                classroom_id=math_class.id, teacher_id=owner.id, subject="math",
+            ),
+            ClassroomTeacherSubject(
+                classroom_id=math_class.id, teacher_id=owner.id, subject="physics",
+            ),
+            ClassroomTeacherSubject(
+                classroom_id=physics_class.id, teacher_id=owner.id, subject="math",
+            ),
+            ClassroomTeacherSubject(
+                classroom_id=physics_class.id, teacher_id=owner.id, subject="physics",
+            ),
+            ClassroomMember(classroom_id=math_class.id, student_id=completed_student.id),
+            ClassroomMember(classroom_id=math_class.id, student_id=missing_student.id),
+            ClassroomMember(classroom_id=physics_class.id, student_id=physics_student.id),
+        ])
+        assignment = Assignment(title="混合学科共享作业", created_by=owner.id)
+        self.db.add(assignment)
+        self.db.flush()
+        math_question = Question(
+            assignment_id=assignment.id, subject="math", knowledge_point="方程",
+            stem="数学题干", standard_answer="数学参考答案不得外露", order_num=1,
+        )
+        physics_question = Question(
+            assignment_id=assignment.id, subject="physics", knowledge_point="力学",
+            stem="物理题干", standard_answer="物理参考答案不得外露", order_num=2,
+        )
+        self.db.add_all([
+            math_question, physics_question,
+            AssignmentClass(assignment_id=assignment.id, classroom_id=math_class.id),
+            AssignmentClass(assignment_id=assignment.id, classroom_id=physics_class.id),
+        ])
+        self.db.flush()
+        self.db.add(Submission(
+            student_id=completed_student.id, question_id=math_question.id,
+        ))
+        self.db.commit()
+
+        visible_question_ids = teacher_assignment_question_ids(
+            self.db, self.teacher, [assignment.id],
+        )
+        visible_class_pairs = {
+            (row.assignment_id, row.classroom_id)
+            for row in teacher_assignment_class_pairs(
+                self.db, self.teacher, [assignment.id],
+            ).all()
+        }
+        self.assertEqual(
+            {row[0] for row in visible_question_ids.all()},
+            {math_question.id},
+        )
+        self.assertEqual(visible_class_pairs, {(assignment.id, math_class.id)})
+
+        assignment_item = _teacher_assignments_out(
+            [assignment], self.db, self.teacher,
+            submission_ids=teacher_submission_ids(self.db, self.teacher),
+            essay_ids=teacher_essay_ids(self.db, self.teacher),
+            question_ids=visible_question_ids,
+            visible_class_pairs=visible_class_pairs,
+        )[0]
+        self.assertEqual([question.id for question in assignment_item.questions], [math_question.id])
+        self.assertEqual(
+            assignment_item.questions[0].standard_answer,
+            "数学参考答案不得外露",
+        )
+        self.assertEqual(assignment_item.class_ids, [math_class.id])
+
+        status_tool = next(
+            tool for tool in build_teacher_tools(self.db, self.teacher)
+            if tool.name == "get_assignment_status"
+        )
+        status_text = status_tool.invoke({"assignment_hint": assignment.title})
+        self.assertIn("共 1 道题，班级 2 名学生", status_text)
+        self.assertIn(completed_student.name, status_text)
+        self.assertIn(missing_student.name, status_text)
+        self.assertNotIn(physics_student.name, status_text)
+
+        self.assertEqual(
+            remind_assignment(assignment.id, self.db, self.teacher),
+            {"reminded_count": 1},
+        )
+        notified_ids = {
+            row[0] for row in self.db.query(Notification.user_id).filter_by(
+                type="teacher_reminder",
+            ).all()
+        }
+        self.assertEqual(notified_ids, {missing_student.id})
+
     def test_low_score_suggestions_use_latest_approved_submission_per_student_question(self):
         from app.services.suggestions import build_teaching_suggestions
 

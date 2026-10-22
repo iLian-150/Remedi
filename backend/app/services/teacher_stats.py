@@ -3,7 +3,7 @@
 # 一份作业「全部完成」= 作业内每道题都已提交。
 from typing import Dict, List, Optional
 
-from sqlalchemy import func, literal, or_, select
+from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.orm import load_only
 
 from ..models import Assignment, AssignmentClass, ClassroomMember, Correction, Error, Essay, Question, Submission, User
@@ -61,9 +61,31 @@ def _scoped_assignment_student_ids(db, assignment: Assignment, authorized_studen
 
 
 def students_not_fully_submitted(
-    db, assignment: Assignment, student_ids=None,
+    db, assignment: Assignment, student_ids=None, question_student_pairs=None,
 ) -> List[int]:
-    """未提交全部题目的学生 ID；可按调用者授权范围限制作业接收学生。"""
+    """Return recipients missing at least one question in their authorized scope."""
+    if question_student_pairs is not None:
+        pair_source = question_student_pairs.subquery()
+        authorized_pairs = db.query(
+            pair_source.c.student_id.label("student_id"),
+            pair_source.c.question_id.label("question_id"),
+        ).join(
+            User, User.id == pair_source.c.student_id,
+        ).filter(User.role == "student").distinct().subquery()
+        submitted_pairs = _submitted_question_pairs(db, assignment.id)
+        missing = db.query(authorized_pairs.c.student_id).outerjoin(
+            submitted_pairs,
+            and_(
+                submitted_pairs.c.student_id == authorized_pairs.c.student_id,
+                submitted_pairs.c.question_id == authorized_pairs.c.question_id,
+            ),
+        ).filter(submitted_pairs.c.student_id.is_(None))
+        if student_ids is not None:
+            missing = missing.filter(authorized_pairs.c.student_id.in_(student_ids))
+        return [row[0] for row in missing.distinct().order_by(
+            authorized_pairs.c.student_id,
+        ).all()]
+
     question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
     ).scalar_subquery()
@@ -93,54 +115,104 @@ def students_not_fully_submitted(
     ).scalars().all()
 
 
-def assignment_status(db, assignment: Assignment, student_ids=None) -> Dict:
-    """一份作业的提交情况；可将作业接收名单再限制到调用者有权查看的学生。"""
-    question_count = select(func.count(Question.id)).where(
-        Question.assignment_id == assignment.id
-    ).scalar_subquery()
+def assignment_status(
+    db, assignment: Assignment, student_ids=None, question_student_pairs=None,
+    question_ids=None,
+) -> Dict:
+    """Summarize completion against each recipient's authorized question set."""
     submitted_pairs = _submitted_question_pairs(db, assignment.id)
-    done_counts = (
-        select(
-            submitted_pairs.c.student_id,
-            func.count(submitted_pairs.c.question_id).label("done_count"),
-        )
-        .group_by(submitted_pairs.c.student_id)
-        .subquery()
-    )
-    # 先按作业接收班级，再按调用者的授权范围取交集。
-    student_ids = _scoped_assignment_student_ids(db, assignment, student_ids)
-    student_query = (
-        db.query(
-            question_count.label("question_count"),
+    if question_student_pairs is not None:
+        pair_source = question_student_pairs.subquery()
+        authorized_pairs = db.query(
+            pair_source.c.student_id.label("student_id"),
+            pair_source.c.question_id.label("question_id"),
+        ).join(
+            User, User.id == pair_source.c.student_id,
+        ).filter(User.role == "student").distinct().subquery()
+        expected_counts = db.query(
+            authorized_pairs.c.student_id,
+            func.count(authorized_pairs.c.question_id).label("expected_count"),
+        ).group_by(authorized_pairs.c.student_id).subquery()
+        done_counts = db.query(
+            authorized_pairs.c.student_id,
+            func.count(authorized_pairs.c.question_id).label("done_count"),
+        ).join(
+            submitted_pairs,
+            and_(
+                submitted_pairs.c.student_id == authorized_pairs.c.student_id,
+                submitted_pairs.c.question_id == authorized_pairs.c.question_id,
+            ),
+        ).group_by(authorized_pairs.c.student_id).subquery()
+        student_query = db.query(
             User.id.label("student_id"),
             User.name.label("student_name"),
+            expected_counts.c.expected_count.label("expected_count"),
             func.coalesce(done_counts.c.done_count, 0).label("done_count"),
+        ).join(
+            expected_counts, expected_counts.c.student_id == User.id,
+        ).outerjoin(
+            done_counts, done_counts.c.student_id == User.id,
+        ).filter(User.role == "student")
+        if student_ids is not None:
+            student_query = student_query.filter(User.id.in_(student_ids))
+        students = student_query.order_by(User.id).all()
+        if question_ids is not None:
+            question_count = int(db.query(
+                func.count(func.distinct(Question.id)),
+            ).filter(
+                Question.assignment_id == assignment.id,
+                Question.id.in_(question_ids),
+            ).scalar() or 0)
+        else:
+            question_count = int(db.query(
+                func.count(func.distinct(authorized_pairs.c.question_id)),
+            ).scalar() or 0)
+    else:
+        question_count_expr = select(func.count(Question.id)).where(
+            Question.assignment_id == assignment.id
+        ).scalar_subquery()
+        done_counts = (
+            select(
+                submitted_pairs.c.student_id,
+                func.count(submitted_pairs.c.question_id).label("done_count"),
+            )
+            .group_by(submitted_pairs.c.student_id)
+            .subquery()
         )
-        .select_from(select(literal(1).label("singleton")).subquery())
-        .outerjoin(User, User.role == "student")
-        .outerjoin(done_counts, done_counts.c.student_id == User.id)
-    )
-    if student_ids is not None:
-        student_query = student_query.filter(User.id.in_(student_ids))
-    students = (
-        student_query.order_by(User.id).all()
-    )
-    question_count = (
-        int(students[0].question_count or 0) if students
-        else int(db.query(func.count(Question.id)).filter(
-            Question.assignment_id == assignment.id,
-        ).scalar() or 0)
-    )
+        # 先按作业接收班级，再按调用者的授权范围取交集。
+        student_ids = _scoped_assignment_student_ids(db, assignment, student_ids)
+        student_query = (
+            db.query(
+                question_count_expr.label("expected_count"),
+                User.id.label("student_id"),
+                User.name.label("student_name"),
+                func.coalesce(done_counts.c.done_count, 0).label("done_count"),
+            )
+            .select_from(select(literal(1).label("singleton")).subquery())
+            .outerjoin(User, User.role == "student")
+            .outerjoin(done_counts, done_counts.c.student_id == User.id)
+        )
+        if student_ids is not None:
+            student_query = student_query.filter(User.id.in_(student_ids))
+        students = student_query.order_by(User.id).all()
+        question_count = (
+            int(students[0].expected_count or 0) if students
+            else int(db.query(func.count(Question.id)).filter(
+                Question.assignment_id == assignment.id,
+            ).scalar() or 0)
+        )
+
     done_all, partial, none = [], [], []
     for row in students:
         if row.student_id is None:
             continue
         name = row.student_name
         done_count = row.done_count
-        if question_count and done_count == question_count:
+        expected_count = int(row.expected_count or 0)
+        if expected_count and done_count == expected_count:
             done_all.append(name)
         elif done_count:
-            partial.append({"name": name, "done": done_count, "total": question_count})
+            partial.append({"name": name, "done": done_count, "total": expected_count})
         else:
             none.append(name)
     return {
