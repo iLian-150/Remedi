@@ -29,6 +29,9 @@ _STOP_TOKENS = {
     "知识", "问题", "资料", "内容", "方法", "学习", "讲解", "解释", "分析",
     "the", "and", "for", "are", "what", "how", "please", "this", "that", "with",
 }
+_SINGLE_CJK_STOP_TOKENS = frozenset(
+    "的一了着过是在有和与及或而但被把让从到对为以将于向跟给就都也还又再很太最非每各某这那此彼其它我你他她们谁哪什么不"
+)
 _VECTOR_WARNING = "向量检索尚未就绪，请检查向量模型和 Milvus 配置；当前使用 BM25，恢复后可重新建立向量索引。"
 _RERANK_WARNING = "百炼重排暂不可用，当前使用本地排序。"
 _WRITE_TRANSACTION = "_remedi_rag_write_transaction"
@@ -49,11 +52,13 @@ def _has_uncommitted_knowledge(db: Session) -> bool:
                    for collection in (db.new, db.dirty, db.deleted) for item in collection))
 
 
-def _tokenize(text: str) -> list[str]:
-    """中文按连续词段生成二元词，不把跨标点字符或单字当作相关证据。"""
+def _tokenize(text: str, single_cjk_token: str | None = None) -> list[str]:
+    """中文按连续词段生成二元词；仅针对有意义的单字查询开放单字匹配。"""
     formulas = formula_tokens(text or "")
     value = unicodedata.normalize("NFKC", text or "").lower()
     tokens = re.findall(r"[a-z][a-z0-9_]+|\d+(?:\.\d+)?", value)
+    if single_cjk_token:
+        tokens.extend([single_cjk_token] * value.count(single_cjk_token))
     for run in re.findall(r"[\u4e00-\u9fff]+", value):
         tokens.extend(run[index:index + 2] for index in range(len(run) - 1))
     return [token for token in tokens if token not in _STOP_TOKENS] + formulas
@@ -222,8 +227,13 @@ def _load_candidates(db: Session, subject: str) -> list[dict]:
     return candidates
 
 
-def _bm25_rank(candidates: list[dict], query_tokens: set[str]) -> list[tuple[int, float]]:
-    counters = [Counter(_tokenize(item["title"]) * 2 + _tokenize(item["content"])) for item in candidates]
+def _bm25_rank(
+    candidates: list[dict], query_tokens: set[str], single_cjk_token: str | None = None,
+) -> list[tuple[int, float]]:
+    counters = [Counter(
+        _tokenize(item["title"], single_cjk_token)
+        * 2 + _tokenize(item["content"], single_cjk_token)
+    ) for item in candidates]
     lengths = [sum(counter.values()) for counter in counters]
     average = sum(lengths) / max(len(lengths), 1) or 1
     frequencies = Counter(token for counter in counters for token in counter if token in query_tokens)
@@ -249,11 +259,15 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
     if not query or not query.strip() or limit <= 0:
         return empty
     query = query.strip()[:2000]
-    query_tokens = set(_tokenize(query))
+    single_cjk_token = query if (
+        len(query) == 1 and "\u4e00" <= query <= "\u9fff"
+        and query not in _SINGLE_CJK_STOP_TOKENS
+    ) else None
+    query_tokens = set(_tokenize(query, single_cjk_token))
     candidates = _load_candidates(db, subject)
     if not candidates:
         return empty
-    lexical = _bm25_rank(candidates, query_tokens) if query_tokens else []
+    lexical = _bm25_rank(candidates, query_tokens, single_cjk_token) if query_tokens else []
     scores = defaultdict(float)
     candidate_limit = max(24, min(int(limit), 10) * 6)
     lexical_ranks = {index: rank for rank, (index, _) in enumerate(lexical, 1)}
@@ -298,9 +312,11 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
 
     # 规则重排偏向覆盖题目条件的片段；不把 BM25 原分和余弦相似度直接相加。
     for index in scores:
-        tokens = set(_tokenize(candidates[index]["content"]))
+        tokens = set(_tokenize(candidates[index]["content"], single_cjk_token))
         coverage = len(query_tokens & tokens) / max(len(query_tokens), 1)
-        title_coverage = len(query_tokens & set(_tokenize(candidates[index]["title"]))) / max(len(query_tokens), 1)
+        title_coverage = len(query_tokens & set(_tokenize(
+            candidates[index]["title"], single_cjk_token,
+        ))) / max(len(query_tokens), 1)
         scores[index] += coverage * 0.004 + title_coverage * 0.002
     ranked = sorted(scores, key=lambda index: (-scores[index], index))
     rerank_mode = "local"
@@ -334,7 +350,7 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
     max_score = max(scores.values()) or 1.0
     while ranked and len(selected) < min(int(limit), 10):
         def diversity_score(index):
-            tokens = set(_tokenize(candidates[index]["content"]))
+            tokens = set(_tokenize(candidates[index]["content"], single_cjk_token))
             similarity = max((len(tokens & other) / max(len(tokens | other), 1)
                               for other in selected_tokens), default=0)
             return 0.85 * scores[index] / max_score - 0.15 * similarity

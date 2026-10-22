@@ -47,9 +47,15 @@ class SubjectRagTests(unittest.TestCase):
 
     def test_no_single_character_or_unrelated_chinese_match(self):
         self.document("一次函数", "函数的图像是一条直线。")
-        for query in ("的", "天气预报", "一 次", "", "   "):
+        for query in ("的", "是", "一", "天气预报", "一 次", "", "   "):
             with self.subTest(query=query):
                 self.assertEqual(subject_rag.search_knowledge(self.db, "math", query)["items"], [])
+
+    def test_single_character_physics_topic_retrieves_exact_evidence(self):
+        force = self.document("牛顿第一定律", "力是物体之间的相互作用。", subject="physics")
+        self.document("物体运动", "物体的位置随时间发生变化。", subject="physics")
+        result = subject_rag.search_knowledge(self.db, "physics", "力")
+        self.assertEqual([item["document_id"] for item in result["items"]], [force.id])
 
     def test_formula_only_query_uses_bm25_and_keeps_subject_boundary(self):
         math_document = self.document("代数关系", r"关系式为 x + y = z，变量之间满足这个等式。")
