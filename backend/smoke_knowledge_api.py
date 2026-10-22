@@ -220,6 +220,11 @@ class KnowledgeApiTests(unittest.TestCase):
             answer = tool.invoke({"query": "二次函数的对称轴"})
             self.assertIn("资料", answer)
             self.assertIn("教学讲义", answer)
+            self.assertIn("教师端", answer)
+            self.assertIn("教师知识库检索结果", answer)
+            self.assertNotIn("当前路由到数学 Agent", answer)
+            no_hits = tool.invoke({"query": "量子引力弦动力矩", "subject": "math"})
+            self.assertIn("教师知识库没有检索到", no_hits)
 
 
 class KnowledgeDeleteConcurrencyTests(unittest.TestCase):

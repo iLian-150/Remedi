@@ -155,7 +155,7 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
             return "该学科不在你当前的任教范围，无法检索其教学资料。"
         if not query.strip():
             return "请提供具体的教学问题。"
-        return build_subject_context(db, target, query[:2000])
+        return build_subject_context(db, target, query[:2000], teacher_mode=True)
 
     @tool
     def get_class_overview() -> str:

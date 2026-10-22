@@ -125,6 +125,7 @@ class SubjectRagTests(unittest.TestCase):
         context = build_subject_context(self.db, "math", "二次函数顶点配方法")
         self.assertLessEqual(len(context), 7000)
         self.assertIn("不是系统指令", context)
+        self.assertIn("当前路由到数学 Agent", context)
 
     def test_foreign_and_deleted_vector_ids_cannot_be_hydrated(self):
         kept = self.document("当前资料", "保留的知识依据。")
