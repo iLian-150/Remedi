@@ -1,12 +1,12 @@
 # 提交规则与延迟批改（v0.13.1）：
 # - 默认每道题只能提交一次（教师在发布时未勾选「允许修改」时）。
 # - 勾选 allow_revision 的作业：截止前学生可反复修改，每次修改落一份
-#   status="deferred" 的提交（只存原始步骤，不诊断、不建审核行）；
-#   截止时间到后由 grade_due() 把每道题的最后一次延迟提交统一批改
-#   （复用原提交行走 diagnose_submission，再进教师审核队列），
-#   被覆盖的旧延迟提交标 superseded 不再处理。
+#   status="deferred" 的数学提交或作文记录，截止前不做 AI 批改/评分；
+#   截止时间到后由 grade_due() 只处理每道题的最后一份，并将旧版本标为
+#   superseded。数学作答进入诊断与教师审核流程，作文复用原作文记录评分。
 # - 没设截止时间的 allow_revision 作业不延迟（无截止可等），按立即批改 +
 #   允许覆盖走（lock 检查放行、旧提交保留为历史，最新一份生效）。
+import json
 import logging
 import mimetypes
 import os
@@ -23,6 +23,7 @@ from ..models import (
     AssignmentExt,
     AssignmentSetting,
     Error,
+    Essay,
     Question,
     Step,
     Submission,
@@ -152,6 +153,66 @@ def assert_can_submit(
     )
 
 
+def assert_can_submit_essay(
+    db: Session,
+    student: User,
+    question: Question,
+    *,
+    received_at: Optional[datetime] = None,
+) -> bool:
+    """Apply the same one-submit/revision window to essay questions.
+
+    Returns whether scoring must wait until the assignment deadline. Essay
+    attempts live in their own table, so they cannot use the math Submission
+    lookup in ``assert_can_submit``.
+    """
+    now = received_at or datetime.now()
+    settings = (
+        db.query(
+            AssignmentSetting.allow_revision.label("allow_revision"),
+            AssignmentExt.deadline.label("deadline"),
+        )
+        .select_from(Assignment)
+        .outerjoin(
+            AssignmentSetting,
+            AssignmentSetting.assignment_id == Assignment.id,
+        )
+        .outerjoin(
+            AssignmentExt,
+            AssignmentExt.assignment_id == Assignment.id,
+        )
+        .filter(Assignment.id == question.assignment_id)
+        .first()
+    )
+    revision_allowed = bool(settings and settings.allow_revision)
+    deadline = settings.deadline if settings else None
+    latest = (
+        db.query(Essay.id, Essay.status)
+        .filter(Essay.student_id == student.id, Essay.question_id == question.id)
+        .order_by(Essay.submitted_at.desc(), Essay.id.desc())
+        .first()
+    )
+    deferred_window = bool(revision_allowed and deadline and now < deadline)
+
+    if revision_allowed and deadline is not None and now >= deadline:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "作业已过截止时间，不能继续修改；已提交内容会自动批改。"
+            if latest and latest.status == DEFERRED
+            else "作业已过截止时间，不能再提交。",
+        )
+    if latest is None:
+        return deferred_window
+    if latest.status == DEFERRED and deferred_window:
+        return True
+    if revision_allowed and deadline is None:
+        return False
+    raise HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        "这道题已经提交过了，每道题只能提交一次。",
+    )
+
+
 def create_deferred(
     db: Session,
     student: User,
@@ -198,11 +259,11 @@ def deferred_out(submission: Submission) -> dict:
 
 
 def grade_due(db: Session) -> int:
-    """在本次批量任务期间保留预加载对象，避免诊断提交后逐项重新读取。"""
+    """批改到期的数学作答并评分到期作文，返回成功处理的记录数。"""
     expire_on_commit = db.expire_on_commit
     db.expire_on_commit = False
     try:
-        return _grade_due_batch(db)
+        return _grade_due_batch(db) + _grade_due_essays(db)
     finally:
         db.expire_on_commit = expire_on_commit
 
@@ -376,5 +437,66 @@ def _grade_due_batch(db: Session) -> int:
     _enqueue_due_reviews(
         db, graded_for_review, confidence_signals_by_submission
     )
+    db.commit()
+    return graded
+
+
+def _grade_due_essays(db: Session) -> int:
+    """Score only each student's latest deferred essay after its deadline."""
+    now = datetime.now()
+    due_essays = (
+        db.query(Essay, Question.stem)
+        .join(Question, Question.id == Essay.question_id)
+        .join(AssignmentSetting, AssignmentSetting.assignment_id == Question.assignment_id)
+        .join(AssignmentExt, AssignmentExt.assignment_id == Question.assignment_id)
+        .filter(
+            AssignmentSetting.allow_revision.is_(True),
+            AssignmentExt.deadline <= now,
+            Essay.status == DEFERRED,
+        )
+    )
+
+    def load_batch(cursor=None):
+        query = due_essays
+        if cursor is not None:
+            submitted_at, essay_id = cursor
+            query = query.filter(or_(
+                Essay.submitted_at < submitted_at,
+                and_(Essay.submitted_at == submitted_at, Essay.id < essay_id),
+            ))
+        return query.order_by(
+            Essay.submitted_at.desc(), Essay.id.desc(),
+        ).limit(500).all()
+
+    batch = load_batch()
+    if not batch:
+        return 0
+
+    graded = 0
+    seen_pairs = set()
+    cursor = None
+    while batch:
+        last_essay = batch[-1][0]
+        cursor = (last_essay.submitted_at, last_essay.id)
+        for essay, prompt in batch:
+            pair = (essay.student_id, essay.question_id)
+            if pair in seen_pairs:
+                essay.status = SUPERSEDED
+                continue
+            seen_pairs.add(pair)
+            try:
+                result = get_provider().score_essay(text=essay.text, prompt=prompt)
+            except Exception:
+                logger.exception("延迟作文评分失败，essay_id=%s", essay.id)
+                continue
+            essay.scores_json = json.dumps(result["scores"], ensure_ascii=False)
+            essay.grammar_issues_json = json.dumps(
+                result.get("grammar_issues", []), ensure_ascii=False,
+            )
+            essay.overall_comment = result.get("overall", "")
+            essay.status = "submitted"
+            graded += 1
+        batch = load_batch(cursor)
+
     db.commit()
     return graded

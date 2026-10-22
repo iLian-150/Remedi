@@ -328,9 +328,10 @@ export interface GrammarIssue {
 // POST /api/student/essays 响应；GET /api/student/essays/{essay_id} 另含 text 与 question_id
 export interface EssayResult {
   essay_id: number
-  scores: EssayScores
+  status?: 'submitted' | 'deferred' | 'superseded'
+  scores: EssayScores | null
   grammar_issues: GrammarIssue[]
-  overall: string
+  overall: string | null
   submitted_at: string
   text?: string
   question_id?: number | null
@@ -339,7 +340,8 @@ export interface EssayResult {
 export interface EssaySummary {
   essay_id: number
   question_id: number | null
-  total: number
+  status?: 'submitted' | 'deferred' | 'superseded'
+  total: number | null
   submitted_at: string
 }
 

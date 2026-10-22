@@ -139,6 +139,48 @@ class AgentToolExecutionTests(unittest.TestCase):
         with patch("app.agent.graph._build_llm", return_value=model):
             return consume(agent_reply_stream(self.db, self.student, [], "请处理题目和学习记录"))
 
+    def test_legacy_database_migration_adds_essay_status(self):
+        from sqlalchemy import inspect, text
+        from app import database
+
+        directory = TemporaryDirectory()
+        engine = create_engine("sqlite:///" + str(Path(directory.name) / "legacy.db"))
+        try:
+            with engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE essays ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "student_id INTEGER NOT NULL, question_id INTEGER, "
+                    "text TEXT NOT NULL, scores_json TEXT NOT NULL, "
+                    "grammar_issues_json TEXT NOT NULL, overall_comment TEXT, "
+                    "submitted_at DATETIME NOT NULL)"
+                )
+                connection.execute(text(
+                    "INSERT INTO essays (student_id, question_id, text, scores_json, "
+                    "grammar_issues_json, submitted_at) VALUES "
+                    "(1, 1, 'legacy essay', '{}', '[]', '2026-01-01 00:00:00')"
+                ))
+            with (
+                patch.object(database, "engine", engine),
+                patch.object(database.settings, "DATABASE_URL", "sqlite://"),
+            ):
+                database.init_db()
+            columns = {
+                column["name"] for column in inspect(engine).get_columns("essays")
+            }
+            with engine.connect() as connection:
+                status = connection.execute(text(
+                    "SELECT status FROM essays WHERE id=1"
+                )).scalar_one()
+            indexes = {index["name"] for index in inspect(engine).get_indexes("essays")}
+            self.assertIn("status", columns)
+            self.assertEqual(status, "submitted")
+            self.assertIn("ix_essays_status_submitted_id", indexes)
+            self.assertIn("ix_essays_student_question_submitted_id", indexes)
+        finally:
+            engine.dispose()
+            directory.cleanup()
+
     def teacher_reply(self, model):
         with patch("app.agent.teacher_graph._build_llm", return_value=model):
             return consume(teacher_agent_reply_stream(self.db, self.teacher, [], "查询班级概况与修复率"))
@@ -638,6 +680,157 @@ class AgentToolExecutionTests(unittest.TestCase):
             {"deleted": True},
         )
         self.assertIsNone(self.db.get(Assignment, physics_assignment.id))
+
+    def test_essay_submission_lock_and_deadline_deferred_scoring(self):
+        from datetime import datetime, timedelta
+        from fastapi import HTTPException
+        from app.models import AssignmentExt, AssignmentSetting
+        from app.routers.student import list_essays, submit_essay
+        from app.schemas import EssayCreate, EssayOut
+        from app.services.deferral import grade_due
+
+        score_result = {
+            "scores": {
+                "content": 80, "structure": 80, "grammar": 80,
+                "vocabulary": 80, "expression": 80, "total": 80,
+            },
+            "grammar_issues": [],
+            "overall": "作文评分完成",
+        }
+        scorer = Mock()
+        scorer.score_essay.return_value = score_result
+
+        single_assignment = Assignment(
+            title="作文单次提交", created_by=self.teacher.id,
+        )
+        self.db.add(single_assignment)
+        self.db.flush()
+        single_question = Question(
+            assignment_id=single_assignment.id, subject="english",
+            knowledge_point="写作", stem="Write about your school.",
+        )
+        self.db.add(single_question)
+        self.db.commit()
+        with patch("app.services.essays.get_provider", return_value=scorer):
+            submitted = submit_essay(
+                EssayCreate(question_id=single_question.id,
+                            text="A sufficiently long first essay."),
+                self.db, self.student,
+            )
+            self.assertEqual(submitted["status"], "submitted")
+            with self.assertRaises(HTTPException) as duplicate:
+                submit_essay(
+                    EssayCreate(question_id=single_question.id,
+                                text="A sufficiently long second essay."),
+                    self.db, self.student,
+                )
+        self.assertEqual(duplicate.exception.status_code, 400)
+        self.assertEqual(scorer.score_essay.call_count, 1)
+
+        deferred_assignment = Assignment(
+            title="作文截止统一评分", created_by=self.teacher.id,
+        )
+        self.db.add(deferred_assignment)
+        self.db.flush()
+        deferred_question = Question(
+            assignment_id=deferred_assignment.id, subject="english",
+            knowledge_point="写作", stem="Write about your future plans.",
+        )
+        deadline = datetime.now() + timedelta(hours=1)
+        self.db.add_all([
+            deferred_question,
+            AssignmentExt(assignment_id=deferred_assignment.id, deadline=deadline),
+            AssignmentSetting(
+                assignment_id=deferred_assignment.id, allow_revision=True,
+            ),
+        ])
+        self.db.commit()
+        scorer.score_essay.reset_mock()
+        with patch("app.services.essays.get_provider", return_value=scorer):
+            first = submit_essay(
+                EssayCreate(question_id=deferred_question.id,
+                            text="A sufficiently long first draft."),
+                self.db, self.student,
+            )
+            second = submit_essay(
+                EssayCreate(question_id=deferred_question.id,
+                            text="A sufficiently long revised draft."),
+                self.db, self.student,
+            )
+        self.assertEqual(first["status"], "deferred")
+        self.assertIsNone(first["scores"])
+        self.assertEqual(EssayOut.model_validate(first).status, "deferred")
+        self.assertEqual(second["status"], "deferred")
+        scorer.score_essay.assert_not_called()
+        essay_list = list_essays(
+            limit=20, offset=0, db=self.db, current=self.student,
+        )
+        deferred_summaries = [
+            item for item in essay_list["items"]
+            if item.essay_id in {first["essay_id"], second["essay_id"]}
+        ]
+        self.assertEqual(len(deferred_summaries), 2)
+        self.assertTrue(all(item.status == "deferred" for item in deferred_summaries))
+        self.assertTrue(all(item.total is None for item in deferred_summaries))
+
+        older = self.db.get(Essay, first["essay_id"])
+        latest = self.db.get(Essay, second["essay_id"])
+        older.submitted_at = datetime(2026, 1, 1)
+        latest.submitted_at = datetime(2026, 1, 2)
+        self.db.query(AssignmentExt).filter_by(
+            assignment_id=deferred_assignment.id,
+        ).update({AssignmentExt.deadline: datetime.now() - timedelta(seconds=1)})
+        self.db.commit()
+
+        with patch("app.services.deferral.get_provider", return_value=scorer):
+            self.assertEqual(grade_due(self.db), 1)
+            self.assertEqual(grade_due(self.db), 0)
+        self.assertEqual(older.status, "superseded")
+        self.assertEqual(latest.status, "submitted")
+        self.assertEqual(json.loads(latest.scores_json)["total"], 80)
+        scorer.score_essay.assert_called_once_with(
+            text="A sufficiently long revised draft.",
+            prompt=deferred_question.stem,
+        )
+        with self.assertRaises(HTTPException) as after_deadline:
+            submit_essay(
+                EssayCreate(question_id=deferred_question.id,
+                            text="A sufficiently long late essay."),
+                self.db, self.student,
+            )
+        self.assertEqual(after_deadline.exception.status_code, 400)
+
+        open_revision_assignment = Assignment(
+            title="作文无截止可修改", created_by=self.teacher.id,
+        )
+        self.db.add(open_revision_assignment)
+        self.db.flush()
+        open_revision_question = Question(
+            assignment_id=open_revision_assignment.id, subject="english",
+            knowledge_point="写作", stem="Write a short story.",
+        )
+        self.db.add_all([
+            open_revision_question,
+            AssignmentSetting(
+                assignment_id=open_revision_assignment.id, allow_revision=True,
+            ),
+        ])
+        self.db.commit()
+        scorer.score_essay.reset_mock()
+        with patch("app.services.essays.get_provider", return_value=scorer):
+            open_first = submit_essay(
+                EssayCreate(question_id=open_revision_question.id,
+                            text="A sufficiently long open draft."),
+                self.db, self.student,
+            )
+            open_second = submit_essay(
+                EssayCreate(question_id=open_revision_question.id,
+                            text="A sufficiently long revised open draft."),
+                self.db, self.student,
+            )
+        self.assertEqual(open_first["status"], "submitted")
+        self.assertEqual(open_second["status"], "submitted")
+        self.assertEqual(scorer.score_essay.call_count, 2)
 
     def test_student_assignment_progress_counts_essay_questions_as_submitted(self):
         from app.routers.student import list_assignments

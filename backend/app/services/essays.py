@@ -8,10 +8,14 @@ from .providers import get_provider
 
 
 def score_and_save_essay(db, student: User, text: str,
-                         question: Question = None) -> Dict:
-    """调用 Provider 评分并落库，返回出参字典（含 essay_id）。"""
-    provider = get_provider()
-    result = provider.score_essay(text=text, prompt=question.stem if question else None)
+                         question: Question = None, *, deferred: bool = False) -> Dict:
+    """Save an essay immediately scored or deferred until its assignment deadline."""
+    result = (
+        {"scores": {}, "grammar_issues": [], "overall": None}
+        if deferred else get_provider().score_essay(
+            text=text, prompt=question.stem if question else None,
+        )
+    )
     essay = Essay(
         student_id=student.id,
         question_id=question.id if question else None,
@@ -19,6 +23,7 @@ def score_and_save_essay(db, student: User, text: str,
         scores_json=json.dumps(result["scores"], ensure_ascii=False),
         grammar_issues_json=json.dumps(result.get("grammar_issues", []), ensure_ascii=False),
         overall_comment=result.get("overall", ""),
+        status="deferred" if deferred else "submitted",
     )
     db.add(essay)
     db.flush()
@@ -28,11 +33,15 @@ def score_and_save_essay(db, student: User, text: str,
 
 
 def present_essay(essay: Essay, with_text: bool = False) -> Dict:
+    scores = json.loads(essay.scores_json or "{}")
+    score_fields = {"content", "structure", "grammar", "vocabulary", "expression", "total"}
+    grammar_issues = json.loads(essay.grammar_issues_json or "[]")
     d = {
         "essay_id": essay.id,
         "question_id": essay.question_id,
-        "scores": json.loads(essay.scores_json),
-        "grammar_issues": json.loads(essay.grammar_issues_json),
+        "status": essay.status or "submitted",
+        "scores": scores if score_fields.issubset(scores) else None,
+        "grammar_issues": grammar_issues if isinstance(grammar_issues, list) else [],
         "overall": essay.overall_comment,
         "submitted_at": essay.submitted_at,
     }

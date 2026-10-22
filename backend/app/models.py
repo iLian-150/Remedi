@@ -283,6 +283,19 @@ class Essay(Base):
             "submitted_at",
             "id",
         ),
+        Index(
+            "ix_essays_student_question_submitted_id",
+            "student_id",
+            "question_id",
+            "submitted_at",
+            "id",
+        ),
+        Index(
+            "ix_essays_status_submitted_id",
+            "status",
+            "submitted_at",
+            "id",
+        ),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -293,6 +306,8 @@ class Essay(Base):
     grammar_issues_json = Column(Text, nullable=False, comment="JSON 数组: [{sentence_no,sentence,issue,suggestion}]")
     overall_comment = Column(Text, nullable=True)
     submitted_at = Column(DateTime, nullable=False, default=datetime.now)
+    status = Column(String(16), nullable=False, default="submitted",
+                    comment="submitted | deferred | superseded")
 
     student = relationship("User", back_populates="essays")
 

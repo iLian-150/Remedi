@@ -34,8 +34,17 @@ def init_db():
             connection.exec_driver_sql("PRAGMA journal_mode=WAL")
             connection.commit()
     Base.metadata.create_all(bind=engine)
-    # 会话列表读取持久化消息数；老库只在新增列时回填一次，不在每次请求中聚合历史消息。
+    # 老库补齐会话计数和作文延迟批改状态；只在缺列时迁移一次。
     with engine.begin() as connection:
+        essay_columns = {
+            column["name"]
+            for column in inspect(connection).get_columns("essays")
+        }
+        if "status" not in essay_columns:
+            connection.execute(text(
+                "ALTER TABLE essays ADD COLUMN status "
+                "VARCHAR(16) NOT NULL DEFAULT 'submitted'"
+            ))
         session_columns = {
             column["name"]
             for column in inspect(connection).get_columns("chat_sessions")

@@ -374,8 +374,9 @@ class EssayOut(BaseModel):
     essay_id: int
     question_id: Optional[int] = None
     text: Optional[str] = None
-    scores: EssayScores
-    grammar_issues: List[GrammarIssue]
+    status: str = "submitted"
+    scores: Optional[EssayScores] = None
+    grammar_issues: List[GrammarIssue] = Field(default_factory=list)
     overall: Optional[str] = None
     submitted_at: datetime
 
@@ -383,7 +384,8 @@ class EssayOut(BaseModel):
 class EssayBrief(BaseModel):
     essay_id: int
     question_id: Optional[int] = None
-    total: int
+    status: str = "submitted"
+    total: Optional[int] = None
     submitted_at: datetime
 
 

@@ -2130,15 +2130,21 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
 
 # ---------- 作文 ----------
 
-@router.post("/essays", response_model=EssayOut, summary="提交英语作文并评分")
+@router.post("/essays", response_model=EssayOut, summary="提交英语作文并按作业规则评分")
 def submit_essay(body: EssayCreate, db: Session = Depends(get_db),
                  current: User = Depends(require_student)):
     question = None
+    deferred = False
     if body.question_id:
         question = _student_accessible_question(db, current, body.question_id)
         if question.subject != "english":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "该题不是作文题")
-    return score_and_save_essay(db, current, body.text.strip(), question)
+        deferred = deferral_svc.assert_can_submit_essay(
+            db, current, question, received_at=datetime.now(),
+        )
+    return score_and_save_essay(
+        db, current, body.text.strip(), question, deferred=deferred,
+    )
 
 
 @router.get("/essays", summary="我的作文列表")
@@ -2149,6 +2155,7 @@ def list_essays(limit: int = Query(default=20, ge=1, le=100), offset: int = Quer
         Essay.id,
         Essay.question_id,
         Essay.scores_json,
+        Essay.status,
         Essay.submitted_at,
     )).filter(Essay.student_id == current.id)
     page_rows = query.add_columns(
@@ -2162,7 +2169,8 @@ def list_essays(limit: int = Query(default=20, ge=1, le=100), offset: int = Quer
         essays = []
     items = [EssayBrief(
         essay_id=e.id, question_id=e.question_id,
-        total=json.loads(e.scores_json).get("total", 0),
+        status=e.status,
+        total=(json.loads(e.scores_json).get("total") if e.status == "submitted" else None),
         submitted_at=e.submitted_at,
     ) for e in essays]
     return {"total": total, "items": items}
