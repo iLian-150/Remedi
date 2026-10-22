@@ -2334,12 +2334,22 @@ def submit_verification(verification_id: int, body: VerificationSubmitIn,
     except Exception:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "验证题目数据损坏，请重新创建")
     result = variant_gen.judge_steps(variant, body.steps)
-    v.attempts += 1
-    if result["passed"]:
-        v.status = "passed"
-        v.completed_at = datetime.now()
-    else:
-        v.status = "failed"
+    next_status = "passed" if result["passed"] else "failed"
+    completed_at = datetime.now() if result["passed"] else None
+    updated = db.query(Verification).filter(
+        Verification.id == verification_id,
+        Verification.student_id == current.id,
+        Verification.status.in_(("pending", "failed")),
+    ).update({
+        Verification.attempts: Verification.attempts + 1,
+        Verification.status: next_status,
+        Verification.completed_at: completed_at,
+    }, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这道验证已被其他请求提交，请刷新后重试")
+    # Update the ORM identity used by the memory refresh from the atomic SQL result.
+    db.refresh(v)
     out = {
         "id": v.id,
         "knowledge_point": v.knowledge_point,
