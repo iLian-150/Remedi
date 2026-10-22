@@ -134,9 +134,17 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertIsNone(detect_subject("比较数学和物理的区别"))
         self.assertEqual(detect_subject("比较道法和政治"), "politics")
         self.assertEqual(detect_subject("比较数学和物理的区别", "math"), "math")
+        self.assertEqual(detect_subject("Explain force in physics"), "physics")
+        self.assertEqual(detect_subject("Mathematics homework"), "math")
+        self.assertIsNone(detect_subject("metaphysics"), "英文科目名必须按完整单词匹配")
+        self.assertIsNone(detect_subject("Compare math and physics"))
         self.assertEqual(
             _fallback_student_route("比较数学和物理的区别"),
             ("tutoring", None),
+        )
+        self.assertEqual(
+            _fallback_student_route("Explain force in physics"),
+            ("tutoring", "physics"),
         )
 
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):

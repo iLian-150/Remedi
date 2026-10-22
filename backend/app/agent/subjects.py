@@ -1,4 +1,5 @@
 """学科 Agent 注册表与按学科隔离的混合 RAG 上下文。"""
+import re
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,10 @@ SUBJECT_ALIASES = {
     "语文": "chinese", "数学": "math", "英语": "english", "道法": "politics",
     "道德与法治": "politics", "政治": "politics", "历史": "history", "物理": "physics",
     "化学": "chemistry", "地理": "geography", "生物": "biology",
+    "chinese": "chinese", "math": "math", "mathematics": "math", "maths": "math",
+    "english": "english", "politics": "politics", "history": "history",
+    "physics": "physics", "chemistry": "chemistry", "geography": "geography",
+    "biology": "biology",
 }
 
 
@@ -40,6 +45,13 @@ def _subjects_in_text(text: str) -> set[str]:
     value = text or ""
     matches = []
     for label, subject in SUBJECT_ALIASES.items():
+        if label.isascii():
+            pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(label)}(?![A-Za-z0-9_])", re.IGNORECASE)
+            matches.extend(
+                (match.start(), -len(label), match.end(), subject)
+                for match in pattern.finditer(value)
+            )
+            continue
         start = 0
         while True:
             start = value.find(label, start)
