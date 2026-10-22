@@ -17,6 +17,8 @@ remedi/
 
 ## 本地运行
 
+当前服务器部署目标为 `129.153.206.96:/remedi`。Docker 服务包括 Remedi API、前端 Nginx、Milvus、etcd 与 MinIO；配置统一保存在服务器 `/remedi/.env`，数据位于 `/remedi/data/`。完整配置、首次启动和后续发布见 [部署说明](docs/milvus-rag.md)。
+
 ```bash
 # 后端
 cd backend

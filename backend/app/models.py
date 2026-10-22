@@ -112,6 +112,23 @@ class SubjectKnowledgeChunk(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class SubjectKnowledgePassage(Base):
+    """关系库存原文与页码，Milvus 仅存可重建的子片段向量。"""
+    __tablename__ = "subject_knowledge_passages"
+    __table_args__ = (
+        Index("ix_subject_knowledge_passages_document_chunk", "document_id", "chunk_index", unique=True),
+        {"sqlite_autoincrement": True},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    document_id = Column(Integer, ForeignKey("subject_knowledge_chunks.id", ondelete="CASCADE"), nullable=False)
+    parent_index = Column(Integer, nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    parent_content = Column(Text, nullable=False)
+    page_number = Column(Integer, nullable=True)
+
+
 class StudentLearningMemory(Base):
     """由错题、订正和验证状态派生的结构化学生长期记忆。"""
     __tablename__ = "student_learning_memories"

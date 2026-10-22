@@ -1,0 +1,110 @@
+# 学科 RAG 与 Milvus 部署
+
+学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、Cloudflare 超时或索引暂不可用时，问答继续使用本地检索。
+
+## 镜像与 ARM64
+
+默认固定 `milvusdb/milvus:v2.6.25`，Python 依赖为 `pymilvus>=2.6.17,<2.7`，遵循 [Milvus 2.6.25 发布兼容表](https://github.com/milvus-io/milvus/releases/tag/v2.6.25)。etcd 使用 `quay.io/coreos/etcd:v3.5.25`；MinIO 使用 [Milvus 官方 Compose](https://github.com/milvus-io/milvus/blob/master/deployments/docker/standalone/docker-compose.yml)采用的 `milvusdb/minio:RELEASE.2024-12-18T13-15-44Z`。
+
+2026-10-22 核查官方 registry metadata，这三个固定 tag 都包含原生 `linux/arm64`，可以在 `aarch64` 服务器直接运行，无需 QEMU 或设置 `platform: linux/amd64`。Milvus/MinIO 的 [Docker Hub](https://hub.docker.com/r/milvusdb/milvus/tags?name=v2.6.25) 和 [etcd manifest](https://quay.io/repository/coreos/etcd?tab=tags&tag=v3.5.25) 可用于再次核对；旧 `minio/minio` 的历史 tag 不作为部署依赖。
+
+## 配置统一放在 .env
+
+部署目录为 `/remedi`。在该目录的服务器本地 `.env` 中保留已有 Cloudflare 配置并添加以下配置，不要提交真实凭证：
+
+```dotenv
+COMPOSE_PROJECT_NAME=remedi
+COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml
+RAG_MILVUS_URI=http://milvus:19530
+RAG_MILVUS_COLLECTION=remedi_subject_knowledge
+RAG_EMBEDDING_MODEL=@cf/baai/bge-m3
+RAG_TIMEOUT_SECONDS=8
+RAG_MINIO_ROOT_USER=remedi-rag
+RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
+```
+
+`COMPOSE_FILE` 的冒号分隔方式适用于 Linux 服务器。配置后，每次运行普通 `docker compose up -d --build` 都会合并 Milvus overlay。不要在后续发布时去掉该变量或仅指定基础文件，否则 API 容器会失去 Milvus 环境配置。所有凭证通过 `.env` 提供，无需另建包含秘密的 override。
+
+| 环境变量 | 默认值 / 用途 |
+| --- | --- |
+| `RAG_MILVUS_URI` | 应用默认空；overlay 默认 `http://milvus:19530` |
+| `RAG_MILVUS_TOKEN` | 空；外部实例启用鉴权时填写对应 token |
+| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge` |
+| `RAG_EMBEDDING_MODEL` | `@cf/baai/bge-m3` |
+| `RAG_TIMEOUT_SECONDS` | `8`；单次网络操作超时，上限 30 秒 |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | 复用 Workers AI 凭证 |
+| `RAG_MINIO_ROOT_USER` / `RAG_MINIO_ROOT_PASSWORD` | overlay 必填；独立 MinIO 账户和密码 |
+| `RAG_MILVUS_IMAGE` | `milvusdb/milvus:v2.6.25` |
+| `RAG_ETCD_IMAGE` | `quay.io/coreos/etcd:v3.5.25` |
+| `RAG_MINIO_IMAGE` | `milvusdb/minio:RELEASE.2024-12-18T13-15-44Z` |
+
+向量化使用 [Cloudflare BGE-M3 批量接口](https://developers.cloudflare.com/workers-ai/models/bge-m3/)，每批最多 16 个片段。集合保存片段 ID、文档 ID、学科、模型和向量，使用 COSINE / AUTOINDEX。[服务端检索](https://milvus.io/api-reference/pymilvus/v2.6.x/MilvusClient/Vector/search.md)同时过滤学科和向量模型；业务层还会核验片段仍存在于当前学科。更换模型时更换集合名并重新索引，避免混用向量空间。
+
+## 启动与数据位置
+
+```bash
+cd /remedi
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
+curl --fail http://127.0.0.1:9091/healthz
+```
+
+overlay 将持久化目录全部绑定到 `/remedi/data`：
+
+| 宿主机目录 | 容器目标 | 用途 |
+| --- | --- | --- |
+| `/remedi/data/api` | API `/data` | 业务数据库与上传文件 |
+| `/remedi/data/etcd` | etcd `/etcd` | Milvus 元数据 |
+| `/remedi/data/minio` | MinIO `/minio_data` | 向量对象存储 |
+| `/remedi/data/milvus` | Milvus `/var/lib/milvus` | 向量服务数据 |
+
+基础 Compose 中历史 `remedi-data` 命名卷定义保留，overlay 按相同目标 `/data` 覆盖 API 挂载；不要删除历史卷。已有业务数据迁移到此部署目录时，应先确认 `/remedi/data/api` 包含需要保留的数据，再启动 API。
+
+Milvus 19530 和健康检查 9091 只绑定宿主机 `127.0.0.1`；etcd、MinIO 不发布宿主机端口。API 启动不依赖 Milvus 就绪，启动期间可使用 BM25。第一次建集合或加载超过超时后可重试。普通基础部署未启用 overlay 时不启动 Milvus；宿主机运行后端时可设置 `RAG_MILVUS_URI=http://127.0.0.1:19530`。
+
+## 将已有资料同步到 Milvus
+
+使用具有对应学科权限的教师账号调用：
+
+```http
+POST /api/teacher/knowledge/math/reindex
+Authorization: Bearer <教师登录令牌>
+```
+
+该操作重新同步指定学科全部资料。对教师负责的每个学科各调用一次；学科代码为 `chinese`、`math`、`english`、`politics`、`history`、`physics`、`chemistry`、`geography`、`biology`。新增或删除资料时同步对应索引。
+
+资料列表中的 `vector_enabled` 仅表示配置了 Milvus 地址。新增或重建响应中的 `vector_status=ready` 表示同步成功，`disabled` 表示未启用，`pending` 表示本次同步失败；同时检查 `warnings`。失败时保留资料，恢复服务后再次重建。
+
+重建目前使用同步请求，大规模资料可能超过客户端或代理超时。可以重试：按固定片段 ID 执行幂等 upsert，不会重复创建资料，并保留片段 ID 和 PDF 页码。
+
+试查检索来源：
+
+```http
+POST /api/teacher/knowledge/math/search
+Authorization: Bearer <教师登录令牌>
+Content-Type: application/json
+
+{"query":"一次函数的斜率表示什么？","limit":4}
+```
+
+## 检查与维护
+
+启用后上传数学资料、重建数学索引，用资料中的问题查询，再用其他学科查询，确认没有跨学科引用。删除资料后查询其独有内容，确认不再引用；Milvus 暂停时确认问答回退 BM25，恢复后重建失败的索引。
+
+```bash
+cd /remedi
+docker compose logs --tail=100 milvus milvus-etcd milvus-minio
+docker compose up -d --build
+```
+
+常规更新保留 `.env` 的 `COMPOSE_FILE` 和整个 `data/`；不要使用 `down -v` 清理业务或索引数据。外部 Milvus 可直接配置 URI/token，首次 overlay 部署使用容器网络和 loopback 端口；若开启 Milvus 鉴权，同时配置服务端鉴权和 `RAG_MILVUS_TOKEN`。
+
+## 本地契约验证
+
+```bash
+cd backend
+python smoke_rag_milvus.py
+```
+
+脚本使用真实 PyMilvus SDK 构造 schema 和索引参数，模拟全部网络调用，验证维数、批次、学科/模型过滤、连接/集合复用和异常处理。它不连接真实 Milvus 或 Cloudflare，不能替代服务启动后的集成验证。

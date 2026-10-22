@@ -3,8 +3,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+RUN python -m venv "$VIRTUAL_ENV"
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir -r requirements.txt --index-url "$PIP_INDEX_URL"
 
 COPY . .
 

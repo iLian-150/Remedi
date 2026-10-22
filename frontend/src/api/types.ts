@@ -831,3 +831,50 @@ export const SUBMISSION_STATUS_TEXT: Record<string, string> = {
 }
 
 export const ERROR_TYPES: ErrorType[] = ['计算失误', '概念混淆', '审题遗漏', '无法解析']
+
+export interface SubjectKnowledgeItem {
+  id: number
+  title: string
+  content: string
+  source_name: string | null
+  passage_count: number
+}
+
+export interface SubjectKnowledgeList {
+  items: SubjectKnowledgeItem[]
+  vector_enabled: boolean
+}
+
+export interface SubjectKnowledgeIndexResult {
+  passage_count: number
+  vector_status: 'ready' | 'pending' | 'disabled'
+  warnings: string[]
+}
+
+export interface SubjectKnowledgeImportResult extends SubjectKnowledgeIndexResult {
+  id: number
+  title: string
+  page_count?: number
+  indexed_pages?: number
+}
+
+export interface SubjectKnowledgeSearchItem {
+  document_id: number
+  title: string
+  source_name: string | null
+  page_number: number | null
+  passage_id: number | string
+  content: string
+  score: number
+  citation: string
+}
+
+export interface SubjectKnowledgeSearchResult {
+  items: SubjectKnowledgeSearchItem[]
+  retrieval_mode: 'bm25' | 'hybrid'
+  warnings: string[]
+}
+
+export interface SubjectKnowledgeReindexResult extends SubjectKnowledgeIndexResult {
+  documents: number
+}

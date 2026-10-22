@@ -6,7 +6,7 @@ from typing import List
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from ..models import User
+from ..models import TeacherSubject, User
 from ..services.stats import class_repair_rate, knowledge_point_ranking, student_profile, top_error_questions
 from ..services.suggestions import build_teaching_suggestions
 from ..services.teacher_stats import (
@@ -135,6 +135,23 @@ def resolve_assignment(db: Session, hint: str, assignment_ids=None):
 def build_teacher_tools(db: Session, teacher: User) -> list:
     """按当前教师构造工具列表（身份闭包注入）。"""
     assignment_ids, student_ids = _teacher_scope(db, teacher)
+    teaching_subjects = {row[0] for row in db.query(TeacherSubject.subject).filter_by(teacher_id=teacher.id)}
+
+    @tool
+    def search_teaching_knowledge(query: str, subject: str = "") -> str:
+        """检索本人任教学科的教材、讲义、例题与评分标准，供备课或学科答疑引用。query 为完整问题；subject 为 math/english/chinese/physics/chemistry/biology/history/geography/politics 或中文学科名。只有一门任教学科时可留空。班级统计仍使用统计工具。"""
+        from .subjects import build_subject_context, detect_subject
+
+        target = detect_subject(query, subject)
+        if target is None and len(teaching_subjects) == 1:
+            target = next(iter(teaching_subjects))
+        if target is None:
+            return "请先确认要检索哪一门任教学科的教学资料。"
+        if target not in teaching_subjects:
+            return "该学科不在你当前的任教范围，无法检索其教学资料。"
+        if not query.strip():
+            return "请提供具体的教学问题。"
+        return build_subject_context(db, target, query[:2000])
 
     @tool
     def get_class_overview() -> str:
@@ -200,6 +217,7 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         return profile_to_text(student_profile(db, st, assignment_ids=assignment_ids))
 
     return [
+        search_teaching_knowledge,
         get_class_overview,
         get_assignment_status,
         get_knowledge_point_ranking,

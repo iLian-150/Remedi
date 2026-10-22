@@ -1,0 +1,73 @@
+# 可选 Milvus overlay；普通 docker compose up 不会启动这些服务。
+# 用法见 docs/milvus-rag.md。数据统一落在项目 data/ 目录。
+services:
+  api:
+    volumes:
+      - ./data/api:/data
+    environment:
+      - RAG_MILVUS_URI=${RAG_MILVUS_URI:-http://milvus:19530}
+      - RAG_MILVUS_TOKEN=${RAG_MILVUS_TOKEN:-}
+      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-@cf/baai/bge-m3}
+      - RAG_TIMEOUT_SECONDS=${RAG_TIMEOUT_SECONDS:-8}
+
+  milvus-etcd:
+    image: ${RAG_ETCD_IMAGE:-quay.io/coreos/etcd:v3.5.25}
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: ["etcd", "-advertise-client-urls=http://milvus-etcd:2379", "-listen-client-urls", "http://0.0.0.0:2379", "--data-dir", "/etcd"]
+    volumes:
+      - ./data/etcd:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  milvus-minio:
+    image: ${RAG_MINIO_IMAGE:-milvusdb/minio:RELEASE.2024-12-18T13-15-44Z}
+    environment:
+      MINIO_ROOT_USER: ${RAG_MINIO_ROOT_USER:?Set RAG_MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${RAG_MINIO_ROOT_PASSWORD:?Set RAG_MINIO_ROOT_PASSWORD}
+    command: ["minio", "server", "/minio_data", "--console-address", ":9001"]
+    volumes:
+      - ./data/minio:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  milvus:
+    image: ${RAG_MILVUS_IMAGE:-milvusdb/milvus:v2.6.25}
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      MINIO_REGION: us-east-1
+      ETCD_ENDPOINTS: milvus-etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+      MINIO_ACCESS_KEY_ID: ${RAG_MINIO_ROOT_USER:?Set RAG_MINIO_ROOT_USER}
+      MINIO_SECRET_ACCESS_KEY: ${RAG_MINIO_ROOT_PASSWORD:?Set RAG_MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./data/milvus:/var/lib/milvus
+    ports:
+      - "127.0.0.1:19530:19530"
+      - "127.0.0.1:9091:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      start_period: 90s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      milvus-etcd:
+        condition: service_healthy
+      milvus-minio:
+        condition: service_healthy
+    restart: unless-stopped

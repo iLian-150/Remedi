@@ -699,6 +699,11 @@ class SubjectKnowledgeCreateIn(BaseModel):
     source_name: Optional[str] = Field(default=None, max_length=200)
 
 
+class SubjectKnowledgeSearchIn(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=4, ge=1, le=8)
+
+
 class StudentLearningMemoryOut(BaseModel):
     subject: str
     knowledge_point: str

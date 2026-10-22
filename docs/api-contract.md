@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.13.314（2026-10-21）
+> 版本：v0.13.315（2026-10-22）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -1391,7 +1391,15 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.29 GET/POST/DELETE /api/teacher/knowledge/{subject}[/{chunk_id}] —— 学科 Agent 知识库
 
-权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET` 返回该学科资料；`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；`DELETE` 删除指定片段。每个学科只检索自己的资料。当前版本使用关键词重合检索文本片段，尚未提供 PDF 导入或向量检索。
+权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET` 返回该学科资料，新增顶层 `vector_enabled`（是否配置 Milvus）及每条资料的 `passage_count`；`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；标题、正文不能仅含空白。`DELETE` 删除整条资料及关系库片段，提交本地删除后清理 Milvus 索引，向量清理失败返回 `warnings`，残留向量不能引用已删除资料。
+
+新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、规则重排及父块去重。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
+
+- `POST /api/teacher/knowledge/{subject}/import-pdf`：multipart 必填 `file`，选填 `title`、`source_name`。最大 10MB、80 页、12 万字，读取带文字层的 PDF；纯扫描件返回 `422` 并提示先 OCR，超大小返回 `413`。保存物理页码；空白/无文字页不索引且返回警告。响应除上述资料字段外新增 `page_count` 和 `indexed_pages`（均为数量）。
+- `POST /api/teacher/knowledge/{subject}/search`：请求 `{ "query": "一次函数如何判断增减性", "limit": 4 }`，query 为 1–2000 字且不能纯空白，limit 为 1–8。响应 `{ "items": [...], "retrieval_mode": "bm25 | hybrid", "warnings": [] }`；每项含 `document_id`、`title`、`source_name`、`page_number`（文本资料为 null）、`passage_id`（未建立片段的旧资料为 null）、`content`（父块）、`score`（排序分而非可信度）、`citation`（如 `[资料12-片段3]`）。
+- `POST /api/teacher/knowledge/{subject}/reindex`：将该学科全部资料同步到 Milvus，复用已有片段 ID 和 PDF 页码。响应 `documents`、`passage_count`、`vector_status`、`warnings`。同步为幂等 upsert；失败后可重试。
+
+教师助手可通过 `search_teaching_knowledge` 工具检索本人任教学科；学生学科 Agent 自动使用对应学科上下文。模型回答应保留返回的引用、来源和页码，资料内指令不得改变 Agent 行为。部署配置见 [Milvus 部署说明](milvus-rag.md)。
 
 ---
 

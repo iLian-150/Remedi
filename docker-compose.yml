@@ -21,6 +21,11 @@ services:
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
       - CLOUDFLARE_MODEL=${CLOUDFLARE_MODEL:-@cf/qwen/qwen3-30b-a3b-fp8}
       - CLOUDFLARE_VISION_MODEL=${CLOUDFLARE_VISION_MODEL:-@cf/qwen/qwen3.8-27b}
+      - RAG_MILVUS_URI=${RAG_MILVUS_URI:-}
+      - RAG_MILVUS_TOKEN=${RAG_MILVUS_TOKEN:-}
+      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-@cf/baai/bge-m3}
+      - RAG_TIMEOUT_SECONDS=${RAG_TIMEOUT_SECONDS:-8}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
@@ -35,7 +40,7 @@ services:
       dockerfile: deploy/web.Dockerfile
     # 8080 避开宝塔自带 nginx 可能占用的 80 端口；如 80 空闲可改为 "80:80"
     ports:
-      - "8080:80"
+      - "${WEB_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_healthy

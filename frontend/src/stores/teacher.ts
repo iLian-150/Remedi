@@ -30,6 +30,10 @@ import type {
   TeacherErrorItem,
   TeacherErrorSummary,
   SubjectAgentCode,
+  SubjectKnowledgeList,
+  SubjectKnowledgeImportResult,
+  SubjectKnowledgeSearchResult,
+  SubjectKnowledgeReindexResult,
   TopQuestion,
   Workbook
 } from '../api/types'
@@ -171,17 +175,45 @@ export const useTeacherStore = defineStore('teacher', {
       )
       return data
     },
-    async fetchSubjectKnowledge(subject: SubjectAgentCode): Promise<{ items: Array<{ id: number; title: string; content: string; source_name: string | null }> }> {
-      const { data } = await api.get(`/api/teacher/knowledge/${subject}`)
+    async fetchSubjectKnowledge(subject: SubjectAgentCode): Promise<SubjectKnowledgeList> {
+      const { data } = await api.get<SubjectKnowledgeList>(`/api/teacher/knowledge/${subject}`)
       return data
     },
     async addSubjectKnowledge(
       subject: SubjectAgentCode, payload: { title: string; content: string; source_name?: string }
-    ): Promise<void> {
-      await api.post(`/api/teacher/knowledge/${subject}`, payload)
+    ): Promise<SubjectKnowledgeImportResult> {
+      const { data } = await api.post<SubjectKnowledgeImportResult>(`/api/teacher/knowledge/${subject}`, payload)
+      return data
     },
-    async deleteSubjectKnowledge(subject: SubjectAgentCode, chunkId: number): Promise<void> {
-      await api.delete(`/api/teacher/knowledge/${subject}/${chunkId}`)
+    async importSubjectKnowledgePdf(
+      subject: SubjectAgentCode, file: File, metadata: { title?: string; source_name?: string }
+    ): Promise<SubjectKnowledgeImportResult> {
+      const form = new FormData()
+      form.append('file', file)
+      if (metadata.title) form.append('title', metadata.title)
+      if (metadata.source_name) form.append('source_name', metadata.source_name)
+      const { data } = await api.post<SubjectKnowledgeImportResult>(
+        `/api/teacher/knowledge/${subject}/import-pdf`, form, { timeout: 300_000 }
+      )
+      return data
+    },
+    async searchSubjectKnowledge(
+      subject: SubjectAgentCode, query: string
+    ): Promise<SubjectKnowledgeSearchResult> {
+      const { data } = await api.post<SubjectKnowledgeSearchResult>(
+        `/api/teacher/knowledge/${subject}/search`, { query, limit: 4 }
+      )
+      return data
+    },
+    async reindexSubjectKnowledge(subject: SubjectAgentCode): Promise<SubjectKnowledgeReindexResult> {
+      const { data } = await api.post<SubjectKnowledgeReindexResult>(
+        `/api/teacher/knowledge/${subject}/reindex`, undefined, { timeout: 300_000 }
+      )
+      return data
+    },
+    async deleteSubjectKnowledge(subject: SubjectAgentCode, chunkId: number): Promise<{ warnings: string[] }> {
+      const { data } = await api.delete<{ warnings: string[] }>(`/api/teacher/knowledge/${subject}/${chunkId}`)
+      return data
     },
     // 4.6 学生画像查询（结构同 3.10）
     async fetchStudentProfile(id: number): Promise<StudentProfile> {

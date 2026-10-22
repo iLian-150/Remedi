@@ -339,3 +339,18 @@ WHERE s.student_id = S
 | v0.6.0 | 2026-10-07 | 新增两张表：`chat_sessions`（对话会话）、`chat_session_messages`（会话内消息）；不改任何现有表/列。`chat_messages` 停用（旧数据首次访问会话接口时迁移为「之前的对话」会话后清空对应行）。练习册封面走文件约定（UPLOAD_DIR/covers/{id}.jpg），不给 `workbooks` 加列 |
 | v0.13.13 | 2026-10-12 | 新增 `chat_session_message_mistake_links`，持久化助手回复与历史错题的关联；不改现有表和列。 |
 | v0.13.14 | 2026-10-12 | 新增 `submission_images`，关联学生作答原图与提交记录，供教师待审核作业卡展示。 |
+| v0.13.315 | 2026-10-22 | 新增 `subject_knowledge_passages`，保存学科教学资料父子片段和 PDF 页码；向量存入可重建的 Milvus 索引，不改变已有资料表。 |
+
+## 8. 学科 RAG 片段（v0.13.315）
+
+`subject_knowledge_passages` 关联已有 `subject_knowledge_chunks` 资料，启动时自动创建，旧资料可立即以临时片段检索，重建索引时再持久化。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | Integer PK | SQLite AUTOINCREMENT，避免已提交片段 ID 被重用造成旧向量错误引用 |
+| document_id | Integer FK | 对应 `subject_knowledge_chunks.id`，应用层删除时同时清理片段 |
+| parent_index / chunk_index | Integer | 父块号与资料内子块顺序；`document_id + chunk_index` 唯一索引 |
+| content / parent_content | Text | 子块用于召回，父块用于恢复教学上下文 |
+| page_number | Integer nullable | PDF 原始物理页号（从 1 开始）；手工文本为 null |
+
+Milvus 集合保存片段 `id`、`document_id`、`subject`、`embedding_model` 和 `vectors`，同时按学科和模型过滤，使用 COSINE 相似度。查询结果必须再通过关系库的学科和存活状态校验；向量属于派生索引，关系库是原文与页码的依据。本地事务提交后才进行远程向量同步，避免外部网络延迟占用 SQLite 写锁。

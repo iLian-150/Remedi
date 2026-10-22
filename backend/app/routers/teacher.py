@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from functools import wraps
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, joinedload, load_only
@@ -50,6 +50,7 @@ from ..models import (
     SubmissionReview,
     SubmissionScore,
     SubjectKnowledgeChunk,
+    SubjectKnowledgePassage,
     TeacherSubject,
     User,
     Verification,
@@ -94,6 +95,7 @@ from ..schemas import (
     ClassroomStudentCreateIn,
     ClassroomStudentOut,
     SubjectKnowledgeCreateIn,
+    SubjectKnowledgeSearchIn,
 )
 from ..services import reviews as review_svc
 from ..services.streaming import ClosingStreamingResponse
@@ -240,9 +242,16 @@ def list_subject_knowledge(
     rows = db.query(SubjectKnowledgeChunk).filter(
         SubjectKnowledgeChunk.subject == subject,
     ).order_by(SubjectKnowledgeChunk.created_at.desc(), SubjectKnowledgeChunk.id.desc()).all()
-    return {"subject": subject, "agent_name": SUBJECT_LABELS[subject], "total": len(rows), "items": [
+    from ..services.rag_milvus import configured
+
+    counts = dict(db.query(SubjectKnowledgePassage.document_id, func.count(SubjectKnowledgePassage.id)).join(
+        SubjectKnowledgeChunk, SubjectKnowledgeChunk.id == SubjectKnowledgePassage.document_id,
+    ).filter(SubjectKnowledgeChunk.subject == subject).group_by(SubjectKnowledgePassage.document_id).all())
+    return {"subject": subject, "agent_name": SUBJECT_LABELS[subject], "total": len(rows),
+            "vector_enabled": configured(), "items": [
         {"id": row.id, "title": row.title, "content": row.content,
-         "source_name": row.source_name, "created_at": row.created_at}
+         "source_name": row.source_name, "created_at": row.created_at,
+         "passage_count": counts.get(row.id, 0)}
         for row in rows
     ]}
 
@@ -257,15 +266,95 @@ def add_subject_knowledge(
     if subject not in SUBJECT_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
     _require_teacher_subject(db, current, subject)
+    if not body.title.strip() or not body.content.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "资料标题和内容不能为空。")
+    from ..services.subject_rag import prepare_knowledge, sync_knowledge
+
     row = SubjectKnowledgeChunk(
         subject=subject, title=body.title.strip(), content=body.content.strip(),
         source_name=(body.source_name or "").strip() or None, created_by=current.id,
     )
     db.add(row)
+    prepare_knowledge(db, row)
     db.commit()
     db.refresh(row)
+    result = sync_knowledge(db, row.id)
     return {"id": row.id, "subject": row.subject, "title": row.title,
-            "source_name": row.source_name, "created_at": row.created_at}
+            "source_name": row.source_name, "created_at": row.created_at, **result}
+
+
+@router.post("/knowledge/{subject}/import-pdf", summary="导入带文字层的学科教学 PDF")
+async def import_subject_knowledge_pdf(
+    subject: str, file: UploadFile = File(...),
+    title: str = Form(default="", max_length=160),
+    source_name: str = Form(default="", max_length=200),
+    db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    if subject not in SUBJECT_LABELS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    _require_teacher_subject(db, current, subject)
+    from ..services.knowledge_import import MAX_PDF_BYTES, extract_knowledge_pdf
+    from ..services.subject_rag import prepare_knowledge, sync_knowledge
+
+    try:
+        data = await file.read(MAX_PDF_BYTES + 1)
+    finally:
+        await file.close()
+    if len(data) > MAX_PDF_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF 不能超过 10MB。")
+    filename = (file.filename or "教学资料.pdf").replace("\\", "/").rsplit("/", 1)[-1]
+
+    def save_pdf():
+        try:
+            extracted = extract_knowledge_pdf(data)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        row = SubjectKnowledgeChunk(
+            subject=subject, title=title.strip() or filename[:160],
+            content="\n\n".join(text for _, text in extracted["pages"]),
+            source_name=source_name.strip() or filename[:200], created_by=current.id,
+        )
+        db.add(row)
+        prepare_knowledge(db, row, pages=extracted["pages"])
+        db.commit()
+        db.refresh(row)
+        result = sync_knowledge(db, row.id)
+        return {"id": row.id, "subject": subject, "title": row.title,
+                "source_name": row.source_name, "created_at": row.created_at,
+                **result, "page_count": extracted["page_count"],
+                "indexed_pages": extracted["indexed_pages"],
+                "warnings": extracted["warnings"] + result.get("warnings", [])}
+
+    return await run_in_threadpool(save_pdf)
+
+
+@router.post("/knowledge/{subject}/search", summary="试查当前学科知识库并返回来源")
+def search_subject_knowledge(
+    subject: str, body: SubjectKnowledgeSearchIn,
+    db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    if subject not in SUBJECT_LABELS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    _require_teacher_subject(db, current, subject)
+    if not body.query.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "检索问题不能为空。")
+    from ..services.subject_rag import search_knowledge
+
+    return search_knowledge(db, subject, body.query.strip(), body.limit)
+
+
+@router.post("/knowledge/{subject}/reindex", summary="重建学科资料的 Milvus 检索索引")
+def reindex_subject_knowledge(
+    subject: str, db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    if subject not in SUBJECT_LABELS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    _require_teacher_subject(db, current, subject)
+    from ..services.subject_rag import reindex_subject
+
+    result = reindex_subject(db, subject)
+    db.commit()
+    return result
 
 
 @router.delete("/knowledge/{subject}/{chunk_id}", summary="删除学科 Agent 知识资料")
@@ -281,9 +370,13 @@ def delete_subject_knowledge(
     row = db.query(SubjectKnowledgeChunk).filter_by(id=chunk_id, subject=subject).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "资料不存在。")
+    from ..services.subject_rag import delete_knowledge_index, delete_vector_index
+
+    delete_knowledge_index(db, row.id)
     db.delete(row)
     db.commit()
-    return {"deleted": True, "id": chunk_id, "subject": subject}
+    warnings = delete_vector_index(chunk_id)
+    return {"deleted": True, "id": chunk_id, "subject": subject, "warnings": warnings}
 
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")
 

@@ -32,6 +32,14 @@ class Settings:
     CLOUDFLARE_VISION_MODEL: str = os.getenv(
         "CLOUDFLARE_VISION_MODEL", "@cf/qwen/qwen3.8-27b").strip()
 
+    # Milvus 可独立用 Docker 部署；未设置 URI 时仅启用本地 BM25 检索。
+    RAG_MILVUS_URI: str = os.getenv("RAG_MILVUS_URI", "").strip()
+    RAG_MILVUS_TOKEN: str = os.getenv("RAG_MILVUS_TOKEN", "").strip()
+    RAG_MILVUS_COLLECTION: str = os.getenv(
+        "RAG_MILVUS_COLLECTION", "remedi_subject_knowledge").strip()
+    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "@cf/baai/bge-m3").strip()
+    RAG_TIMEOUT_SECONDS: int = max(1, min(_get_int("RAG_TIMEOUT_SECONDS", 8), 30))
+
     # 拍照上传的图片本地存放目录（默认 backend/uploads/）。只存文件，不落库。
     UPLOAD_DIR: str = os.getenv(
         "UPLOAD_DIR",
@@ -44,7 +52,7 @@ class Settings:
     # CORS。默认放行所有来源方便前端 dev server 联调；生产请收紧。
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    APP_VERSION: str = "0.13.314"
+    APP_VERSION: str = "0.13.315"
 
 
 settings = Settings()
