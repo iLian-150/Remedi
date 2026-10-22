@@ -50,6 +50,8 @@ RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 ```bash
 cd /remedi
 docker compose config --quiet
+docker compose up -d milvus
+bash deploy/enable_project_network.sh
 docker compose up -d --build
 docker compose ps
 curl --fail http://127.0.0.1:9091/healthz
@@ -91,6 +93,8 @@ docker compose exec -T api python smoke_live_rag.py
 ```
 
 API 容器中的 `python` 来自 `/app/.venv`；无需向服务器宿主机的系统 Python 安装依赖。真实链路验收脚本会新增一条临时资料，检查向量入库、混合检索与权限后自动删除。
+
+本服务器曾出现 `FORWARD` 默认 DROP 且 Docker 跳转缺失的情况。`deploy/enable_project_network.sh` 只按 `remedi_default` 的 bridge 和 IPv4 网段添加幂等转发规则，允许项目出站、内部通信、已有连接返回及已发布的 HTTP 端口；不修改默认策略、NAT、其他项目规则或 `/etc` 文件。服务器重启或重建项目网络后，先运行 `docker compose up -d milvus`、该脚本，再启动完整项目。
 
 ## 将已有资料同步到 Milvus
 
