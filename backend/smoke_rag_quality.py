@@ -40,6 +40,11 @@ class RagQualityTests(unittest.TestCase):
         self.assertEqual(formula_tokens("1 μm=2"), ["formula:1*um=2"])
         self.assertEqual(formula_tokens("2 μg=4"), ["formula:2*ug=4"])
 
+    def test_formula_tokens_normalize_latex_greek_commands(self):
+        self.assertEqual(formula_tokens(r"\alpha x=2"), ["formula:alpha*x=2"])
+        self.assertEqual(formula_tokens(r"\Delta x=3"), ["formula:delta*x=3"])
+        self.assertEqual(formula_tokens(r"\theta^2=1"), ["formula:theta^2=1"])
+
     def test_formula_tokens_preserve_parenthesized_terms_and_coefficients(self):
         self.assertEqual(formula_tokens("2(x+1)=7"), ["formula:2*(x+1)=7"])
         self.assertEqual(formula_tokens("2 (x+1) = 7"), ["formula:2*(x+1)=7"])

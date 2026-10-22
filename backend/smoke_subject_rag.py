@@ -265,6 +265,11 @@ class SubjectRagTests(unittest.TestCase):
         result = subject_rag.search_knowledge(self.db, "math", "pi=3.14")
         self.assertEqual([item["document_id"] for item in result["items"]], [document.id])
 
+    def test_latex_greek_formula_retrieves_with_unicode_query(self):
+        document = self.document("希腊字母方程", r"\alpha x=2。")
+        result = subject_rag.search_knowledge(self.db, "math", "αx=2")
+        self.assertEqual([item["document_id"] for item in result["items"]], [document.id])
+
     def test_equations_with_opposite_signs_do_not_match(self):
         self.document("负系数方程", "-2x+3=7。")
         self.document("正数解方程", "x=2。")

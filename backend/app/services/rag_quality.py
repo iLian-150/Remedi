@@ -36,8 +36,19 @@ _GREEK_SYMBOL_NAMES = {
     "υ": "upsilon", "φ": "phi", "ϕ": "phi", "χ": "chi", "ψ": "psi",
     "ω": "omega", "ϵ": "epsilon", "ϑ": "theta", "ϖ": "pi", "ϱ": "rho",
 }
+_LATEX_GREEK_SYMBOLS = {
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε",
+    "varepsilon": "ϵ", "zeta": "ζ", "eta": "η", "theta": "θ", "vartheta": "ϑ",
+    "iota": "ι", "kappa": "κ", "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ",
+    "omicron": "ο", "pi": "π", "varpi": "ϖ", "rho": "ρ", "varrho": "ϱ",
+    "sigma": "σ", "varsigma": "ς", "tau": "τ", "upsilon": "υ", "phi": "φ",
+    "varphi": "ϕ", "chi": "χ", "psi": "ψ", "omega": "ω",
+}
 _GREEK_SYMBOL_CLASS = "".join(_GREEK_SYMBOL_NAMES)
 _GREEK_SYMBOL_RE = re.compile("|".join(map(re.escape, _GREEK_SYMBOL_NAMES)))
+_LATEX_GREEK_RE = re.compile(
+    r"\\(" + "|".join(sorted(map(re.escape, _LATEX_GREEK_SYMBOLS), key=len, reverse=True)) + r")\b"
+)
 _FORMULA_RE = re.compile(
     rf"(?<![a-z0-9_(]){_FORMULA_TERM}(?:\s*{_FORMULA_OPERATOR}\s*{_FORMULA_TERM})+(?![a-z0-9_)])",
     re.IGNORECASE,
@@ -78,6 +89,7 @@ def formula_tokens(text: str) -> list[str]:
         text or "",
     )
     value = unicodedata.normalize("NFKC", value).lower().replace("⁄", "/")
+    value = _LATEX_GREEK_RE.sub(lambda match: _LATEX_GREEK_SYMBOLS[match.group(1)], value)
     for source, replacement in _FORMULA_REPLACEMENTS:
         value = re.sub(source, replacement, value) if source.startswith("\\") else value.replace(source, replacement)
     # NFKC turns the micro sign into Greek mu; preserve common SI prefixes as `u`.
@@ -85,7 +97,9 @@ def formula_tokens(text: str) -> list[str]:
     # Transliterate Greek variables for portable token matching. Insert explicit
     # products at symbol boundaries, but keep digits attached as subscripts.
     value = re.sub(rf"(?<=[a-z0-9_)])(?=[{_GREEK_SYMBOL_CLASS}])", "*", value)
+    value = re.sub(rf"(?<=[a-z0-9_)])\s+(?=[{_GREEK_SYMBOL_CLASS}])", "*", value)
     value = re.sub(rf"(?<=[{_GREEK_SYMBOL_CLASS}])(?=[a-z(])", "*", value)
+    value = re.sub(rf"(?<=[{_GREEK_SYMBOL_CLASS}])\s+(?=[a-z(])", "*", value)
     value = re.sub(rf"(?<=[{_GREEK_SYMBOL_CLASS}])(?=[{_GREEK_SYMBOL_CLASS}])", "*", value)
     value = _GREEK_SYMBOL_RE.sub(lambda match: _GREEK_SYMBOL_NAMES[match.group(0)], value)
     # In school algebra, a single-letter variable before a group means
