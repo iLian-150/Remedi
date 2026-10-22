@@ -255,6 +255,11 @@ class SubjectRagTests(unittest.TestCase):
         result = subject_rag.search_knowledge(self.db, "math", "x*(x+1)=0")
         self.assertEqual([item["document_id"] for item in result["items"]], [product.id])
 
+    def test_adjacent_variables_retrieve_as_explicit_multiplication(self):
+        document = self.document("乘积方程", "xy=2。")
+        result = subject_rag.search_knowledge(self.db, "math", "x*y=2")
+        self.assertEqual([item["document_id"] for item in result["items"]], [document.id])
+
     def test_equations_with_opposite_signs_do_not_match(self):
         self.document("负系数方程", "-2x+3=7。")
         self.document("正数解方程", "x=2。")

@@ -24,6 +24,13 @@ class RagQualityTests(unittest.TestCase):
         self.assertEqual(formula_tokens("2x+3=7"), expected)
         self.assertEqual(formula_tokens("2 * x + 3 = 7"), expected)
 
+    def test_formula_tokens_normalize_adjacent_variables_and_preserve_named_atoms(self):
+        self.assertEqual(formula_tokens("xy=2"), ["formula:x*y=2"])
+        self.assertEqual(formula_tokens("2xy=4"), ["formula:2*x*y=4"])
+        self.assertEqual(formula_tokens("a*b=c*d"), ["formula:a*b=c*d"])
+        self.assertEqual(formula_tokens("ln(x)=y"), ["formula:ln(x)=y"])
+        self.assertEqual(formula_tokens("pi=3.14"), ["formula:pi=3.14"])
+
     def test_formula_tokens_preserve_parenthesized_terms_and_coefficients(self):
         self.assertEqual(formula_tokens("2(x+1)=7"), ["formula:2*(x+1)=7"])
         self.assertEqual(formula_tokens("2 (x+1) = 7"), ["formula:2*(x+1)=7"])

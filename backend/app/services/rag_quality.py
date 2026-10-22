@@ -21,6 +21,11 @@ _FORMULA_TERM = rf"[+-]?\s*{_FORMULA_ATOM}"
 _FORMULA_OPERATOR = r"(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)"
 _FORMULA_VARIABLE_BEFORE_GROUP_RE = re.compile(rf"(?<![a-z0-9_])({_FORMULA_VARIABLE})\s*(?=\()")
 _FORMULA_FUNCTION_NAMES = {"f", "g", "h"}
+_FORMULA_VARIABLE_PAIR_RE = re.compile(r"(?<![a-z0-9_])([a-z]{2})(?![a-z0-9_])")
+_FORMULA_NAMED_PAIRS = {
+    "ln", "pi", "mu", "nu", "xi", "cm", "mm", "dm", "km", "nm", "pm",
+    "kg", "mg", "ug", "ml", "ms", "us", "ns", "hz", "db",
+}
 _FORMULA_RE = re.compile(
     rf"(?<![a-z0-9_(]){_FORMULA_TERM}(?:\s*{_FORMULA_OPERATOR}\s*{_FORMULA_TERM})+(?![a-z0-9_)])",
     re.IGNORECASE,
@@ -75,6 +80,14 @@ def formula_tokens(text: str) -> list[str]:
     # Normalize it before matching so the regex cannot fall through to a shared suffix
     # such as `3=7` and treat distinct equations as the same evidence.
     value = re.sub(r"(?<=\d)(?=[a-z])", "*", value)
+    # In school algebra, two adjacent one-letter variables mean a product.
+    # Keep common named constants, functions, and units as single atoms.
+    value = _FORMULA_VARIABLE_PAIR_RE.sub(
+        lambda match: match.group(1)
+        if match.group(1) in _FORMULA_NAMED_PAIRS
+        else f"{match.group(1)[0]}*{match.group(1)[1]}",
+        value,
+    )
     # Parenthesized groups are formula atoms too, with implicit multiplication
     # normalized before them so `2(x+1)` remains distinct from `3(x+1)`.
     value = re.sub(r"(?<=\d)\s*(?=\()", "*", value)
