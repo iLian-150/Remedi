@@ -88,6 +88,23 @@ def _route_student_request(
     return "路由已记录。"
 
 
+def _resolve_student_subject(
+    user_text: str,
+    proposed_subject: str | None = None,
+    fallback_subject: str | None = None,
+) -> str | None:
+    """Prefer one subject explicitly named now; preserve selected-subject context otherwise."""
+    explicit_subject = detect_subject(user_text)
+    if explicit_subject is not None:
+        return explicit_subject
+    if mentions_subject(user_text):
+        # A current multi-subject question is ambiguous unless the UI supplied
+        # an intentional active-subject context.
+        return normalize_subject(fallback_subject)
+    proposed = normalize_subject(proposed_subject) if isinstance(proposed_subject, str) else None
+    return proposed or normalize_subject(fallback_subject)
+
+
 def _fallback_student_route(user_text: str, fallback_subject: str | None = None) -> tuple[str, str | None]:
     """路由模型不可用时的保守兜底；只识别高置信度意图。"""
     text = (user_text or "").strip().lower()
@@ -101,7 +118,9 @@ def _fallback_student_route(user_text: str, fallback_subject: str | None = None)
         intent = "smalltalk"
     else:
         intent = "tutoring"
-    return intent, detect_subject(user_text, fallback_subject)
+    return intent, _resolve_student_subject(
+        user_text, fallback_subject=fallback_subject,
+    )
 
 
 def _classify_student_request(
@@ -143,14 +162,9 @@ def _classify_student_request(
                 if fallback_intent in {"grading", "tutoring"} else None,
             )
         raw_subject = args.get("subject")
-        subject = normalize_subject(raw_subject)
-        if subject is None:
-            if isinstance(raw_subject, str) and raw_subject.strip().lower() == "unknown":
-                # The router uses `unknown` intentionally for multi-subject or
-                # ambiguous requests; don't override that decision from keywords.
-                subject = normalize_subject(fallback_subject)
-            else:
-                subject = detect_subject(user_text, fallback_subject)
+        subject = _resolve_student_subject(
+            user_text, raw_subject, fallback_subject,
+        )
         if intent not in {"grading", "tutoring"}:
             subject = None
         return intent, subject

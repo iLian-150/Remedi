@@ -368,6 +368,42 @@ class AgentToolExecutionTests(unittest.TestCase):
             _fallback_student_route("Explain force in physics"),
             ("tutoring", "physics"),
         )
+        self.assertEqual(
+            _fallback_student_route("数学中的二次函数", "physics"),
+            ("tutoring", "math"),
+        )
+
+    def test_explicit_student_subject_overrides_router_guess(self):
+        model = Mock()
+        model.bind_tools.return_value.invoke.return_value = AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "route_student_request",
+                "args": {"intent": "tutoring", "subject": "physics"},
+                "id": "route-subject-conflict",
+            }],
+        )
+        with patch("app.agent.graph._build_llm", return_value=model):
+            self.assertEqual(
+                _classify_student_request(
+                    [], "数学中的二次函数怎么求对称轴？", "english",
+                ),
+                ("tutoring", "math"),
+            )
+
+        model.bind_tools.return_value.invoke.return_value = AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "route_student_request",
+                "args": {"intent": "tutoring", "subject": "math"},
+                "id": "route-subject-ambiguous",
+            }],
+        )
+        with patch("app.agent.graph._build_llm", return_value=model):
+            self.assertEqual(
+                _classify_student_request([], "比较数学和物理的区别"),
+                ("tutoring", None),
+            )
 
     def test_teacher_followup_suggestions_match_rag_and_teaching_tools(self):
         knowledge = teacher_suggestions("求讲解", ["search_teaching_knowledge"])
