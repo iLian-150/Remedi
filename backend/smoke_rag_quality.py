@@ -19,6 +19,11 @@ class RagQualityTests(unittest.TestCase):
         self.assertEqual(formula_tokens("面积除以2"), [])
         self.assertEqual(formula_tokens("2+2=4"), ["formula:2+2=4"])
 
+    def test_formula_tokens_normalize_implicit_coefficient_multiplication(self):
+        expected = ["formula:2*x+3=7"]
+        self.assertEqual(formula_tokens("2x+3=7"), expected)
+        self.assertEqual(formula_tokens("2 * x + 3 = 7"), expected)
+
     def test_document_spread_preserves_rank_inside_each_document(self):
         candidates = [
             {"document_id": 1}, {"document_id": 1}, {"document_id": 1},

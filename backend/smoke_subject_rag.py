@@ -230,6 +230,13 @@ class SubjectRagTests(unittest.TestCase):
         self.document("面积公式", "三角形面积为底乘高再除以2。")
         self.assertEqual(subject_rag.search_knowledge(self.db, "math", "2+2等于多少")["items"], [])
 
+    def test_distinct_implicit_multiplication_equations_do_not_match_by_suffix(self):
+        self.document("一次方程", "2x+3=7 的解为 x=2。")
+        self.assertEqual(
+            subject_rag.search_knowledge(self.db, "math", "100x+3=7")["items"],
+            [],
+        )
+
     def test_uncommitted_passage_ids_cannot_reach_milvus(self):
         document = SubjectKnowledgeChunk(subject="math", title="方程", content="解方程的依据。")
         self.db.add(document)

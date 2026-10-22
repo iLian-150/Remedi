@@ -35,6 +35,10 @@ def formula_tokens(text: str) -> list[str]:
     value = unicodedata.normalize("NFKC", text or "").lower()
     for source, replacement in _FORMULA_REPLACEMENTS:
         value = re.sub(source, replacement, value) if source.startswith("\\") else value.replace(source, replacement)
+    # A numeric coefficient immediately before a variable is implicit multiplication.
+    # Normalize it before matching so the regex cannot fall through to a shared suffix
+    # such as `3=7` and treat distinct equations as the same evidence.
+    value = re.sub(r"(?<=\d)(?=[a-z])", "*", value)
     found = []
     for match in _FORMULA_RE.finditer(value):
         formula = re.sub(r"\s+", "", match.group(0))
