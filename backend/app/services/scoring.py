@@ -573,23 +573,24 @@ def student_score_report(db: Session, student) -> Dict:
             continue
         q = sub.question
         per_assignment.setdefault(q.assignment_id, {})[q.id] = (
-            sub.submitted_at, score_info["score"], score_info["max_score"],
+            sub.submitted_at, score_info["score"], score_info["max_score"], q.subject,
         )
         if q.assignment_id not in meta:
             assignment = q.assignment
             meta[q.assignment_id] = {
                 "title": assignment.title if assignment else "",
-                "subject": q.subject,
             }
     items = []
     for aid, by_q in per_assignment.items():
+        subjects_for_assignment = sorted({value[3] for value in by_q.values()})
         score = round(sum(v[1] for v in by_q.values()), 1)
         max_score = round(sum(v[2] for v in by_q.values()), 1)
         date = max(v[0] for v in by_q.values())
         items.append({
             "assignment_id": aid,
             "assignment_title": meta[aid]["title"],
-            "subject": meta[aid]["subject"],
+            "subject": subjects_for_assignment[0] if len(subjects_for_assignment) == 1 else "mixed",
+            "subjects": subjects_for_assignment,
             "date": date,
             "score": score,
             "max_score": max_score,
@@ -597,8 +598,16 @@ def student_score_report(db: Session, student) -> Dict:
         })
     items.sort(key=lambda x: (x["date"], x["assignment_id"]))
     by_subject: Dict[str, List[float]] = {}
-    for it in items:
-        by_subject.setdefault(it["subject"], []).append(it["rate"])
+    for by_q in per_assignment.values():
+        subject_totals: Dict[str, Tuple[float, float]] = {}
+        for _submitted_at, score, max_score, subject in by_q.values():
+            current_score, current_max = subject_totals.get(subject, (0.0, 0.0))
+            subject_totals[subject] = (
+                current_score + float(score), current_max + float(max_score),
+            )
+        for subject, (subject_score, subject_max) in subject_totals.items():
+            if subject_max:
+                by_subject.setdefault(subject, []).append(subject_score / subject_max)
     subjects = [
         {
             "subject": subj,

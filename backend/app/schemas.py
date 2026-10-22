@@ -1023,7 +1023,8 @@ class AssignmentScoreItem(BaseModel):
     """一份作业的成绩聚合：每题取最新一次已通过且有分的提交求和。"""
     assignment_id: int
     assignment_title: str
-    subject: str
+    subject: str                  # 单学科代码；跨学科作业为 mixed
+    subjects: List[str] = Field(default_factory=list)
     date: datetime              # 计入提交里最晚的一次提交时间
     score: float                # 得分（各题最终分之和）
     max_score: float            # 满分（计入题目的满分之和）

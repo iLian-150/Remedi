@@ -744,6 +744,47 @@ class AgentToolExecutionTests(unittest.TestCase):
         ]
         self.assertEqual(low_score_titles, ["巩固练习：真实低分作业仍应提示"])
 
+    def test_mixed_subject_score_report_keeps_subject_averages_separate(self):
+        from app.services.scoring import student_score_report
+
+        assignment = Assignment(title="跨学科成绩报告", created_by=self.teacher.id)
+        self.db.add(assignment)
+        self.db.flush()
+        math_question = Question(
+            assignment_id=assignment.id, subject="math",
+            knowledge_point="方程", stem="求 x",
+        )
+        english_question = Question(
+            assignment_id=assignment.id, subject="english",
+            knowledge_point="语法", stem="Choose the verb",
+        )
+        self.db.add_all([math_question, english_question])
+        self.db.flush()
+        math_submission = Submission(
+            student_id=self.student.id, question_id=math_question.id, status="graded",
+        )
+        english_submission = Submission(
+            student_id=self.student.id, question_id=english_question.id, status="graded",
+        )
+        self.db.add_all([math_submission, english_submission])
+        self.db.flush()
+        self.db.add_all([
+            SubmissionScore(submission_id=math_submission.id, ai_score=40.0),
+            SubmissionScore(submission_id=english_submission.id, ai_score=10.0),
+        ])
+        self.db.commit()
+
+        report = student_score_report(self.db, self.student)
+        self.assertEqual(len(report["items"]), 1)
+        item = report["items"][0]
+        self.assertEqual(item["subject"], "mixed")
+        self.assertEqual(item["subjects"], ["english", "math"])
+        self.assertEqual((item["score"], item["max_score"], item["rate"]), (50.0, 100.0, 0.5))
+        by_subject = {row["subject"]: row for row in report["subjects"]}
+        self.assertEqual(by_subject["math"]["avg_rate"], 0.8)
+        self.assertEqual(by_subject["english"]["avg_rate"], 0.2)
+        self.assertEqual(report["overall_avg_rate"], 0.5)
+
     def test_student_tool_names_survive_index_reuse_and_deduplicate(self):
         model = ScriptedToolModel(rounds=[
             [{"name": "get_my_mistake_notebook", "id": "notebook-1"}],

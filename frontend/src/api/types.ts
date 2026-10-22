@@ -726,6 +726,7 @@ export interface AssignmentScoreItem {
   assignment_id: number
   assignment_title: string
   subject: string
+  subjects: string[]
   date: string
   score: number // 得分（各题最新一次已通过提交的最终分之和）
   max_score: number // 满分（计入题目的满分之和）

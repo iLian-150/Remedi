@@ -100,7 +100,10 @@
           </div>
           <div class="score-list">
             <p v-for="it in scoreData.items" :key="it.assignment_id" class="score-list-row">
-              <span>{{ it.assignment_title }}</span>
+              <span>
+                {{ it.assignment_title }}
+                <small v-if="it.subjects.length > 1" class="hint">· {{ formatSubjects(it.subjects) }}</small>
+              </span>
               <span class="tnum">{{ fmtScore(it.score) }} / {{ fmtScore(it.max_score) }} 分 · 得分率 {{ Math.round(it.rate * 100) }}%</span>
             </p>
           </div>
@@ -134,6 +137,16 @@ function fmtScore(v: number): string {
   return String(Math.round(v * 10) / 10)
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char] ?? char)
+}
+
+function formatSubjects(subjects: string[]): string {
+  return subjects.map((subject) => SUBJECT_TEXT[subject] ?? subject).join('、')
+}
+
 function memoryStateLabel(state: StudentLearningMemory['state']): string {
   return ({
     needs_practice: '需要订正', correcting: '订正中',
@@ -150,7 +163,10 @@ const scoreChartOption = computed(() => {
       formatter: (params: { dataIndex: number }[]) => {
         const it = items[params[0]?.dataIndex ?? 0]
         if (!it) return ''
-        return `${it.assignment_title}<br/>得分 ${fmtScore(it.score)} / ${fmtScore(it.max_score)} 分 · 得分率 ${Math.round(it.rate * 100)}%`
+        const subjects = it.subjects.length > 1
+          ? `<br/>科目 ${it.subjects.map((subject) => escapeHtml(SUBJECT_TEXT[subject] ?? subject)).join('、')}`
+          : ''
+        return `${escapeHtml(it.assignment_title)}${subjects}<br/>得分 ${fmtScore(it.score)} / ${fmtScore(it.max_score)} 分 · 得分率 ${Math.round(it.rate * 100)}%`
       }
     },
     grid: { left: 8, right: 16, top: 28, bottom: 4, containLabel: true },
