@@ -18,6 +18,8 @@ Remedi 的常规发布流程是：本地修改 → 推送到 GitHub → 服务�
 - 仓库目录：`/remedi`；只操作该目录和本项目 Docker 资源，不修改其他目录或项目。
 - 模型凭证及 Compose 参数统一放服务器 `/remedi/.env`，权限 `600`；不要打印或提交真实凭证。该文件通过 `COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml` 启用完整服务，后续发布保留此配置。
 - Python 使用虚拟环境：本地 `.venv`，后端 Docker 镜像内 `/app/.venv`；不要向宿主机全局 Python 安装项目依赖。
+- 前端发布 `5001`，后端发布 `5000`；Milvus 端口仅绑定本机，etcd/MinIO 不发布公网端口。
+- 私有仓库拉取可在本地虚拟环境运行 `python deploy/pull_server.py`，经 SSH 临时传递当前 Git 凭证供服务器执行 `git pull --ff-only origin main`，不将 GitHub 凭证持久化到服务器。
 - SSH 私钥位于本地用户目录的 `.ssh/codex_deploy_ed25519`；不要复制、打印或提交私钥。
 
 推送成功后，通过 SSH 在服务器执行：

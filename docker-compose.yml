@@ -1,12 +1,14 @@
 # Remedi MVP 一键部署
 # 用法：docker compose up -d --build
-# 访问：http://服务器公网IP:8080
+# 前端：http://服务器公网IP:5001；后端：http://服务器公网IP:5000
 
 services:
   api:
     build: ./backend
     expose:
       - "8000"
+    ports:
+      - "${API_PORT:-5000}:8000"
     volumes:
       - remedi-data:/data
     environment:
@@ -38,9 +40,8 @@ services:
     build:
       context: .
       dockerfile: deploy/web.Dockerfile
-    # 8080 避开宝塔自带 nginx 可能占用的 80 端口；如 80 空闲可改为 "80:80"
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_PORT:-5001}:80"
     depends_on:
       api:
         condition: service_healthy

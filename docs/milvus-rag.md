@@ -15,6 +15,8 @@
 ```dotenv
 COMPOSE_PROJECT_NAME=remedi
 COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml
+WEB_PORT=5001
+API_PORT=5000
 RAG_MILVUS_URI=http://milvus:19530
 RAG_MILVUS_COLLECTION=remedi_subject_knowledge
 RAG_EMBEDDING_MODEL=@cf/baai/bge-m3
@@ -62,6 +64,30 @@ overlay 将持久化目录全部绑定到 `/remedi/data`：
 基础 Compose 中历史 `remedi-data` 命名卷定义保留，overlay 按相同目标 `/data` 覆盖 API 挂载；不要删除历史卷。已有业务数据迁移到此部署目录时，应先确认 `/remedi/data/api` 包含需要保留的数据，再启动 API。
 
 Milvus 19530 和健康检查 9091 只绑定宿主机 `127.0.0.1`；etcd、MinIO 不发布宿主机端口。API 启动不依赖 Milvus 就绪，启动期间可使用 BM25。第一次建集合或加载超过超时后可重试。普通基础部署未启用 overlay 时不启动 Milvus；宿主机运行后端时可设置 `RAG_MILVUS_URI=http://127.0.0.1:19530`。
+
+前端访问 `http://129.153.206.96:5001`，后端访问 `http://129.153.206.96:5000`，接口文档位于后端 `/docs`。公网入站只需放行 TCP 5001、5000，SSH 运维沿用 22；无需开放 Milvus、etcd 或 MinIO 的公网端口。前端通过 Nginx 转发 `/api` 到 API 容器内 8000 端口。
+
+## 本地修改后的发布
+
+本地虚拟环境验证通过后，提交并普通 push 到 GitHub main，再拉取服务器代码：
+
+```powershell
+git push origin main
+.\.venv\Scripts\python.exe deploy/pull_server.py
+```
+
+仓库为私有仓库，脚本从本地 Git 凭证管理器读取凭证，经 SSH 标准输入仅供本次 `git pull --ff-only origin main` 使用；凭证不写入服务器文件、Git 配置或日志。脚本校验服务器没有已跟踪文件改动，并核对服务器提交与本地提交一致。
+
+随后在服务器执行：
+
+```bash
+cd /remedi
+docker compose up -d --build
+docker compose ps
+docker compose exec -T api python smoke_live_rag.py
+```
+
+API 容器中的 `python` 来自 `/app/.venv`；无需向服务器宿主机的系统 Python 安装依赖。真实链路验收脚本会新增一条临时资料，检查向量入库、混合检索与权限后自动删除。
 
 ## 将已有资料同步到 Milvus
 
