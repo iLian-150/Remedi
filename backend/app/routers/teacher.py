@@ -118,6 +118,8 @@ from ..services.stats import (
 from ..services.teacher_stats import students_not_fully_submitted
 from ..services.teacher_scope import (
     teacher_assignment_ids as _scoped_teacher_assignment_ids,
+    teacher_assignment_student_ids as _scoped_teacher_assignment_student_ids,
+    teacher_essay_ids as _scoped_teacher_essay_ids,
     teacher_submission_ids as _scoped_teacher_submission_ids,
     teacher_student_ids as _scoped_teacher_student_ids,
 )
@@ -1343,7 +1345,8 @@ def guess_knowledge_point(body: KnowledgePointGuessIn,
 
 
 def _teacher_assignments_out(
-    assignments: List[Assignment], db: Session
+    assignments: List[Assignment], db: Session, teacher: User,
+    submission_ids=None, essay_ids=None,
 ) -> List[TeacherAssignmentOut]:
     """批量组装教师作业列表，避免逐作业、逐题查询统计和配置。"""
     if not assignments:
@@ -1386,23 +1389,27 @@ def _teacher_assignments_out(
 
     submission_counts = {}
     for question_id_chunk in id_chunks(question_ids):
-        count_rows = (
-            db.query(
-                Submission.question_id.label("question_id"),
-                func.count(Submission.id).label("submission_count"),
+        submission_student_query = db.query(
+            Submission.question_id.label("question_id"),
+            Submission.student_id.label("student_id"),
+        ).filter(Submission.question_id.in_(question_id_chunk))
+        essay_student_query = db.query(
+            Essay.question_id.label("question_id"),
+            Essay.student_id.label("student_id"),
+        ).filter(Essay.question_id.in_(question_id_chunk))
+        if submission_ids is not None:
+            submission_student_query = submission_student_query.filter(
+                Submission.id.in_(submission_ids)
             )
-            .filter(Submission.question_id.in_(question_id_chunk))
-            .group_by(Submission.question_id)
-            .union_all(
-                db.query(
-                    Essay.question_id.label("question_id"),
-                    func.count(Essay.id).label("submission_count"),
-                )
-                .filter(Essay.question_id.in_(question_id_chunk))
-                .group_by(Essay.question_id)
-            )
-            .subquery()
-        )
+        if essay_ids is not None:
+            essay_student_query = essay_student_query.filter(Essay.id.in_(essay_ids))
+        activity_pairs = submission_student_query.union(
+            essay_student_query
+        ).subquery()
+        count_rows = db.query(
+            activity_pairs.c.question_id,
+            func.count(activity_pairs.c.student_id).label("submission_count"),
+        ).group_by(activity_pairs.c.question_id).subquery()
         submission_counts.update(dict(
             db.query(
                 count_rows.c.question_id,
@@ -1493,6 +1500,7 @@ def _teacher_assignments_out(
             total_score=total_scores.get(assignment.id, 100.0),
             allow_revision=bool(setting.allow_revision) if setting else False,
             class_ids=class_ids_by_assignment.get(assignment.id, []),
+            can_delete=assignment.created_by == teacher.id,
         ))
     return result
 
@@ -1634,6 +1642,7 @@ def create_assignment(body: TeacherAssignmentCreate,
         total_score=float(body.total_score) if body.total_score is not None else 100.0,
         allow_revision=body.allow_revision,
         class_ids=class_ids,
+        can_delete=True,
     )
 
 
@@ -1653,7 +1662,13 @@ def list_teacher_assignments(
             Assignment.created_at < day_start + timedelta(days=1),
         )
     assignments = query.order_by(Assignment.id).all()
-    items = _teacher_assignments_out(assignments, db)
+    items = _teacher_assignments_out(
+        assignments,
+        db,
+        current,
+        submission_ids=_teacher_submission_ids(db, current),
+        essay_ids=_scoped_teacher_essay_ids(db, current),
+    )
     return {"total": len(items), "items": items}
 
 
@@ -1715,8 +1730,8 @@ def _trace_assignment_delete_failures(handler):
 @_trace_assignment_delete_failures
 def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
                       current: User = Depends(require_teacher)):
-    """删除教师作业管理列表中的一份作业（v0.3.0 新增）。教师端列表包含学生自主上传题，
-    因此教师可删除任意列表可见的作业。事务内按外键依赖顺序级联删除：
+    """仅发布者可以删除作业，防止共享作业的任课教师误删其他班级数据。
+    事务内按外键依赖顺序级联删除：
     corrections → notifications（关联这些提交的）→ errors → steps → submissions
     → essays → questions → assignment，避免孤儿数据污染学生报告与班级统计。
     不存在返回 404。与错题关联的二次验证保留并解除来源关联；学生自主上传题留档保留并解除题目关联。"""
@@ -1728,6 +1743,8 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     _require_teacher_assignment(db, current, assignment_id)
+    if assignment.created_by != current.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在或你没有删除权限。")
     question_ids = select(Question.id).where(Question.assignment_id == assignment.id)
     submission_ids = (
         select(Submission.id)
@@ -1831,7 +1848,9 @@ def remind_assignment(assignment_id: int, db: Session = Depends(get_db),
     if not assignment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
     _require_teacher_assignment(db, current, assignment_id)
-    student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
+    student_ids = _scoped_teacher_assignment_student_ids(
+        db, current, assignment_id,
+    )
     targets = students_not_fully_submitted(db, assignment, student_ids=student_ids)
     for student_id in targets:
         db.add(Notification(

@@ -47,7 +47,7 @@
             <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click="remind(a)">
               <AppIcon name="megaphone" :size="15" /> {{ remindingId === a.id ? '提醒中…' : '提醒未交' }}
             </button>
-            <button class="btn small danger-outline inline-icon" @click="askDelete(a)">
+            <button v-if="a.can_delete" class="btn small danger-outline inline-icon" @click="askDelete(a)">
               <AppIcon name="trash" :size="15" /> 删除
             </button>
           </div>

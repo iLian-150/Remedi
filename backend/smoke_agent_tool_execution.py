@@ -17,11 +17,13 @@ from langchain_core.outputs import ChatGenerationChunk
 from pydantic import Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 from app.agent.graph import _classify_student_request, _fallback_student_route, agent_reply_stream
 from app.agent.subjects import detect_subject
 from app.agent.suggestions import teacher_intent, teacher_suggestions
 from app.agent.teacher_graph import teacher_agent_reply_stream
+from app.agent.teacher_tools import build_teacher_tools
 from app.database import Base
 from app.models import (
     Assignment,
@@ -30,6 +32,8 @@ from app.models import (
     ClassroomMember,
     ClassroomTeacherSubject,
     Error,
+    Essay,
+    Notification,
     Question,
     StudentQuestionCapture,
     Submission,
@@ -39,11 +43,17 @@ from app.models import (
 from app.services.stats import class_repair_rate, student_profile
 from app.services.teacher_scope import (
     teacher_assignment_ids,
+    teacher_assignment_student_ids,
+    teacher_essay_ids,
     teacher_student_ids,
     teacher_submission_ids,
 )
 from app.services.teacher_stats import class_overview, uncorrected_overview
-from app.agent.teacher_tools import build_teacher_tools
+from app.routers.teacher import (
+    _teacher_assignments_out,
+    delete_assignment,
+    remind_assignment,
+)
 
 
 class ScriptedToolModel(BaseChatModel):
@@ -457,11 +467,18 @@ class AgentToolExecutionTests(unittest.TestCase):
         math_class = Classroom(name="逻辑回归数学班", created_by=self.teacher.id)
         physics_class = Classroom(name="逻辑回归物理班", created_by=self.teacher.id)
         physics_student = User(name="逻辑回归物理学生", role="student", student_no="agent-physics")
+        unassigned_recipient = User(
+            name="数学班物理作业未交学生", role="student", student_no="agent-physics-unauthorized",
+        )
+        assignment_owner = User(name="共享作业发布者", role="teacher")
         self.db.add_all([
-            math_class, physics_class, physics_student,
-            TeacherSubject(teacher_id=self.teacher.id, subject="physics"),
+            math_class, physics_class, physics_student, unassigned_recipient, assignment_owner,
         ])
         self.db.flush()
+        self.db.add_all([
+            TeacherSubject(teacher_id=self.teacher.id, subject="physics"),
+            TeacherSubject(teacher_id=assignment_owner.id, subject="physics"),
+        ])
         self.db.add_all([
             ClassroomTeacherSubject(
                 classroom_id=math_class.id, teacher_id=self.teacher.id, subject="math",
@@ -470,14 +487,20 @@ class AgentToolExecutionTests(unittest.TestCase):
                 classroom_id=physics_class.id, teacher_id=self.teacher.id, subject="physics",
             ),
             ClassroomMember(classroom_id=math_class.id, student_id=self.student.id),
+            ClassroomMember(classroom_id=math_class.id, student_id=unassigned_recipient.id),
             ClassroomMember(classroom_id=physics_class.id, student_id=physics_student.id),
         ])
-        math_assignment = Assignment(title="范围回归数学作业")
-        physics_assignment = Assignment(title="范围回归物理作业")
+        math_assignment = Assignment(
+            title="范围回归数学作业", created_by=assignment_owner.id,
+        )
+        physics_assignment = Assignment(
+            title="范围回归物理作业", created_by=assignment_owner.id,
+        )
         self.db.add_all([math_assignment, physics_assignment])
         self.db.flush()
         self.db.add_all([
             AssignmentClass(assignment_id=math_assignment.id, classroom_id=math_class.id),
+            AssignmentClass(assignment_id=physics_assignment.id, classroom_id=math_class.id),
             AssignmentClass(assignment_id=physics_assignment.id, classroom_id=physics_class.id),
         ])
         math_question = Question(
@@ -497,8 +520,23 @@ class AgentToolExecutionTests(unittest.TestCase):
         physics_submission = Submission(
             student_id=physics_student.id, question_id=physics_question.id,
         )
-        self.db.add_all([math_submission, unauthorized_submission, physics_submission])
+        physics_retry = Submission(
+            student_id=physics_student.id, question_id=physics_question.id,
+        )
+        self.db.add_all([
+            math_submission, unauthorized_submission, physics_submission, physics_retry,
+        ])
         self.db.flush()
+        self.db.add_all([
+            Essay(
+                student_id=self.student.id, question_id=physics_question.id,
+                text="未授权作文", scores_json="{}", grammar_issues_json="[]",
+            ),
+            Essay(
+                student_id=physics_student.id, question_id=physics_question.id,
+                text="授权作文", scores_json="{}", grammar_issues_json="[]",
+            ),
+        ])
         self.db.add_all([
             Error(
                 submission_id=math_submission.id, knowledge_point="授权数学",
@@ -518,14 +556,21 @@ class AgentToolExecutionTests(unittest.TestCase):
         assignments = [row[0] for row in teacher_assignment_ids(self.db, self.teacher).all()]
         students = [row[0] for row in teacher_student_ids(self.db, self.teacher).all()]
         submissions = teacher_submission_ids(self.db, self.teacher)
+        essays = teacher_essay_ids(self.db, self.teacher)
         authorized_submission_ids = {row[0] for row in submissions.all()}
         self.assertEqual(
             authorized_submission_ids,
-            {math_submission.id, physics_submission.id},
+            {math_submission.id, physics_submission.id, physics_retry.id},
+        )
+        self.assertEqual(
+            set(teacher_assignment_student_ids(
+                self.db, self.teacher, physics_assignment.id,
+            )),
+            {physics_student.id},
         )
 
         overview = class_overview(self.db, assignments, students, submissions)
-        self.assertEqual(overview["submission_count"], 2)
+        self.assertEqual(overview["submission_count"], 3)
         self.assertEqual(overview["error_count"], 2)
         pending = uncorrected_overview(self.db, assignments, students, submissions)
         self.assertEqual(
@@ -543,16 +588,53 @@ class AgentToolExecutionTests(unittest.TestCase):
             {"授权数学"},
         )
 
+        assignment_item = _teacher_assignments_out(
+            [physics_assignment], self.db, self.teacher,
+            submission_ids=submissions, essay_ids=essays,
+        )[0]
+        self.assertFalse(assignment_item.can_delete)
+        self.assertEqual(assignment_item.questions[0].submission_count, 1)
+        with self.assertRaises(HTTPException) as denied_delete:
+            delete_assignment(physics_assignment.id, self.db, self.teacher)
+        self.assertEqual(denied_delete.exception.status_code, 404)
+        self.assertIsNotNone(self.db.get(Assignment, physics_assignment.id))
+        self.assertIsNotNone(self.db.get(Submission, unauthorized_submission.id))
+
         tools = {item.name: item for item in build_teacher_tools(self.db, self.teacher)}
-        self.assertIn("累计提交 2 次", tools["get_class_overview"].invoke({}))
+        self.assertIn("累计提交 3 次", tools["get_class_overview"].invoke({}))
         self.assertIn("共 2 组", tools["get_class_repair_rate"].invoke({}))
         self.assertNotIn("越权物理", tools["get_uncorrected_students"].invoke({}))
+        assignment_status = tools["get_assignment_status"].invoke({
+            "assignment_hint": "范围回归物理作业",
+        })
+        self.assertIn(physics_student.name, assignment_status)
+        self.assertNotIn(unassigned_recipient.name, assignment_status)
+        self.assertEqual(
+            remind_assignment(physics_assignment.id, self.db, self.teacher),
+            {"reminded_count": 0},
+        )
+        self.assertEqual(
+            self.db.query(Notification).filter_by(user_id=unassigned_recipient.id).count(),
+            0,
+        )
         teacher_profile = tools["get_student_profile"].invoke({
             "student_name": self.student.name,
             "student_no": "",
             "include_student_no": False,
         })
         self.assertNotIn("越权物理", teacher_profile)
+        owner_assignment = _teacher_assignments_out(
+            [physics_assignment], self.db, assignment_owner,
+            submission_ids=teacher_submission_ids(self.db, assignment_owner),
+            essay_ids=teacher_essay_ids(self.db, assignment_owner),
+        )[0]
+        self.assertTrue(owner_assignment.can_delete)
+        self.assertEqual(owner_assignment.questions[0].submission_count, 2)
+        self.assertEqual(
+            delete_assignment(physics_assignment.id, self.db, assignment_owner),
+            {"deleted": True},
+        )
+        self.assertIsNone(self.db.get(Assignment, physics_assignment.id))
 
     def test_student_tool_names_survive_index_reuse_and_deduplicate(self):
         model = ScriptedToolModel(rounds=[

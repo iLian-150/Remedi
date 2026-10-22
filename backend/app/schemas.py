@@ -666,6 +666,7 @@ class TeacherAssignmentOut(BaseModel):
     # v0.13.1 新增（只加字段）：允许修改开关
     allow_revision: bool = False
     class_ids: List[int] = Field(default_factory=list)
+    can_delete: bool = False
 
 
 class ClassroomCreateIn(BaseModel):

@@ -600,6 +600,7 @@ export interface TeacherAssignment {
   page_range: string | null
   deadline: string | null
   class_ids: number[]
+  can_delete: boolean
 }
 
 export interface TeacherQuestionInput {
