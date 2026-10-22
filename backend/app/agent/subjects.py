@@ -34,10 +34,7 @@ def normalize_subject(subject: Optional[str]) -> Optional[str]:
     return value if value in SUBJECT_AGENTS else None
 
 
-def detect_subject(text: str, fallback: Optional[str] = None) -> Optional[str]:
-    explicit = normalize_subject(fallback)
-    if explicit:
-        return explicit
+def _subjects_in_text(text: str) -> set[str]:
     # Resolve overlapping aliases left-to-right, preferring the longest alias
     # at the same position (`生物` must not also match the trailing `物理`).
     value = text or ""
@@ -58,6 +55,19 @@ def detect_subject(text: str, fallback: Optional[str] = None) -> Optional[str]:
             continue
         subjects.add(subject)
         covered_until = end
+    return subjects
+
+
+def mentions_subject(text: str) -> bool:
+    """Whether the query names any school subject, including an ambiguous pair."""
+    return bool(_subjects_in_text(text))
+
+
+def detect_subject(text: str, fallback: Optional[str] = None) -> Optional[str]:
+    explicit = normalize_subject(fallback)
+    if explicit:
+        return explicit
+    subjects = _subjects_in_text(text)
     return next(iter(subjects)) if len(subjects) == 1 else None
 
 

@@ -140,10 +140,14 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
     @tool
     def search_teaching_knowledge(query: str, subject: str = "") -> str:
         """检索本人任教学科的教材、讲义、例题与评分标准，供备课或学科答疑引用。query 为完整问题；subject 为 math/english/chinese/physics/chemistry/biology/history/geography/politics 或中文学科名。只有一门任教学科时可留空。班级统计仍使用统计工具。"""
-        from .subjects import build_subject_context, detect_subject
+        from .subjects import build_subject_context, detect_subject, mentions_subject
 
-        target = detect_subject(query, subject)
-        if target is None and len(teaching_subjects) == 1:
+        requested_subject = subject if isinstance(subject, str) else ""
+        target = detect_subject(query, requested_subject)
+        if (
+            target is None and not requested_subject.strip()
+            and not mentions_subject(query) and len(teaching_subjects) == 1
+        ):
             target = next(iter(teaching_subjects))
         if target is None:
             return "请先确认要检索哪一门任教学科的教学资料。"

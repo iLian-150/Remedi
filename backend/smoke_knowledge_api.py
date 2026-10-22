@@ -215,6 +215,8 @@ class KnowledgeApiTests(unittest.TestCase):
         with self.sessions() as db:
             tool = next(item for item in build_teacher_tools(db, db.get(User, 1)) if item.name == "search_teaching_knowledge")
             self.assertIn("任教范围", tool.invoke({"query": "grammar", "subject": "english"}))
+            ambiguous = tool.invoke({"query": "比较数学和物理的知识点差异"})
+            self.assertIn("请先确认要检索哪一门", ambiguous)
             answer = tool.invoke({"query": "二次函数的对称轴"})
             self.assertIn("资料", answer)
             self.assertIn("教学讲义", answer)
