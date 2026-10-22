@@ -79,9 +79,12 @@ def uncorrected_to_text(rows: List[dict]) -> str:
     return "\n".join(lines)
 
 
-def profile_to_text(profile: dict) -> str:
+def profile_to_text(profile: dict, include_student_no: bool = False) -> str:
     st = profile["student"]
-    lines = [f"学生 {st['name']} 的学习画像摘要："]
+    student_label = f"学生 {st['name']}"
+    if include_student_no:
+        student_label += f"（学号：{st.get('student_no') or '未登记'}）"
+    lines = [f"{student_label} 的学习画像摘要："]
     kps = profile.get("knowledge_points", [])
     if kps:
         worst = kps[0]
@@ -204,8 +207,10 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
             return "教学建议暂时生成失败，请稍后再试；你也可以先问我知识点错误率排行或班级知识修复率。"
 
     @tool
-    def get_student_profile(student_name: str, student_no: str = "") -> str:
-        """查询任课班级中的某个学生画像。姓名可能重复；同名时请传学号。"""
+    def get_student_profile(
+        student_name: str, student_no: str = "", include_student_no: bool = False,
+    ) -> str:
+        """查询任课班级中的某个学生画像。姓名可能重复；同名时请传学号。老师明确询问学号时设 include_student_no=True，否则保持默认以减少学号展示。"""
         name = (student_name or "").strip()
         query = db.query(User).filter(User.role == "student", User.id.in_(student_ids))
         if student_no.strip():
@@ -218,7 +223,10 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
             st = candidates[0] if candidates else None
         if st is None:
             return f"在你任课的班级中没有找到学生「{student_name}」，请检查姓名和学号。"
-        return profile_to_text(student_profile(db, st, assignment_ids=assignment_ids))
+        return profile_to_text(
+            student_profile(db, st, assignment_ids=assignment_ids),
+            include_student_no=include_student_no,
+        )
 
     return [
         search_teaching_knowledge,

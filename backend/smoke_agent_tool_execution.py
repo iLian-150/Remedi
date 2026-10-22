@@ -159,6 +159,26 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertIn("分层讲解", teaching[0])
         self.assertIn("辅导顺序", teaching[1])
 
+    def test_teacher_student_profile_returns_student_number_only_when_requested(self):
+        from app.agent.teacher_tools import build_teacher_tools
+
+        with patch(
+            "app.agent.teacher_tools._teacher_scope",
+            return_value=([], [self.student.id]),
+        ):
+            profile_tool = next(
+                tool for tool in build_teacher_tools(self.db, self.teacher)
+                if tool.name == "get_student_profile"
+            )
+            summary = profile_tool.invoke({"student_name": self.student.name})
+            identified = profile_tool.invoke({
+                "student_name": self.student.name,
+                "include_student_no": True,
+            })
+
+        self.assertNotIn(self.student.student_no, summary)
+        self.assertIn(f"学号：{self.student.student_no}", identified)
+
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
         model = ScriptedToolModel()
         with patch(
