@@ -37,6 +37,8 @@ services:
     command: ["minio", "server", "/minio_data", "--console-address", ":9001"]
     volumes:
       - ./data/minio:/minio_data
+      # 覆盖镜像自带的 VOLUME /data，避免另建项目目录外的匿名卷。
+      - ./data/minio:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s

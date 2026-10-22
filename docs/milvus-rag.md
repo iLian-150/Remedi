@@ -89,6 +89,8 @@ overlay 将持久化目录全部绑定到 `/remedi/data`：
 
 基础 Compose 中历史 `remedi-data` 命名卷定义保留，overlay 按相同目标 `/data` 覆盖 API 挂载；不要删除历史卷。已有业务数据迁移到此部署目录时，应先确认 `/remedi/data/api` 包含需要保留的数据，再启动 API。
 
+MinIO 镜像自带的 `/data` 默认卷也绑定到 `/remedi/data/minio`；服务实际使用 `/minio_data`，两处均在项目目录内，避免运行中容器额外创建匿名数据卷。
+
 Milvus 19530 和健康检查 9091 只绑定宿主机 `127.0.0.1`；etcd、MinIO 不发布宿主机端口。API 启动不依赖 Milvus 就绪，启动期间可使用 BM25。第一次建集合或加载超过超时后可重试。普通基础部署未启用 overlay 时不启动 Milvus；宿主机运行后端时可设置 `RAG_MILVUS_URI=http://127.0.0.1:19530`。
 
 前端访问 `http://129.153.206.96:5001`，后端访问 `http://129.153.206.96:5000`，接口文档位于后端 `/docs`。公网入站只需放行 TCP 5001、5000，SSH 运维沿用 22；无需开放 Milvus、etcd 或 MinIO 的公网端口。前端通过 Nginx 转发 `/api` 到 API 容器内 8000 端口。
