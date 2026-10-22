@@ -71,12 +71,15 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./remedi.db` | 数据库连接串；切 PG 改为 `postgresql+psycopg2://…` |
 | `LLM_PROVIDER` | `bailian` | 阿里云百炼；模型未配置或调用失败时明确报错，不自动切 Mock |
-| `DASHSCOPE_API_KEY` | 空 | 百炼 API Key，当前先留空，后续由用户补充 |
-| `DASHSCOPE_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 北京地域的 OpenAI 兼容接口，需与 Key 的开通地域一致 |
-| `DASHSCOPE_MODEL` | `qwen-plus` | 文本问答模型 |
+| `DASHSCOPE_API_KEY` | 空 | 示例不含真实百炼 API Key；实际凭证只保存在服务器环境配置 |
+| `DASHSCOPE_BASE_URL` | 按工作空间配置 | 使用控制台工作空间专属 APIHost，并附加 `/compatible-mode/v1`，地域须与账号一致 |
+| `DASHSCOPE_MODEL` | `kimi-k3` | Kimi-K3 文本问答模型，始终启用思考 |
 | `DASHSCOPE_VISION_MODEL` | `qwen3-vl-plus` | 图片识别模型 |
-| `RAG_EMBEDDING_MODEL` | `text-embedding-v4` | 学科知识库向量化模型，通过百炼接口调用 |
+| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_qwen37_flash` | 新向量模型使用独立集合，保留原集合 |
+| `RAG_EMBEDDING_MODEL` | `qwen3.7-text-embedding-flash` | 学科知识库向量化模型，通过百炼接口调用 |
 | `RAG_EMBEDDING_DIMENSIONS` | `1024` | 向量维度；变更模型或维度后按部署说明使用匹配的 Milvus 集合并重建索引 |
+| `RAG_RERANK_MODEL` | `qwen3.7-text-rerank` | 候选片段的模型重排；不可用时回退本地重排 |
+| `RAG_RERANK_TIMEOUT_SECONDS` | `10` | 模型重排请求等待上限（秒） |
 | `SEED_DEMO_DATA` | 服务器为 `false` | 关闭 Docker 启动时的演示数据初始化，保留已有数据 |
 | `LLM_TIMEOUT_SECONDS` | `120` | 对话模型等待上限（秒） |
 | `STUBBORN_WINDOW_DAYS` | `30` | 顽固误区判定窗口（天） |
@@ -84,7 +87,9 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 
 **注意**：不要在代码或文档里硬编码任何真实 API key，一律走环境变量。
 
-新加坡地域账号使用 `DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1`。当前 `DASHSCOPE_API_KEY` 保持为空；网站、数据库与健康检查可以正常启动，知识库先使用 BM25 关键词检索。AI 问答、图片识别和 embedding 需要后续补齐有效 Key；补齐配置后，可从教师端学科知识库重建检索索引。
+工作空间专属地址示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；从百炼控制台复制实际 APIHost，并按账号替换工作空间标识和地域。模型可用性通过实际请求验证。模型配置不完整或暂不可用时，网站、数据库与健康检查仍可启动；向量检索回退 BM25，模型重排调用失败时回退本地重排并返回安全警告。未配置凭证或将 `RAG_RERANK_MODEL` 设为空时，仅使用本地重排。知识库试查响应新增 `rerank_mode`（`model | local`），可分别确认重排方式与 `retrieval_mode`（`bm25 | hybrid`）表示的召回方式。
+
+`Kimi-K3` 的 `enable_thinking` 与 `preserve_thinking` 始终开启。工具调用循环仅在本次请求的内存中保留并回传 `reasoning_content`，确保后续工具轮符合模型协议；界面、SSE 回复正文及持久化聊天记录只保留可见答案。接通有效模型配置后，从教师端学科知识库重建索引，将旧资料同步到新集合 `remedi_subject_knowledge_qwen37_flash`。
 
 ## 目录结构
 

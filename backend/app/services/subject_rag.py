@@ -13,7 +13,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from ..models import SubjectKnowledgeChunk, SubjectKnowledgePassage
-from . import rag_milvus
+from . import bailian_rerank, rag_milvus
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ _STOP_TOKENS = {
     "the", "and", "for", "are", "what", "how", "please", "this", "that", "with",
 }
 _VECTOR_WARNING = "向量检索尚未就绪，请检查向量模型和 Milvus 配置；当前使用 BM25，恢复后可重新建立向量索引。"
+_RERANK_WARNING = "百炼重排暂不可用，当前使用本地排序。"
 _WRITE_TRANSACTION = "_remedi_rag_write_transaction"
 
 
@@ -239,7 +240,7 @@ def _bm25_rank(candidates: list[dict], query_tokens: set[str]) -> list[tuple[int
 
 def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> dict:
     """分通道排序后做 RRF，恢复父块并去重；score 是排序分而非可信度。"""
-    empty = {"items": [], "retrieval_mode": "bm25", "warnings": []}
+    empty = {"items": [], "retrieval_mode": "bm25", "rerank_mode": "local", "warnings": []}
     if not query or not query.strip() or limit <= 0:
         return empty
     query = query.strip()[:2000]
@@ -283,11 +284,33 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
         title_coverage = len(query_tokens & set(_tokenize(candidates[index]["title"]))) / max(len(query_tokens), 1)
         scores[index] += coverage * 0.004 + title_coverage * 0.002
     ranked = sorted(scores, key=lambda index: (-scores[index], index))
+    rerank_mode = "local"
+    if bailian_rerank.configured():
+        try:
+            rerank_indices = ranked[:bailian_rerank.MAX_CANDIDATES]
+            model_scores = bailian_rerank.rerank_documents(query, [
+                f"{candidates[index]['title'][:160]}\n{candidates[index]['content'][:800]}".strip()
+                for index in rerank_indices
+            ])
+            if len(model_scores) != len(rerank_indices) or any(
+                isinstance(score, bool) or not isinstance(score, (int, float))
+                or not math.isfinite(score) or not 0.0 <= score <= 1.0
+                for score in model_scores
+            ):
+                raise ValueError("invalid reranker scores")
+            # Model scores replace the earlier rank fusion so reranking really
+            # controls relevance; do not mix their scale with local RRF scores.
+            scores = dict(zip(rerank_indices, model_scores))
+            ranked = sorted(rerank_indices, key=lambda index: -scores[index])
+            rerank_mode = "model"
+        except Exception as exc:
+            logger.warning("百炼重排暂不可用，使用本地排序（error=%s）", type(exc).__name__)
+            warnings.append(_RERANK_WARNING)
     selected = []
     parent_keys = set()
     parent_texts = set()
     selected_tokens = []
-    max_score = max(scores.values())
+    max_score = max(scores.values()) or 1.0
     while ranked and len(selected) < min(int(limit), 10):
         def diversity_score(index):
             tokens = set(_tokenize(candidates[index]["content"]))
@@ -312,4 +335,5 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
             "score": round(scores[index], 6),
             "citation": f"[资料{item['document_id']}-片段{item['chunk_index'] + 1}]",
         })
-    return {"items": selected, "retrieval_mode": "hybrid" if dense else "bm25", "warnings": warnings}
+    return {"items": selected, "retrieval_mode": "hybrid" if dense else "bm25",
+            "rerank_mode": rerank_mode, "warnings": warnings}

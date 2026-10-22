@@ -21,6 +21,7 @@ class SubjectRagTests(unittest.TestCase):
         self.configured = patch.object(subject_rag.rag_milvus, "configured", return_value=False)
         self.configured.start()
         self.addCleanup(self.configured.stop)
+        self.enterContext(patch.object(subject_rag.bailian_rerank, "configured", return_value=False))
         self.addCleanup(self.engine.dispose)
         self.addCleanup(self.db.close)
 
@@ -165,6 +166,96 @@ class SubjectRagTests(unittest.TestCase):
                         self.assertTrue(upsert.called)
             finally:
                 engine.dispose()
+
+
+    def test_model_reranking_replaces_local_order_before_selection(self):
+        local_first = self.document("直线斜率变化率", "直线斜率描述变化率，斜率可由坐标变化计算。")
+        model_first = self.document("图像例题", "直线斜率可以利用图像中选定的两个点计算。")
+        local = subject_rag.search_knowledge(self.db, "math", "直线斜率变化率", limit=2)
+        self.assertEqual(local["items"][0]["document_id"], local_first.id)
+
+        def scores(_query, documents):
+            return [0.99 if "选定的两个点" in text else 0.01 for text in documents]
+
+        with patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents", side_effect=scores,
+        ) as rerank:
+            result = subject_rag.search_knowledge(self.db, "math", "直线斜率变化率", limit=2)
+        self.assertEqual(result["rerank_mode"], "model")
+        self.assertEqual(result["items"][0]["document_id"], model_first.id)
+        self.assertEqual(result["items"][0]["score"], 0.99)
+        self.assertEqual(len(rerank.call_args.args[1]), 2)
+
+    def test_failed_reranking_keeps_local_order_and_safe_warning(self):
+        self.document("一次函数斜率", "一次函数的斜率决定直线倾斜程度。")
+        local = subject_rag.search_knowledge(self.db, "math", "一次函数斜率")
+        secret = "sk-test-private sensitive HTTP response"
+        with patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents", side_effect=RuntimeError(secret),
+        ), self.assertLogs(subject_rag.logger, level="WARNING") as logs:
+            result = subject_rag.search_knowledge(self.db, "math", "一次函数斜率")
+        self.assertEqual(result["items"], local["items"])
+        self.assertEqual(result["rerank_mode"], "local")
+        self.assertTrue(result["warnings"])
+        self.assertNotIn(secret, str(result["warnings"]) + str(logs.output))
+
+    def test_reranking_only_receives_current_subject_candidates(self):
+        kept = self.document("相同主题", "相同主题的数学材料 math-only。")
+        self.document("相同主题", "相同主题的英语材料 foreign-only。", subject="english")
+        with patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents", side_effect=lambda _query, documents: [0.8] * len(documents),
+        ) as rerank:
+            result = subject_rag.search_knowledge(self.db, "math", "相同主题")
+        self.assertEqual([item["document_id"] for item in result["items"]], [kept.id])
+        sent = "\n".join(rerank.call_args.args[1])
+        self.assertIn("math-only", sent)
+        self.assertNotIn("foreign-only", sent)
+
+    def test_zero_reranking_scores_do_not_divide_by_zero(self):
+        self.document("斜率例题一", "斜率可用两点坐标求解。")
+        self.document("斜率例题二", "斜率可从函数表达式求出。")
+        with patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents", side_effect=lambda _query, documents: [0.0] * len(documents),
+        ):
+            result = subject_rag.search_knowledge(self.db, "math", "斜率例题", limit=2)
+        self.assertEqual(result["rerank_mode"], "model")
+        self.assertEqual(len(result["items"]), 2)
+        self.assertTrue(all(item["score"] == 0.0 for item in result["items"]))
+
+    def test_reranking_candidate_count_is_bounded_to_24(self):
+        for index in range(30):
+            self.document(f"函数图像例题{index}", f"函数图像在第{index}份例题中的变化需要画图验证。")
+        with patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents", side_effect=lambda _query, documents: [0.5] * len(documents),
+        ) as rerank:
+            result = subject_rag.search_knowledge(self.db, "math", "函数图像例题", limit=8)
+        self.assertEqual(len(rerank.call_args.args[1]), 24)
+        self.assertEqual(result["rerank_mode"], "model")
+        self.assertLessEqual(len(result["items"]), 8)
+
+    def test_empty_search_branches_report_local_reranking(self):
+        self.document("斜率例题", "斜率可用两点坐标求解。")
+        with patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents",
+        ) as rerank:
+            for subject, query, limit in (("math", "", 4), ("math", "斜率", 0), ("english", "斜率", 4), ("math", "天气预报", 4)):
+                with self.subTest(subject=subject, query=query, limit=limit):
+                    result = subject_rag.search_knowledge(self.db, subject, query, limit)
+                    self.assertEqual(result["items"], [])
+                    self.assertEqual(result["rerank_mode"], "local")
+        rerank.assert_not_called()
+
+    def test_invalid_model_contract_falls_back_without_partial_scores(self):
+        self.document("一次函数斜率", "一次函数的斜率决定直线倾斜程度。")
+        local = subject_rag.search_knowledge(self.db, "math", "一次函数斜率")
+        for scores in ([], [float("nan")], [-0.5], [True]):
+            with self.subTest(scores=scores), patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+                subject_rag.bailian_rerank, "rerank_documents", return_value=scores,
+            ):
+                result = subject_rag.search_knowledge(self.db, "math", "一次函数斜率")
+                self.assertEqual(result["items"], local["items"])
+                self.assertEqual(result["rerank_mode"], "local")
+                self.assertTrue(result["warnings"])
 
 
 if __name__ == "__main__":

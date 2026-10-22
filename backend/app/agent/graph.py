@@ -9,7 +9,7 @@ import logging
 from time import perf_counter
 from typing import Annotated, List, Literal, TypedDict
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from ..services.stats import student_briefing
 from .prompts import build_system_prompt
 from .subjects import SUBJECT_AGENTS, build_subject_context, detect_subject, normalize_subject
 from ..services.learning_memory import student_memory_to_text
+from ..services.bailian_options import bailian_request_options, is_kimi_k3
 from .tools import build_tools, student_notebook_to_text
 
 logger = logging.getLogger(__name__)
@@ -117,10 +118,33 @@ def _build_llm(
         raise RuntimeError("提问模型必须配置为阿里云百炼（bailian）")
     if not settings.DASHSCOPE_API_KEY.strip():
         raise RuntimeError("未配置 DASHSCOPE_API_KEY（阿里云百炼）")
+    if not settings.DASHSCOPE_BASE_URL.strip() or not settings.DASHSCOPE_MODEL.strip():
+        raise RuntimeError("阿里云百炼接口地址或模型名称未配置")
     from langchain_openai import ChatOpenAI
 
     class TextSafeChatOpenAI(ChatOpenAI):
-        """过滤兼容接口的非文本 content，保留工具调用与其余流式字段。"""
+        """仅输出答复文本，并在当前工具调用上下文中回传 K3 的推理字段。"""
+
+        def _create_chat_result(self, response, generation_info=None):
+            result = super()._create_chat_result(response, generation_info)
+            if is_kimi_k3(self.model_name):
+                raw = response if isinstance(response, dict) else response.model_dump()
+                for generation, choice in zip(result.generations, raw.get("choices") or []):
+                    reasoning = (choice.get("message") or {}).get("reasoning_content")
+                    if isinstance(reasoning, str):
+                        generation.message.additional_kwargs["reasoning_content"] = reasoning
+            return result
+
+        def _get_request_payload(self, input_, *, stop=None, **kwargs):
+            messages = self._convert_input(input_).to_messages()
+            payload = super()._get_request_payload(messages, stop=stop, **kwargs)
+            if is_kimi_k3(self.model_name):
+                for serialized, message in zip(payload.get("messages") or [], messages):
+                    if isinstance(message, AIMessage):
+                        reasoning = message.additional_kwargs.get("reasoning_content")
+                        if isinstance(reasoning, str):
+                            serialized["reasoning_content"] = reasoning
+            return payload
 
         def _convert_chunk_to_generation_chunk(
             self, chunk, default_chunk_class, base_generation_info
@@ -146,20 +170,27 @@ def _build_llm(
                         "忽略百炼流式响应中的非文本 content（%s）",
                         type(content).__name__,
                     )
-            return super()._convert_chunk_to_generation_chunk(
+            generation = super()._convert_chunk_to_generation_chunk(
                 chunk, default_chunk_class, base_generation_info
             )
+            if generation is not None and is_kimi_k3(self.model_name) and choices:
+                delta = choices[0].get("delta")
+                reasoning = delta.get("reasoning_content") if isinstance(delta, dict) else None
+                if isinstance(reasoning, str):
+                    generation.message.additional_kwargs["reasoning_content"] = reasoning
+            return generation
 
+    options = bailian_request_options(settings.DASHSCOPE_MODEL, temperature)
     return TextSafeChatOpenAI(
         base_url=settings.DASHSCOPE_BASE_URL,
         api_key=settings.DASHSCOPE_API_KEY,
         model=settings.DASHSCOPE_MODEL,
-        temperature=temperature,
+        temperature=options.pop("temperature", None),
         timeout=timeout_seconds or settings.LLM_TIMEOUT_SECONDS,
         max_retries=0,
         streaming=streaming,
         use_responses_api=False,
-        extra_body={"enable_thinking": False},
+        extra_body=options,
     )
 
 

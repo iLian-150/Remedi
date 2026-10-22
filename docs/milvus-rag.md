@@ -1,6 +1,6 @@
 # 学科 RAG 与 Milvus 部署
 
-学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、百炼向量模型超时或索引暂不可用时，资料检索继续使用本地 BM25。
+学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合，再使用 `qwen3.7-text-rerank` 重排。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、百炼向量模型超时或索引暂不可用时，资料检索继续使用本地 BM25；模型重排失败时使用本地重排，并返回不含凭证或上游响应的安全警告。
 
 ## 镜像与 ARM64
 
@@ -10,7 +10,7 @@
 
 ## 配置统一放在 .env
 
-部署目录为 `/remedi`。文字、视觉、向量化统一使用阿里云百炼；配置放在服务器本地 `.env`，不要提交真实凭证：
+部署目录为 `/remedi`。文字、视觉、向量化和重排统一通过阿里云百炼调用；配置放在服务器本地 `.env`，不要提交真实凭证。下面的 Key 为空示例，APIHost 中的工作空间与地域均需替换为控制台给出的实际值：
 
 ```dotenv
 COMPOSE_PROJECT_NAME=remedi
@@ -21,14 +21,16 @@ BUILD_NETWORK=host
 SEED_DEMO_DATA=false
 LLM_PROVIDER=bailian
 DASHSCOPE_API_KEY=
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DASHSCOPE_MODEL=qwen-plus
+DASHSCOPE_BASE_URL=https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_MODEL=kimi-k3
 DASHSCOPE_VISION_MODEL=qwen3-vl-plus
 RAG_MILVUS_URI=http://milvus:19530
-RAG_MILVUS_COLLECTION=remedi_subject_knowledge_bailian_v4
-RAG_EMBEDDING_MODEL=text-embedding-v4
+RAG_MILVUS_COLLECTION=remedi_subject_knowledge_qwen37_flash
+RAG_EMBEDDING_MODEL=qwen3.7-text-embedding-flash
 RAG_EMBEDDING_DIMENSIONS=1024
 RAG_TIMEOUT_SECONDS=8
+RAG_RERANK_MODEL=qwen3.7-text-rerank
+RAG_RERANK_TIMEOUT_SECONDS=10
 RAG_MINIO_ROOT_USER=remedi-rag
 RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 ```
@@ -37,34 +39,40 @@ RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 
 `BUILD_NETWORK=host` 使镜像构建阶段使用宿主机的网络与 DNS，适配本服务器构建桥接网络无法解析域名的情况；API、前端和向量服务运行时仍使用项目 Docker 内网。无需修改全局 Docker 配置或系统 DNS。
 
-`SEED_DEMO_DATA=false` 跳过启动时的演示数据生成及其模型请求，不删除已有数据。当前服务器按用户要求将 `DASHSCOPE_API_KEY` 留空；数据库健康检查不实例化模型，网站、后端和 BM25 资料检索可独立启动。AI 问答及向量化在补齐可用凭证后启用，不会返回模拟答案。旧 Cloudflare 配置不再参与运行。
+`SEED_DEMO_DATA=false` 跳过启动时的演示数据生成及其模型请求，不删除已有数据。用户已经提供 API Key，实际值仅保存在服务器环境配置，不在文档展示。数据库健康检查不实例化模型，网站、后端和 BM25 资料检索可独立启动；模型调用失败不会生成模拟答案。
 
-后续在 `/remedi/.env` 填写 `DASHSCOPE_API_KEY`，再执行：
+`DASHSCOPE_BASE_URL` 必须使用百炼控制台工作空间的专属 APIHost，并附加 `/compatible-mode/v1`。北京地域示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；工作空间标识和地域须按实际账号确定，不使用通用 DashScope 地址替代。问答、向量化和重排的可用性需分别通过实际调用验证。修改 APIHost 时，仅更新 `/remedi/.env` 中对应的地址，保留已有密钥，再执行：
 
 ```bash
 cd /remedi
 docker compose up -d --force-recreate api
 ```
 
-之后在教师知识库点击“重建检索索引”，将模型未配置期间导入的资料同步到 Milvus。模型名称、向量库和 MinIO 参数已经预置，无需将真实令牌加入 Git 或镜像。默认地址对应北京地域；若账号使用新加坡等地域，按[百炼兼容接口文档](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)修改 `DASHSCOPE_BASE_URL`，API Key 须与地域匹配。
+模型连接验证通过后，在教师知识库点击“重建检索索引”，将已有资料同步到新集合 `remedi_subject_knowledge_qwen37_flash`。旧集合继续保留，不删除业务资料或历史向量。模型名称、向量库和 MinIO 参数已经预置，无需将真实令牌加入 Git 或镜像。
+
+`Kimi-K3` 必须启用思考，工具调用轮次在本次请求内存中保留并回传 `reasoning_content`；`enable_thinking` 和 `preserve_thinking` 始终开启。隐藏推理不进入界面、SSE 回复正文或持久化聊天记录。
 
 | 环境变量 | 默认值 / 用途 |
 | --- | --- |
 | `RAG_MILVUS_URI` | 应用默认空；overlay 默认 `http://milvus:19530` |
 | `RAG_MILVUS_TOKEN` | 空；外部实例启用鉴权时填写对应 token |
-| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_bailian_v4` |
-| `RAG_EMBEDDING_MODEL` | `text-embedding-v4` |
+| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_qwen37_flash` |
+| `RAG_EMBEDDING_MODEL` | `qwen3.7-text-embedding-flash` |
 | `RAG_EMBEDDING_DIMENSIONS` | `1024`；入库与查询一致 |
 | `RAG_TIMEOUT_SECONDS` | `8`；单次网络操作超时，上限 30 秒 |
-| `DASHSCOPE_API_KEY` | 百炼 API Key，当前留空，用户后续填写 |
-| `DASHSCOPE_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `DASHSCOPE_MODEL` / `DASHSCOPE_VISION_MODEL` | `qwen-plus` / `qwen3-vl-plus` |
+| `RAG_RERANK_MODEL` | `qwen3.7-text-rerank`；不可用时使用本地重排 |
+| `RAG_RERANK_TIMEOUT_SECONDS` | `10`；模型重排请求超时（秒） |
+| `DASHSCOPE_API_KEY` | 百炼 API Key，真实值仅保存在服务器 `.env` |
+| `DASHSCOPE_BASE_URL` | 控制台工作空间专属 APIHost + `/compatible-mode/v1`；工作空间和地域按账号确定 |
+| `DASHSCOPE_MODEL` / `DASHSCOPE_VISION_MODEL` | `kimi-k3` / `qwen3-vl-plus` |
 | `RAG_MINIO_ROOT_USER` / `RAG_MINIO_ROOT_PASSWORD` | overlay 必填；独立 MinIO 账户和密码 |
 | `RAG_MILVUS_IMAGE` | `milvusdb/milvus:v2.6.25` |
 | `RAG_ETCD_IMAGE` | `quay.io/coreos/etcd:v3.5.25` |
 | `RAG_MINIO_IMAGE` | `milvusdb/minio:RELEASE.2024-12-18T13-15-44Z` |
 
-向量化使用[百炼 OpenAI 兼容 Embeddings 接口](https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api)，`text-embedding-v4` 每批最多 10 个片段，显式指定 1024 维，按响应 `index` 恢复输入顺序并验证数量、维数和数值。集合保存片段 ID、文档 ID、学科、模型和向量，使用 COSINE / AUTOINDEX。[服务端检索](https://milvus.io/api-reference/pymilvus/v2.6.x/MilvusClient/Vector/search.md)同时过滤学科和向量模型；业务层还会核验片段仍存在于当前学科。更换模型或维数时更换集合名并重新索引，避免混用向量空间。
+向量化通过工作空间的 OpenAI 兼容 Embeddings 接口调用 `qwen3.7-text-embedding-flash`，分批提交片段，显式指定 1024 维，按响应 `index` 恢复输入顺序并验证数量、维数和数值。集合保存片段 ID、文档 ID、学科、模型和向量，使用 COSINE / AUTOINDEX。[服务端检索](https://milvus.io/api-reference/pymilvus/v2.6.x/MilvusClient/Vector/search.md)同时过滤学科和向量模型；业务层还会核验片段仍存在于当前学科。更换模型或维数时更换集合名并重新索引，避免混用向量空间。
+
+候选片段经 `qwen3.7-text-rerank` 重排后再恢复父块并去重。模型超时或返回异常时，保留召回候选并使用本地重排；未配置凭证或将 `RAG_RERANK_MODEL` 设为空时，直接使用本地重排。试查响应中的 `rerank_mode=model|local` 表示实际重排方式，与 `retrieval_mode=bm25|hybrid` 分别报告。`warnings` 只返回安全说明，不回传密钥、工作空间请求头或原始上游错误。
 
 ## 启动与数据位置
 
@@ -144,9 +152,11 @@ Content-Type: application/json
 {"query":"一次函数的斜率表示什么？","limit":4}
 ```
 
+检查响应的 `retrieval_mode`、`rerank_mode` 和 `warnings`，分别确认召回、重排和降级情况。`rerank_mode` 为新增字段，取 `model` 或 `local`；没有候选或模型重排未完成时，不会声称使用模型重排。
+
 ## 检查与维护
 
-启用后上传数学资料、重建数学索引，用资料中的问题查询，再用其他学科查询，确认没有跨学科引用。删除资料后查询其独有内容，确认不再引用；Milvus 暂停时确认问答回退 BM25，恢复后重建失败的索引。
+启用后上传数学资料、重建数学索引，用资料中的问题查询，再用其他学科查询，确认没有跨学科引用。删除资料后查询其独有内容，确认不再引用；Milvus 暂停时确认问答回退 BM25，恢复后重建失败的索引。重排模型不可用时，应得到 `rerank_mode=local` 与安全警告，仍可取得有来源的资料。
 
 ```bash
 cd /remedi

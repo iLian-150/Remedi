@@ -23,15 +23,17 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-bailian}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-120}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
-      - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      - DASHSCOPE_MODEL=${DASHSCOPE_MODEL:-qwen-plus}
+      - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL:-}
+      - DASHSCOPE_MODEL=${DASHSCOPE_MODEL:-kimi-k3}
       - DASHSCOPE_VISION_MODEL=${DASHSCOPE_VISION_MODEL:-qwen3-vl-plus}
       - RAG_MILVUS_URI=${RAG_MILVUS_URI:-}
       - RAG_MILVUS_TOKEN=${RAG_MILVUS_TOKEN:-}
-      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge_bailian_v4}
-      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-text-embedding-v4}
+      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge_qwen37_flash}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-qwen3.7-text-embedding-flash}
       - RAG_EMBEDDING_DIMENSIONS=${RAG_EMBEDDING_DIMENSIONS:-1024}
       - RAG_TIMEOUT_SECONDS=${RAG_TIMEOUT_SECONDS:-8}
+      - RAG_RERANK_MODEL=${RAG_RERANK_MODEL:-qwen3.7-text-rerank}
+      - RAG_RERANK_TIMEOUT_SECONDS=${RAG_RERANK_TIMEOUT_SECONDS:-10}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]

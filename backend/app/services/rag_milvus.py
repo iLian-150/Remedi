@@ -62,6 +62,8 @@ def _embedding_dimensions() -> int:
     dimension = settings.RAG_EMBEDDING_DIMENSIONS
     if isinstance(dimension, bool) or not isinstance(dimension, int) or not 2 <= dimension <= 32768:
         raise RuntimeError("RAG 向量维数配置无效")
+    if _model() == "qwen3.7-text-embedding-flash" and dimension not in {256, 512, 768, 1024}:
+        raise RuntimeError("qwen3.7-text-embedding-flash 仅支持 256、512、768 或 1024 维")
     return dimension
 
 

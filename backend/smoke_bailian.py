@@ -4,11 +4,13 @@ import json
 import unittest
 from unittest.mock import Mock, patch
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.messages.utils import message_chunk_to_message
 
 from app.config import settings
-from app.agent.graph import _build_llm
+from app.agent.graph import _build_llm, _message_chunk_text
 from app.services import providers
+from app.services.bailian_options import bailian_request_options
 
 
 class BailianTests(unittest.TestCase):
@@ -38,11 +40,14 @@ class BailianTests(unittest.TestCase):
     def provider(self):
         return providers.get_provider()
 
-    def assert_request(self, request, *, model):
+    def assert_request(self, request, *, model, thinking=False):
         self.assertEqual(request.args[0], settings.DASHSCOPE_BASE_URL + "/chat/completions")
         self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer unit-test-only-key")
         self.assertEqual(request.kwargs["json"]["model"], model)
-        self.assertIs(request.kwargs["json"]["enable_thinking"], False)
+        self.assertIs(request.kwargs["json"]["enable_thinking"], thinking)
+        if thinking:
+            self.assertIs(request.kwargs["json"]["preserve_thinking"], True)
+            self.assertNotIn("temperature", request.kwargs["json"])
         self.assertNotIn("extra_body", request.kwargs["json"], "直接 HTTP 调用的自定义参数应处于顶层")
 
     def test_active_factory_uses_bailian_and_accepts_provider_aliases(self):
@@ -159,6 +164,93 @@ class BailianTests(unittest.TestCase):
         synchronous = _build_llm(streaming=False, temperature=0)
         self.assertFalse(synchronous.streaming)
         self.assertEqual(synchronous.extra_body, {"enable_thinking": False})
+        self.network.assert_not_called()
+
+    def test_request_options_are_selected_for_actual_model(self):
+        for name in ("kimi-k3", "kimi/kimi-k3", "kimi-k3-2026-09-01"):
+            with self.subTest(model=name):
+                self.assertEqual(bailian_request_options(name, 0.2),
+                                 {"enable_thinking": True, "preserve_thinking": True})
+        for name in ("qwen-plus", "qwen3-vl-plus"):
+            with self.subTest(model=name):
+                self.assertEqual(bailian_request_options(name, 0.2),
+                                 {"enable_thinking": False, "temperature": 0.2})
+
+    def test_kimi_text_uses_preserved_thinking_but_qwen_image_does_not(self):
+        text_response = self.response("最终回复")
+        text_response.json.return_value["choices"][0]["message"]["reasoning_content"] = "仅供模型继续推理"
+        stream_response = self.response(lines=[self.sse({"reasoning_content": "仅供模型继续推理"}),
+                                               self.sse({"content": "最终回复"}), b"data: [DONE]"])
+        image_response = self.response(json.dumps({"question_text": "x=1", "steps": []}))
+        with patch.object(settings, "DASHSCOPE_MODEL", "kimi-k3"), patch(
+            "requests.post", side_effect=[text_response, stream_response, image_response],
+        ) as post:
+            provider = self.provider()
+            self.assertEqual(provider._chat("要求", "题目", temperature=0.2), "最终回复")
+            self.assertEqual(list(provider.stream_chat_answer("要求", "题目", temperature=0)), ["最终回复"])
+            provider.transcribe_image(b"image", "image/png")
+        self.assert_request(post.call_args_list[0], model="kimi-k3", thinking=True)
+        self.assert_request(post.call_args_list[1], model="kimi-k3", thinking=True)
+        self.assert_request(post.call_args_list[2], model="qwen3-vl-plus")
+        self.assertEqual(post.call_args_list[2].kwargs["json"]["temperature"], 0.1)
+
+    def test_future_kimi_vision_uses_its_own_model_options(self):
+        image_response = self.response(json.dumps({"question_text": "x=1", "steps": []}))
+        stream_response = self.response(lines=[self.sse({"reasoning_content": "推理片段"}),
+                                               self.sse({"content": "图片讲解"}), b"data: [DONE]"])
+        with patch.object(settings, "DASHSCOPE_VISION_MODEL", "kimi-k3"), patch(
+            "requests.post", side_effect=[image_response, stream_response],
+        ) as post:
+            provider = self.provider()
+            self.assertEqual(provider.model, "qwen-plus")
+            provider.transcribe_image(b"image", "image/png")
+            self.assertEqual(list(provider.stream_image_answer(b"image", "image/png")), ["图片讲解"])
+        for request in post.call_args_list:
+            self.assert_request(request, model="kimi-k3", thinking=True)
+
+    def test_kimi_stream_and_sync_reasoning_roundtrip_across_tool_calls(self):
+        with patch.object(settings, "DASHSCOPE_MODEL", "kimi-k3"):
+            llm = _build_llm(streaming=True, temperature=0)
+        self.assertEqual(llm.extra_body, {"enable_thinking": True, "preserve_thinking": True})
+        self.assertIsNone(llm.temperature)
+        self.assertFalse(llm.use_responses_api)
+        first = llm._convert_chunk_to_generation_chunk(
+            {"choices": [{"delta": {"role": "assistant", "content": None,
+                                      "reasoning_content": "先读取报告。"}}]}, AIMessageChunk, {},
+        )
+        second = llm._convert_chunk_to_generation_chunk(
+            {"choices": [{"delta": {"content": None, "reasoning_content": "再查询错题。", "tool_calls": [
+                {"index": 0, "id": "call-report", "type": "function",
+                 "function": {"name": "read_report", "arguments": "{}"}},
+            ]}, "finish_reason": "tool_calls"}]}, AIMessageChunk, {},
+        )
+        assistant = message_chunk_to_message((first + second).message)
+        self.assertEqual(assistant.additional_kwargs["reasoning_content"], "先读取报告。再查询错题。")
+        self.assertEqual(_message_chunk_text(assistant), "", "推理字段不能作为用户可见文字")
+        messages = [HumanMessage(content="帮我看看薄弱点"), assistant,
+                    ToolMessage(content="报告数据", tool_call_id="call-report")]
+        payload = llm._get_request_payload(messages)
+        self.assertNotIn("temperature", payload)
+        self.assertEqual(payload["messages"][1]["reasoning_content"], "先读取报告。再查询错题。")
+        self.assertEqual(payload["messages"][1]["tool_calls"][0]["id"], "call-report")
+        self.assertEqual(payload["messages"][2]["tool_call_id"], "call-report")
+        self.assertNotIn("reasoning_content", payload["messages"][0])
+
+        raw = {"model": "kimi-k3", "choices": [{"finish_reason": "tool_calls", "message": {
+            "role": "assistant", "content": None, "reasoning_content": "同步读取报告。",
+            "tool_calls": [{"id": "sync-report", "type": "function",
+                            "function": {"name": "read_report", "arguments": "{}"}}],
+        }}]}
+        synchronous = llm._create_chat_result(raw).generations[0].message
+        self.assertEqual(synchronous.additional_kwargs["reasoning_content"], "同步读取报告。")
+        next_payload = llm._get_request_payload([HumanMessage(content="报告"), synchronous,
+                                                ToolMessage(content="数据", tool_call_id="sync-report")])
+        self.assertEqual(next_payload["messages"][1]["reasoning_content"], "同步读取报告。")
+        raw["choices"][0]["message"].update(content="最终回答", tool_calls=[])
+        final_answer = llm._create_chat_result(raw).generations[0].message
+        self.assertEqual(_message_chunk_text(final_answer), "最终回答")
+        historical = llm._get_request_payload([AIMessage(content="旧回复"), HumanMessage(content="追问")])
+        self.assertNotIn("reasoning_content", historical["messages"][0], "旧记录不得编造推理字段")
         self.network.assert_not_called()
 
 

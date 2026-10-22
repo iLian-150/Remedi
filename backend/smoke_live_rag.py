@@ -91,6 +91,7 @@ def run(base_url: str) -> int:
 
         found = search()
         _check(found.get("retrieval_mode") == "hybrid", "真实检索未使用 hybrid 模式")
+        _check(found.get("rerank_mode") == "model", "真实检索未使用百炼模型重排")
         items = found.get("items")
         _check(isinstance(items, list), "检索结果结构无效")
         matches = [item for item in items if item.get("document_id") == document_id]
@@ -99,7 +100,7 @@ def run(base_url: str) -> int:
         _check(hit.get("source_name") == source_name, "命中资料缺少正确来源")
         _check(str(hit.get("citation", "")).startswith(f"[资料{document_id}-片段"), "命中资料缺少可追溯引用")
         _check(marker in hit.get("content", "") and "韦达定理" in hit.get("content", ""), "命中内容与临时资料不符")
-        print("[通过] 真实 hybrid 检索命中资料，正文、来源与引用一致")
+        print("[通过] 真实 hybrid 检索及百炼模型重排命中资料，正文、来源与引用一致")
     except SmokeFailure as exc:
         failed = True
         print(f"[失败] {exc}")

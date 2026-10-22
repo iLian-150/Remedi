@@ -34,20 +34,25 @@ npm run dev               # 开发模式（vite 代理 /api 到 localhost:8000�
 npm run build             # 生产构建 → dist/
 ```
 
-模型统一使用阿里云百炼，配置通过环境变量传入（见 `backend/app/config.py`）。服务器 `/remedi/.env` 的模型参数如下，API Key 按当前要求先留空，演示数据初始化保持关闭：
+模型统一通过阿里云百炼调用，配置通过环境变量传入（见 `backend/app/config.py`）。文字模型使用 `Kimi-K3`，视觉模型使用 `qwen3-vl-plus`，向量化和重排分别使用 `qwen3.7-text-embedding-flash`、`qwen3.7-text-rerank`。以下为服务器 `/remedi/.env` 的配置示例，真实 API Key 仅保存在服务器，不写入示例或提交到 Git：
 
 ```dotenv
 SEED_DEMO_DATA=false
 LLM_PROVIDER=bailian
 DASHSCOPE_API_KEY=
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DASHSCOPE_MODEL=qwen-plus
+DASHSCOPE_BASE_URL=https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_MODEL=kimi-k3
 DASHSCOPE_VISION_MODEL=qwen3-vl-plus
-RAG_EMBEDDING_MODEL=text-embedding-v4
+RAG_MILVUS_COLLECTION=remedi_subject_knowledge_qwen37_flash
+RAG_EMBEDDING_MODEL=qwen3.7-text-embedding-flash
 RAG_EMBEDDING_DIMENSIONS=1024
+RAG_RERANK_MODEL=qwen3.7-text-rerank
+RAG_RERANK_TIMEOUT_SECONDS=10
 ```
 
-默认接口为北京地域；使用新加坡地域账号时，将 `DASHSCOPE_BASE_URL` 改为 `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`。API Key 留空不影响网站、数据库和健康检查启动；资料检索先使用 BM25。补齐对应地域的有效 Key 后，才能使用 AI 问答、图片识别和向量化，再在学科知识库中重建检索索引。模型未配置或调用失败时会明确报错，不生成模拟答案。
+`DASHSCOPE_BASE_URL` 必须使用百炼控制台提供的工作空间专属 APIHost，并带上 `/compatible-mode/v1`；示例中的 `<workspace-id>` 和北京地域均需按实际账号替换。模型可用性通过实际请求验证。凭证或模型不可用不影响网站、数据库和健康检查启动；向量化不可用时使用 BM25，模型重排调用失败时使用本地重排，并返回安全警告。有效配置启用后，在学科知识库中重建索引，将资料写入新集合；保留旧集合与业务数据。
+
+`Kimi-K3` 始终启用思考，工具调用轮次按协议临时回传模型的推理字段；这些字段不进入界面、SSE 回复正文或持久化聊天记录。AI 问答调用失败时会明确报错，不生成模拟答案。
 
 ## MVP 范围
 

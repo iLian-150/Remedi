@@ -1,6 +1,6 @@
 # Remedi MVP 接口契约（API Contract）
 
-> 版本：v0.13.316（2026-10-23）
+> 版本：v0.13.317（2026-10-23）
 > **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
 
 ## 1. 基础约定
@@ -14,6 +14,7 @@
 - **数据格式**：请求与响应均为 `application/json; charset=utf-8`。
 - **时间格式**：ISO 8601，如 `2026-10-06T15:40:35`（本地时间，不带时区后缀）。
 - **分页**：列表接口统一用 `limit`（默认 20，最大 100）、`offset`（默认 0），响应形如 `{"total": 42, "items": [...]}`。
+- **模型配置**：通过阿里云百炼工作空间专属 APIHost 调用文字 `Kimi-K3`、视觉 `qwen3-vl-plus`、向量 `qwen3.7-text-embedding-flash`（1024 维）及重排 `qwen3.7-text-rerank`。APIHost 由控制台确认，格式示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，工作空间与地域按实际账号替换。实际密钥只保存在服务器环境配置；配置项本身不表示真实模型调用已通过。
 
 ### 1.1 认证方式（Mock 登录）
 
@@ -558,6 +559,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```
 
 - `token`：回复文本块；同一回复可能有多个事件。
+- `Kimi-K3` 始终启用思考；服务端只在当前请求的工具调用循环内临时保留并回传 `reasoning_content`。隐藏推理不作为 `token` 或 `done.reply` 返回，也不写入持久化聊天消息；SSE 与历史接口的可见文本结构不变。
 - `done`：完整回复、建议追问、会话 id，以及选填的 `related_mistake`（同学科、同知识点最近一条已审核且未归档的历史错题；无匹配时为 `null`）。服务端在生成完成后将助手回复写入会话，并持久化该消息与错题的关联；用户提问已在流开始前保存。
 - `error`：流生成中断时发送 `{ "detail": "回复生成中断，请稍后重试。" }`；已经保存的用户提问仍可在历史会话中找回。
   - 学生 Agent 可读取本人未归档错题、订正状态和学科学习记忆；路由识别出学科后检索对应的专属知识库。学生只发题目时仍不会创建批改记录；明确提交数学作答时接入现有文字诊断、错题本和订正流程，图片作答由照片批改流程自动识别学科并批改。
@@ -1245,6 +1247,8 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 权限：教师。请求 `{ "message": "《第一周数学作业》谁还没交？", "session_id": 2 }`；`message` 必填且最长 2000 字，`session_id` 选填。响应为 `text/event-stream`：`token` 事件携带模型文本块，`done` 事件携带完整回复、建议追问与会话 id；模型错误时发送 `error` 事件，不生成模拟回复。教师端前端逐 Unicode 字符呈现文本，并在成功后保存助手回复。学生调用返回 `403`。
 
+`Kimi-K3` 的思考和工具轮推理字段回传规则同 3.15.1；隐藏推理不发送到界面或持久化聊天记录。
+
 ### 4.13 GET /api/teacher/agent/history —— 教师对话历史（v0.5.0 新增）
 
 权限：教师。响应 `200`：最近 50 条（时间正序），元素结构同 3.16（`role` / `content` / `created_at`）。v0.6.0 起同 3.16，只返回当前会话的消息。
@@ -1393,13 +1397,15 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET` 返回该学科资料，新增顶层 `vector_enabled`（是否配置 Milvus）及每条资料的 `passage_count`；`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；标题、正文不能仅含空白。`DELETE` 删除整条资料及关系库片段，提交本地删除后清理 Milvus 索引，向量清理失败返回 `warnings`，残留向量不能引用已删除资料。
 
-新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、规则重排及父块去重。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
+新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、模型重排及父块去重；重排模型为 `qwen3.7-text-rerank`，默认超时 10 秒，不可用时回退本地重排并返回安全警告。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
 
 - `POST /api/teacher/knowledge/{subject}/import-pdf`：multipart 必填 `file`，选填 `title`、`source_name`。最大 10MB、80 页、12 万字，读取带文字层的 PDF；纯扫描件返回 `422` 并提示先 OCR，超大小返回 `413`。保存物理页码；空白/无文字页不索引且返回警告。响应除上述资料字段外新增 `page_count` 和 `indexed_pages`（均为数量）。
-- `POST /api/teacher/knowledge/{subject}/search`：请求 `{ "query": "一次函数如何判断增减性", "limit": 4 }`，query 为 1–2000 字且不能纯空白，limit 为 1–8。响应 `{ "items": [...], "retrieval_mode": "bm25 | hybrid", "warnings": [] }`；每项含 `document_id`、`title`、`source_name`、`page_number`（文本资料为 null）、`passage_id`（未建立片段的旧资料为 null）、`content`（父块）、`score`（排序分而非可信度）、`citation`（如 `[资料12-片段3]`）。
+- `POST /api/teacher/knowledge/{subject}/search`：请求 `{ "query": "一次函数如何判断增减性", "limit": 4 }`，query 为 1–2000 字且不能纯空白，limit 为 1–8。响应 `{ "items": [...], "retrieval_mode": "bm25 | hybrid", "rerank_mode": "model | local", "warnings": [] }`；`rerank_mode` 为 v0.13.317 新增非 breaking 字段，分别表示完成模型重排或采用本地重排，不改变 `retrieval_mode` 的召回语义。每项含 `document_id`、`title`、`source_name`、`page_number`（文本资料为 null）、`passage_id`（未建立片段的旧资料为 null）、`content`（父块）、`score`（排序分而非可信度）、`citation`（如 `[资料12-片段3]`）。已配置的重排模型调用失败或超时时，返回 `rerank_mode=local` 及安全警告；未配置凭证或关闭重排模型时直接采用本地重排。`warnings` 不包含凭证或原始上游响应。
 - `POST /api/teacher/knowledge/{subject}/reindex`：将该学科全部资料同步到 Milvus，复用已有片段 ID 和 PDF 页码。响应 `documents`、`passage_count`、`vector_status`、`warnings`。同步为幂等 upsert；失败后可重试。
 
 教师助手可通过 `search_teaching_knowledge` 工具检索本人任教学科；学生学科 Agent 自动使用对应学科上下文。模型回答应保留返回的引用、来源和页码，资料内指令不得改变 Agent 行为。部署配置见 [Milvus 部署说明](milvus-rag.md)。
+
+向量模型使用 `qwen3.7-text-embedding-flash`，维度为 1024，新集合为 `remedi_subject_knowledge_qwen37_flash`；切换模型后重新索引，保留旧集合和业务数据。
 
 ---
 
@@ -1414,7 +1420,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```json
 {
   "status": "ok",
-  "version": "0.13.316",
+  "version": "0.13.317",
   "provider": "bailian",
   "time": "2026-10-06T15:40:35"
 }
@@ -1784,3 +1790,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 | v0.13.315 | 2026-10-22 | 学科 RAG 增加父子分块、BM25/Milvus 混合检索、PDF 导入、引用追溯与教师试查；支持 ARM64 Docker 部署。 |
 | v0.13.316 | 2026-10-23 | 文字、视觉和向量化统一使用阿里云百炼；API Key 可先留空，健康检查与模型解耦，支持关闭启动演示数据。 |
+| v0.13.317 | 2026-10-23 | 文字模型改为 Kimi-K3 并保留工具轮所需思考字段，隐藏推理不进入界面或聊天持久化；向量模型改为 qwen3.7-text-embedding-flash（1024 维）并使用新集合，新增 qwen3.7-text-rerank 模型重排与本地降级，试查响应新增 rerank_mode。工作空间 APIHost 以控制台为准。 |

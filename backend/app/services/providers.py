@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
 from .confidence import normalize_confidence
+from .bailian_options import bailian_request_options
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +119,9 @@ class DeepSeekProvider(LLMProvider):
         self.base_url = base_url.rstrip("/")
         self.model = model
 
-    def _extra_request_body(self) -> Dict:
-        """提供方特有参数直接合入 HTTP 请求体。"""
-        return {}
+    def _extra_request_body(self, model: str, temperature: float) -> Dict:
+        """按实际请求模型合入采样及提供方特有参数。"""
+        return {"temperature": temperature}
 
     def _chat(self, system: str, user: str, temperature: float = 0.2) -> str:
         import requests
@@ -131,12 +132,11 @@ class DeepSeekProvider(LLMProvider):
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={
                 "model": self.model,
-                "temperature": temperature,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                **self._extra_request_body(),
+                **self._extra_request_body(self.model, temperature),
             },
             timeout=settings.LLM_TIMEOUT_SECONDS,
         )
@@ -154,13 +154,12 @@ class DeepSeekProvider(LLMProvider):
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={
                 "model": self.model,
-                "temperature": temperature,
                 "stream": True,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                **self._extra_request_body(),
+                **self._extra_request_body(self.model, temperature),
             },
             timeout=settings.LLM_TIMEOUT_SECONDS,
             stream=True,
@@ -318,7 +317,6 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={
                 "model": self.vision_model,
-                "temperature": 0.1,
                 "messages": [
                     {"role": "system", "content": system_text},
                     {
@@ -329,7 +327,7 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                         ],
                     },
                 ],
-                **self._extra_request_body(),
+                **self._extra_request_body(self.vision_model, 0.1),
             },
             timeout=timeout,
         )
@@ -358,7 +356,6 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={
                 "model": self.vision_model,
-                "temperature": 0.3,
                 "max_tokens": 4096,
                 "stream": True,
                 "messages": [
@@ -371,7 +368,7 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                         ],
                     },
                 ],
-                **self._extra_request_body(),
+                **self._extra_request_body(self.vision_model, 0.3),
             },
             timeout=settings.LLM_TIMEOUT_SECONDS,
             stream=True,
@@ -678,9 +675,9 @@ class BailianProvider(OpenAICompatibleVisionProvider):
         super().__init__(api_key=api_key.strip(), base_url=base_url.strip(),
                          model=model.strip(), vision_model=vision_model.strip())
 
-    def _extra_request_body(self) -> Dict:
-        # 直接 HTTP 请求须放在顶层；同步任务和工具调用不输出思考过程。
-        return {"enable_thinking": False}
+    def _extra_request_body(self, model: str, temperature: float) -> Dict:
+        # 文本和视觉可能采用不同模型，不能把文本 K3 的选项用于 Qwen 视觉请求。
+        return bailian_request_options(model, temperature)
 
 
 # ---------------------------------------------------------------- 旧 Cloudflare 兼容类（工厂不再使用）

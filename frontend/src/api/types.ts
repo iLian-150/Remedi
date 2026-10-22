@@ -872,6 +872,7 @@ export interface SubjectKnowledgeSearchItem {
 export interface SubjectKnowledgeSearchResult {
   items: SubjectKnowledgeSearchItem[]
   retrieval_mode: 'bm25' | 'hybrid'
+  rerank_mode: 'model' | 'local'
   warnings: string[]
 }
 

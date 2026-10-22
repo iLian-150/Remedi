@@ -17,9 +17,9 @@ class MilvusAdapterTests(unittest.TestCase):
         self.enterContext(patch.multiple(
             rag.settings,
             RAG_MILVUS_URI="http://127.0.0.1:19530", RAG_MILVUS_TOKEN="test-milvus-token",
-            RAG_MILVUS_COLLECTION="remedi_test", RAG_EMBEDDING_MODEL="text-embedding-v4",
-            RAG_EMBEDDING_DIMENSIONS=64, RAG_TIMEOUT_SECONDS=2,
-            DASHSCOPE_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            RAG_MILVUS_COLLECTION="remedi_test", RAG_EMBEDDING_MODEL="qwen3.7-text-embedding-flash",
+            RAG_EMBEDDING_DIMENSIONS=256, RAG_TIMEOUT_SECONDS=2,
+            DASHSCOPE_BASE_URL="https://ws-test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
             DASHSCOPE_API_KEY="test-bailian-token", create=True,
         ))
         self.enterContext(patch.object(rag, "_states", {}))
@@ -36,7 +36,7 @@ class MilvusAdapterTests(unittest.TestCase):
 
     def embedding_payload(self, vectors, reverse=False):
         data = [{"index": index, "embedding": vector} for index, vector in enumerate(vectors)]
-        return {"data": list(reversed(data)) if reverse else data, "model": "text-embedding-v4"}
+        return {"data": list(reversed(data)) if reverse else data, "model": "qwen3.7-text-embedding-flash"}
 
     def state(self, existing=False, dimension=3):
         """Fake transport with metadata produced by the real SDK schema builder."""
@@ -54,7 +54,7 @@ class MilvusAdapterTests(unittest.TestCase):
 
     def test_embedding_batches_preserve_order_and_bound_timeout(self):
         texts = [f"passage-{index}" for index in range(23)]
-        vectors = [[float(index + 1)] + [0.5] * 63 for index in range(23)]
+        vectors = [[float(index + 1)] + [0.5] * 255 for index in range(23)]
         responses = [self.response(self.embedding_payload(vectors[start:start + 10], reverse=True)) for start in (0, 10, 20)]
         with patch.object(rag.requests, "post", side_effect=responses) as post:
             self.assertEqual(rag.embed_texts(texts), vectors)
@@ -63,10 +63,10 @@ class MilvusAdapterTests(unittest.TestCase):
         self.assertTrue(all(len(call.kwargs["json"]["input"]) <= 10 for call in post.call_args_list))
         self.assertTrue(all(call.kwargs["timeout"] == (2.0, 2.0) for call in post.call_args_list))
         for request in post.call_args_list:
-            self.assertEqual(request.args[0], "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings")
+            self.assertEqual(request.args[0], "https://ws-test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/embeddings")
             self.assertEqual(request.kwargs["headers"], {"Authorization": "Bearer test-bailian-token", "Content-Type": "application/json"})
-            self.assertEqual(request.kwargs["json"]["model"], "text-embedding-v4")
-            self.assertEqual(request.kwargs["json"]["dimensions"], 64)
+            self.assertEqual(request.kwargs["json"]["model"], "qwen3.7-text-embedding-flash")
+            self.assertEqual(request.kwargs["json"]["dimensions"], 256)
             self.assertEqual(request.kwargs["json"]["encoding_format"], "float")
             self.assertFalse(request.kwargs["allow_redirects"])
 
@@ -86,7 +86,7 @@ class MilvusAdapterTests(unittest.TestCase):
             rag._validate_vectors([[1, 2], [1, 2, 3]], expected=2)
 
     def test_embedding_rejects_duplicate_missing_out_of_range_and_noninteger_indices(self):
-        vector = [0.5] * 64
+        vector = [0.5] * 256
         invalid = (
             [{"index": 0, "embedding": vector}, {"index": 0, "embedding": vector}],
             [{"index": 0, "embedding": vector}],
@@ -105,8 +105,8 @@ class MilvusAdapterTests(unittest.TestCase):
 
     def test_embedding_rejects_dimension_change_across_batches(self):
         responses = [
-            self.response(self.embedding_payload([[0.5] * 64] * 10)),
-            self.response(self.embedding_payload([[0.5] * 63])),
+            self.response(self.embedding_payload([[0.5] * 256] * 10)),
+            self.response(self.embedding_payload([[0.5] * 255])),
         ]
         with patch.object(rag.requests, "post", side_effect=responses), self.assertRaises(RuntimeError):
             rag.embed_texts(["passage"] * 11)
@@ -135,21 +135,21 @@ class MilvusAdapterTests(unittest.TestCase):
         rag.requests.post.assert_not_called()
 
     def test_embedding_uses_configured_dimensions_for_both_query_and_documents(self):
-        state = self.state(dimension=64)
+        state = self.state(dimension=256)
         state.client.search.return_value = [[]]
-        response = self.response(self.embedding_payload([[0.5] * 64]))
+        response = self.response(self.embedding_payload([[0.5] * 256]))
         with patch.object(rag, "_client_state", return_value=(state, "remedi_test")), patch.object(
             rag.requests, "post", return_value=response,
         ) as post:
             rag.upsert_passages("math", [{"id": 1, "document_id": 1, "title": "Title", "content": "Text"}])
             rag.search_passages("math", "Question")
         self.assertEqual(post.call_count, 2)
-        self.assertTrue(all(call.kwargs["json"]["dimensions"] == 64 for call in post.call_args_list))
-        self.assertEqual(len(state.client.upsert.call_args.kwargs["data"][0]["vectors"]), 64)
-        self.assertEqual(len(state.client.search.call_args.kwargs["data"][0]), 64)
+        self.assertTrue(all(call.kwargs["json"]["dimensions"] == 256 for call in post.call_args_list))
+        self.assertEqual(len(state.client.upsert.call_args.kwargs["data"][0]["vectors"]), 256)
+        self.assertEqual(len(state.client.search.call_args.kwargs["data"][0]), 256)
 
     def test_embedding_rejects_invalid_configuration_without_network(self):
-        for dimension in (0, 1, True, "1024", float("nan"), 32769):
+        for dimension in (0, 1, 64, 255, 2048, True, "1024", float("nan"), 32769):
             with self.subTest(dimension=dimension), patch.object(rag.settings, "RAG_EMBEDDING_DIMENSIONS", dimension):
                 with self.assertRaises(RuntimeError):
                     rag.embed_texts(["passage"])
@@ -219,7 +219,7 @@ class MilvusAdapterTests(unittest.TestCase):
             self.assertEqual(rag.search_passages("math", "question", limit=999), [(7, 0.94)])
         request = state.client.search.call_args.kwargs
         self.assertEqual(request["filter"], "subject == {subject} and embedding_model == {embedding_model}")
-        self.assertEqual(request["filter_params"], {"subject": "math", "embedding_model": "text-embedding-v4"})
+        self.assertEqual(request["filter_params"], {"subject": "math", "embedding_model": "qwen3.7-text-embedding-flash"})
         self.assertEqual(request["anns_field"], "vectors")
         self.assertEqual(request["search_params"]["metric_type"], "COSINE")
         self.assertEqual(request["limit"], 256)
@@ -237,7 +237,7 @@ class MilvusAdapterTests(unittest.TestCase):
         self.assertEqual([len(batch) for batch in batches], [10, 10, 10, 5, 10, 10, 10, 5])
         self.assertEqual([row["id"] for batch in batches[:4] for row in batch], list(range(1, 36)))
         self.assertEqual(batches[:4], batches[4:])
-        self.assertTrue(all(row["document_id"] == 9 and row["subject"] == "math" and row["embedding_model"] == "text-embedding-v4" for batch in batches for row in batch))
+        self.assertTrue(all(row["document_id"] == 9 and row["subject"] == "math" and row["embedding_model"] == "qwen3.7-text-embedding-flash" for batch in batches for row in batch))
         self.assertEqual(embed.call_args_list[0].args[0][0], "Lesson\nPassage 0")
         state.client.create_collection.assert_called_once()
 

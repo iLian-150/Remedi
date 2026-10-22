@@ -14,7 +14,7 @@ class Settings:
     # 切 PostgreSQL 时改为 postgresql+psycopg2://user:pass@host/db 即可，代码零改动。
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./remedi.db")
 
-    # 百炼统一提供文字、视觉与向量模型；凭证缺失时明确报错，不返回模拟答案。
+    # 百炼统一提供文字、视觉、向量与重排模型；凭证缺失时明确报错。
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "bailian").strip().lower()
     if LLM_PROVIDER in {"dashscope", "aliyun"}:
         LLM_PROVIDER = "bailian"
@@ -22,8 +22,8 @@ class Settings:
 
     DASHSCOPE_API_KEY: str = os.getenv("DASHSCOPE_API_KEY", "").strip()
     DASHSCOPE_BASE_URL: str = os.getenv(
-        "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").strip().rstrip("/")
-    DASHSCOPE_MODEL: str = os.getenv("DASHSCOPE_MODEL", "qwen-plus").strip()
+        "DASHSCOPE_BASE_URL", "").strip().rstrip("/")
+    DASHSCOPE_MODEL: str = os.getenv("DASHSCOPE_MODEL", "kimi-k3").strip()
     DASHSCOPE_VISION_MODEL: str = os.getenv("DASHSCOPE_VISION_MODEL", "qwen3-vl-plus").strip()
 
     # 旧提供方环境变量仅保留迁移兼容，当前调用使用上方百炼配置。
@@ -44,10 +44,12 @@ class Settings:
     RAG_MILVUS_URI: str = os.getenv("RAG_MILVUS_URI", "").strip()
     RAG_MILVUS_TOKEN: str = os.getenv("RAG_MILVUS_TOKEN", "").strip()
     RAG_MILVUS_COLLECTION: str = os.getenv(
-        "RAG_MILVUS_COLLECTION", "remedi_subject_knowledge_bailian_v4").strip()
-    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-v4").strip()
+        "RAG_MILVUS_COLLECTION", "remedi_subject_knowledge_qwen37_flash").strip()
+    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "qwen3.7-text-embedding-flash").strip()
     RAG_EMBEDDING_DIMENSIONS: int = _get_int("RAG_EMBEDDING_DIMENSIONS", 1024)
     RAG_TIMEOUT_SECONDS: int = max(1, min(_get_int("RAG_TIMEOUT_SECONDS", 8), 30))
+    RAG_RERANK_MODEL: str = os.getenv("RAG_RERANK_MODEL", "qwen3.7-text-rerank").strip()
+    RAG_RERANK_TIMEOUT_SECONDS: int = max(1, min(_get_int("RAG_RERANK_TIMEOUT_SECONDS", 10), 30))
 
     # 拍照上传的图片本地存放目录（默认 backend/uploads/）。只存文件，不落库。
     UPLOAD_DIR: str = os.getenv(
@@ -61,7 +63,7 @@ class Settings:
     # CORS。默认放行所有来源方便前端 dev server 联调；生产请收紧。
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    APP_VERSION: str = "0.13.316"
+    APP_VERSION: str = "0.13.317"
 
 
 settings = Settings()
