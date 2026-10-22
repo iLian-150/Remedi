@@ -172,7 +172,7 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         if target is None:
             return "没有找到这份作业，请确认作业标题，或者换一份作业问我。"
         # 作业进度只列出这份作业接收班级的学生；教师可能还任教其他班级。
-        text = assignment_status_to_text(assignment_status(db, target))
+        text = assignment_status_to_text(assignment_status(db, target, student_ids=student_ids))
         if fallback:
             text = f"（按最近发布的一份作业统计）\n{text}"
         return text

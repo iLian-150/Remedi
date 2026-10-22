@@ -179,6 +179,57 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertNotIn(self.student.student_no, summary)
         self.assertIn(f"学号：{self.student.student_no}", identified)
 
+    def test_teacher_assignment_status_only_lists_students_in_authorized_classes(self):
+        from app.agent.teacher_tools import build_teacher_tools
+        from app.models import (
+            Assignment, AssignmentClass, Classroom, ClassroomMember,
+            ClassroomTeacherSubject, Question,
+        )
+
+        other_teacher = User(name="其他班教师", role="teacher")
+        other_student = User(name="非任教班学生", role="student", student_no="outside-class")
+        unrelated_student = User(name="本教师其他班学生", role="student", student_no="unrelated-class")
+        self.db.add_all([other_teacher, other_student, unrelated_student])
+        self.db.flush()
+        own_class = Classroom(name="任教班", created_by=self.teacher.id)
+        unrelated_own_class = Classroom(name="本教师另一任教班", created_by=self.teacher.id)
+        other_class = Classroom(name="其他班", created_by=other_teacher.id)
+        self.db.add_all([own_class, unrelated_own_class, other_class])
+        self.db.flush()
+        self.db.add_all([
+            ClassroomTeacherSubject(
+                classroom_id=own_class.id, teacher_id=self.teacher.id, subject="math",
+            ),
+            ClassroomTeacherSubject(
+                classroom_id=unrelated_own_class.id,
+                teacher_id=self.teacher.id, subject="math",
+            ),
+            ClassroomMember(classroom_id=own_class.id, student_id=self.student.id),
+            ClassroomMember(classroom_id=unrelated_own_class.id, student_id=unrelated_student.id),
+            ClassroomMember(classroom_id=other_class.id, student_id=other_student.id),
+        ])
+        assignment = Assignment(title="跨班数学作业", created_by=other_teacher.id)
+        self.db.add(assignment)
+        self.db.flush()
+        self.db.add_all([
+            Question(
+                assignment_id=assignment.id, subject="math", knowledge_point="方程",
+                stem="x+1=2", standard_answer="1", order_num=1,
+            ),
+            AssignmentClass(assignment_id=assignment.id, classroom_id=own_class.id),
+            AssignmentClass(assignment_id=assignment.id, classroom_id=other_class.id),
+        ])
+        self.db.commit()
+
+        profile_tool = next(
+            tool for tool in build_teacher_tools(self.db, self.teacher)
+            if tool.name == "get_assignment_status"
+        )
+        result = profile_tool.invoke({"assignment_hint": "跨班数学作业"})
+        self.assertIn(self.student.name, result)
+        self.assertNotIn(other_student.name, result)
+        self.assertNotIn(unrelated_student.name, result)
+
     def test_unknown_subject_tutoring_does_not_reinfer_a_subject_for_rag(self):
         model = ScriptedToolModel()
         with patch(

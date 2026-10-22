@@ -77,7 +77,7 @@ def students_not_fully_submitted(db, assignment: Assignment) -> List[int]:
 
 
 def assignment_status(db, assignment: Assignment, student_ids=None) -> Dict:
-    """一份作业的提交情况：全部完成 / 部分完成 / 完全没交，三组学生名单。"""
+    """一份作业的提交情况；可将作业接收名单再限制到调用者有权查看的学生。"""
     question_count = select(func.count(Question.id)).where(
         Question.assignment_id == assignment.id
     ).scalar_subquery()
@@ -90,8 +90,14 @@ def assignment_status(db, assignment: Assignment, student_ids=None) -> Dict:
         .group_by(submitted_pairs.c.student_id)
         .subquery()
     )
+    recipients = _assignment_student_ids(db, assignment)
     if student_ids is None:
-        student_ids = _assignment_student_ids(db, assignment)
+        student_ids = recipients
+    elif recipients is not None:
+        # 先按作业接收班级，再按调用者的授权范围取交集；否则一份发布给
+        # 多个班级的作业会暴露其他班级名单，或混入其未接收作业的学生。
+        authorized_ids = set(student_ids)
+        student_ids = [student_id for student_id in recipients if student_id in authorized_ids]
     student_query = (
         db.query(
             question_count.label("question_count"),
