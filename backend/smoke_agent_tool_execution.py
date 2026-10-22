@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import faulthandler
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier, Lock
@@ -37,6 +38,8 @@ from app.models import (
     Question,
     StudentQuestionCapture,
     Submission,
+    SubmissionReview,
+    SubmissionScore,
     TeacherSubject,
     User,
 )
@@ -635,6 +638,111 @@ class AgentToolExecutionTests(unittest.TestCase):
             {"deleted": True},
         )
         self.assertIsNone(self.db.get(Assignment, physics_assignment.id))
+
+    def test_low_score_suggestions_use_latest_approved_submission_per_student_question(self):
+        from app.services.suggestions import build_teaching_suggestions
+
+        peer = User(name="成绩建议同班学生", role="student", student_no="agent-score-peer")
+        self.db.add(peer)
+        self.db.flush()
+        retry_assignment = Assignment(
+            title="多次提交不应拉低平均分", created_by=self.teacher.id,
+        )
+        pending_assignment = Assignment(
+            title="待审核成绩不应进入平均分", created_by=self.teacher.id,
+        )
+        genuinely_low_assignment = Assignment(
+            title="真实低分作业仍应提示", created_by=self.teacher.id,
+        )
+        self.db.add_all([retry_assignment, pending_assignment, genuinely_low_assignment])
+        self.db.flush()
+        retry_question = Question(
+            assignment_id=retry_assignment.id, subject="math",
+            knowledge_point="复习", stem="求 x",
+        )
+        pending_question = Question(
+            assignment_id=pending_assignment.id, subject="math",
+            knowledge_point="复习", stem="求 y",
+        )
+        low_question = Question(
+            assignment_id=genuinely_low_assignment.id, subject="math",
+            knowledge_point="复习", stem="求 z",
+        )
+        self.db.add_all([retry_question, pending_question, low_question])
+        self.db.flush()
+
+        scores = []
+        start = datetime(2026, 1, 1)
+        for attempt in range(3):
+            old_attempt = Submission(
+                student_id=self.student.id,
+                question_id=retry_question.id,
+                status="graded",
+                submitted_at=start + timedelta(days=attempt),
+            )
+            self.db.add(old_attempt)
+            self.db.flush()
+            scores.append(SubmissionScore(submission_id=old_attempt.id, ai_score=0.0))
+
+        retry_latest = Submission(
+            student_id=self.student.id, question_id=retry_question.id,
+            status="graded", submitted_at=start + timedelta(days=3),
+        )
+        retry_peer = Submission(
+            student_id=peer.id, question_id=retry_question.id,
+            status="graded", submitted_at=start + timedelta(days=4),
+        )
+        pending_peer = Submission(
+            student_id=peer.id, question_id=pending_question.id,
+            status="graded", submitted_at=start + timedelta(days=5),
+        )
+        approved_single = Submission(
+            student_id=self.student.id, question_id=pending_question.id,
+            status="graded", submitted_at=start + timedelta(days=6),
+        )
+        low_student = Submission(
+            student_id=self.student.id, question_id=low_question.id,
+            status="graded", submitted_at=start + timedelta(days=7),
+        )
+        low_peer = Submission(
+            student_id=peer.id, question_id=low_question.id,
+            status="graded", submitted_at=start + timedelta(days=8),
+        )
+        self.db.add_all([
+            retry_latest, retry_peer, pending_peer, approved_single, low_student, low_peer,
+        ])
+        self.db.flush()
+        scores.extend([
+            SubmissionScore(submission_id=retry_latest.id, ai_score=100.0),
+            SubmissionScore(submission_id=retry_peer.id, ai_score=100.0),
+            SubmissionScore(submission_id=pending_peer.id, ai_score=0.0),
+            SubmissionScore(submission_id=approved_single.id, ai_score=100.0),
+            SubmissionScore(submission_id=low_student.id, ai_score=20.0),
+            SubmissionScore(submission_id=low_peer.id, ai_score=30.0),
+            SubmissionReview(submission_id=pending_peer.id, status="pending"),
+        ])
+        self.db.add_all(scores)
+        self.db.commit()
+
+        assignment_ids = [
+            retry_assignment.id, pending_assignment.id, genuinely_low_assignment.id,
+        ]
+        submission_ids = self.db.query(Submission.id).join(
+            Question, Question.id == Submission.question_id,
+        ).filter(Question.assignment_id.in_(assignment_ids))
+        with self.assertNoLogs("app.services.suggestions", level="ERROR"):
+            suggestions = build_teaching_suggestions(self.db, precomputed_stats={
+                "repair_rate": {"knowledge_points": []},
+                "knowledge_points": [],
+                "top_questions": [],
+                "assignment_ids": assignment_ids,
+                "student_ids": [self.student.id, peer.id],
+                "submission_ids": submission_ids,
+            })
+        low_score_titles = [
+            item["title"] for item in suggestions if item["kind"] == "low_score"
+        ]
+        self.assertEqual(low_score_titles, ["巩固练习：真实低分作业仍应提示"])
 
     def test_student_tool_names_survive_index_reuse_and_deduplicate(self):
         model = ScriptedToolModel(rounds=[

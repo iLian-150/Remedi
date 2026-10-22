@@ -5,6 +5,7 @@
 #   stubborn_group —— 某知识点有 ≥ 2 名学生存在顽固（is_stubborn）错题：分组辅导
 #   high_error     —— 知识点错误率 ≥ 50%（未被 reteach 覆盖）：高错误率预警
 #   low_score      —— 某份作业全班平均得分率 < 60%（已批改 ≥ 2 份）：巩固练习
+import logging
 from typing import Dict, List, Optional
 
 from sqlalchemy import case, func
@@ -18,12 +19,14 @@ from ..models import (
     QuestionWeight,
     Step,
     Submission,
+    SubmissionReview,
     SubmissionScore,
 )
 from .stats import class_repair_rate, knowledge_point_ranking, top_error_questions
 
 _KIND_ORDER = {"reteach": 0, "stubborn_group": 1, "high_error": 2, "low_score": 3}
 _MAX_SUGGESTIONS = 6
+logger = logging.getLogger(__name__)
 
 
 def _pct(rate: Optional[float]) -> int:
@@ -194,6 +197,29 @@ def build_teaching_suggestions(
             .group_by(Step.submission_id)
             .subquery()
         )
+        latest_graded = db.query(
+            Submission.id.label("submission_id"),
+            func.row_number().over(
+                partition_by=(Submission.student_id, Submission.question_id),
+                order_by=(Submission.submitted_at.desc(), Submission.id.desc()),
+            ).label("rank"),
+        ).join(
+            Question, Question.id == Submission.question_id,
+        ).outerjoin(
+            SubmissionReview,
+            SubmissionReview.submission_id == Submission.id,
+        ).filter(
+            Submission.status == "graded",
+            func.coalesce(SubmissionReview.status, "approved") != "pending",
+        )
+        if assignment_ids is not None:
+            latest_graded = latest_graded.filter(Question.assignment_id.in_(assignment_ids))
+        if student_ids is not None:
+            latest_graded = latest_graded.filter(Submission.student_id.in_(student_ids))
+        if submission_ids is not None:
+            latest_graded = latest_graded.filter(Submission.id.in_(submission_ids))
+        latest_graded = latest_graded.subquery()
+
         score_rows = (
             db.query(Submission)
             .with_entities(
@@ -232,7 +258,11 @@ def build_teaching_suggestions(
                 step_counts,
                 step_counts.c.submission_id == Submission.id,
             )
-            .filter(Submission.status == "graded")
+            .join(
+                latest_graded,
+                latest_graded.c.submission_id == Submission.id,
+            )
+            .filter(latest_graded.c.rank == 1)
         )
         if assignment_ids is not None:
             score_rows = score_rows.filter(Assignment.id.in_(assignment_ids))
@@ -303,7 +333,7 @@ def build_teaching_suggestions(
                 "_sort": (_KIND_ORDER["low_score"], avg),
             })
     except Exception:
-        pass
+        logger.exception("教学建议低分统计失败")
 
     items.sort(key=lambda x: x["_sort"])
     result = items[:_MAX_SUGGESTIONS]
