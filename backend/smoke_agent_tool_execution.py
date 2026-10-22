@@ -295,6 +295,37 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertIsNotNone(review)
         self.assertEqual(review.status, "pending")
 
+    def test_student_math_steps_are_parsed_without_python_eval(self):
+        from app.services.mathparse import (
+            UnparseableError,
+            _parse_expression_cached,
+            parse_step,
+        )
+        _parse_expression_cached.cache_clear()
+        with patch("builtins.eval", side_effect=AssertionError("math input reached eval")):
+            parsed = parse_step("2(x+1)=8")
+            self.assertEqual(parsed.kind, "eq")
+            self.assertEqual(parsed.text, "2*(x+1)=8")
+            with self.assertRaises(UnparseableError):
+                parse_step("x.__class__")
+
+        from app.services.diagnosis import (
+            detect_distributive_mistake,
+            detect_sign_move_mistake,
+            detect_square_mistake,
+        )
+        previous_square = parse_step("(x+2)^2")
+        self.assertTrue(detect_square_mistake(
+            previous_square.text, parse_step("x^2+4"),
+        ))
+        previous_sign = parse_step("2x+3=7")
+        self.assertTrue(detect_sign_move_mistake(
+            previous_sign, parse_step("2x=7+3"),
+        ))
+        self.assertTrue(detect_distributive_mistake(
+            "2*(x-3)=10", parse_step("2*x-3=10"),
+        ))
+
     def test_concurrent_single_submissions_are_rechecked_before_save(self):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier, local

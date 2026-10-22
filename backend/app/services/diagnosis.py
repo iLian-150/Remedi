@@ -79,10 +79,8 @@ def detect_square_mistake(prev_text: str, curr: ParsedStep) -> Optional[str]:
     if not m:
         return None
     try:
-        from sympy.parsing.sympy_parser import parse_expr
-        from .mathparse import TRANSFORMATIONS
-        a = parse_expr(m.group(1), transformations=TRANSFORMATIONS)
-        b = parse_expr(m.group(3), transformations=TRANSFORMATIONS)
+        a = parse_step(m.group(1)).expr
+        b = parse_step(m.group(3)).expr
     except Exception:
         return None
     sign = m.group(2)
@@ -126,14 +124,12 @@ def detect_distributive_mistake(prev_text: str, curr: ParsedStep) -> Optional[st
     matches = re.findall(r"([0-9]+(?:\.[0-9]+)?)\s*\*\s*\(([^()]+)\)", prev_text)
     if not matches:
         return None
-    from sympy.parsing.sympy_parser import parse_expr
-    from .mathparse import TRANSFORMATIONS
     prev_sides = prev_text.split("=")
     curr_sides = [curr.expr.lhs, curr.expr.rhs] if curr.kind == "eq" else [curr.expr]
     for k_s, inner_s in matches:
         try:
-            k = parse_expr(k_s, transformations=TRANSFORMATIONS)
-            inner = parse_expr(inner_s, transformations=TRANSFORMATIONS)
+            k = parse_step(k_s).expr
+            inner = parse_step(inner_s).expr
         except Exception:
             continue
         inner_terms = _terms(inner)
@@ -143,7 +139,7 @@ def detect_distributive_mistake(prev_text: str, curr: ParsedStep) -> Optional[st
                 if "*" not in side_text or "(" not in side_text:
                     continue
             try:
-                side_parsed = parse_expr(side_text, transformations=TRANSFORMATIONS)
+                side_parsed = parse_step(side_text).expr
             except Exception:
                 continue
             correct_side = expand(side_parsed)

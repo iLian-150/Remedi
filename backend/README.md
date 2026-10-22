@@ -103,7 +103,7 @@ backend/
 │   ├── schemas.py         # pydantic 请求/响应模型
 │   ├── auth.py            # mock 登录、Bearer 校验、角色守卫
 │   ├── services/
-│   │   ├── mathparse.py   # sympy 安全解析（parse_expr 白名单）
+│   │   ├── mathparse.py   # 白名单 AST 数学解析，不执行输入代码
 │   │   ├── diagnosis.py   # 分步诊断、等价性判定、误区模式库、顽固判定、订正判定
 │   │   ├── providers.py   # 阿里云百炼 Provider；失败明确报错
 │   │   ├── essays.py      # 作文评分落库

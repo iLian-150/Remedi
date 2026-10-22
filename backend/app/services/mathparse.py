@@ -1,19 +1,162 @@
 # 数学步骤解析：把学生输入的文本步骤解析为 sympy 表达式/等式。
-# 安全：只用 sympy.parsing 的 parse_expr（基于 AST 白名单解析），不用 sympify/eval，
-# 不执行任意代码。解析失败抛 UnparseableError，由上层记为"无法解析"而不中断流程。
+# 学生文本经 SymPy tokenizer 转成 Python AST 后，只解释算术节点和白名单函数；
+# 不调用 parse_expr/eval。解析失败抛 UnparseableError，由上层记为"无法解析"。
+import ast
 import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional, Union
 
-from sympy import Eq
+from sympy import (
+    Abs, Add, E, Eq, Float, Function, I, Integer, Max, Min, Mul, Pow, Rational,
+    Symbol, acos, acosh, asin, asinh, atan, atan2, atanh, ceiling, cos, cosh,
+    exp, factorial, floor, im, log, nan, oo, pi, re as real_part, sign, sin,
+    sinh, tan, tanh, zoo,
+)
 from sympy.parsing.sympy_parser import (
     implicit_multiplication_application,
-    parse_expr,
     standard_transformations,
+    stringify_expr,
 )
 
 TRANSFORMATIONS = standard_transformations + (implicit_multiplication_application,)
+
+_SAFE_GLOBALS = {
+    "__builtins__": {},
+    "Symbol": Symbol,
+    "Integer": Integer,
+    "Float": Float,
+    "Rational": Rational,
+    "Function": Function,
+    "Add": Add,
+    "Mul": Mul,
+    "Pow": Pow,
+    "factorial": factorial,
+    "Abs": Abs,
+    "Max": Max,
+    "Min": Min,
+    "acos": acos,
+    "acosh": acosh,
+    "asin": asin,
+    "asinh": asinh,
+    "atan": atan,
+    "atan2": atan2,
+    "atanh": atanh,
+    "ceiling": ceiling,
+    "cos": cos,
+    "cosh": cosh,
+    "exp": exp,
+    "floor": floor,
+    "im": im,
+    "log": log,
+    "re": real_part,
+    "sign": sign,
+    "sin": sin,
+    "sinh": sinh,
+    "tan": tan,
+    "tanh": tanh,
+    "E": E,
+    "I": I,
+    "nan": nan,
+    "oo": oo,
+    "pi": pi,
+    "zoo": zoo,
+}
+_SAFE_CALLS = {
+    key: value for key, value in _SAFE_GLOBALS.items()
+    if key not in {"__builtins__", "Function", "E", "I", "nan", "oo", "pi", "zoo"}
+}
+_SAFE_CONSTANTS = {
+    key: _SAFE_GLOBALS[key] for key in ("E", "I", "nan", "oo", "pi", "zoo")
+}
+
+
+def _evaluate_math_ast(node):
+    """Interpret only SymPy's arithmetic AST nodes; never execute generated code."""
+    if isinstance(node, ast.Expression):
+        return _evaluate_math_ast(node.body)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, str):
+            return node.value
+        if isinstance(node.value, bool):
+            raise UnparseableError("布尔值不是数学表达式")
+        if isinstance(node.value, int):
+            return Integer(node.value)
+        if isinstance(node.value, float):
+            return Float(node.value)
+        raise UnparseableError("表达式包含不支持的常量")
+    if isinstance(node, ast.Name):
+        if node.id not in _SAFE_CONSTANTS:
+            raise UnparseableError("表达式包含不支持的名称")
+        return _SAFE_CONSTANTS[node.id]
+    if isinstance(node, ast.UnaryOp):
+        value = _evaluate_math_ast(node.operand)
+        if isinstance(node.op, ast.UAdd):
+            return value
+        if isinstance(node.op, ast.USub):
+            if isinstance(value, Integer):
+                return -value
+            return Mul(Integer(-1), value, evaluate=False)
+        raise UnparseableError("表达式包含不支持的一元运算")
+    if isinstance(node, ast.Call):
+        if node.keywords:
+            if (len(node.keywords) != 1 or node.keywords[0].arg != "evaluate"
+                    or not isinstance(node.keywords[0].value, ast.Constant)
+                    or node.keywords[0].value.value is not False):
+                raise UnparseableError("表达式包含不支持的参数")
+            evaluate_false = True
+        else:
+            evaluate_false = False
+
+        if isinstance(node.func, ast.Name) and node.func.id == "Function":
+            if evaluate_false or len(node.args) != 1:
+                raise UnparseableError("函数定义格式不受支持")
+            name = _evaluate_math_ast(node.args[0])
+            if not isinstance(name, str):
+                raise UnparseableError("函数名格式不受支持")
+            return Function(name)
+
+        if isinstance(node.func, ast.Call):
+            if (not isinstance(node.func.func, ast.Name)
+                    or node.func.func.id != "Function"
+                    or evaluate_false):
+                raise UnparseableError("表达式包含不支持的函数调用")
+            function = _evaluate_math_ast(node.func)
+            return function(*[_evaluate_math_ast(arg) for arg in node.args])
+
+        if not isinstance(node.func, ast.Name):
+            raise UnparseableError("表达式包含不支持的函数调用")
+        function_name = node.func.id
+        function = _SAFE_CALLS.get(function_name)
+        if function is None:
+            raise UnparseableError("表达式包含不支持的函数")
+        if evaluate_false and function_name not in {"Add", "Mul", "Pow"}:
+            raise UnparseableError("表达式包含不支持的参数")
+        kwargs = {"evaluate": False} if evaluate_false else {}
+        return function(*[_evaluate_math_ast(arg) for arg in node.args], **kwargs)
+    if isinstance(node, ast.BinOp):
+        left = _evaluate_math_ast(node.left)
+        right = _evaluate_math_ast(node.right)
+        if isinstance(node.op, ast.Add):
+            return Add(left, right, evaluate=False)
+        if isinstance(node.op, ast.Sub):
+            return Add(left, Mul(Integer(-1), right, evaluate=False), evaluate=False)
+        if isinstance(node.op, ast.Mult):
+            return Mul(left, right, evaluate=False)
+        if isinstance(node.op, ast.Div):
+            return Mul(left, Pow(right, Integer(-1), evaluate=False), evaluate=False)
+        if isinstance(node.op, ast.Pow):
+            return Pow(left, right, evaluate=False)
+        raise UnparseableError("表达式包含不支持的运算")
+    raise UnparseableError("表达式包含不支持的语法")
+
+
+def _safe_parse_expression(text: str):
+    source = stringify_expr(text, {}, _SAFE_GLOBALS, TRANSFORMATIONS)
+    expression = _evaluate_math_ast(ast.parse(source, mode="eval"))
+    if not hasattr(expression, "free_symbols"):
+        raise UnparseableError("表达式无法解析为数学形式")
+    return expression
 
 # 全角 → 半角
 _FULL2HALF = str.maketrans({
@@ -83,13 +226,13 @@ def clean_text(raw: str) -> str:
 @lru_cache(maxsize=512)
 def _parse_expression_cached(text: str):
     """Reuse immutable SymPy expressions for repeated normalized steps."""
-    return parse_expr(text, transformations=TRANSFORMATIONS, evaluate=False)
+    return _safe_parse_expression(text)
 
 
 def _parse_expression(text: str):
     # Keep unusually long expressions out of the process-wide cache.
     if len(text) > 256:
-        return parse_expr(text, transformations=TRANSFORMATIONS, evaluate=False)
+        return _safe_parse_expression(text)
     return _parse_expression_cached(text)
 
 
