@@ -19,6 +19,8 @@ _FORMULA_VARIABLE = r"[a-z][a-z0-9_]*"
 _FORMULA_ATOM = rf"(?:{_FORMULA_VARIABLE}{_FORMULA_GROUP}|{_FORMULA_VARIABLE}|\d+(?:\.\d+)?|{_FORMULA_GROUP})"
 _FORMULA_TERM = rf"[+-]?\s*{_FORMULA_ATOM}"
 _FORMULA_OPERATOR = r"(?:[+\-*/^=<>≤≥≠≈]|×|÷|·|⋅)"
+_FORMULA_VARIABLE_BEFORE_GROUP_RE = re.compile(rf"(?<![a-z0-9_])({_FORMULA_VARIABLE})\s*(?=\()")
+_FORMULA_FUNCTION_NAMES = {"f", "g", "h"}
 _FORMULA_RE = re.compile(
     rf"(?<![a-z0-9_(]){_FORMULA_TERM}(?:\s*{_FORMULA_OPERATOR}\s*{_FORMULA_TERM})+(?![a-z0-9_)])",
     re.IGNORECASE,
@@ -61,6 +63,14 @@ def formula_tokens(text: str) -> list[str]:
     value = unicodedata.normalize("NFKC", value).lower().replace("⁄", "/")
     for source, replacement in _FORMULA_REPLACEMENTS:
         value = re.sub(source, replacement, value) if source.startswith("\\") else value.replace(source, replacement)
+    # In school algebra, a single-letter variable before a group means
+    # multiplication; preserve the conventional single-letter function names.
+    value = _FORMULA_VARIABLE_BEFORE_GROUP_RE.sub(
+        lambda match: match.group(0)
+        if len(match.group(1)) > 1 or match.group(1) in _FORMULA_FUNCTION_NAMES
+        else f"{match.group(1)}*",
+        value,
+    )
     # A numeric coefficient immediately before a variable is implicit multiplication.
     # Normalize it before matching so the regex cannot fall through to a shared suffix
     # such as `3=7` and treat distinct equations as the same evidence.

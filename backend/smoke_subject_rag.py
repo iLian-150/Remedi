@@ -251,6 +251,9 @@ class SubjectRagTests(unittest.TestCase):
         linear = self.document("括号乘变量", "(x+1)x=7。")
         result = subject_rag.search_knowledge(self.db, "math", "(x+1)*x=7")
         self.assertEqual([item["document_id"] for item in result["items"]], [linear.id])
+        product = self.document("变量乘括号", "x(x+1)=0。")
+        result = subject_rag.search_knowledge(self.db, "math", "x*(x+1)=0")
+        self.assertEqual([item["document_id"] for item in result["items"]], [product.id])
 
     def test_equations_with_opposite_signs_do_not_match(self):
         self.document("负系数方程", "-2x+3=7。")
