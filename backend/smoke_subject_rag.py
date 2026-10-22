@@ -240,6 +240,29 @@ class SubjectRagTests(unittest.TestCase):
         self.assertEqual(hit["document_id"], document.id)
         self.assertEqual(hit["page_number"], 9)
 
+    def test_reindex_refuses_to_commit_unrelated_session_changes(self):
+        self.document("数学资料", "平方差公式可以用于因式分解。", indexed=False)
+        pending = SubjectKnowledgeChunk(subject="english", title="未提交英语资料", content="uncommitted content")
+        self.db.add(pending)
+        with self.assertRaisesRegex(ValueError, "先提交或回滚"):
+            subject_rag.reindex_subject(self.db, "math")
+        self.db.rollback()
+        self.assertIsNone(
+            self.db.query(SubjectKnowledgeChunk).filter_by(title="未提交英语资料").first(),
+            "重建数学索引不能提交同一 Session 中尚未提交的英语资料",
+        )
+
+        flushed = SubjectKnowledgeChunk(subject="english", title="已 flush 英语资料", content="flushed content")
+        self.db.add(flushed)
+        self.db.flush()
+        with self.assertRaisesRegex(ValueError, "先提交或回滚"):
+            subject_rag.reindex_subject(self.db, "math")
+        self.db.rollback()
+        self.assertIsNone(
+            self.db.query(SubjectKnowledgeChunk).filter_by(title="已 flush 英语资料").first(),
+            "重建索引不能提交已 flush 但尚未提交的其他学科资料",
+        )
+
     def test_limits_empty_subject_and_low_similarity_are_safe(self):
         document = self.document("圆", "圆的面积由半径决定。")
         self.assertEqual(subject_rag.search_knowledge(self.db, "math", "圆的面积", limit=0)["items"], [])

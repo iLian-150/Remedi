@@ -35,13 +35,16 @@ _SINGLE_CJK_STOP_TOKENS = frozenset(
 _VECTOR_WARNING = "向量检索尚未就绪，请检查向量模型和 Milvus 配置；当前使用 BM25，恢复后可重新建立向量索引。"
 _RERANK_WARNING = "百炼重排暂不可用，当前使用本地排序。"
 _WRITE_TRANSACTION = "_remedi_rag_write_transaction"
+_SESSION_WRITE_TRANSACTION = "_remedi_session_write_transaction"
 
 
 @event.listens_for(Session, "after_flush")
 def _remember_knowledge_write(db: Session, _context) -> None:
+    changed = [item for collection in (db.new, db.dirty, db.deleted) for item in collection]
+    if changed:
+        db.info[_SESSION_WRITE_TRANSACTION] = db.get_transaction()
     # AUTOINCREMENT 的已回滚 ID 仍可被复用。记录写事务，禁止将未提交 ID 发给 Milvus。
-    if any(isinstance(item, (SubjectKnowledgeChunk, SubjectKnowledgePassage))
-           for collection in (db.new, db.dirty, db.deleted) for item in collection):
+    if any(isinstance(item, (SubjectKnowledgeChunk, SubjectKnowledgePassage)) for item in changed):
         db.info[_WRITE_TRANSACTION] = db.get_transaction()
 
 
@@ -50,6 +53,12 @@ def _has_uncommitted_knowledge(db: Session) -> bool:
     return ((transaction is not None and transaction is db.get_transaction())
             or any(isinstance(item, (SubjectKnowledgeChunk, SubjectKnowledgePassage))
                    for collection in (db.new, db.dirty, db.deleted) for item in collection))
+
+
+def _has_uncommitted_session_writes(db: Session) -> bool:
+    transaction = db.info.get(_SESSION_WRITE_TRANSACTION)
+    return ((transaction is not None and transaction is db.get_transaction())
+            or bool(db.new or db.dirty or db.deleted))
 
 
 def _tokenize(text: str, single_cjk_token: str | None = None) -> list[str]:
@@ -168,7 +177,9 @@ def index_knowledge(db: Session, document, pages=None) -> dict:
 
 
 def reindex_subject(db: Session, subject: str) -> dict:
-    """Milvus 部署后可补建该学科全部资料；不改变已有 PDF 片段的页码。"""
+    """重建单一学科索引；拒绝提交调用方 Session 中其他未完成的写事务。"""
+    if _has_uncommitted_session_writes(db):
+        raise ValueError("请先提交或回滚当前 Session 的数据库修改，再重建学科索引。")
     documents = db.query(SubjectKnowledgeChunk).filter_by(subject=subject).order_by(SubjectKnowledgeChunk.id).all()
     records = []
     for document in documents:
