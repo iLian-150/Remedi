@@ -7,7 +7,7 @@ from decimal import Decimal
 import math
 from typing import Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import case, func, or_, tuple_
+from sqlalchemy import case, func, or_, tuple_, update
 from sqlalchemy.orm import Session, joinedload, load_only
 
 from ..models import (
@@ -550,20 +550,27 @@ def visible_submissions(db: Session, submissions: List[Submission]) -> List[Subm
 
 def approve_submission(db: Session, submission: Submission, teacher,
                        *, notify: bool = True,
-                       commit: bool = True) -> SubmissionReview:
+                       commit: bool = True) -> Optional[SubmissionReview]:
     """把一条提交置为 approved 并给学生发审核通过提醒（幂等：
     已 approved 的不重复发提醒）。返回审核行。"""
-    row = db.query(SubmissionReview).filter(
-        SubmissionReview.submission_id == submission.id
-    ).first()
-    if row is None:
-        row = SubmissionReview(submission_id=submission.id)
-        db.add(row)
-    was_pending = row.status == PENDING
-    row.status = APPROVED
-    row.reviewed_by = teacher.id
-    row.reviewed_at = datetime.now()
-    if notify and was_pending:
+    now = datetime.now()
+    approved_id = db.execute(
+        update(SubmissionReview)
+        .where(
+            SubmissionReview.submission_id == submission.id,
+            SubmissionReview.status == PENDING,
+        )
+        .values(
+            status=APPROVED,
+            reviewed_by=teacher.id,
+            reviewed_at=now,
+        )
+        .returning(SubmissionReview.submission_id)
+    ).scalar_one_or_none()
+    row = db.get(SubmissionReview, submission.id)
+    if row is not None:
+        db.refresh(row)
+    if approved_id is not None and notify:
         title = ""
         if submission.question is not None:
             assignment = submission.question.assignment
@@ -587,48 +594,49 @@ def approve_submission(db: Session, submission: Submission, teacher,
     return row
 
 
-def approve_submissions(db: Session, submissions: Iterable[Submission], teacher) -> None:
-    """批量更新审核状态并添加提醒；由调用方统一提交事务。"""
+def approve_submissions(db: Session, submissions: Iterable[Submission], teacher) -> Set[int]:
+    """原子批量通过仍待审记录；只为本次转换添加提醒并返回提交 ID。"""
     unique_submissions = {
         submission.id: submission
         for submission in submissions
         if submission.id is not None
     }
     if not unique_submissions:
-        return
+        return set()
 
     submission_ids = list(unique_submissions)
-    rows_by_id = {}
+    approved_ids = set()
     for start in range(0, len(submission_ids), 500):
-        rows_by_id.update({
-            row.submission_id: row
-            for row in db.query(SubmissionReview).filter(
-                SubmissionReview.submission_id.in_(submission_ids[start:start + 500])
-            ).all()
-        })
+        batch_ids = submission_ids[start:start + 500]
+        approved_ids.update(db.execute(
+            update(SubmissionReview)
+            .where(
+                SubmissionReview.submission_id.in_(batch_ids),
+                SubmissionReview.status == PENDING,
+            )
+            .values(
+                status=APPROVED,
+                reviewed_by=teacher.id,
+                reviewed_at=datetime.now(),
+            )
+            .returning(SubmissionReview.submission_id)
+        ).scalars().all())
 
-    for submission_id, submission in unique_submissions.items():
-        row = rows_by_id.get(submission_id)
-        if row is None:
-            row = SubmissionReview(submission_id=submission_id)
-            db.add(row)
-        was_pending = row.status == PENDING
-        row.status = APPROVED
-        row.reviewed_by = teacher.id
-        row.reviewed_at = datetime.now()
-        if was_pending:
-            question = submission.question
-            assignment = question.assignment if question is not None else None
-            title = assignment.title if assignment is not None else ""
-            db.add(Notification(
-                user_id=submission.student_id,
-                type="review_approved",
-                content=(
-                    f"{teacher.name}已审核通过你《{title}》的批改结果，"
-                    "去看看老师的诊断吧。"
-                ),
-                related_submission_id=submission.id,
-            ))
+    for submission_id in approved_ids:
+        submission = unique_submissions[submission_id]
+        question = submission.question
+        assignment = question.assignment if question is not None else None
+        title = assignment.title if assignment is not None else ""
+        db.add(Notification(
+            user_id=submission.student_id,
+            type="review_approved",
+            content=(
+                f"{teacher.name}已审核通过你《{title}》的批改结果，"
+                "去看看老师的诊断吧。"
+            ),
+            related_submission_id=submission.id,
+        ))
+    return approved_ids
 
 
 def pending_reviews(db: Session) -> List[Submission]:

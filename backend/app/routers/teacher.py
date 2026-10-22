@@ -996,18 +996,20 @@ def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(r
     visible_ids = {row[0] for row in _teacher_assignment_ids(db, current).all()}
     subs = [sub for sub in review_svc.pending_reviews(db)
             if sub.question is not None and sub.question.assignment_id in visible_ids]
+    approved_ids = set()
     if subs:
-        scoring_svc.finalize_on_approve_many(db, subs, current)
-        review_svc.approve_submissions(db, subs, current)
+        approved_ids = review_svc.approve_submissions(db, subs, current)
+        approved_subs = [sub for sub in subs if sub.id in approved_ids]
+        scoring_svc.finalize_on_approve_many(db, approved_subs, current)
         db.commit()
         from ..services.learning_memory import refresh_student_learning_memory
         for sub in subs:
-            if sub.question is not None:
+            if sub.id in approved_ids and sub.question is not None:
                 refresh_student_learning_memory(
                     db, sub.student_id, subject=sub.question.subject,
                     knowledge_point=sub.question.knowledge_point,
                 )
-    return {"approved_count": len(subs)}
+    return {"approved_count": len(approved_ids)}
 
 
 @router.get("/reviews/{submission_id}", response_model=ReviewDetailOut, summary="审核详情（v0.9.0 新增）")
