@@ -24,8 +24,20 @@ _FORMULA_FUNCTION_NAMES = {"f", "g", "h"}
 _FORMULA_VARIABLE_PAIR_RE = re.compile(r"(?<![a-z0-9_])([a-z]{2})(?![a-z0-9_])")
 _FORMULA_NAMED_PAIRS = {
     "ln", "pi", "mu", "nu", "xi", "cm", "mm", "dm", "km", "nm", "pm",
-    "kg", "mg", "ug", "ml", "ms", "us", "ns", "hz", "db",
+    "kg", "mg", "ug", "um", "ua", "uv", "uf", "uw", "uh", "ml", "ul",
+    "ms", "us", "ns", "hz", "db",
 }
+_MICRO_UNIT_RE = re.compile(r"μ(?=(?:mol|hz|[mglsavfwh])\b)")
+_GREEK_SYMBOL_NAMES = {
+    "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon",
+    "ζ": "zeta", "η": "eta", "θ": "theta", "ι": "iota", "κ": "kappa",
+    "λ": "lambda", "μ": "mu", "ν": "nu", "ξ": "xi", "ο": "omicron",
+    "π": "pi", "ρ": "rho", "ς": "sigma", "σ": "sigma", "τ": "tau",
+    "υ": "upsilon", "φ": "phi", "ϕ": "phi", "χ": "chi", "ψ": "psi",
+    "ω": "omega", "ϵ": "epsilon", "ϑ": "theta", "ϖ": "pi", "ϱ": "rho",
+}
+_GREEK_SYMBOL_CLASS = "".join(_GREEK_SYMBOL_NAMES)
+_GREEK_SYMBOL_RE = re.compile("|".join(map(re.escape, _GREEK_SYMBOL_NAMES)))
 _FORMULA_RE = re.compile(
     rf"(?<![a-z0-9_(]){_FORMULA_TERM}(?:\s*{_FORMULA_OPERATOR}\s*{_FORMULA_TERM})+(?![a-z0-9_)])",
     re.IGNORECASE,
@@ -68,6 +80,14 @@ def formula_tokens(text: str) -> list[str]:
     value = unicodedata.normalize("NFKC", value).lower().replace("⁄", "/")
     for source, replacement in _FORMULA_REPLACEMENTS:
         value = re.sub(source, replacement, value) if source.startswith("\\") else value.replace(source, replacement)
+    # NFKC turns the micro sign into Greek mu; preserve common SI prefixes as `u`.
+    value = _MICRO_UNIT_RE.sub("u", value)
+    # Transliterate Greek variables for portable token matching. Insert explicit
+    # products at symbol boundaries, but keep digits attached as subscripts.
+    value = re.sub(rf"(?<=[a-z0-9_)])(?=[{_GREEK_SYMBOL_CLASS}])", "*", value)
+    value = re.sub(rf"(?<=[{_GREEK_SYMBOL_CLASS}])(?=[a-z(])", "*", value)
+    value = re.sub(rf"(?<=[{_GREEK_SYMBOL_CLASS}])(?=[{_GREEK_SYMBOL_CLASS}])", "*", value)
+    value = _GREEK_SYMBOL_RE.sub(lambda match: _GREEK_SYMBOL_NAMES[match.group(0)], value)
     # In school algebra, a single-letter variable before a group means
     # multiplication; preserve the conventional single-letter function names.
     value = _FORMULA_VARIABLE_BEFORE_GROUP_RE.sub(
@@ -80,6 +100,7 @@ def formula_tokens(text: str) -> list[str]:
     # Normalize it before matching so the regex cannot fall through to a shared suffix
     # such as `3=7` and treat distinct equations as the same evidence.
     value = re.sub(r"(?<=\d)(?=[a-z])", "*", value)
+    value = re.sub(rf"(?<=\d)\s+(?={_FORMULA_VARIABLE}\s*{_FORMULA_OPERATOR})", "*", value)
     # In school algebra, two adjacent one-letter variables mean a product.
     # Keep common named constants, functions, and units as single atoms.
     value = _FORMULA_VARIABLE_PAIR_RE.sub(
