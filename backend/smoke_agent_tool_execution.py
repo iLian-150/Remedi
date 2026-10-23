@@ -606,6 +606,13 @@ class AgentToolExecutionTests(unittest.TestCase):
                 )
                 if item.name == "get_student_profile"
             )
+            reluctant_tool = next(
+                item for item in build_teacher_tools(
+                    self.db, self.teacher,
+                    current_user_text=f"我不想显示{self.student.name}的学号。",
+                )
+                if item.name == "get_student_profile"
+            )
             requested = requested_tool.invoke({
                 "student_name": self.student.name,
                 "include_student_no": False,
@@ -614,9 +621,14 @@ class AgentToolExecutionTests(unittest.TestCase):
                 "student_name": self.student.name,
                 "include_student_no": True,
             })
+            reluctant = reluctant_tool.invoke({
+                "student_name": self.student.name,
+                "include_student_no": True,
+            })
 
         self.assertIn(f"学号：{self.student.student_no}", requested)
         self.assertNotIn(self.student.student_no, hidden)
+        self.assertNotIn(self.student.student_no, reluctant)
 
     def test_ambiguous_student_lookup_hides_numbers_unless_explicitly_requested(self):
         from app.agent.teacher_tools import build_teacher_tools
