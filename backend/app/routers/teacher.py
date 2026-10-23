@@ -1144,7 +1144,7 @@ def stats_knowledge_points(db: Session = Depends(get_db), current: User = Depend
 @router.get("/stats/repair-rate", response_model=ClassRepairRateOut, summary="班级知识修复率（v0.4.0 新增）")
 def stats_repair_rate(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """班级知识修复率 + 各知识点修复率：口径与学生学习报告四态一致
-    （已修复 = 错题订正后通过二次验证）。"""
+    （全部错题订正正确，且最新错题之后通过二次验证）。"""
     assignment_ids = [row[0] for row in _teacher_assignment_ids(db, current).all()]
     student_ids = [row[0] for row in _teacher_student_ids(db, current).all()]
     submission_ids = _teacher_submission_ids(db, current)

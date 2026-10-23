@@ -706,8 +706,8 @@ def list_students(db, steady_only: bool = False, student_ids=None, assignment_id
 # ---------------------------------------------------------------- 学习报告（v0.2.1 新增）
 # 对应开题报告「学习记忆层 + 教学反馈层」：科目 → 知识点 → 错题时间线 → 步骤诊断 四级下钻。
 # 知识点状态口径（v0.4.0 升级为四态）：
-#   fixed           —— 已通过该知识点的二次验证（verifications 有 passed 记录）
-#   awaiting_verify —— 错题已全部订正正确，但尚未通过二次验证
+#   fixed           —— 该知识点错题均已正确订正，且最新错题之后通过二次验证
+#   awaiting_verify —— 错题已全部订正正确，但尚无覆盖最新错题的通过验证
 #   stubborn        —— 命中既有顽固判定（该知识点任一错题 is_stubborn=True，即诊断时
 #                      check_stubborn 命中：同知识点在窗口天数内重复出错），且仍有未订正错题
 #   pending         —— 其余有未订正错题的情况
@@ -754,6 +754,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
             Verification.student_id.label("student_id"),
             Question.subject.label("subject"),
             Error.knowledge_point.label("knowledge_point"),
+            func.max(Verification.completed_at).label("completed_at"),
         )
         .join(Error, Error.id == Verification.source_error_id)
         .join(Submission, Submission.id == Error.submission_id)
@@ -784,9 +785,9 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
                 "corrected_count"
             ),
             func.max(Error.created_at).label("last_error_at"),
-            func.max(case((
-                passed_verification_pairs.c.student_id.isnot(None), 1,
-            ), else_=0)).label("has_passed_verification"),
+            func.max(passed_verification_pairs.c.completed_at).label(
+                "last_passed_verification_at"
+            ),
         )
         .join(Submission, Submission.id == Error.submission_id)
         .outerjoin(Question, Question.id == Submission.question_id)
@@ -825,7 +826,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
             error_stats.c.stubborn_count,
             error_stats.c.corrected_count,
             error_stats.c.last_error_at,
-            error_stats.c.has_passed_verification,
+            error_stats.c.last_passed_verification_at,
         )
         .select_from(subject_knowledge_points)
         .outerjoin(
@@ -869,7 +870,11 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     for row in error_rows:
         error_count = int(row.error_count)
         corrected_count = int(row.corrected_count or 0)
-        if bool(row.has_passed_verification):
+        verification_is_current = (
+            row.last_passed_verification_at is not None
+            and row.last_passed_verification_at >= row.last_error_at
+        )
+        if verification_is_current and corrected_count == error_count:
             status = "fixed"
         elif corrected_count == error_count:
             status = "awaiting_verify"
@@ -913,7 +918,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
 
 def awaiting_verification_knowledge_points(db, student: User,
                                           visible_only: bool = False) -> List[Dict]:
-    """返回错题均已订正正确、但尚未通过二次验证的学科/知识点。"""
+    """返回错题均已订正正确、但最新错题尚未通过二次验证的学科/知识点。"""
     subject_expr = case(
         (Question.id.is_(None), "math"), else_=Question.subject,
     )
@@ -931,6 +936,7 @@ def awaiting_verification_knowledge_points(db, student: User,
             subject_expr.label("subject"),
             Error.knowledge_point,
             Error.id.label("error_id"),
+            Error.created_at.label("created_at"),
             has_correct_correction.label("corrected"),
         )
         .join(Submission, Submission.id == Error.submission_id)
@@ -941,16 +947,21 @@ def awaiting_verification_knowledge_points(db, student: User,
         query = query.filter(~pending_review)
 
     by_key = {}
-    for subject, knowledge_point, error_id, corrected in query.order_by(
+    for subject, knowledge_point, error_id, created_at, corrected in query.order_by(
         Error.created_at.desc(), Error.id.desc(),
     ).all():
         key = (subject or "math", knowledge_point)
-        item = by_key.setdefault(key, {"total": 0, "corrected": 0, "source_error_id": error_id})
+        item = by_key.setdefault(key, {
+            "total": 0, "corrected": 0, "source_error_id": error_id,
+            "latest_error_at": created_at,
+        })
         item["total"] += 1
         item["corrected"] += int(bool(corrected))
 
-    passed_rows = db.query(
-        subject_expr.label("subject"), Error.knowledge_point,
+    passed_rows_query = db.query(
+        subject_expr.label("subject"),
+        Error.knowledge_point,
+        func.max(Verification.completed_at).label("completed_at"),
     ).join(
         Verification, Verification.source_error_id == Error.id,
     ).join(
@@ -961,8 +972,20 @@ def awaiting_verification_knowledge_points(db, student: User,
         Verification.student_id == student.id,
         Verification.status == "passed",
         Submission.student_id == student.id,
-    ).distinct().all()
-    passed_keys = {(subject or "math", knowledge_point) for subject, knowledge_point in passed_rows}
+    )
+    if visible_only:
+        passed_rows_query = passed_rows_query.filter(~pending_review)
+    passed_rows = passed_rows_query.group_by(subject_expr, Error.knowledge_point).all()
+    passed_keys = set()
+    for subject, knowledge_point, completed_at in passed_rows:
+        key = (subject or "math", knowledge_point)
+        latest_error = by_key.get(key)
+        if (
+            latest_error is not None
+            and completed_at is not None
+            and completed_at >= latest_error["latest_error_at"]
+        ):
+            passed_keys.add(key)
     return [
         {
             "subject": subject,
@@ -1046,11 +1069,17 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
             "knowledge_points": [],
         }
     # 先在数据库按学生、学科和知识点汇总，避免把每条错题及订正正文读入 Python。
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == Submission.student_id,
+        Correction.is_correct.is_(True),
+    ).exists()
     passed_verification_query = (
         db.query(
             Verification.student_id.label("student_id"),
             Question.subject.label("subject"),
             Error.knowledge_point.label("knowledge_point"),
+            func.max(Verification.completed_at).label("completed_at"),
         )
         .join(Error, Error.id == Verification.source_error_id)
         .join(Submission, Submission.id == Error.submission_id)
@@ -1087,9 +1116,13 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
             ), else_=0)).label(
                 "stubborn_count"
             ),
-            func.max(case((
-                passed_verification_pairs.c.student_id.isnot(None), 1,
-            ), else_=0)).label("has_passed_verification"),
+            func.sum(case((has_correct_correction, 1), else_=0)).label(
+                "corrected_count"
+            ),
+            func.max(Error.created_at).label("last_error_at"),
+            func.max(passed_verification_pairs.c.completed_at).label(
+                "last_passed_verification_at"
+            ),
         )
         .join(Error, Error.submission_id == Submission.id)
         .join(User, User.id == Submission.student_id)
@@ -1130,8 +1163,14 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
         student_id = summary.student_id
         subject = summary.subject
         kp = summary.knowledge_point
-        # 全部订正正确但尚未通过变式验证，仍处于 awaiting_verify，不计为修复。
-        is_fixed = bool(summary.has_passed_verification)
+        verification_is_current = (
+            summary.last_passed_verification_at is not None
+            and summary.last_passed_verification_at >= summary.last_error_at
+        )
+        is_fixed = (
+            verification_is_current
+            and int(summary.corrected_count or 0) == summary.error_count
+        )
         total_pairs += 1
         cell = per_kp.setdefault((subject, kp), {
             "subject": subject, "knowledge_point": kp,

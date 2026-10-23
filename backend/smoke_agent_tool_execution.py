@@ -47,6 +47,7 @@ from app.models import (
 )
 from app.services.stats import (
     class_repair_rate,
+    awaiting_verification_knowledge_points,
     knowledge_point_ranking,
     student_profile,
     student_report,
@@ -1309,6 +1310,10 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.db.add_all([math_error, physics_error, out_of_scope_error])
         self.db.flush()
         self.db.add(Correction(
+            error_id=math_error.id, student_id=self.student.id,
+            content="已完成数学订正", is_correct=True,
+        ))
+        self.db.add(Correction(
             error_id=physics_error.id, student_id=self.student.id,
             content="已完成订正", is_correct=True,
         ))
@@ -1319,6 +1324,7 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.db.add(Verification(
             student_id=self.student.id, knowledge_point=knowledge_point,
             source_error_id=math_error.id, variant_json="{}", status="passed",
+            completed_at=datetime.now(),
         ))
         self.db.commit()
 
@@ -1331,6 +1337,7 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.db.add(Verification(
             student_id=self.student.id, knowledge_point=knowledge_point,
             source_error_id=out_of_scope_error.id, variant_json="{}", status="passed",
+            completed_at=datetime.now(),
         ))
         self.db.commit()
 
@@ -1347,6 +1354,65 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertEqual(set(repair_by_subject), {"math", "physics"})
         self.assertEqual(repair_by_subject["math"]["students_fixed"], 1)
         self.assertEqual(repair_by_subject["physics"]["students_fixed"], 0)
+
+    def test_newer_error_reopens_a_previously_verified_knowledge_point(self):
+        assignment = Assignment(title="验证后再次出错", created_by=self.teacher.id)
+        self.db.add(assignment)
+        self.db.flush()
+        question = Question(
+            assignment_id=assignment.id, subject="math",
+            knowledge_point="验证后新错题", stem="同知识点练习",
+        )
+        self.db.add(question)
+        self.db.flush()
+        old_submission = Submission(
+            student_id=self.student.id, question_id=question.id,
+        )
+        new_submission = Submission(
+            student_id=self.student.id, question_id=question.id,
+        )
+        self.db.add_all([old_submission, new_submission])
+        self.db.flush()
+        old_error = Error(
+            submission_id=old_submission.id, knowledge_point="验证后新错题",
+            error_type="conceptual", confidence=0.9,
+            created_at=datetime(2026, 1, 1),
+        )
+        new_error = Error(
+            submission_id=new_submission.id, knowledge_point="验证后新错题",
+            error_type="conceptual", confidence=0.9,
+            created_at=datetime(2026, 1, 3),
+        )
+        self.db.add_all([old_error, new_error])
+        self.db.flush()
+        self.db.add_all([
+            Correction(
+                error_id=old_error.id, student_id=self.student.id,
+                content="已订正旧错题", is_correct=True,
+            ),
+            Correction(
+                error_id=new_error.id, student_id=self.student.id,
+                content="已订正新错题", is_correct=True,
+            ),
+            Verification(
+                student_id=self.student.id, knowledge_point="验证后新错题",
+                source_error_id=old_error.id, variant_json="{}", status="passed",
+                completed_at=datetime(2026, 1, 2),
+            ),
+        ])
+        self.db.commit()
+
+        report = student_report(self.db, self.student)
+        self.assertEqual(report[0]["knowledge_points"][0]["status"], "awaiting_verify")
+        awaiting = awaiting_verification_knowledge_points(self.db, self.student)
+        self.assertEqual(len(awaiting), 1)
+        self.assertEqual(awaiting[0]["source_error_id"], new_error.id)
+        repair = class_repair_rate(
+            self.db, [self.student.id], [assignment.id],
+            [old_submission.id, new_submission.id],
+        )
+        self.assertEqual(repair["total_knowledge_point_pairs"], 1)
+        self.assertEqual(repair["fixed_knowledge_point_pairs"], 0)
 
     def test_verification_requires_all_same_subject_knowledge_point_errors_corrected(self):
         from app.routers.student import create_verification
