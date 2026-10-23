@@ -32,6 +32,7 @@ from app.models import (
     Classroom,
     ClassroomMember,
     ClassroomTeacherSubject,
+    Correction,
     Error,
     Essay,
     Notification,
@@ -1307,6 +1308,14 @@ class AgentToolExecutionTests(unittest.TestCase):
         )
         self.db.add_all([math_error, physics_error, out_of_scope_error])
         self.db.flush()
+        self.db.add(Correction(
+            error_id=physics_error.id, student_id=self.student.id,
+            content="已完成订正", is_correct=True,
+        ))
+        self.db.add(Correction(
+            error_id=out_of_scope_error.id, student_id=self.student.id,
+            content="已完成范围外订正", is_correct=True,
+        ))
         self.db.add(Verification(
             student_id=self.student.id, knowledge_point=knowledge_point,
             source_error_id=math_error.id, variant_json="{}", status="passed",
@@ -1317,7 +1326,7 @@ class AgentToolExecutionTests(unittest.TestCase):
             row["subject"]: row["knowledge_points"][0]["status"]
             for row in student_report(self.db, self.student)
         }
-        self.assertEqual(report, {"math": "fixed", "physics": "pending"})
+        self.assertEqual(report, {"math": "fixed", "physics": "awaiting_verify"})
 
         self.db.add(Verification(
             student_id=self.student.id, knowledge_point=knowledge_point,
@@ -1338,6 +1347,63 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertEqual(set(repair_by_subject), {"math", "physics"})
         self.assertEqual(repair_by_subject["math"]["students_fixed"], 1)
         self.assertEqual(repair_by_subject["physics"]["students_fixed"], 0)
+
+    def test_verification_requires_all_same_subject_knowledge_point_errors_corrected(self):
+        from app.routers.student import create_verification
+        from app.schemas import VerificationCreate
+
+        assignment = Assignment(title="验证前置条件", created_by=self.teacher.id)
+        self.db.add(assignment)
+        self.db.flush()
+        question = Question(
+            assignment_id=assignment.id, subject="math",
+            knowledge_point="全部订正后验证", stem="同知识点错题",
+        )
+        self.db.add(question)
+        self.db.flush()
+        submissions = [
+            Submission(student_id=self.student.id, question_id=question.id)
+            for _ in range(2)
+        ]
+        self.db.add_all(submissions)
+        self.db.flush()
+        errors = [
+            Error(
+                submission_id=submission.id,
+                knowledge_point="全部订正后验证",
+                error_type="conceptual", confidence=0.9,
+            )
+            for submission in submissions
+        ]
+        self.db.add_all(errors)
+        self.db.flush()
+        self.db.add(Correction(
+            error_id=errors[0].id, student_id=self.student.id,
+            content="已订正第一题", is_correct=True,
+        ))
+        self.db.commit()
+
+        body = VerificationCreate(
+            knowledge_point="全部订正后验证",
+            source_error_id=errors[0].id,
+            subject="math",
+        )
+        with self.assertRaises(HTTPException) as rejected:
+            create_verification(body, self.db, self.student)
+        self.assertEqual(rejected.exception.status_code, 400)
+
+        self.db.add(Correction(
+            error_id=errors[1].id, student_id=self.student.id,
+            content="已订正第二题", is_correct=True,
+        ))
+        self.db.commit()
+        with patch(
+            "app.routers.student.variant_gen.generate_variant",
+            return_value={"prompt": "验证题", "knowledge_point": "全部订正后验证"},
+        ):
+            created = create_verification(body, self.db, self.student)
+        self.assertEqual(created["status"], "pending")
+        self.assertEqual(created["source_error_id"], errors[0].id)
 
     def test_teacher_ranking_and_suggestions_keep_same_named_subjects_separate(self):
         from app.services.suggestions import build_teaching_suggestions

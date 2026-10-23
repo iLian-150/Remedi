@@ -1046,11 +1046,6 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
             "knowledge_points": [],
         }
     # 先在数据库按学生、学科和知识点汇总，避免把每条错题及订正正文读入 Python。
-    has_correct_correction = db.query(Correction.id).filter(
-        Correction.error_id == Error.id,
-        Correction.student_id == Submission.student_id,
-        Correction.is_correct.is_(True),
-    ).exists()
     passed_verification_query = (
         db.query(
             Verification.student_id.label("student_id"),
@@ -1091,9 +1086,6 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
                 Error.is_stubborn.is_(True), 1,
             ), else_=0)).label(
                 "stubborn_count"
-            ),
-            func.sum(case((has_correct_correction, 1), else_=0)).label(
-                "fixed_count"
             ),
             func.max(case((
                 passed_verification_pairs.c.student_id.isnot(None), 1,
@@ -1138,10 +1130,8 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
         student_id = summary.student_id
         subject = summary.subject
         kp = summary.knowledge_point
-        is_fixed = (
-            bool(summary.has_passed_verification)
-            or int(summary.fixed_count or 0) == summary.error_count
-        )
+        # 全部订正正确但尚未通过变式验证，仍处于 awaiting_verify，不计为修复。
+        is_fixed = bool(summary.has_passed_verification)
         total_pairs += 1
         cell = per_kp.setdefault((subject, kp), {
             "subject": subject, "knowledge_point": kp,

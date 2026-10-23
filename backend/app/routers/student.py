@@ -2314,6 +2314,29 @@ def create_verification(body: VerificationCreate, db: Session = Depends(get_db),
             source_subject = None
 
     effective_subject = body.subject or source_subject
+    if source_error_id is not None and effective_subject:
+        has_correct_correction = db.query(Correction.id).filter(
+            Correction.error_id == Error.id,
+            Correction.student_id == current.id,
+            Correction.is_correct.is_(True),
+        ).exists()
+        uncorrected_error = (
+            db.query(Error.id)
+            .join(Submission, Submission.id == Error.submission_id)
+            .join(Question, Question.id == Submission.question_id)
+            .filter(
+                Submission.student_id == current.id,
+                Question.subject == effective_subject,
+                Error.knowledge_point == kp,
+                ~has_correct_correction,
+            )
+            .first()
+        )
+        if uncorrected_error:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "请先正确订正该学科、该知识点的全部错题，再开始验证",
+            )
     existing_query = db.query(Verification).filter(
         Verification.student_id == current.id,
         Verification.knowledge_point == kp,
