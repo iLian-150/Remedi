@@ -163,22 +163,24 @@ def build_teacher_tools(
             return "请先确认要检索哪一门任教学科的教学资料。"
         else:
             target = normalize_subject(requested_subject)
-            if (
-                target is None and not requested_subject.strip()
-                and len(teaching_subjects) == 1
-            ):
+        if not query.strip():
+            return "请提供具体的教学问题。"
+        retrieval_query = query[:2000]
+        context_subject = None
+        if history:
+            from .rag_context import subject_retrieval_context
+
+            retrieval_query, context_subject = subject_retrieval_context(
+                history, retrieval_query, target,
+            )
+        if target is None and not requested_subject.strip():
+            target = context_subject
+            if target is None and len(teaching_subjects) == 1:
                 target = next(iter(teaching_subjects))
         if target is None:
             return "请先确认要检索哪一门任教学科的教学资料。"
         if target not in teaching_subjects:
             return "该学科不在你当前的任教范围，无法检索其教学资料。"
-        if not query.strip():
-            return "请提供具体的教学问题。"
-        retrieval_query = query[:2000]
-        if history:
-            from .rag_context import subject_retrieval_query
-
-            retrieval_query = subject_retrieval_query(history, retrieval_query, target)
         return build_subject_context(db, target, retrieval_query, teacher_mode=True)
 
     @tool

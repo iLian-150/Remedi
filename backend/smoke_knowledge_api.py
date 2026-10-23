@@ -257,6 +257,44 @@ class KnowledgeApiTests(unittest.TestCase):
         self.assertIn("教学讲义", answer)
         self.assertIn("教师知识库检索结果", answer)
 
+    def test_multisubject_teacher_followup_infers_subject_from_previous_question(self):
+        from langchain_core.messages import HumanMessage
+        from app.agent.teacher_tools import build_teacher_tools
+
+        self.add()
+        history = [HumanMessage(content="数学中的二次函数对称轴是什么？")]
+        with self.sessions() as db:
+            db.add(TeacherSubject(teacher_id=1, subject="english"))
+            db.commit()
+            tool = next(
+                item for item in build_teacher_tools(
+                    db, db.get(User, 1), history=history,
+                )
+                if item.name == "search_teaching_knowledge"
+            )
+            answer = tool.invoke({"query": "为什么呢？"})
+
+        self.assertIn("教师端数学", answer)
+        self.assertIn("教学讲义", answer)
+
+    def test_teacher_followup_cannot_override_teaching_subject_scope(self):
+        from langchain_core.messages import HumanMessage
+        from app.agent.teacher_tools import build_teacher_tools
+
+        self.add()
+        history = [HumanMessage(content="英语中的现在完成时怎么用？")]
+        with self.sessions() as db:
+            tool = next(
+                item for item in build_teacher_tools(
+                    db, db.get(User, 1), history=history,
+                )
+                if item.name == "search_teaching_knowledge"
+            )
+            answer = tool.invoke({"query": "为什么呢？"})
+
+        self.assertIn("不在你当前的任教范围", answer)
+        self.assertNotIn("教师知识库检索结果", answer)
+
 
 class KnowledgeDeleteConcurrencyTests(unittest.TestCase):
     """Real file SQLite connections exercise the route's local lock boundary."""

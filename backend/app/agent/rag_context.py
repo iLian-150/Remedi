@@ -22,13 +22,13 @@ def _is_rag_follow_up(text: str) -> bool:
     )
 
 
-def subject_retrieval_query(
+def subject_retrieval_context(
     history: list[BaseMessage], user_text: str, subject: str | None,
-) -> str:
-    """Make a short anaphoric follow-up searchable from recent same-subject context."""
+) -> tuple[str, str | None]:
+    """Expand a short follow-up and inherit an explicit recent subject when safe."""
     current = (user_text or "").strip()
     if not _is_rag_follow_up(current):
-        return current
+        return current, subject
 
     for message in reversed(history[-12:]):
         if not isinstance(message, HumanMessage) or not isinstance(message.content, str):
@@ -39,9 +39,19 @@ def subject_retrieval_query(
         if _is_rag_follow_up(previous):
             continue
         previous_subject = detect_subject(previous)
-        if previous_subject is not None and previous_subject != subject:
+        if subject is not None and previous_subject is not None and previous_subject != subject:
             continue
         if previous_subject is None and mentions_subject(previous):
             continue
-        return f"{previous[:1600]}\n{current}"[:2000]
-    return current
+        return (
+            f"{previous[:1600]}\n{current}"[:2000],
+            subject or previous_subject,
+        )
+    return current, subject
+
+
+def subject_retrieval_query(
+    history: list[BaseMessage], user_text: str, subject: str | None,
+) -> str:
+    """Make a short anaphoric follow-up searchable from recent same-subject context."""
+    return subject_retrieval_context(history, user_text, subject)[0]
