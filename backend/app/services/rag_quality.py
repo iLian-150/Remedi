@@ -317,31 +317,53 @@ def formula_tokens(text: str) -> list[str]:
 
 
 def spread_by_document(ranked_indices: list[int], candidates: list[dict], limit: int) -> list[int]:
-    """Take a ranking prefix in rounds across documents, retaining source order.
+    """Take a ranking prefix across documents and distinct parent chunks first.
 
-    Retrieval scores are still computed from each source's original rank by the
-    caller. This helper only decides which candidates survive an early cap.
+    Each document's candidates are first interleaved across parent chunks, then
+    documents are interleaved. Retrieval scores still use original ranks; this
+    helper only decides which candidates survive an early cap.
     """
     if limit <= 0:
         return []
-    groups: dict[int, list[int]] = {}
+    groups: dict[int, dict[tuple, list[int]]] = {}
     seen = set()
     for index in ranked_indices:
         if index in seen or not 0 <= index < len(candidates):
             continue
         seen.add(index)
-        document_id = candidates[index].get("document_id")
-        groups.setdefault(document_id, []).append(index)
+        candidate = candidates[index]
+        document_id = candidate.get("document_id")
+        parent_index = candidate.get("parent_index")
+        parent_key = (
+            (candidate.get("page_number"), parent_index)
+            if parent_index is not None else ("candidate", index)
+        )
+        groups.setdefault(document_id, {}).setdefault(parent_key, []).append(index)
+
+    # Near-duplicate child passages from one parent should not consume the
+    # rerank budget before later, independently useful parent chunks.
+    document_rankings = {}
+    for document_id, parent_groups in groups.items():
+        queues = list(parent_groups.values())
+        ranking = []
+        while queues:
+            remaining = []
+            for queue in queues:
+                ranking.append(queue.pop(0))
+                if queue:
+                    remaining.append(queue)
+            queues = remaining
+        document_rankings[document_id] = ranking
 
     selected = []
-    while groups and len(selected) < limit:
+    while document_rankings and len(selected) < limit:
         exhausted = []
-        for document_id, indices in groups.items():
+        for document_id, indices in document_rankings.items():
             selected.append(indices.pop(0))
             if not indices:
                 exhausted.append(document_id)
             if len(selected) >= limit:
                 break
         for document_id in exhausted:
-            groups.pop(document_id, None)
+            document_rankings.pop(document_id, None)
     return selected

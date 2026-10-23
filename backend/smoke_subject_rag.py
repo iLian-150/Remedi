@@ -116,6 +116,33 @@ class SubjectRagTests(unittest.TestCase):
         self.assertEqual(result["rerank_mode"], "model")
         self.assertEqual(result["items"][0]["document_id"], short_document.id)
 
+    def test_reranking_candidate_cap_spreads_across_parent_chunks(self):
+        segments = []
+        for index in range(32):
+            marker = f"segment_{index:02d}_"
+            segments.append(marker + "x" * (1800 - len(marker)))
+        document = self.document("长篇讲义", "".join(segments))
+        passage_ids = [row[0] for row in self.db.query(SubjectKnowledgePassage.id).filter_by(
+            document_id=document.id,
+        ).order_by(SubjectKnowledgePassage.chunk_index)]
+        self.assertGreaterEqual(len(passage_ids), 96)
+        rerank_inputs = []
+
+        def rerank(_query, documents):
+            rerank_inputs.extend(documents)
+            return [0.5] * len(documents)
+
+        with patch.object(subject_rag.rag_milvus, "configured", return_value=True), patch.object(
+            subject_rag.rag_milvus, "search_passages",
+            return_value=[(passage_id, 0.9) for passage_id in passage_ids[:96]],
+        ), patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents", side_effect=rerank,
+        ):
+            result = subject_rag.search_knowledge(self.db, "math", "quantum vortex string theory", limit=4)
+
+        self.assertEqual(result["rerank_mode"], "model")
+        self.assertTrue(any("segment_15_" in text for text in rerank_inputs))
+
     def test_parent_context_is_deduplicated_and_cited(self):
         document = self.document("二次函数", ("二次函数的顶点决定图像位置，求顶点需要配方法。" * 55))
         result = subject_rag.search_knowledge(self.db, "math", "二次函数顶点配方法", limit=10)
