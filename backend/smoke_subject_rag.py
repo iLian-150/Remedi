@@ -60,6 +60,38 @@ class SubjectRagTests(unittest.TestCase):
         result = subject_rag.search_knowledge(self.db, "physics", "力")
         self.assertEqual([item["document_id"] for item in result["items"]], [force.id])
 
+    def test_single_character_diversity_uses_the_same_query_tokens_for_selected_items(self):
+        candidates = [
+            {
+                "document_id": 1, "parent_index": 0, "chunk_index": 0,
+                "page_number": None, "passage_id": 1, "title": "力学",
+                "source_name": None, "content": "力 shared_alpha shared_beta",
+                "parent_content": "父块一",
+            },
+            {
+                "document_id": 2, "parent_index": 0, "chunk_index": 0,
+                "page_number": None, "passage_id": 2, "title": "力学",
+                "source_name": None,
+                "content": "力 shared_alpha " + " ".join(f"unique_{i:03d}" for i in range(100)),
+                "parent_content": "父块二",
+            },
+            {
+                "document_id": 3, "parent_index": 0, "chunk_index": 0,
+                "page_number": None, "passage_id": 3, "title": "力学",
+                "source_name": None, "content": "力 distinct_term",
+                "parent_content": "父块三",
+            },
+        ]
+        with patch.object(subject_rag, "_load_candidates", return_value=candidates), patch.object(
+            subject_rag, "_bm25_rank", return_value=[(0, 1.0), (1, 0.9), (2, 0.8)],
+        ), patch.object(subject_rag.bailian_rerank, "configured", return_value=True), patch.object(
+            subject_rag.bailian_rerank, "rerank_documents",
+            side_effect=lambda _query, documents: [0.5] * len(documents),
+        ):
+            result = subject_rag.search_knowledge(self.db, "physics", "力", limit=3)
+
+        self.assertEqual([item["document_id"] for item in result["items"]], [1, 2, 3])
+
     def test_formula_only_query_uses_bm25_and_keeps_subject_boundary(self):
         math_document = self.document("代数关系", r"关系式为 x + y = z，变量之间满足这个等式。")
         self.document("其他学科", r"关系式为 x + y = z。", subject="physics")

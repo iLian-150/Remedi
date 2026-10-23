@@ -375,7 +375,7 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
             continue
         parent_keys.add(parent_key)
         parent_texts.add(parent_text)
-        selected_tokens.append(set(_tokenize(item["content"])))
+        selected_tokens.append(set(_tokenize(item["content"], single_cjk_token)))
         selected.append({
             "document_id": item["document_id"], "title": item["title"],
             "source_name": item["source_name"], "page_number": item["page_number"],
