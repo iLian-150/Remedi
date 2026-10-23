@@ -49,7 +49,8 @@ class SubjectRagTests(unittest.TestCase):
 
     def test_no_single_character_or_unrelated_chinese_match(self):
         self.document("一次函数", "函数的图像是一条直线。")
-        for query in ("的", "是", "一", "天气预报", "一 次", "", "   "):
+        self.document("一次函数练习题", "一次函数的例题与练习题讲解。")
+        for query in ("的", "是", "一", "题", "天气预报", "一 次", "", "   "):
             with self.subTest(query=query):
                 self.assertEqual(subject_rag.search_knowledge(self.db, "math", query)["items"], [])
 

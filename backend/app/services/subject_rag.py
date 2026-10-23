@@ -30,7 +30,7 @@ _STOP_TOKENS = {
     "the", "and", "for", "are", "what", "how", "please", "this", "that", "with",
 }
 _SINGLE_CJK_STOP_TOKENS = frozenset(
-    "的一了着过是在有和与及或而但被把让从到对为以将于向跟给就都也还又再很太最非每各某这那此彼其它我你他她们谁哪什么不"
+    "的一了着过是在有和与及或而但被把让从到对为以将于向跟给就都也还又再很太最非每各某这那此彼其它我你他她们谁哪什么不题"
 )
 _VECTOR_WARNING = "向量检索尚未就绪，请检查向量模型和 Milvus 配置；当前使用 BM25，恢复后可重新建立向量索引。"
 _RERANK_WARNING = "百炼重排暂不可用，当前使用本地排序。"
