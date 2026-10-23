@@ -1,6 +1,7 @@
 # 教师 Agent 工具集：全部复用 services/stats.py 与 services/teacher_stats.py 的聚合。
 # 教师身份（db 会话 + teacher 对象）以闭包注入，模型无法传 user_id。
 # 返回值是给模型看的紧凑文本摘要，不塞原始 JSON；学生 Agent 的工具在 tools.py，两边隔离。
+import re
 from typing import List
 
 from langchain_core.tools import tool
@@ -20,6 +21,27 @@ from ..services.teacher_scope import (
     teacher_assignment_ids, teacher_student_ids, teacher_submission_ids,
     teacher_assignment_question_ids, teacher_assignment_question_student_pairs,
 )
+
+_STUDENT_NUMBER_NEGATION = re.compile(
+    r"(?:不查|不查询|不看|不查看|不显示|不展示|不需要|不用|不必|不要|无需|请勿|别)"
+    r".{0,12}学号|学号.{0,12}(?:不显示|不展示|不需要|不用|不必|不要|无需|请勿|别)"
+)
+_STUDENT_NUMBER_REQUEST = re.compile(
+    r"(?:告诉(?:我)?|查(?:询|一下)?|查看|显示|提供|给出|给(?:我)?)"
+    r".{0,12}学号|学号.{0,6}(?:是什么|是多少|几号|多少|呢|\?|？)"
+)
+
+
+def _student_number_visibility_request(text: str) -> bool | None:
+    """Return explicit show/hide intent; None leaves the model's tool flag in charge."""
+    value = (text or "").strip()
+    if not value:
+        return None
+    if _STUDENT_NUMBER_NEGATION.search(value):
+        return False
+    if _STUDENT_NUMBER_REQUEST.search(value):
+        return True
+    return None
 
 
 def overview_to_text(overview: dict) -> str:
@@ -289,12 +311,16 @@ def build_teacher_tools(
             st = candidates[0] if candidates else None
         if st is None:
             return f"在你任课的班级中没有找到学生「{student_name}」，请检查姓名和学号。"
+        show_number = include_student_no
+        requested_visibility = _student_number_visibility_request(current_user_text)
+        if requested_visibility is not None:
+            show_number = requested_visibility
         return profile_to_text(
             student_profile(
                 db, st, assignment_ids=assignment_ids,
                 submission_ids=submission_ids,
             ),
-            include_student_no=include_student_no,
+            include_student_no=show_number,
         )
 
     return [
