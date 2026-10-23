@@ -293,6 +293,10 @@ def build_teacher_tools(
         student_name: str, student_no: str = "", include_student_no: bool = False,
     ) -> str:
         """查询任课班级中的某个学生画像。姓名可能重复；同名时请传学号。老师明确询问学号时设 include_student_no=True，否则保持默认以减少学号展示。"""
+        show_number = include_student_no
+        requested_visibility = _student_number_visibility_request(current_user_text)
+        if requested_visibility is not None:
+            show_number = requested_visibility
         name = (student_name or "").strip()
         query = db.query(User).filter(User.role == "student", User.id.in_(student_ids))
         if student_no.strip():
@@ -306,15 +310,14 @@ def build_teacher_tools(
                     User.name.contains(name, autoescape=True),
                 ).order_by(User.id).all()
             if len(candidates) > 1:
+                if not show_number:
+                    return "找到多个姓名匹配的学生，请提供学号以确认具体学生。"
                 numbers = "、".join(item.student_no or "无学号" for item in candidates[:8])
-                return f"找到多个姓名匹配的学生，请用学号进一步确认：{numbers}。"
+                more = f"（共 {len(candidates)} 人，仅显示前 8 人）" if len(candidates) > 8 else ""
+                return f"找到多个姓名匹配的学生，请用学号进一步确认：{numbers}{more}。"
             st = candidates[0] if candidates else None
         if st is None:
             return f"在你任课的班级中没有找到学生「{student_name}」，请检查姓名和学号。"
-        show_number = include_student_no
-        requested_visibility = _student_number_visibility_request(current_user_text)
-        if requested_visibility is not None:
-            show_number = requested_visibility
         return profile_to_text(
             student_profile(
                 db, st, assignment_ids=assignment_ids,

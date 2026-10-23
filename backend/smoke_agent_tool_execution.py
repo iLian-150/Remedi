@@ -618,6 +618,47 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertIn(f"学号：{self.student.student_no}", requested)
         self.assertNotIn(self.student.student_no, hidden)
 
+    def test_ambiguous_student_lookup_hides_numbers_unless_explicitly_requested(self):
+        from app.agent.teacher_tools import build_teacher_tools
+
+        other = User(
+            name=f"{self.student.name}甲", role="student", student_no="agent-smoke-other",
+        )
+        self.db.add(other)
+        self.db.commit()
+        with patch(
+            "app.agent.teacher_tools._teacher_scope",
+            return_value=([], [self.student.id, other.id]),
+        ):
+            hidden_tool = next(
+                item for item in build_teacher_tools(
+                    self.db, self.teacher,
+                    current_user_text=f"查询{self.student.name[:-1]}的画像，不要显示学号。",
+                )
+                if item.name == "get_student_profile"
+            )
+            requested_tool = next(
+                item for item in build_teacher_tools(
+                    self.db, self.teacher,
+                    current_user_text=f"请告诉我{self.student.name}的学号。",
+                )
+                if item.name == "get_student_profile"
+            )
+            hidden = hidden_tool.invoke({
+                "student_name": self.student.name[:-1],
+                "include_student_no": True,
+            })
+            requested = requested_tool.invoke({
+                "student_name": self.student.name[:-1],
+                "include_student_no": False,
+            })
+
+        self.assertIn("找到多个姓名匹配的学生", hidden)
+        self.assertNotIn(self.student.student_no, hidden)
+        self.assertNotIn(other.student_no, hidden)
+        self.assertIn(self.student.student_no, requested)
+        self.assertIn(other.student_no, requested)
+
     def test_teacher_student_profile_prefers_exact_names_and_rejects_mismatched_identity(self):
         from app.agent.teacher_tools import build_teacher_tools
 
