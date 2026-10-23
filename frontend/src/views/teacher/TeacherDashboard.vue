@@ -39,7 +39,7 @@
           <div class="stat-num tnum">{{ Math.round(repairRate.class_repair_rate * 100) }}%</div>
           <div class="stat-label">班级知识修复率</div>
           <div class="repair-bar"><span :style="{ width: `${Math.round(repairRate.class_repair_rate * 100)}%` }"></span></div>
-          <div class="repair-sub tnum">已修复 {{ repairRate.fixed_knowledge_point_pairs }} / 出过错 {{ repairRate.total_knowledge_point_pairs }} 个知识点（按学生计）</div>
+          <div class="repair-sub tnum">已修复 {{ repairRate.fixed_knowledge_point_pairs }} / 出过错 {{ repairRate.total_knowledge_point_pairs }} 个学科知识点组合（按学生计）</div>
         </div>
       </div>
 
@@ -170,12 +170,22 @@ const repairRate = ref<ClassRepairRate>({
 function repairText(kpName: string): string {
   return repairTextByKnowledgePoint.value.get(kpName) ?? ''
 }
-const repairTextByKnowledgePoint = computed(() => new Map(
-  repairRate.value.knowledge_points.map((item) => [
-    item.knowledge_point,
-    `已修复率 ${Math.round(item.repair_rate * 100)}%（${item.students_fixed}/${item.students_errored} 名学生）`
-  ])
-))
+const REPAIR_SUBJECT_LABELS: Record<string, string> = {
+  math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理',
+  chemistry: '化学', biology: '生物', chinese: '语文', history: '历史',
+  geography: '地理', politics: '道德与法治', computer_science: '信息科技',
+  art: '艺术', music: '音乐', pe: '体育', other: '其他'
+}
+const repairTextByKnowledgePoint = computed(() => {
+  const grouped = new Map<string, string[]>()
+  for (const item of repairRate.value.knowledge_points) {
+    const subject = REPAIR_SUBJECT_LABELS[item.subject] ?? item.subject
+    const lines = grouped.get(item.knowledge_point) ?? []
+    lines.push(`${subject}修复率 ${Math.round(item.repair_rate * 100)}%（${item.students_fixed}/${item.students_errored} 名学生）`)
+    grouped.set(item.knowledge_point, lines)
+  }
+  return new Map([...grouped].map(([knowledgePoint, lines]) => [knowledgePoint, lines.join(' · ')]))
+})
 
 // 教学建议（独立于看板主体加载，失败不报错、不拖垮页面）
 const suggestions = ref<TeachingSuggestion[]>([])

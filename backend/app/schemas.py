@@ -893,16 +893,17 @@ class VerificationSubmitOut(BaseModel):
 # ---------- 教师：班级知识修复率（v0.4.0 新增） ----------
 
 class KnowledgePointRepairItem(BaseModel):
+    subject: str
     knowledge_point: str
-    students_errored: int         # 在该知识点出过错的学生数
+    students_errored: int         # 在该学科知识点出过错的学生数
     students_fixed: int           # 其中已修复（订正+通过验证）的学生数
     repair_rate: float            # students_fixed / students_errored
 
 
 class ClassRepairRateOut(BaseModel):
-    class_repair_rate: float                 # 全班知识修复率 = 已修复（学生×知识点）/ 出过错（学生×知识点）
+    class_repair_rate: float                 # 已修复（学生×学科×知识点）/ 出过错组合
     students_with_errors: int                # 有过错题的学生数
-    total_knowledge_point_pairs: int         # 出过错的（学生, 知识点）组合数
+    total_knowledge_point_pairs: int         # 出过错的（学生, 学科, 知识点）组合数
     fixed_knowledge_point_pairs: int         # 其中已修复的组合数
     knowledge_points: List[KnowledgePointRepairItem]
 

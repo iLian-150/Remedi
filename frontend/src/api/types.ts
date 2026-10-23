@@ -782,6 +782,7 @@ export interface VerificationSubmitResult {
 }
 
 export interface KnowledgePointRepair {
+  subject: string
   knowledge_point: string
   students_errored: number
   students_fixed: number

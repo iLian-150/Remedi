@@ -42,8 +42,9 @@ from app.models import (
     SubmissionScore,
     TeacherSubject,
     User,
+    Verification,
 )
-from app.services.stats import class_repair_rate, student_profile
+from app.services.stats import class_repair_rate, student_profile, student_report
 from app.services.teacher_scope import (
     teacher_assignment_ids,
     teacher_assignment_student_ids,
@@ -1251,6 +1252,86 @@ class AgentToolExecutionTests(unittest.TestCase):
             {"deleted": True},
         )
         self.assertIsNone(self.db.get(Assignment, physics_assignment.id))
+
+    def test_class_repair_rate_scopes_verification_to_source_subject_and_submission(self):
+        math_assignment = Assignment(title="修复率数学", created_by=self.teacher.id)
+        physics_assignment = Assignment(title="修复率物理", created_by=self.teacher.id)
+        out_of_scope_assignment = Assignment(
+            title="范围外验证题", created_by=self.teacher.id,
+        )
+        self.db.add_all([math_assignment, physics_assignment, out_of_scope_assignment])
+        self.db.flush()
+        knowledge_point = "同名知识点"
+        math_question = Question(
+            assignment_id=math_assignment.id, subject="math",
+            knowledge_point=knowledge_point, stem="数学同名知识点题",
+        )
+        physics_question = Question(
+            assignment_id=physics_assignment.id, subject="physics",
+            knowledge_point=knowledge_point, stem="物理同名知识点题",
+        )
+        out_of_scope_question = Question(
+            assignment_id=out_of_scope_assignment.id, subject="physics",
+            knowledge_point=knowledge_point, stem="范围外物理题",
+        )
+        self.db.add_all([math_question, physics_question, out_of_scope_question])
+        self.db.flush()
+        math_submission = Submission(
+            student_id=self.student.id, question_id=math_question.id,
+        )
+        physics_submission = Submission(
+            student_id=self.student.id, question_id=physics_question.id,
+        )
+        out_of_scope_submission = Submission(
+            student_id=self.student.id, question_id=out_of_scope_question.id,
+        )
+        self.db.add_all([math_submission, physics_submission, out_of_scope_submission])
+        self.db.flush()
+        math_error = Error(
+            submission_id=math_submission.id, knowledge_point=knowledge_point,
+            error_type="conceptual", confidence=0.9,
+        )
+        physics_error = Error(
+            submission_id=physics_submission.id, knowledge_point=knowledge_point,
+            error_type="conceptual", confidence=0.9,
+        )
+        out_of_scope_error = Error(
+            submission_id=out_of_scope_submission.id, knowledge_point=knowledge_point,
+            error_type="conceptual", confidence=0.9,
+        )
+        self.db.add_all([math_error, physics_error, out_of_scope_error])
+        self.db.flush()
+        self.db.add(Verification(
+            student_id=self.student.id, knowledge_point=knowledge_point,
+            source_error_id=math_error.id, variant_json="{}", status="passed",
+        ))
+        self.db.commit()
+
+        report = {
+            row["subject"]: row["knowledge_points"][0]["status"]
+            for row in student_report(self.db, self.student)
+        }
+        self.assertEqual(report, {"math": "fixed", "physics": "pending"})
+
+        self.db.add(Verification(
+            student_id=self.student.id, knowledge_point=knowledge_point,
+            source_error_id=out_of_scope_error.id, variant_json="{}", status="passed",
+        ))
+        self.db.commit()
+
+        repair = class_repair_rate(
+            self.db, [self.student.id],
+            [math_assignment.id, physics_assignment.id],
+            [math_submission.id, physics_submission.id],
+        )
+
+        self.assertEqual(repair["total_knowledge_point_pairs"], 2)
+        self.assertEqual(repair["fixed_knowledge_point_pairs"], 1)
+        self.assertEqual(repair["class_repair_rate"], 0.5)
+        repair_by_subject = {row["subject"]: row for row in repair["knowledge_points"]}
+        self.assertEqual(set(repair_by_subject), {"math", "physics"})
+        self.assertEqual(repair_by_subject["math"]["students_fixed"], 1)
+        self.assertEqual(repair_by_subject["physics"]["students_fixed"], 0)
 
     def test_essay_submission_lock_and_deadline_deferred_scoring(self):
         from datetime import datetime, timedelta

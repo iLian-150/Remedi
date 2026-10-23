@@ -68,7 +68,7 @@ class Settings:
         os.getenv("APP_TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai"
     )
 
-    APP_VERSION: str = "0.13.372"
+    APP_VERSION: str = "0.13.373"
 
 
 settings = Settings()

@@ -745,15 +745,29 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
         Correction.student_id == student.id,
         Correction.is_correct.is_(True),
     ).exists()
-    passed_verification_knowledge_points = (
-        db.query(Verification.knowledge_point.label("knowledge_point"))
+    passed_verification_pairs_query = (
+        db.query(
+            Verification.student_id.label("student_id"),
+            Question.subject.label("subject"),
+            Error.knowledge_point.label("knowledge_point"),
+        )
+        .join(Error, Error.id == Verification.source_error_id)
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
         .filter(
             Verification.student_id == student.id,
+            Verification.student_id == Submission.student_id,
             Verification.status == "passed",
+            Verification.knowledge_point == Error.knowledge_point,
         )
-        .group_by(Verification.knowledge_point)
-        .subquery()
     )
+    if visible_only:
+        passed_verification_pairs_query = passed_verification_pairs_query.filter(
+            ~pending_review,
+        )
+    passed_verification_pairs = passed_verification_pairs_query.group_by(
+        Verification.student_id, Question.subject, Error.knowledge_point,
+    ).subquery()
     error_query = (
         db.query(
             subject_expr.label("subject"),
@@ -767,15 +781,18 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
             ),
             func.max(Error.created_at).label("last_error_at"),
             func.max(case((
-                passed_verification_knowledge_points.c.knowledge_point.isnot(None), 1,
+                passed_verification_pairs.c.student_id.isnot(None), 1,
             ), else_=0)).label("has_passed_verification"),
         )
         .join(Submission, Submission.id == Error.submission_id)
         .outerjoin(Question, Question.id == Submission.question_id)
         .outerjoin(
-            passed_verification_knowledge_points,
-            passed_verification_knowledge_points.c.knowledge_point
-            == Error.knowledge_point,
+            passed_verification_pairs,
+            and_(
+                passed_verification_pairs.c.student_id == Submission.student_id,
+                passed_verification_pairs.c.subject == subject_expr,
+                passed_verification_pairs.c.knowledge_point == Error.knowledge_point,
+            ),
         )
         .filter(Submission.student_id == student.id)
     )
@@ -1013,32 +1030,57 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
 
 # ---------------------------------------------------------------- 班级知识修复率（v0.4.0 新增）
 # 全班口径与学生报告一致（共用四态判定规则）：
-#   班级知识修复率 = 已修复的（学生 × 知识点）组合数 / 出过错的（学生 × 知识点）组合数
+#   班级知识修复率 = 已修复的（学生 × 学科 × 知识点）组合数 / 出过错组合数
 #   各知识点修复率 = 该知识点已修复学生数 / 该知识点出过错学生数
 
 def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=None) -> Dict:
-    """教师端：班级知识修复率 + 各知识点修复率（只读聚合，不改任何已有口径）。"""
-    # 先在数据库按学生和知识点汇总，避免把每条错题及订正正文读入 Python。
-    has_correct_correction = db.query(Correction.id).filter(
-        Correction.error_id == Error.id,
-        Correction.student_id == Submission.student_id,
-        Correction.is_correct.is_(True),
-    ).exists()
-    passed_verification_pairs = (
-        db.query(Verification.student_id, Verification.knowledge_point)
-        .filter(Verification.status == "passed")
-        .group_by(Verification.student_id, Verification.knowledge_point)
-        .subquery()
-    )
+    """教师端：按学生、学科和知识点统计修复率，并严格限制到授权提交范围。"""
     if student_ids is not None and not student_ids:
         return {
             "class_repair_rate": 0.0, "students_with_errors": 0,
             "total_knowledge_point_pairs": 0, "fixed_knowledge_point_pairs": 0,
             "knowledge_points": [],
         }
+    # 先在数据库按学生、学科和知识点汇总，避免把每条错题及订正正文读入 Python。
+    has_correct_correction = db.query(Correction.id).filter(
+        Correction.error_id == Error.id,
+        Correction.student_id == Submission.student_id,
+        Correction.is_correct.is_(True),
+    ).exists()
+    passed_verification_query = (
+        db.query(
+            Verification.student_id.label("student_id"),
+            Question.subject.label("subject"),
+            Error.knowledge_point.label("knowledge_point"),
+        )
+        .join(Error, Error.id == Verification.source_error_id)
+        .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
+        .filter(
+            Verification.status == "passed",
+            Verification.student_id == Submission.student_id,
+            Verification.knowledge_point == Error.knowledge_point,
+        )
+    )
+    if student_ids is not None:
+        passed_verification_query = passed_verification_query.filter(
+            Verification.student_id.in_(student_ids),
+        )
+    if assignment_ids is not None:
+        passed_verification_query = passed_verification_query.filter(
+            Question.assignment_id.in_(assignment_ids),
+        )
+    if submission_ids is not None:
+        passed_verification_query = passed_verification_query.filter(
+            Submission.id.in_(submission_ids),
+        )
+    passed_verification_pairs = passed_verification_query.group_by(
+        Verification.student_id, Question.subject, Error.knowledge_point,
+    ).subquery()
     error_query = (
         db.query(
             Submission.student_id.label("student_id"),
+            Question.subject.label("subject"),
             Error.knowledge_point.label("knowledge_point"),
             func.count(Error.id).label("error_count"),
             func.sum(case((
@@ -1060,6 +1102,7 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
             passed_verification_pairs,
             and_(
                 passed_verification_pairs.c.student_id == Submission.student_id,
+                passed_verification_pairs.c.subject == Question.subject,
                 passed_verification_pairs.c.knowledge_point == Error.knowledge_point,
             ),
         )
@@ -1071,7 +1114,9 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
         error_query = error_query.filter(Question.assignment_id.in_(assignment_ids))
     if submission_ids is not None:
         error_query = error_query.filter(Submission.id.in_(submission_ids))
-    error_summaries = error_query.group_by(Submission.student_id, Error.knowledge_point).all()
+    error_summaries = error_query.group_by(
+        Submission.student_id, Question.subject, Error.knowledge_point,
+    ).all()
     if not error_summaries:
         return {
             "class_repair_rate": 0.0,
@@ -1087,14 +1132,16 @@ def class_repair_rate(db, student_ids=None, assignment_ids=None, submission_ids=
     per_kp: Dict[str, Dict] = {}
     for summary in error_summaries:
         student_id = summary.student_id
+        subject = summary.subject
         kp = summary.knowledge_point
         is_fixed = (
             bool(summary.has_passed_verification)
             or int(summary.fixed_count or 0) == summary.error_count
         )
         total_pairs += 1
-        cell = per_kp.setdefault(kp, {
-            "knowledge_point": kp, "students_errored": 0, "students_fixed": 0,
+        cell = per_kp.setdefault((subject, kp), {
+            "subject": subject, "knowledge_point": kp,
+            "students_errored": 0, "students_fixed": 0,
         })
         cell["students_errored"] += 1
         if is_fixed:

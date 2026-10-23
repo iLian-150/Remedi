@@ -47,7 +47,18 @@ def build_teaching_suggestions(
             if precomputed_stats is not None else class_repair_rate(db)
         )
         for kp in repair_data.get("knowledge_points", []):
-            repair_map[kp["knowledge_point"]] = kp
+            key = kp["knowledge_point"]
+            combined = repair_map.setdefault(key, {
+                "knowledge_point": key,
+                "students_errored": 0,
+                "students_fixed": 0,
+                "repair_rate": 0.0,
+            })
+            combined["students_errored"] += kp["students_errored"]
+            combined["students_fixed"] += kp["students_fixed"]
+            combined["repair_rate"] = round(
+                combined["students_fixed"] / combined["students_errored"], 3,
+            ) if combined["students_errored"] else 0.0
     except Exception:
         repair_map = {}
     try:

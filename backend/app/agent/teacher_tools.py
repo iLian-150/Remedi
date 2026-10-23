@@ -83,13 +83,21 @@ def ranking_to_text(items: List[dict]) -> str:
 def repair_rate_to_text(data: dict) -> str:
     lines = [
         f"班级知识修复率 {round(data['class_repair_rate'] * 100)}%："
-        f"出过错的（学生×知识点）共 {data['total_knowledge_point_pairs']} 组，"
+        f"出过错的（学生×学科×知识点）共 {data['total_knowledge_point_pairs']} 组，"
         f"已修复 {data['fixed_knowledge_point_pairs']} 组，涉及 {data['students_with_errors']} 名学生。"
         "（口径：错题订正正确后再做对一道同知识点变式题，才算已修复。）"
     ]
+    subject_names = {
+        "math": "数学", "english": "英语", "english_exercise": "英语练习",
+        "physics": "物理", "chemistry": "化学", "biology": "生物",
+        "chinese": "语文", "history": "历史", "geography": "地理",
+        "politics": "道德与法治", "computer_science": "信息科技",
+        "art": "艺术", "music": "音乐", "pe": "体育", "other": "其他",
+    }
     for kp in data["knowledge_points"]:
         lines.append(
-            f"- 「{kp['knowledge_point']}」：修复率 {round(kp['repair_rate'] * 100)}%"
+            f"- {subject_names.get(kp['subject'], kp['subject'])}「{kp['knowledge_point']}」："
+            f"修复率 {round(kp['repair_rate'] * 100)}%"
             f"（{kp['students_fixed']}/{kp['students_errored']} 名学生已修复）。"
         )
     return "\n".join(lines)
