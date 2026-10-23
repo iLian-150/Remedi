@@ -69,6 +69,9 @@ _SAFE_CALLS = {
 _SAFE_CONSTANTS = {
     key: _SAFE_GLOBALS[key] for key in ("E", "I", "nan", "oo", "pi", "zoo")
 }
+_MATH_FUNCTION_NAMES = frozenset(_SAFE_CALLS).difference({
+    "Add", "Float", "Integer", "Mul", "Pow", "Rational", "Symbol",
+})
 
 
 def _evaluate_math_ast(node):
@@ -208,6 +211,11 @@ def _sqrt_to_pow(t: str) -> str:
     return t
 
 
+def _implicit_product_before_parenthesis(match: re.Match) -> str:
+    name = match.group(1)
+    return f"{name}(" if name in _MATH_FUNCTION_NAMES else f"{name}*("
+
+
 def clean_text(raw: str) -> str:
     """归一化步骤文本：全角转半角、符号统一、去掉中文括号注释。"""
     t = raw.strip().translate(_FULL2HALF)
@@ -215,8 +223,9 @@ def clean_text(raw: str) -> str:
         t = t.replace(k, v)
     t = _sqrt_to_pow(t)
     t = _CJK_PAREN_RE.sub("", t)  # 去掉 "（检验）" 这类中文注释
-    # 隐式乘法显式化：2(x+1) → 2*(x+1)，保证归一化文本形态一致（检测器依赖显式 *）
-    t = re.sub(r"([0-9a-zA-Z])\(", r"\1*(", t)
+    # 保留白名单函数调用；其余标识符紧邻括号时按乘法归一化，如 x(y+1) → x*(y+1)。
+    t = re.sub(r"([A-Za-z][A-Za-z0-9_]*)\(", _implicit_product_before_parenthesis, t)
+    t = re.sub(r"([0-9])\(", r"\1*(", t)
     t = re.sub(r"\)([0-9a-zA-Z])", r")*\1", t)
     t = re.sub(r"\)\(", r")*(", t)
     t = re.sub(r"\s+", "", t)

@@ -306,6 +306,10 @@ class AgentToolExecutionTests(unittest.TestCase):
             parsed = parse_step("2(x+1)=8")
             self.assertEqual(parsed.kind, "eq")
             self.assertEqual(parsed.text, "2*(x+1)=8")
+            trig = parse_step("sin(x)^2+cos(x)^2")
+            self.assertEqual(trig.kind, "expr")
+            self.assertEqual(trig.text, "sin(x)**2+cos(x)**2")
+            self.assertEqual(str(trig.expr), "sin(x)**2 + cos(x)**2")
             with self.assertRaises(UnparseableError):
                 parse_step("x.__class__")
 
@@ -313,7 +317,9 @@ class AgentToolExecutionTests(unittest.TestCase):
             detect_distributive_mistake,
             detect_sign_move_mistake,
             detect_square_mistake,
+            equivalent,
         )
+        self.assertTrue(equivalent(trig.expr, parse_step("1").expr))
         previous_square = parse_step("(x+2)^2")
         self.assertTrue(detect_square_mistake(
             previous_square.text, parse_step("x^2+4"),
