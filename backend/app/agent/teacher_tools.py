@@ -139,7 +139,10 @@ def resolve_assignment(db: Session, hint: str, assignment_ids=None):
 
 
 def build_teacher_tools(
-    db: Session, teacher: User, history: list | None = None,
+    db: Session,
+    teacher: User,
+    history: list | None = None,
+    current_user_text: str = "",
 ) -> list:
     """按当前教师构造工具列表（身份闭包注入）。"""
     assignment_ids, student_ids = _teacher_scope(db, teacher)
@@ -154,15 +157,22 @@ def build_teacher_tools(
         )
 
         requested_subject = subject if isinstance(subject, str) else ""
-        query_subject = detect_subject(query)
-        if query_subject is not None:
-            # A model-supplied tool argument must not override an explicit
-            # subject named by the teacher's actual question.
-            target = query_subject
-        elif mentions_subject(query):
+        actual_text = (current_user_text or "").strip()
+        actual_subject = detect_subject(actual_text)
+        if actual_subject is not None:
+            # The original request is authoritative when the model rewrites the
+            # retrieval query or supplies a conflicting subject argument.
+            target = actual_subject
+        elif actual_text and mentions_subject(actual_text):
             return "请先确认要检索哪一门任教学科的教学资料。"
         else:
-            target = normalize_subject(requested_subject)
+            query_subject = detect_subject(query)
+            if query_subject is not None:
+                target = query_subject
+            elif mentions_subject(query):
+                return "请先确认要检索哪一门任教学科的教学资料。"
+            else:
+                target = normalize_subject(requested_subject)
         if not query.strip():
             return "请提供具体的教学问题。"
         retrieval_query = query[:2000]

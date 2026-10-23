@@ -962,6 +962,37 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertTrue(any("教学讲义" in content for content in tool_results))
         self.assertTrue(any("教师知识库检索结果" in content for content in tool_results))
 
+    def test_teacher_rag_uses_explicit_subject_from_original_user_message(self):
+        from app.models import SubjectKnowledgeChunk
+        from app.services.subject_rag import prepare_knowledge
+
+        self.db.add(TeacherSubject(teacher_id=self.teacher.id, subject="english"))
+        document = SubjectKnowledgeChunk(
+            subject="english", title="现在完成时", source_name="英语讲义",
+            content="现在完成时表示过去发生并持续到现在的动作或状态。",
+        )
+        self.db.add(document)
+        prepare_knowledge(self.db, document)
+        self.db.commit()
+        model = ScriptedToolModel(rounds=[[
+            {
+                "name": "search_teaching_knowledge", "id": "rag-subject-1",
+                "args": {"query": "现在完成时的用法", "subject": "math"},
+            },
+        ]])
+        with patch("app.agent.teacher_graph._build_llm", return_value=model), \
+                patch("app.services.rag_milvus.configured", return_value=False), \
+                patch("app.services.bailian_rerank.configured", return_value=False):
+            result = consume(teacher_agent_reply_stream(
+                self.db, self.teacher, [], "英语中的现在完成时怎么用？",
+            ))
+
+        tool_results = [message.content for message in model.seen[-1] if isinstance(message, ToolMessage)]
+        self.assertEqual(result["tools_used"], ["search_teaching_knowledge"])
+        self.assertTrue(any("教师端英语" in content and "英语讲义" in content
+                            for content in tool_results))
+        self.assertFalse(any("教师端数学" in content for content in tool_results))
+
     def test_teacher_aggregates_filter_by_authorized_submissions(self):
         math_class = Classroom(name="逻辑回归数学班", created_by=self.teacher.id)
         physics_class = Classroom(name="逻辑回归物理班", created_by=self.teacher.id)

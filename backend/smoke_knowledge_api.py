@@ -295,6 +295,26 @@ class KnowledgeApiTests(unittest.TestCase):
         self.assertIn("不在你当前的任教范围", answer)
         self.assertNotIn("教师知识库检索结果", answer)
 
+    def test_teacher_tool_cannot_hide_ambiguous_original_subject_with_model_argument(self):
+        from app.agent.teacher_tools import build_teacher_tools
+
+        with self.sessions() as db:
+            db.add(TeacherSubject(teacher_id=1, subject="english"))
+            db.commit()
+            tool = next(
+                item for item in build_teacher_tools(
+                    db, db.get(User, 1),
+                    current_user_text="比较数学和英语教材里的函数概念。",
+                )
+                if item.name == "search_teaching_knowledge"
+            )
+            answer = tool.invoke({
+                "query": "数学二次函数的对称轴",
+                "subject": "math",
+            })
+
+        self.assertIn("请先确认要检索哪一门", answer)
+
 
 class KnowledgeDeleteConcurrencyTests(unittest.TestCase):
     """Real file SQLite connections exercise the route's local lock boundary."""
