@@ -58,7 +58,7 @@ def teacher_agent_reply_stream(db: Session, teacher: User,
     class AgentState(TypedDict):
         messages: Annotated[list, add_messages]
 
-    tools = build_teacher_tools(db, teacher)
+    tools = build_teacher_tools(db, teacher, history=history)
     llm_with_tools = llm.bind_tools(tools)
     tool_names: list[str] = []
 

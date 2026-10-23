@@ -138,7 +138,9 @@ def resolve_assignment(db: Session, hint: str, assignment_ids=None):
     return latest_assignment(db, assignment_ids), True
 
 
-def build_teacher_tools(db: Session, teacher: User) -> list:
+def build_teacher_tools(
+    db: Session, teacher: User, history: list | None = None,
+) -> list:
     """按当前教师构造工具列表（身份闭包注入）。"""
     assignment_ids, student_ids = _teacher_scope(db, teacher)
     submission_ids = teacher_submission_ids(db, teacher)
@@ -172,7 +174,12 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
             return "该学科不在你当前的任教范围，无法检索其教学资料。"
         if not query.strip():
             return "请提供具体的教学问题。"
-        return build_subject_context(db, target, query[:2000], teacher_mode=True)
+        retrieval_query = query[:2000]
+        if history:
+            from .rag_context import subject_retrieval_query
+
+            retrieval_query = subject_retrieval_query(history, retrieval_query, target)
+        return build_subject_context(db, target, retrieval_query, teacher_mode=True)
 
     @tool
     def get_class_overview() -> str:

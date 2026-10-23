@@ -931,6 +931,37 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertEqual(observed["peak"], 1)
         self.assertEqual(result["tools_used"], ["get_class_overview", "get_class_repair_rate"])
 
+    def test_teacher_rag_tool_uses_previous_question_for_short_followup(self):
+        from langchain_core.messages import HumanMessage
+        from app.models import SubjectKnowledgeChunk
+        from app.services.subject_rag import prepare_knowledge
+
+        document = SubjectKnowledgeChunk(
+            subject="math", title="二次函数", source_name="教学讲义",
+            content="二次函数图像是抛物线，对称轴由系数决定。",
+        )
+        self.db.add(document)
+        prepare_knowledge(self.db, document)
+        self.db.commit()
+        history = [HumanMessage(content="二次函数的对称轴是什么？")]
+        model = ScriptedToolModel(rounds=[[
+            {
+                "name": "search_teaching_knowledge", "id": "rag-followup-1",
+                "args": {"query": "为什么呢？", "subject": "math"},
+            },
+        ]])
+        with patch("app.agent.teacher_graph._build_llm", return_value=model), \
+                patch("app.services.rag_milvus.configured", return_value=False), \
+                patch("app.services.bailian_rerank.configured", return_value=False):
+            result = consume(teacher_agent_reply_stream(
+                self.db, self.teacher, history, "为什么呢？",
+            ))
+
+        tool_results = [message.content for message in model.seen[-1] if isinstance(message, ToolMessage)]
+        self.assertEqual(result["tools_used"], ["search_teaching_knowledge"])
+        self.assertTrue(any("教学讲义" in content for content in tool_results))
+        self.assertTrue(any("教师知识库检索结果" in content for content in tool_results))
+
     def test_teacher_aggregates_filter_by_authorized_submissions(self):
         math_class = Classroom(name="逻辑回归数学班", created_by=self.teacher.id)
         physics_class = Classroom(name="逻辑回归物理班", created_by=self.teacher.id)

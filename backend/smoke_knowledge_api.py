@@ -236,6 +236,27 @@ class KnowledgeApiTests(unittest.TestCase):
             no_hits = tool.invoke({"query": "量子引力弦动力矩", "subject": "math"})
             self.assertIn("教师知识库没有检索到", no_hits)
 
+    def test_teacher_knowledge_tool_expands_short_followup_from_same_subject_history(self):
+        from langchain_core.messages import AIMessage, HumanMessage
+        from app.agent.teacher_tools import build_teacher_tools
+
+        self.add()
+        history = [
+            HumanMessage(content="二次函数的对称轴是什么？"),
+            AIMessage(content="可以用一次项系数和二次项系数判断。"),
+        ]
+        with self.sessions() as db:
+            tool = next(
+                item for item in build_teacher_tools(
+                    db, db.get(User, 1), history=history,
+                )
+                if item.name == "search_teaching_knowledge"
+            )
+            answer = tool.invoke({"query": "为什么呢？", "subject": "math"})
+
+        self.assertIn("教学讲义", answer)
+        self.assertIn("教师知识库检索结果", answer)
+
 
 class KnowledgeDeleteConcurrencyTests(unittest.TestCase):
     """Real file SQLite connections exercise the route's local lock boundary."""
