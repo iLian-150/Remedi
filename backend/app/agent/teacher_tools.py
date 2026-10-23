@@ -256,11 +256,17 @@ def build_teacher_tools(db: Session, teacher: User) -> list:
         query = db.query(User).filter(User.role == "student", User.id.in_(student_ids))
         if student_no.strip():
             st = query.filter(User.student_no == student_no.strip()).first()
+            if st is not None and name and st.name != name:
+                st = None
         else:
-            candidates = query.filter(User.name.contains(name)).all() if name else []
+            candidates = query.filter(User.name == name).order_by(User.id).all() if name else []
+            if not candidates and name:
+                candidates = query.filter(
+                    User.name.contains(name, autoescape=True),
+                ).order_by(User.id).all()
             if len(candidates) > 1:
                 numbers = "、".join(item.student_no or "无学号" for item in candidates[:8])
-                return f"找到多个同名学生，请用学号进一步确认：{numbers}。"
+                return f"找到多个姓名匹配的学生，请用学号进一步确认：{numbers}。"
             st = candidates[0] if candidates else None
         if st is None:
             return f"在你任课的班级中没有找到学生「{student_name}」，请检查姓名和学号。"

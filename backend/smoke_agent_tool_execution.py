@@ -585,6 +585,36 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertNotIn(self.student.student_no, summary)
         self.assertIn(f"学号：{self.student.student_no}", identified)
 
+    def test_teacher_student_profile_prefers_exact_names_and_rejects_mismatched_identity(self):
+        from app.agent.teacher_tools import build_teacher_tools
+
+        partial_match = User(
+            name=f"{self.student.name}甲", role="student", student_no="agent-smoke-extra",
+        )
+        self.db.add(partial_match)
+        self.db.commit()
+        with patch(
+            "app.agent.teacher_tools._teacher_scope",
+            return_value=([], [self.student.id, partial_match.id]),
+        ):
+            profile_tool = next(
+                tool for tool in build_teacher_tools(self.db, self.teacher)
+                if tool.name == "get_student_profile"
+            )
+            exact = profile_tool.invoke({"student_name": self.student.name})
+            mismatch = profile_tool.invoke({
+                "student_name": self.student.name,
+                "student_no": partial_match.student_no,
+                "include_student_no": True,
+            })
+            wildcard = profile_tool.invoke({"student_name": "%"})
+
+        self.assertIn(f"学生 {self.student.name} 的学习画像摘要", exact)
+        self.assertNotIn(partial_match.student_no, exact)
+        self.assertIn("没有找到学生", mismatch)
+        self.assertNotIn(partial_match.student_no, mismatch)
+        self.assertIn("没有找到学生", wildcard)
+
     def test_teacher_assignment_status_only_lists_students_in_authorized_classes(self):
         from app.agent.teacher_tools import build_teacher_tools
         from app.models import (
