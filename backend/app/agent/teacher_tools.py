@@ -72,9 +72,17 @@ def ranking_to_text(items: List[dict]) -> str:
     if not items:
         return "目前还没有错题数据，暂时排不出知识点错误率。"
     lines = ["知识点错误率排行（从高到低）："]
+    subject_names = {
+        "math": "数学", "english": "英语", "english_exercise": "英语练习",
+        "physics": "物理", "chemistry": "化学", "biology": "生物",
+        "chinese": "语文", "history": "历史", "geography": "地理",
+        "politics": "道德与法治", "computer_science": "信息科技",
+        "art": "艺术", "music": "音乐", "pe": "体育", "other": "其他",
+    }
     for it in items:
         lines.append(
-            f"- 「{it['knowledge_point']}」：错误率 {round(it['error_rate'] * 100)}%"
+            f"- {subject_names.get(it['subject'], it['subject'])}「{it['knowledge_point']}」："
+            f"错误率 {round(it['error_rate'] * 100)}%"
             f"（提交 {it['submissions']} 次、出错 {it['errors']} 次）。"
         )
     return "\n".join(lines)

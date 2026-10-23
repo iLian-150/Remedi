@@ -48,7 +48,7 @@
         <span class="strip-subject"><AppIcon name="book" :size="15" /> 全科</span>
         <span>已批改提交 <b class="tnum">{{ overview.gradedSubmissions }}</b> 次</span>
         <span>已批含错率 <b class="tnum">{{ Math.round(gradedErrorRate * 100) }}%</b></span>
-        <span>涉及知识点 <b class="tnum">{{ overview.kpCount }}</b> 个</span>
+        <span>涉及学科知识点 <b class="tnum">{{ overview.kpCount }}</b> 个</span>
         <span class="strip-note">修复 = 订正错题后通过二次验证</span>
       </div>
 
@@ -57,15 +57,15 @@
         <div class="card">
           <h3><AppIcon name="target" :size="18" /> 知识点错误率排行</h3>
           <div v-if="kpStats.length" class="kp-cards">
-            <div v-for="kp in kpStats" :key="kp.knowledge_point" class="kp-card">
+            <div v-for="kp in kpStats" :key="`${kp.subject}:${kp.knowledge_point}`" class="kp-card">
               <div class="kp-card-head">
-                <span class="kp-card-name">{{ kp.knowledge_point }}</span>
+                <span class="kp-card-name"><span class="badge badge-gray">{{ subjectLabel(kp.subject) }}</span> {{ kp.knowledge_point }}</span>
                 <span class="kp-card-rate tnum">{{ Math.round(kp.error_rate * 100) }}%</span>
               </div>
               <div class="kp-card-bar"><span :style="{ width: `${Math.round(kp.error_rate * 100)}%` }"></span></div>
               <p class="kp-card-meta">
                 提交 <span class="tnum">{{ kp.submissions }}</span> 次 · 错误 <span class="tnum">{{ kp.errors }}</span> 次
-                <template v-if="repairText(kp.knowledge_point)"> · {{ repairText(kp.knowledge_point) }}</template>
+                <template v-if="repairText(kp.subject, kp.knowledge_point)"> · {{ repairText(kp.subject, kp.knowledge_point) }}</template>
               </p>
             </div>
           </div>
@@ -91,6 +91,7 @@
             <div v-if="topQuestions.length" class="top-list">
               <div v-for="q in topQuestions" :key="q.question_id" class="top-row">
                 <span class="top-main">{{ q.stem }}</span>
+                <span class="badge badge-gray">{{ subjectLabel(q.subject) }}</span>
                 <span class="badge badge-blue">{{ q.knowledge_point }}</span>
                 <span class="top-meta tnum">错误 {{ q.error_count }} 次 · {{ q.student_count }} 名学生</span>
               </div>
@@ -167,8 +168,11 @@ const repairRate = ref<ClassRepairRate>({
   fixed_knowledge_point_pairs: 0,
   knowledge_points: []
 })
-function repairText(kpName: string): string {
-  return repairTextByKnowledgePoint.value.get(kpName) ?? ''
+function subjectLabel(subject: string): string {
+  return REPAIR_SUBJECT_LABELS[subject] ?? subject
+}
+function repairText(subject: string, kpName: string): string {
+  return repairTextByKnowledgePoint.value.get(`${subject}:${kpName}`) ?? ''
 }
 const REPAIR_SUBJECT_LABELS: Record<string, string> = {
   math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理',
@@ -177,14 +181,14 @@ const REPAIR_SUBJECT_LABELS: Record<string, string> = {
   art: '艺术', music: '音乐', pe: '体育', other: '其他'
 }
 const repairTextByKnowledgePoint = computed(() => {
-  const grouped = new Map<string, string[]>()
+  const grouped = new Map<string, string>()
   for (const item of repairRate.value.knowledge_points) {
-    const subject = REPAIR_SUBJECT_LABELS[item.subject] ?? item.subject
-    const lines = grouped.get(item.knowledge_point) ?? []
-    lines.push(`${subject}修复率 ${Math.round(item.repair_rate * 100)}%（${item.students_fixed}/${item.students_errored} 名学生）`)
-    grouped.set(item.knowledge_point, lines)
+    grouped.set(
+      `${item.subject}:${item.knowledge_point}`,
+      `修复率 ${Math.round(item.repair_rate * 100)}%（${item.students_fixed}/${item.students_errored} 名学生）`,
+    )
   }
-  return new Map([...grouped].map(([knowledgePoint, lines]) => [knowledgePoint, lines.join(' · ')]))
+  return grouped
 })
 
 // 教学建议（独立于看板主体加载，失败不报错、不拖垮页面）
@@ -221,14 +225,14 @@ const topQuestionsOption = computed(() => {
       trigger: 'axis',
       formatter: (params: Array<{ dataIndex: number }>) => {
         const d = list[params[0].dataIndex]
-        return `${d.stem}<br/>知识点：${d.knowledge_point}<br/>错误 ${d.error_count} 次 · ${d.student_count} 名学生`
+        return `${subjectLabel(d.subject)} · ${d.stem}<br/>知识点：${d.knowledge_point}<br/>错误 ${d.error_count} 次 · ${d.student_count} 名学生`
       }
     },
     grid: { left: 16, right: 48, top: 16, bottom: 16, containLabel: true },
     xAxis: { type: 'value', name: '错误次数' },
     yAxis: {
       type: 'category',
-      data: list.map((d) => `[${d.knowledge_point}] ${d.stem}`),
+      data: list.map((d) => `[${subjectLabel(d.subject)}·${d.knowledge_point}] ${d.stem}`),
       axisLabel: { width: 220, overflow: 'truncate', color: '#4B5563' }
     },
     series: [
@@ -251,13 +255,13 @@ const knowledgeOption = computed(() => {
       trigger: 'axis',
       formatter: (params: Array<{ dataIndex: number }>) => {
         const d = list[params[0].dataIndex]
-        return `${d.knowledge_point}<br/>提交 ${d.submissions} 次 · 错误 ${d.errors} 次 · 错误率 ${Math.round(d.error_rate * 100)}%`
+        return `${subjectLabel(d.subject)} · ${d.knowledge_point}<br/>提交 ${d.submissions} 次 · 错误 ${d.errors} 次 · 错误率 ${Math.round(d.error_rate * 100)}%`
       }
     },
     grid: { left: 48, right: 24, top: 24, bottom: 48 },
     xAxis: {
       type: 'category',
-      data: list.map((d) => d.knowledge_point),
+      data: list.map((d) => `${subjectLabel(d.subject)}·${d.knowledge_point}`),
       axisLabel: { rotate: 20, color: '#4B5563' }
     },
     yAxis: { type: 'value', name: '错误率', max: 1, axisLabel: { formatter: (v: number) => `${Math.round(v * 100)}%`, color: '#6B7280' } },

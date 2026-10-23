@@ -579,6 +579,7 @@ class TopQuestionItem(BaseModel):
 
 
 class KnowledgePointRankItem(BaseModel):
+    subject: str
     knowledge_point: str
     submissions: int
     errors: int
@@ -916,6 +917,7 @@ class ErrorTypeCountOut(BaseModel):
 class TeachingSuggestionOut(BaseModel):
     kind: str
     title: str
+    subject: Optional[str] = None
     knowledge_point: Optional[str] = None
     evidence: str
     action: str

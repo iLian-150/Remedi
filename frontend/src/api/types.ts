@@ -467,6 +467,7 @@ export interface TopQuestion {
 }
 
 export interface KnowledgePointStat {
+  subject: string
   knowledge_point: string
   submissions: number
   errors: number
@@ -814,6 +815,7 @@ export interface TeacherDashboardSummary {
 export interface TeachingSuggestion {
   kind: 'reteach' | 'stubborn_group' | 'high_error' | 'low_score'
   title: string
+  subject: string | null
   knowledge_point: string | null
   evidence: string
   action: string

@@ -52,14 +52,15 @@ def top_error_questions(
 
 
 def knowledge_point_ranking(db, assignment_ids=None, submission_ids=None) -> List[Dict]:
-    """知识点错误率排行。
-    口径：submissions = 该知识点题目的提交总数；errors = 该知识点累计 error 数；
+    """按学科和知识点排行错误率。
+    口径：submissions = 该学科知识点题目的提交总数；errors = 累计 error 数；
     error_rate = errors / submissions。按 error_rate 降序。"""
     # 将提交数与错因数两组聚合合并为一条 SQL，避免看板和统计接口各自往返两次。
     if assignment_ids is not None and not assignment_ids:
         return []
     attempts_query = (
         db.query(
+            Question.subject.label("subject"),
             Question.knowledge_point.label("knowledge_point"),
             func.count(Submission.id).label("submissions"),
             literal(0).label("errors"),
@@ -68,6 +69,7 @@ def knowledge_point_ranking(db, assignment_ids=None, submission_ids=None) -> Lis
     )
     errors_query = (
         db.query(
+                Question.subject.label("subject"),
                 Error.knowledge_point.label("knowledge_point"),
                 literal(0).label("submissions"),
                 func.count(Error.id).label("errors"),
@@ -82,33 +84,35 @@ def knowledge_point_ranking(db, assignment_ids=None, submission_ids=None) -> Lis
         attempts_query = attempts_query.filter(Submission.id.in_(submission_ids))
         errors_query = errors_query.filter(Error.submission_id.in_(submission_ids))
     combined_counts = (
-        attempts_query.group_by(Question.knowledge_point).union_all(
-            errors_query.group_by(Error.knowledge_point)
+        attempts_query.group_by(Question.subject, Question.knowledge_point).union_all(
+            errors_query.group_by(Question.subject, Error.knowledge_point)
         )
         .subquery()
     )
     rows = (
         db.query(
+            combined_counts.c.subject,
             combined_counts.c.knowledge_point,
             func.sum(combined_counts.c.submissions).label("submissions"),
             func.sum(combined_counts.c.errors).label("errors"),
         )
-        .group_by(combined_counts.c.knowledge_point)
+        .group_by(combined_counts.c.subject, combined_counts.c.knowledge_point)
         .having(func.sum(combined_counts.c.errors) > 0)
         .all()
     )
     items = []
-    for kp, submissions, ec in rows:
+    for subject, kp, submissions, ec in rows:
         s = int(submissions or 0)
         # 同一提交可能产生多条 error（如无法解析+后续错误），错误率上限截断为 1.0
         rate = round(min(1.0, ec / s), 3) if s else 0.0
         items.append({
+            "subject": subject,
             "knowledge_point": kp,
             "submissions": s,
             "errors": ec,
             "error_rate": rate,
         })
-    items.sort(key=lambda x: x["error_rate"], reverse=True)
+    items.sort(key=lambda x: (-x["error_rate"], x["subject"], x["knowledge_point"]))
     return items
 
 

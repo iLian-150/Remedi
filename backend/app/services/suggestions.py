@@ -27,6 +27,13 @@ from .stats import class_repair_rate, knowledge_point_ranking, top_error_questio
 _KIND_ORDER = {"reteach": 0, "stubborn_group": 1, "high_error": 2, "low_score": 3}
 _MAX_SUGGESTIONS = 6
 logger = logging.getLogger(__name__)
+_SUBJECT_NAMES = {
+    "math": "数学", "english": "英语", "english_exercise": "英语练习",
+    "physics": "物理", "chemistry": "化学", "biology": "生物",
+    "chinese": "语文", "history": "历史", "geography": "地理",
+    "politics": "道德与法治", "computer_science": "信息科技",
+    "art": "艺术", "music": "音乐", "pe": "体育", "other": "其他",
+}
 
 
 def _pct(rate: Optional[float]) -> int:
@@ -38,27 +45,16 @@ def build_teaching_suggestions(
     precomputed_stats: Optional[Dict] = None,
 ) -> List[Dict]:
     """生成教学建议列表。数据为空返回 []；统计异常逐项收敛为跳过。"""
-    repair_map: Dict[str, Dict] = {}
-    ranking_map: Dict[str, Dict] = {}
-    samples_map: Dict[str, List[str]] = {}
+    repair_map: Dict[tuple[str, str], Dict] = {}
+    ranking_map: Dict[tuple[str, str], Dict] = {}
+    samples_map: Dict[tuple[str, str], List[str]] = {}
     try:
         repair_data = (
             precomputed_stats.get("repair_rate") or {}
             if precomputed_stats is not None else class_repair_rate(db)
         )
         for kp in repair_data.get("knowledge_points", []):
-            key = kp["knowledge_point"]
-            combined = repair_map.setdefault(key, {
-                "knowledge_point": key,
-                "students_errored": 0,
-                "students_fixed": 0,
-                "repair_rate": 0.0,
-            })
-            combined["students_errored"] += kp["students_errored"]
-            combined["students_fixed"] += kp["students_fixed"]
-            combined["repair_rate"] = round(
-                combined["students_fixed"] / combined["students_errored"], 3,
-            ) if combined["students_errored"] else 0.0
+            repair_map[(kp["subject"], kp["knowledge_point"])] = kp
     except Exception:
         repair_map = {}
     try:
@@ -67,7 +63,7 @@ def build_teaching_suggestions(
             if precomputed_stats is not None else knowledge_point_ranking(db)
         )
         for it in ranking_data:
-            ranking_map[it["knowledge_point"]] = it
+            ranking_map[(it["subject"], it["knowledge_point"])] = it
     except Exception:
         ranking_map = {}
     try:
@@ -76,7 +72,8 @@ def build_teaching_suggestions(
             if precomputed_stats is not None else top_error_questions(db, 50)
         )
         for q in question_data:
-            bucket = samples_map.setdefault(q["knowledge_point"], [])
+            key = (q["subject"], q["knowledge_point"])
+            bucket = samples_map.setdefault(key, [])
             if q.get("stem") and len(bucket) < 2:
                 bucket.append(q["stem"])
     except Exception:
@@ -98,24 +95,27 @@ def build_teaching_suggestions(
 
     # ---- reteach：修复率低且波及多名学生 ----
     reteach_kps = set()
-    for kp_name, kp in repair_map.items():
+    for (subject, kp_name), kp in repair_map.items():
+        key = (subject, kp_name)
         if kp["repair_rate"] < 0.5 and kp["students_errored"] >= 2:
-            reteach_kps.add(kp_name)
-            errors = ranking_map.get(kp_name, {}).get("errors")
+            reteach_kps.add(key)
+            errors = ranking_map.get(key, {}).get("errors")
+            subject_name = _SUBJECT_NAMES.get(subject, subject)
             evidence = (
-                f"全班 {kp['students_errored']} 人出错 · 修复率 {_pct(kp['repair_rate'])}%"
+                f"{subject_name} {kp['students_errored']} 名学生出错 · 修复率 {_pct(kp['repair_rate'])}%"
                 + (f" · 累计错 {errors} 次" if errors is not None else "")
             )
             items.append({
                 "kind": "reteach",
-                "title": f"建议重讲：{kp_name}",
+                "title": f"建议重讲：{subject_name}「{kp_name}」",
+                "subject": subject,
                 "knowledge_point": kp_name,
                 "evidence": evidence,
                 "action": (
-                    f"下节课用 10 分钟重讲「{kp_name}」的关键点，结合高频错题讲清最常见的错因，"
+                    f"下节课用 10 分钟重讲{subject_name}「{kp_name}」的关键点，结合高频错题讲清最常见的错因，"
                     "课后用一道同知识点变式题当堂验证是否真懂。"
                 ),
-                "sample_questions": samples_map.get(kp_name, []),
+                "sample_questions": samples_map.get(key, []),
                 "_sort": (_KIND_ORDER["reteach"], kp["repair_rate"]),
             })
 
@@ -123,6 +123,7 @@ def build_teaching_suggestions(
     try:
         stubborn_query = (
             db.query(
+                Question.subject.label("subject"),
                 Error.knowledge_point,
                 func.count(func.distinct(Submission.student_id)).label("students"),
                 func.count(Error.id).label("errors"),
@@ -137,45 +138,52 @@ def build_teaching_suggestions(
             stubborn_query = stubborn_query.filter(Submission.student_id.in_(student_ids))
         if submission_ids is not None:
             stubborn_query = stubborn_query.filter(Submission.id.in_(submission_ids))
-        rows = stubborn_query.group_by(Error.knowledge_point).all()
+        rows = stubborn_query.group_by(Question.subject, Error.knowledge_point).all()
     except Exception:
         rows = []
-    for kp_name, students, errors in rows:
+    for subject, kp_name, students, errors in rows:
         if students < 2:
             continue
-        repair_pct = _pct(repair_map.get(kp_name, {}).get("repair_rate"))
+        key = (subject, kp_name)
+        subject_name = _SUBJECT_NAMES.get(subject, subject)
+        repair_pct = _pct(repair_map.get(key, {}).get("repair_rate"))
         items.append({
             "kind": "stubborn_group",
-            "title": f"分组辅导：{kp_name}",
+            "title": f"分组辅导：{subject_name}「{kp_name}」",
+            "subject": subject,
             "knowledge_point": kp_name,
-            "evidence": f"{students} 名学生反复出错 · 顽固错题 {errors} 条 · 修复率 {repair_pct}%",
+            "evidence": f"{subject_name} {students} 名学生反复出错 · 顽固错题 {errors} 条 · 修复率 {repair_pct}%",
             "action": (
                 f"把这 {students} 名学生拉一个小组辅导，逐个过一遍他们的错题步骤，"
                 "定位各自卡住的那一步，再针对性补练。"
             ),
-            "sample_questions": samples_map.get(kp_name, []),
+            "sample_questions": samples_map.get(key, []),
             "_sort": (_KIND_ORDER["stubborn_group"], -students),
         })
 
     # ---- high_error：错误率高但未被 reteach 覆盖 ----
-    for kp_name, it in ranking_map.items():
-        if it["error_rate"] < 0.5 or kp_name in reteach_kps:
+    for (subject, kp_name), it in ranking_map.items():
+        key = (subject, kp_name)
+        if it["error_rate"] < 0.5 or key in reteach_kps:
             continue
-        repair = repair_map.get(kp_name, {})
+        repair = repair_map.get(key, {})
+        subject_name = _SUBJECT_NAMES.get(subject, subject)
         evidence = (
             f"错误率 {_pct(it['error_rate'])}%（提交 {it['submissions']} 次、出错 {it['errors']} 次）"
-            f" · 全班 {repair.get('students_errored', 0)} 人出错 · 修复率 {_pct(repair.get('repair_rate'))}%"
+            f" · {subject_name} {repair.get('students_errored', 0)} 名学生出错"
+            f" · 修复率 {_pct(repair.get('repair_rate'))}%"
         )
         items.append({
             "kind": "high_error",
-            "title": f"高错误率预警：{kp_name}",
+            "title": f"高错误率预警：{subject_name}「{kp_name}」",
+            "subject": subject,
             "knowledge_point": kp_name,
             "evidence": evidence,
             "action": (
-                f"在下一次作业讲评里优先讲「{kp_name}」，挑一道高频错题完整演示正确步骤，"
+                f"在下一次作业讲评里优先讲{subject_name}「{kp_name}」，挑一道高频错题完整演示正确步骤，"
                 "再让学生当堂订正。"
             ),
-            "sample_questions": samples_map.get(kp_name, []),
+            "sample_questions": samples_map.get(key, []),
             "_sort": (_KIND_ORDER["high_error"], -it["error_rate"]),
         })
 
@@ -335,6 +343,7 @@ def build_teaching_suggestions(
             items.append({
                 "kind": "low_score",
                 "title": f"巩固练习：{title}",
+                "subject": None,
                 "knowledge_point": None,
                 "evidence": f"《{title}》全班平均得分率 {_pct(avg)}%（{count} 份已批改提交）",
                 "action": (
@@ -346,7 +355,12 @@ def build_teaching_suggestions(
     except Exception:
         logger.exception("教学建议低分统计失败")
 
-    items.sort(key=lambda x: x["_sort"])
+    items.sort(key=lambda x: (
+        *x["_sort"],
+        x.get("subject") or "",
+        x.get("knowledge_point") or "",
+        x["title"],
+    ))
     result = items[:_MAX_SUGGESTIONS]
     for it in result:
         it.pop("_sort", None)

@@ -44,7 +44,13 @@ from app.models import (
     User,
     Verification,
 )
-from app.services.stats import class_repair_rate, student_profile, student_report
+from app.services.stats import (
+    class_repair_rate,
+    knowledge_point_ranking,
+    student_profile,
+    student_report,
+    top_error_questions,
+)
 from app.services.teacher_scope import (
     teacher_assignment_ids,
     teacher_assignment_student_ids,
@@ -1332,6 +1338,81 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertEqual(set(repair_by_subject), {"math", "physics"})
         self.assertEqual(repair_by_subject["math"]["students_fixed"], 1)
         self.assertEqual(repair_by_subject["physics"]["students_fixed"], 0)
+
+    def test_teacher_ranking_and_suggestions_keep_same_named_subjects_separate(self):
+        from app.services.suggestions import build_teaching_suggestions
+
+        math_assignment = Assignment(title="排行数学", created_by=self.teacher.id)
+        physics_assignment = Assignment(title="排行物理", created_by=self.teacher.id)
+        self.db.add_all([math_assignment, physics_assignment])
+        self.db.flush()
+        math_question = Question(
+            assignment_id=math_assignment.id, subject="math",
+            knowledge_point="同名知识点", stem="数学同名题",
+        )
+        physics_question = Question(
+            assignment_id=physics_assignment.id, subject="physics",
+            knowledge_point="同名知识点", stem="物理同名题",
+        )
+        self.db.add_all([math_question, physics_question])
+        self.db.flush()
+        math_submission = Submission(
+            student_id=self.student.id, question_id=math_question.id,
+        )
+        physics_submissions = [
+            Submission(student_id=self.student.id, question_id=physics_question.id)
+            for _ in range(3)
+        ]
+        self.db.add_all([math_submission, *physics_submissions])
+        self.db.flush()
+        self.db.add_all([
+            Error(
+                submission_id=math_submission.id, knowledge_point="同名知识点",
+                error_type="conceptual", confidence=0.9,
+            ),
+            Error(
+                submission_id=physics_submissions[0].id,
+                knowledge_point="同名知识点", error_type="conceptual", confidence=0.9,
+            ),
+        ])
+        self.db.commit()
+
+        assignment_ids = [math_assignment.id, physics_assignment.id]
+        submission_ids = [math_submission.id, *(row.id for row in physics_submissions)]
+        ranking = knowledge_point_ranking(self.db, assignment_ids, submission_ids)
+        ranking_by_subject = {row["subject"]: row for row in ranking}
+        self.assertEqual(set(ranking_by_subject), {"math", "physics"})
+        self.assertEqual(
+            (ranking_by_subject["math"]["submissions"], ranking_by_subject["math"]["errors"],
+             ranking_by_subject["math"]["error_rate"]),
+            (1, 1, 1.0),
+        )
+        self.assertEqual(
+            (ranking_by_subject["physics"]["submissions"], ranking_by_subject["physics"]["errors"],
+             ranking_by_subject["physics"]["error_rate"]),
+            (3, 1, 0.333),
+        )
+
+        suggestions = build_teaching_suggestions(self.db, precomputed_stats={
+            "repair_rate": {"knowledge_points": [
+                {
+                    "subject": subject, "knowledge_point": "同名知识点",
+                    "students_errored": 1, "students_fixed": 0, "repair_rate": 0.0,
+                }
+                for subject in ("math", "physics")
+            ]},
+            "knowledge_points": ranking,
+            "top_questions": top_error_questions(
+                self.db, 50, assignment_ids, submission_ids,
+            ),
+            "assignment_ids": assignment_ids,
+            "student_ids": [self.student.id],
+            "submission_ids": submission_ids,
+        })
+        self.assertEqual(
+            [(item["kind"], item["subject"]) for item in suggestions],
+            [("high_error", "math")],
+        )
 
     def test_essay_submission_lock_and_deadline_deferred_scoring(self):
         from datetime import datetime, timedelta
