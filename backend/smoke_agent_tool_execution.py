@@ -512,6 +512,59 @@ class AgentToolExecutionTests(unittest.TestCase):
         self.assertIn("分层讲解", teaching[0])
         self.assertIn("辅导顺序", teaching[1])
 
+    def test_related_mistake_queries_keep_matching_rows_beyond_300_others(self):
+        from app.services.related_mistakes import (
+            find_related_mistake, find_related_mistakes_for_questions,
+        )
+
+        assignment = Assignment(title="大量历史错题", created_by=self.teacher.id)
+        self.db.add(assignment)
+        self.db.flush()
+        target = Question(
+            assignment_id=assignment.id, subject="english", knowledge_point="目标 知识点",
+            stem="I went home yesterday.", order_num=0,
+        )
+        questions = [target] + [
+            Question(
+                assignment_id=assignment.id, subject="english",
+                knowledge_point=f"其他知识点{i}", stem="I go home.", order_num=i + 1,
+            )
+            for i in range(300)
+        ]
+        self.db.add_all(questions)
+        self.db.flush()
+        submissions = [
+            Submission(student_id=self.student.id, question_id=question.id)
+            for question in questions
+        ]
+        self.db.add_all(submissions)
+        self.db.flush()
+        target_error = Error(
+            submission_id=submissions[0].id, knowledge_point=target.knowledge_point,
+            error_type="语法错误", confidence=0.8, detail="历史错因",
+            created_at=datetime(2025, 1, 1),
+        )
+        self.db.add(target_error)
+        self.db.add_all([
+            Error(
+                submission_id=submission.id, knowledge_point=question.knowledge_point,
+                error_type="语法错误", confidence=0.8, detail="其他错因",
+                created_at=datetime(2025, 2, 1),
+            )
+            for question, submission in zip(questions[1:], submissions[1:])
+        ])
+        self.db.commit()
+
+        single = find_related_mistake(
+            self.db, self.student.id, "english", "目标知识点",
+        )
+        batch = find_related_mistakes_for_questions(
+            self.db, self.student.id, [target],
+        )[target.id]
+
+        self.assertEqual(single["id"], target_error.id)
+        self.assertEqual(batch["id"], target_error.id)
+
     def test_teacher_student_profile_returns_student_number_only_when_requested(self):
         from app.agent.teacher_tools import build_teacher_tools
 

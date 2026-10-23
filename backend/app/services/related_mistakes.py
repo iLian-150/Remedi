@@ -17,6 +17,19 @@ from ..models import (
 from .answer_check import student_visible_solution_steps
 from . import reviews as review_svc
 
+_KNOWLEDGE_POINT_WHITESPACE = (
+    " \t\n\r\v\f\x1c\x1d\x1e\x1f\x85\u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
+
+
+def _knowledge_point_key_expression():
+    value = Error.knowledge_point
+    for character in _KNOWLEDGE_POINT_WHITESPACE:
+        value = func.replace(value, character, "")
+    return func.lower(value)
+
 
 def find_related_mistake(db: Session, student_id: int, subject: str,
                          knowledge_point: str, *, exclude_assignment_id: int | None = None) -> dict | None:
@@ -59,10 +72,9 @@ def find_related_mistake(db: Session, student_id: int, subject: str,
         StudentMistakeArchive.error_id == Error.id,
     ).exists()
     query = query.filter(~is_archived)
+    query = query.filter(_knowledge_point_key_expression() == knowledge_key)
 
-    for error, submission, question, assignment, step in query.limit(300).yield_per(50):
-        if "".join((error.knowledge_point or "").split()).casefold() != knowledge_key:
-            continue
+    for error, submission, question, assignment, step in query.limit(1):
         latest_correction_id = (
             db.query(Correction.id)
             .filter(Correction.student_id == student_id, Correction.error_id == error.id)
@@ -208,15 +220,23 @@ def find_related_mistakes_for_questions(
             StudentMistakeArchive.student_id == student_id,
             StudentMistakeArchive.error_id == Error.id,
         ).exists()
+        knowledge_point_key = _knowledge_point_key_expression()
         candidate_subquery = (
-            query.filter(~is_archived)
-            .order_by(Error.created_at.desc(), Error.id.desc())
-            .limit(300)
+            query.filter(
+                ~is_archived,
+                knowledge_point_key.in_(knowledge_keys_by_subject[subject_key]),
+            ).add_columns(
+                func.row_number().over(
+                    partition_by=knowledge_point_key,
+                    order_by=(Error.created_at.desc(), Error.id.desc()),
+                ).label("knowledge_point_rank")
+            )
             .subquery()
         )
-        candidate_selects.append(select(*(
-            candidate_subquery.c[column] for column in candidate_columns
-        )))
+        candidate_selects.append(
+            select(*(candidate_subquery.c[column] for column in candidate_columns))
+            .where(candidate_subquery.c.knowledge_point_rank == 1)
+        )
 
     candidate_union = union_all(*candidate_selects).subquery()
     candidate_rows = db.execute(
