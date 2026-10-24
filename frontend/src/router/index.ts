@@ -51,7 +51,10 @@ const router = createRouter({
 // 路由守卫：未登录强制回登录页；角色不匹配时跳到各自首页
 router.beforeEach((to) => {
   const auth = useAuthStore()
-  if (to.meta.public) return true
+  if (to.meta.public) {
+    if (!auth.token) return true
+    return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/chat'
+  }
   if (!auth.token) return '/'
   if (to.meta.role && to.meta.role !== auth.role) {
     return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/chat'
