@@ -1,11 +1,17 @@
 <template>
-  <div class="page">
-    <div class="page-head">
-      <h2>我的资料</h2>
-      <p class="page-sub">为当前{{ subjectLabel }} Agent 添加外挂知识库文档。Agent 回答相关问题时会检索这些资料并注明来源。</p>
-    </div>
+  <div class="page materials-page">
+    <header class="materials-heading">
+      <div>
+        <div class="agent-badge"><span class="agent-pulse"></span>{{ subjectLabel }} Agent <span class="badge-divider">·</span> 专属知识库</div>
+        <h2>我的资料</h2>
+        <p class="page-sub">把教材、讲义和评分标准放进书架，让{{ subjectLabel }} Agent 回答时能检索并引用。</p>
+      </div>
+      <button class="reindex-button" :disabled="loading || mutating || !vectorEnabled || !items.length" @click="reindex">
+        <span class="refresh-symbol">↻</span>{{ reindexing ? '正在更新索引…' : '重建检索索引' }}
+      </button>
+    </header>
 
-    <div v-if="!subject" class="card empty">教师登录时需要先选择任教学科。</div>
+    <div v-if="!subject" class="empty-state">教师登录时需要先选择任教学科。</div>
     <template v-else>
       <div class="feedback" aria-live="polite">
         <p v-if="error" class="error-msg" role="alert">{{ error }}</p>
@@ -13,83 +19,117 @@
         <p v-for="warning in warnings" :key="warning" class="warning">{{ warning }}</p>
       </div>
 
-      <div class="card">
-        <h3>添加知识库文档</h3>
-        <div class="entry-modes" role="group" aria-label="资料添加方式">
-          <button type="button" :class="{ selected: entryMode === 'text' }" :aria-pressed="entryMode === 'text'" :disabled="mutating" @click="entryMode = 'text'">粘贴文字</button>
-          <button type="button" :class="{ selected: entryMode === 'pdf' }" :aria-pressed="entryMode === 'pdf'" :disabled="mutating" @click="entryMode = 'pdf'">导入 PDF</button>
+      <section class="bookshelf-panel">
+        <div class="shelf-heading">
+          <div>
+            <div class="shelf-title-line"><h3>知识库书架</h3><span class="document-count">{{ items.length }} 份资料</span></div>
+            <p>每份资料只进入当前学科 Agent 的检索范围</p>
+          </div>
+          <span :class="['index-status', vectorEnabled ? 'ready' : 'keyword']"><i></i>{{ vectorEnabled ? '语义 + 关键词检索' : '关键词检索' }}</span>
         </div>
-        <div v-if="entryMode === 'pdf'" class="form-row">
-          <label for="knowledge-pdf">选择 PDF</label>
-          <input id="knowledge-pdf" ref="fileInput" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
-          <span class="hint">最大 10 MB，支持可复制文字的 PDF。扫描件请先识别为文字后再导入。</span>
-          <span v-if="pdfFile" class="file-name">{{ pdfFile.name }}</span>
-        </div>
-        <div class="form-row">
-          <label for="knowledge-title">资料标题{{ entryMode === 'pdf' ? '（选填，默认使用文件名）' : '' }}</label>
-          <input id="knowledge-title" v-model="title" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
-        </div>
-        <div class="form-row">
-          <label for="knowledge-source">来源（选填）</label>
-          <input id="knowledge-source" v-model="sourceName" maxlength="200" :disabled="mutating" placeholder="例如：七年级下册教材 / 第三章讲义" />
-        </div>
-        <div v-if="entryMode === 'text'" class="form-row">
-          <label for="knowledge-content">资料内容</label>
-          <textarea id="knowledge-content" v-model="content" rows="8" maxlength="20000" :disabled="mutating" placeholder="粘贴教材内容、讲义、解题方法或评分标准。文档只供当前学科 Agent 检索。" />
-          <span class="hint">{{ content.length }} / 20000 字</span>
-        </div>
-        <button v-if="entryMode === 'text'" class="btn" :disabled="mutating || !title.trim() || !content.trim()" @click="save">
-          {{ saving ? '正在保存…' : `加入${subjectLabel}知识库` }}
-        </button>
-        <button v-else class="btn" :disabled="mutating || !pdfFile" @click="importPdf">
-          {{ importing ? '正在导入并处理资料…' : `导入${subjectLabel}知识库` }}
-        </button>
-      </div>
 
-      <div class="card">
-        <h3>试查资料</h3>
-        <p class="section-hint">输入学生可能提出的问题，检查老师会参考哪些内容。</p>
+        <div v-if="loading" class="shelf-loading">正在整理资料书架…</div>
+        <div v-else class="shelf-scene">
+          <div class="books-row">
+            <article v-for="item in items" :key="item.id" class="document-slot">
+              <button class="document-cover" :style="bookStyle(item)" :aria-label="`打开资料：${item.title}`" @click="activeDocument = item">
+                <span class="cover-top"><span class="cover-monogram">{{ subjectLabel.slice(0, 1) }}</span><span class="cover-kind">{{ isPdfImported(item) ? 'PDF' : 'TEXT' }}</span></span>
+                <span class="cover-title">{{ item.title }}</span>
+                <span class="cover-rule"></span>
+                <span class="cover-source">{{ item.source_name || '教师整理' }}</span>
+                <span class="cover-footer">{{ item.passage_count }} 个检索片段</span>
+              </button>
+              <div class="document-caption">
+                <b :title="item.title">{{ item.title }}</b>
+                <small>{{ item.source_name || '教师整理' }}</small>
+              </div>
+            </article>
+
+            <button class="add-document-slot" :disabled="mutating" @click="openUpload('pdf')">
+              <span class="add-document-card"><span class="add-plus">+</span><b>添加资料</b><small>粘贴文字或导入 PDF</small></span>
+            </button>
+          </div>
+          <div class="shelf-board"></div>
+          <p v-if="!items.length" class="shelf-empty">书架还是空的，点“添加资料”把第一份 Agent 知识文档放上来。</p>
+        </div>
+      </section>
+
+      <section class="search-panel">
+        <div class="search-heading">
+          <span class="search-mark">⌕</span>
+          <div><h3>试查 Agent 检索</h3><p>输入学生可能提出的问题，确认这份资料能否被检索到。</p></div>
+        </div>
         <form class="search-form" @submit.prevent="search">
           <label class="sr-only" for="knowledge-query">试查问题</label>
           <input id="knowledge-query" v-model="query" maxlength="1000" placeholder="例如：一次函数的图像如何判断增减性？" :disabled="searching" />
-          <button class="btn" type="submit" :disabled="searching || mutating || !query.trim()">{{ searching ? '正在检索…' : '检索' }}</button>
+          <button class="search-button" type="submit" :disabled="searching || mutating || !query.trim()">{{ searching ? '检索中…' : '检索资料' }}</button>
         </form>
         <template v-if="searchResult">
-          <p class="result-summary">{{ searchResult.retrieval_mode === 'hybrid' ? '混合检索' : '关键词检索' }} · 找到 {{ searchResult.items.length }} 条相关资料</p>
+          <div class="result-summary">{{ searchResult.retrieval_mode === 'hybrid' ? '混合检索' : '关键词检索' }} · 找到 {{ searchResult.items.length }} 条相关内容</div>
           <p v-for="warning in searchResult.warnings" :key="warning" class="warning">{{ warning }}</p>
-          <div v-if="!searchResult.items.length" class="empty">没有检索到直接相关的资料，可以补充教学资料或换一个问题。</div>
+          <div v-if="!searchResult.items.length" class="search-empty">暂时没有找到相关资料，可以换个问法或补充文档。</div>
           <article v-for="result in searchResult.items" :key="`${result.document_id}-${result.passage_id}`" class="search-result">
             <div class="result-head"><b>{{ result.title }}</b><span class="citation">{{ result.citation }}</span></div>
             <p class="source">来源：{{ result.source_name || '教师整理' }}<span v-if="result.page_number"> · 第 {{ result.page_number }} 页</span></p>
             <p class="passage">{{ result.content }}</p>
           </article>
         </template>
-      </div>
-
-      <div class="card">
-        <div class="knowledge-head">
-          <h3>{{ subjectLabel }} Agent 文档 <span class="count">{{ items.length }}</span></h3>
-          <div class="head-actions">
-            <button class="btn ghost small" :disabled="loading || mutating" @click="load()">刷新</button>
-            <button class="btn ghost small" :disabled="loading || mutating || !vectorEnabled || !items.length" @click="reindex">{{ reindexing ? '正在更新索引…' : '重建检索索引' }}</button>
-          </div>
-        </div>
-        <p v-if="!loading" class="section-hint">{{ vectorEnabled ? '已配置向量库。完成模型配置后，首次连接或更换向量库请重建检索索引。' : '关键词检索可用；连接向量库后可重建索引。' }}</p>
-        <div v-if="loading" class="loading">加载中…</div>
-        <div v-else-if="!items.length" class="empty">还没有添加{{ subjectLabel }} Agent 的知识库文档。</div>
-        <article v-for="item in items" :key="item.id" class="knowledge-item">
-          <header>
-            <div><b>{{ item.title }}</b><small>来源：{{ item.source_name || '教师整理' }}<span v-if="item.passage_count"> · {{ item.passage_count }} 个检索片段</span></small></div>
-            <button class="btn danger-outline small" :disabled="mutating" @click="remove(item)">{{ deletingId === item.id ? '正在删除…' : '删除' }}</button>
-          </header>
-          <p v-if="item.content.length <= 600" class="passage">{{ item.content }}</p>
-          <template v-else>
-            <p class="passage">{{ item.content.slice(0, 280) }}…</p>
-            <details><summary>查看完整资料</summary><p class="passage">{{ item.content }}</p></details>
-          </template>
-        </article>
-      </div>
+      </section>
     </template>
+
+    <div v-if="uploadOpen" class="modal-mask" tabindex="-1" @keydown.esc="closeUpload" @click.self="closeUpload">
+      <section class="upload-dialog" role="dialog" aria-modal="true" aria-labelledby="upload-title">
+        <header class="dialog-heading">
+          <div><span class="dialog-eyebrow">{{ subjectLabel }} Agent 知识库</span><h3 id="upload-title">添加资料</h3></div>
+          <button class="close-dialog" type="button" aria-label="关闭" :disabled="mutating" @click="closeUpload">×</button>
+        </header>
+        <div class="entry-modes" role="tablist" aria-label="资料添加方式">
+          <button type="button" role="tab" :aria-selected="entryMode === 'text'" :class="{ selected: entryMode === 'text' }" :disabled="mutating" @click="entryMode = 'text'">粘贴文字</button>
+          <button type="button" role="tab" :aria-selected="entryMode === 'pdf'" :class="{ selected: entryMode === 'pdf' }" :disabled="mutating" @click="entryMode = 'pdf'">导入 PDF</button>
+        </div>
+        <div v-if="entryMode === 'pdf'" class="upload-dropzone">
+          <span class="pdf-icon">PDF</span>
+          <div><b>{{ pdfFile ? pdfFile.name : '选择一份 PDF 文档' }}</b><small>最大 10 MB，需包含可复制的文字内容</small></div>
+          <label class="choose-file" for="knowledge-pdf">{{ pdfFile ? '重新选择' : '选择文件' }}</label>
+          <input id="knowledge-pdf" ref="fileInput" class="sr-only" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
+        </div>
+        <p v-if="entryMode === 'pdf'" class="scan-note">扫描版 PDF 请先识别为文字后再导入。</p>
+        <div class="dialog-form-row">
+          <label for="knowledge-title">资料标题 <span v-if="entryMode === 'pdf'">（选填，默认使用文件名）</span></label>
+          <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
+        </div>
+        <div class="dialog-form-row">
+          <label for="knowledge-source">资料来源 <span>（选填）</span></label>
+          <input id="knowledge-source" v-model="sourceName" class="dialog-input" maxlength="200" :disabled="mutating" placeholder="例如：七年级下册教材 / 第三章讲义" />
+        </div>
+        <div v-if="entryMode === 'text'" class="dialog-form-row">
+          <label for="knowledge-content">资料内容</label>
+          <textarea id="knowledge-content" v-model="content" class="dialog-textarea" rows="7" maxlength="20000" :disabled="mutating" placeholder="粘贴教材内容、讲义、解题方法或评分标准。文档只供当前学科 Agent 检索。" />
+          <small class="character-count">{{ content.length }} / 20000 字</small>
+        </div>
+        <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
+        <footer class="dialog-actions">
+          <button class="cancel-button" type="button" :disabled="mutating" @click="closeUpload">取消</button>
+          <button v-if="entryMode === 'text'" class="save-button" type="button" :disabled="mutating || !title.trim() || !content.trim()" @click="save">{{ saving ? '正在保存…' : '保存到知识库' }}</button>
+          <button v-else class="save-button" type="button" :disabled="mutating || !pdfFile" @click="importPdf">{{ importing ? '正在导入…' : '导入到知识库' }}</button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="activeDocument" class="modal-mask" tabindex="-1" @keydown.esc="activeDocument = null" @click.self="activeDocument = null">
+      <section class="document-dialog" role="dialog" aria-modal="true" :aria-label="activeDocument.title">
+        <header class="document-dialog-head">
+          <span class="preview-cover" :style="bookStyle(activeDocument)">{{ subjectLabel.slice(0, 1) }}</span>
+          <div class="preview-title"><span class="dialog-eyebrow">{{ isPdfImported(activeDocument) ? 'PDF 导入文档' : '文字资料' }}</span><h3>{{ activeDocument.title }}</h3><small>{{ activeDocument.source_name || '教师整理' }} · {{ activeDocument.passage_count }} 个检索片段</small></div>
+          <button class="close-dialog" type="button" aria-label="关闭" @click="activeDocument = null">×</button>
+        </header>
+        <div class="document-content">{{ activeDocument.content }}</div>
+        <footer class="dialog-actions">
+          <button class="delete-button" type="button" :disabled="mutating" @click="remove(activeDocument)">{{ deletingId === activeDocument.id ? '正在删除…' : '删除资料' }}</button>
+          <button class="save-button" type="button" @click="activeDocument = null">完成</button>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -109,6 +149,8 @@ const labels: Record<string, string> = {
 const subject = computed<SubjectAgentCode | ''>(() => Object.prototype.hasOwnProperty.call(labels, auth.activeSubject) ? auth.activeSubject as SubjectAgentCode : '')
 const subjectLabel = computed(() => labels[subject.value] ?? '学科')
 const entryMode = ref<'text' | 'pdf'>('text')
+const uploadOpen = ref(false)
+const activeDocument = ref<SubjectKnowledgeItem | null>(null)
 const title = ref('')
 const sourceName = ref('')
 const content = ref('')
@@ -130,6 +172,32 @@ const query = ref('')
 const searchResult = ref<SubjectKnowledgeSearchResult | null>(null)
 let generation = 0
 let loadSequence = 0
+
+const BOOK_COLORS = ['#2556C9', '#087A73', '#B76C27', '#9E4765', '#6552A2', '#3C718B']
+
+function bookStyle(item: SubjectKnowledgeItem): Record<string, string> {
+  const color = BOOK_COLORS[(item.id - 1) % BOOK_COLORS.length]
+  return { background: `linear-gradient(148deg, ${color} 0%, ${color} 54%, #17233E 100%)` }
+}
+
+function isPdfImported(item: SubjectKnowledgeItem): boolean {
+  return `${item.title} ${item.source_name ?? ''}`.toLowerCase().includes('.pdf')
+}
+
+function openUpload(mode: 'text' | 'pdf' = 'text') {
+  if (mutating.value) return
+  clearFeedback()
+  clearForm()
+  entryMode.value = mode
+  uploadOpen.value = true
+}
+
+function closeUpload() {
+  if (mutating.value) return
+  uploadOpen.value = false
+  error.value = ''
+  clearForm()
+}
 
 function errorMessage(cause: unknown, fallback: string): string {
   if (axios.isAxiosError(cause)) {
@@ -178,6 +246,7 @@ async function save() {
     })
     if (current !== generation) return
     clearForm()
+    uploadOpen.value = false
     notice.value = `资料已保存，可检索 ${result.passage_count} 个片段。`
     warnings.value = result.warnings ?? []
     searchResult.value = null
@@ -206,6 +275,7 @@ function selectPdf(event: Event) {
     return
   }
   pdfFile.value = file
+  input.value = ''
 }
 
 async function importPdf() {
@@ -221,6 +291,7 @@ async function importPdf() {
     })
     if (current !== generation) return
     clearForm()
+    uploadOpen.value = false
     notice.value = `PDF 已导入${result.indexed_pages == null ? '' : `，读取 ${result.indexed_pages} 页`}，可检索 ${result.passage_count} 个片段。`
     warnings.value = result.warnings ?? []
     searchResult.value = null
@@ -284,6 +355,7 @@ async function remove(item: SubjectKnowledgeItem) {
   try {
     const result = await teacher.deleteSubjectKnowledge(target, item.id)
     if (current !== generation) return
+    activeDocument.value = null
     notice.value = '资料已删除。'
     warnings.value = result.warnings ?? []
     searchResult.value = null
@@ -300,47 +372,148 @@ watch(subject, () => {
   items.value = []; vectorEnabled.value = false
   loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
+  uploadOpen.value = false; activeDocument.value = null
   clearFeedback(); clearForm()
   void load()
 }, { immediate: true })
 </script>
 
 <style scoped>
+.materials-page { max-width: 1320px; margin: 0 auto; }
+.materials-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 2px 0 24px; }
+.materials-heading h2 { margin: 7px 0 5px; font-size: 30px; letter-spacing: -.5px; }
+.page-sub { max-width: 680px; color: var(--text-3); font-size: 14px; line-height: 1.65; }
+.agent-badge { display: inline-flex; align-items: center; gap: 8px; color: #3157A5; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.agent-pulse { width: 8px; height: 8px; border-radius: 50%; background: #28A879; box-shadow: 0 0 0 4px #E7F7F0; }
+.badge-divider { color: #9AA7BC; }
+.reindex-button, .search-button, .save-button { border: 0; border-radius: 10px; background: var(--primary); color: #fff; font: inherit; font-weight: 700; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; }
+.reindex-button { display: inline-flex; align-items: center; gap: 7px; padding: 10px 14px; white-space: nowrap; box-shadow: 0 5px 14px rgba(37, 86, 201, .16); }
+.reindex-button:hover:not(:disabled), .search-button:hover:not(:disabled), .save-button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 7px 18px rgba(37, 86, 201, .2); }
+.reindex-button:disabled, .search-button:disabled, .save-button:disabled { opacity: .48; cursor: default; }
+.refresh-symbol { font-size: 18px; line-height: 1; }
 .feedback:empty { display: none; }
 .feedback p { margin: 0 0 12px; }
-.notice, .warning { padding: 11px 14px; border-radius: 8px; font-size: 13px; line-height: 1.6; }
+.notice, .warning { padding: 11px 14px; border-radius: 10px; font-size: 13px; line-height: 1.6; }
 .notice { color: #166534; background: #f0fdf4; }
 .warning { color: #92400e; background: #fffbeb; }
-.entry-modes { display: flex; gap: 6px; margin-bottom: 20px; }
-.entry-modes button { padding: 8px 14px; border: 1px solid var(--border); background: var(--bg); color: var(--text-2); border-radius: 8px; cursor: pointer; font: inherit; font-size: 13px; }
-.entry-modes button.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
-.entry-modes button:disabled { opacity: .6; cursor: default; }
-.form-row textarea { width: 100%; resize: vertical; line-height: 1.65; }
-.form-row input[type='file'] { max-width: 100%; font-size: 13px; }
-.file-name { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
-.section-hint, .result-summary, .source { color: var(--text-3); font-size: 13px; line-height: 1.6; }
-.section-hint { margin: 8px 0 16px; }
+.bookshelf-panel { overflow: hidden; border: 1px solid #E5EAF1; border-radius: 18px; background: linear-gradient(180deg, #fff 0%, #FAFBFE 100%); box-shadow: 0 10px 30px rgba(28, 44, 75, .055); }
+.shelf-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 26px 18px; border-bottom: 1px solid rgba(223, 229, 239, .82); }
+.shelf-title-line { display: flex; align-items: center; gap: 12px; }
+.shelf-title-line h3, .search-heading h3 { margin: 0; color: var(--text); font-size: 17px; }
+.document-count { padding: 4px 9px; border-radius: 999px; background: #EFF4FF; color: #3157A5; font-size: 12px; font-weight: 700; }
+.shelf-heading p, .search-heading p { margin: 6px 0 0; color: var(--text-3); font-size: 13px; }
+.index-status { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid #E7EBF1; border-radius: 999px; background: #fff; color: var(--text-2); font-size: 12px; white-space: nowrap; }
+.index-status i { width: 7px; height: 7px; border-radius: 50%; background: #D39A37; }
+.index-status.ready i { background: #20A574; box-shadow: 0 0 0 3px #E4F6EE; }
+.shelf-scene { padding: 24px 28px 18px; background: radial-gradient(ellipse at 50% 0%, rgba(245, 238, 220, .52), transparent 68%); }
+.shelf-loading { display: grid; min-height: 230px; place-items: center; color: var(--text-3); font-size: 14px; }
+.books-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 148px)); align-items: end; justify-content: start; gap: 26px 24px; min-height: 226px; padding: 8px 6px 0; }
+.document-slot { min-width: 0; text-align: center; }
+.document-cover { position: relative; display: flex; width: 126px; height: 172px; flex-direction: column; align-items: stretch; margin: 0 auto; padding: 13px 12px 11px 16px; overflow: hidden; border: 0; border-radius: 3px 8px 8px 3px; color: #fff; text-align: left; cursor: pointer; box-shadow: inset 5px 0 10px rgba(0, 0, 0, .22), inset -2px 0 4px rgba(255, 255, 255, .18), 0 8px 18px rgba(19, 38, 72, .24); transition: transform .22s ease, box-shadow .22s ease; }
+.document-cover::before { position: absolute; inset: 0 auto 0 8px; width: 1px; background: rgba(255,255,255,.22); content: ''; }
+.document-cover::after { position: absolute; inset: 0; background: linear-gradient(108deg, rgba(255,255,255,.13), transparent 35%, transparent 76%, rgba(0,0,0,.12)); content: ''; pointer-events: none; }
+.document-cover:hover { transform: translateY(-7px) rotate(-1deg); box-shadow: inset 5px 0 10px rgba(0, 0, 0, .22), 0 14px 22px rgba(19, 38, 72, .27); }
+.cover-top, .cover-title, .cover-rule, .cover-source, .cover-footer { position: relative; z-index: 1; }
+.cover-top { display: flex; align-items: center; justify-content: space-between; }
+.cover-monogram { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid rgba(255,255,255,.38); border-radius: 8px; background: rgba(255,255,255,.16); font-size: 15px; font-weight: 800; }
+.cover-kind { color: rgba(255,255,255,.72); font-size: 9px; font-weight: 700; letter-spacing: .1em; }
+.cover-title { display: -webkit-box; min-height: 48px; margin-top: 22px; overflow: hidden; font-size: 14px; font-weight: 750; line-height: 1.55; text-align: center; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.cover-rule { width: 48px; height: 1px; margin: 10px auto 8px; background: rgba(255,255,255,.46); }
+.cover-source { display: -webkit-box; overflow: hidden; color: rgba(255,255,255,.76); font-size: 10px; line-height: 1.4; text-align: center; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.cover-footer { margin-top: auto; color: rgba(255,255,255,.72); font-size: 9px; text-align: center; }
+.document-caption { display: flex; flex-direction: column; gap: 4px; width: 140px; margin: 10px auto 0; text-align: left; }
+.document-caption b { overflow: hidden; color: var(--text); font-size: 12px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.document-caption small { overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.add-document-slot { display: flex; width: 148px; flex-direction: column; justify-content: flex-end; padding: 0; border: 0; background: transparent; color: var(--text-2); font: inherit; cursor: pointer; }
+.add-document-slot:disabled { opacity: .55; cursor: default; }
+.add-document-card { display: flex; width: 126px; height: 172px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; margin: 0 auto; padding: 12px; border: 2px dashed #B9CAF3; border-radius: 9px; background: rgba(255,255,255,.72); color: var(--primary); transition: background .2s ease, border-color .2s ease, transform .2s ease; }
+.add-document-slot:hover:not(:disabled) .add-document-card { transform: translateY(-5px); border-color: var(--primary); background: #F3F6FF; }
+.add-plus { font-size: 34px; font-weight: 300; line-height: 1; }
+.add-document-card b { font-size: 13px; }
+.add-document-card small { color: var(--text-3); font-size: 10px; line-height: 1.4; }
+.shelf-board { height: 13px; margin-top: 3px; border-radius: 3px; background: linear-gradient(180deg, #C99D70 0%, #A97A4D 55%, #87582F 100%); box-shadow: 0 10px 15px rgba(90, 58, 25, .2), inset 0 1px 0 rgba(255,255,255,.48); }
+.shelf-empty { margin: 22px 4px 2px; color: var(--text-3); font-size: 13px; }
+.search-panel { margin-top: 20px; padding: 20px 24px; border: 1px solid #E5EAF1; border-radius: 16px; background: #fff; box-shadow: 0 7px 22px rgba(28, 44, 75, .045); }
+.search-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.search-mark { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: #EFF4FF; color: var(--primary); font-size: 27px; line-height: 1; }
 .search-form { display: flex; gap: 10px; }
-.search-form input { min-width: 0; flex: 1; }
-.knowledge-head, .knowledge-item header, .result-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
-.knowledge-head { flex-wrap: wrap; }
-.knowledge-head h3 { margin: 0; }
-.head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.count { color: var(--text-3); font-size: 13px; font-weight: 500; }
-.knowledge-item, .search-result { padding: 16px 0; border-top: 1px solid var(--border); }
-.knowledge-item header > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.knowledge-item b, .result-head b { overflow-wrap: anywhere; }
-.knowledge-item small { color: var(--text-3); }
-.passage { margin: 10px 0 0; color: var(--text-2); font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.knowledge-item details { margin-top: 10px; }
-.knowledge-item summary { color: var(--text-3); font-size: 13px; cursor: pointer; }
-.result-head { flex-wrap: wrap; align-items: baseline; }
-.citation { color: var(--text-3); font-size: 12px; }
-.source { margin: 5px 0 0; }
+.search-form input, .dialog-input, .dialog-textarea { width: 100%; min-width: 0; border: 1px solid #DDE3ED; border-radius: 10px; background: #FBFCFE; color: var(--text); font: inherit; outline: none; transition: border-color .15s ease, box-shadow .15s ease, background .15s ease; }
+.search-form input { flex: 1; height: 48px; padding: 0 14px; }
+.search-form input:focus, .dialog-input:focus, .dialog-textarea:focus { border-color: #7A9CF5; background: #fff; box-shadow: 0 0 0 3px rgba(37, 86, 201, .11); }
+.search-button { min-width: 112px; padding: 0 18px; }
+.search-button:disabled { opacity: .5; cursor: default; }
+.result-summary { margin: 16px 0 4px; color: var(--text-3); font-size: 12px; }
+.search-empty { padding: 18px; border-radius: 10px; background: #F7F9FC; color: var(--text-3); font-size: 13px; text-align: center; }
+.search-result { padding: 15px 0; border-top: 1px solid #EDF0F5; }
+.result-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 14px; }
+.result-head b { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+.citation { padding: 4px 8px; border-radius: 999px; background: #F0F4FB; color: #52647F; font-size: 11px; }
+.source { margin: 6px 0 0; color: var(--text-3); font-size: 12px; }
+.passage { margin: 9px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.modal-mask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 22px; background: rgba(15, 23, 42, .46); backdrop-filter: blur(4px); }
+.upload-dialog, .document-dialog { width: min(590px, 100%); max-height: min(88dvh, 820px); overflow: auto; border: 1px solid rgba(255,255,255,.7); border-radius: 18px; background: #fff; box-shadow: 0 28px 80px rgba(16, 31, 58, .28); animation: dialog-in .18s ease both; }
+.upload-dialog { padding: 23px; }
+.dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.dialog-heading h3, .preview-title h3 { margin: 3px 0 0; color: var(--text); font-size: 21px; }
+.dialog-eyebrow { color: #5271B4; font-size: 11px; font-weight: 750; letter-spacing: .04em; }
+.close-dialog { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid #E8ECF2; border-radius: 10px; background: #F8FAFD; color: #64748B; font-size: 23px; line-height: 1; cursor: pointer; }
+.close-dialog:hover { background: #EEF2F8; color: var(--text); }
+.entry-modes { display: inline-flex; gap: 4px; margin-bottom: 18px; padding: 4px; border-radius: 11px; background: #F1F4F8; }
+.entry-modes button { padding: 8px 14px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; }
+.entry-modes button.selected { background: #fff; color: var(--primary); box-shadow: 0 2px 7px rgba(23, 37, 62, .1); font-weight: 700; }
+.entry-modes button:disabled { opacity: .55; cursor: default; }
+.upload-dropzone { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding: 14px; border: 1px dashed #B9CAF3; border-radius: 12px; background: #F7F9FF; }
+.pdf-icon { display: grid; width: 42px; height: 46px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: #E7EDFF; color: var(--primary); font-size: 11px; font-weight: 800; }
+.upload-dropzone > div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+.upload-dropzone b { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.upload-dropzone small, .scan-note { color: var(--text-3); font-size: 11px; }
+.choose-file { padding: 8px 11px; border: 1px solid #D9E2F5; border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.scan-note { margin: 0 0 12px; }
+.dialog-form-row { margin-top: 14px; }
+.dialog-form-row label { display: block; margin-bottom: 7px; color: var(--text-2); font-size: 12px; font-weight: 700; }
+.dialog-form-row label span { color: var(--text-3); font-weight: 400; }
+.dialog-input { height: 43px; padding: 0 12px; font-size: 13px; }
+.dialog-textarea { min-height: 150px; padding: 11px 12px; resize: vertical; font-size: 13px; line-height: 1.65; }
+.character-count { display: block; margin-top: 5px; color: var(--text-3); font-size: 11px; text-align: right; }
+.dialog-error { margin: 12px 0 0; color: #B42318; font-size: 12px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #EDF0F5; }
+.cancel-button, .delete-button { padding: 9px 14px; border: 1px solid #DDE3ED; border-radius: 9px; background: #fff; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.cancel-button:hover { background: #F7F9FC; }
+.save-button { min-height: 40px; padding: 9px 16px; font-size: 13px; }
+.delete-button { margin-right: auto; border-color: #F4D1CF; color: #B42318; }
+.delete-button:hover { background: #FFF6F5; }
+.document-dialog { padding: 22px; }
+.document-dialog-head { display: flex; align-items: center; gap: 14px; }
+.preview-cover { display: grid; width: 54px; height: 70px; flex: 0 0 auto; place-items: center; border-radius: 3px 6px 6px 3px; color: #fff; font-size: 23px; font-weight: 800; box-shadow: inset 4px 0 8px rgba(0,0,0,.2), 0 5px 12px rgba(15,23,42,.2); }
+.preview-title { min-width: 0; flex: 1; }
+.preview-title h3 { overflow-wrap: anywhere; font-size: 18px; }
+.preview-title small { display: block; margin-top: 5px; color: var(--text-3); font-size: 11px; }
+.document-content { max-height: 55vh; margin-top: 19px; padding: 16px; overflow: auto; border: 1px solid #EDF0F5; border-radius: 11px; background: #FBFCFE; color: var(--text-2); font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-width: 600px) {
+@keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (max-width: 720px) {
+  .materials-heading { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .materials-heading h2 { font-size: 25px; }
+  .reindex-button { align-self: flex-start; }
+  .shelf-heading { align-items: flex-start; flex-direction: column; padding: 18px 18px 15px; }
+  .shelf-scene { padding: 18px 16px 14px; }
+  .books-row { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 22px 8px; }
+  .document-cover, .add-document-card { width: 112px; height: 156px; }
+  .document-caption { width: 122px; }
+  .add-document-slot { width: 122px; }
+  .search-panel { padding: 18px 16px; }
+}
+@media (max-width: 480px) {
+  .books-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .search-form { flex-direction: column; }
-  .search-form .btn { align-self: flex-start; }
-  .knowledge-head { align-items: flex-start; }
+  .search-button { min-height: 44px; }
+  .upload-dialog, .document-dialog { padding: 17px; }
+  .upload-dropzone { flex-wrap: wrap; }
+  .choose-file { margin-left: 54px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .document-cover, .add-document-card, .reindex-button, .search-button, .save-button { transition: none; }
+  .document-cover:hover, .add-document-slot:hover .add-document-card { transform: none; }
+  .upload-dialog, .document-dialog { animation: none; }
 }
 </style>
