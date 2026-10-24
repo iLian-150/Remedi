@@ -31,15 +31,13 @@ python3 -m venv .venv
 ## 演示流程（curl）
 
 ```bash
-# 登录（学生林小夏；用户不存在会自动创建）
+# 登录（学生林小夏；须已由教师录入班级名册）
 TOKEN=$(curl -s -X POST localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"林小夏","role":"student"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+  -d '{"username":"林小夏","role":"student","student_no":"S2026001"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 
 # 提交数学作业：第 1 题，故意在 step2 移项不变号
 # 注意 steps 只传作答步骤，不要传题干（题干自动作为 seq=0）
-curl -s -X POST localhost:8000/api/auth/login -H 'Content-Type: application/json' \
-  -d '{"username":"林小夏","role":"student"}' > /dev/null
 curl -s -X POST localhost:8000/api/student/submissions \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"question_id":1,"steps":["2x+3=7","2x=7+3","2x=10","x=5"]}' | python3 -m json.tool
@@ -55,7 +53,7 @@ curl -s -X POST localhost:8000/api/student/essays \
 # 教师登录并查看高频错题 TopN
 TTOKEN=$(curl -s -X POST localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"陈老师","role":"teacher"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+  -d '{"role":"teacher","subject":"math"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 curl -s "localhost:8000/api/teacher/stats/top-questions?n=10" \
   -H "Authorization: Bearer $TTOKEN" | python3 -m json.tool
 
@@ -130,7 +128,7 @@ backend/
 
 **顽固误区**：同学生同知识点过去 N 天（默认 30）内已有错误 → `is_stubborn=true`。
 
-**认证**：纯 mock，无密码。`POST /api/auth/login` 传用户名+角色即得 token（`mock-<id>`），后续请求带 `Authorization: Bearer <token>`。生产必须替换。
+**认证**：纯 mock，无密码。学生使用名册姓名+学号登录；教师仅选择任教学科，按学科确定教师身份。`POST /api/auth/login` 成功后返回 token（`mock-<id>`），后续请求带 `Authorization: Bearer <token>`。生产必须替换。
 
 ## 已知局限（诊断逻辑）
 

@@ -41,9 +41,9 @@
           </div>
         </div>
 
-        <div class="form-row">
-          <label>{{ role === 'teacher' ? '教师姓名' : '学生姓名' }}</label>
-          <input v-model="username" type="text" :disabled="loading" :placeholder="role === 'teacher' ? '例如：陈老师' : '按班级名册填写'" />
+        <div v-if="role === 'student'" class="form-row">
+          <label>学生姓名</label>
+          <input v-model="username" type="text" :disabled="loading" placeholder="按班级名册填写" />
         </div>
 
         <div v-if="role === 'student'" class="form-row">
@@ -94,7 +94,7 @@ const subjects = [
 const loading = ref(false)
 const error = ref('')
 
-// 请求期间冻结登录身份；切换角色后重新填写对应姓名和学号。
+// 请求期间冻结登录身份；切换到学生时填写名册姓名和学号，教师只选择学科。
 function switchRole(r: 'teacher' | 'student') {
   if (loading.value || r === role.value) return
   role.value = r
@@ -106,13 +106,13 @@ function switchRole(r: 'teacher' | 'student') {
 async function login() {
   if (loading.value) return
   const payload = {
-    username: username.value.trim(),
     role: role.value,
+    username: role.value === 'student' ? username.value.trim() : undefined,
     student_no: role.value === 'student' ? studentNo.value.trim() : undefined,
     subject: role.value === 'teacher' ? teacherSubject.value : undefined
   }
-  if (!payload.username) {
-    error.value = '请输入用户名'
+  if (payload.role === 'student' && !payload.username) {
+    error.value = '请输入学生姓名'
     return
   }
   if (payload.role === 'student' && !payload.student_no) {

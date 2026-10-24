@@ -24,7 +24,7 @@ class Pagination(BaseModel):
 # ---------- 认证 ----------
 
 class LoginIn(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: Optional[str] = Field(default=None, min_length=1, max_length=64)
     role: str = Field(pattern="^(teacher|student)$")
     student_no: Optional[str] = Field(default=None, min_length=1, max_length=32)
     subject: Optional[str] = Field(

@@ -1,5 +1,5 @@
 # Mock 认证：演示用，无密码。
-# 学生按名册中的姓名+学号登录；教师按姓名+学科隔离；token 为 "mock-<user_id>"。
+# 学生按名册中的姓名+学号登录；教师按学科确定身份；token 为 "mock-<user_id>"。
 # ⚠️ 仅用于 MVP 演示/联调，生产环境必须替换为 JWT + 密码体系。
 from typing import Optional
 
@@ -61,6 +61,53 @@ def get_or_create_user(
 
     user = User(name=username, student_no=None, role=role)
     db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+SUBJECT_TEACHER_NAMES = {
+    "chinese": "语文老师",
+    "math": "数学老师",
+    "english": "英语老师",
+    "politics": "道法老师",
+    "history": "历史老师",
+    "physics": "物理老师",
+    "chemistry": "化学老师",
+    "geography": "地理老师",
+    "biology": "生物老师",
+}
+
+
+def get_or_create_subject_teacher(db: Session, subject: str) -> User:
+    """Resolve the passwordless teacher identity from subject alone."""
+    user = db.query(User).join(
+        TeacherSubject, TeacherSubject.teacher_id == User.id,
+    ).filter(
+        User.role == "teacher",
+        TeacherSubject.subject == subject,
+    ).order_by(User.id).first()
+    if user is not None:
+        return user
+
+    # Keep the existing demo teacher identity when it has no subject yet.
+    # New subjects get their own stable teacher account.
+    user = db.query(User).filter(
+        User.role == "teacher",
+        ~db.query(TeacherSubject.teacher_id).filter(
+            TeacherSubject.teacher_id == User.id,
+        ).exists(),
+    ).order_by(User.id).first()
+    if user is None:
+        user = User(
+            name=SUBJECT_TEACHER_NAMES.get(subject, f"{subject}老师"),
+            student_no=None,
+            role="teacher",
+        )
+        db.add(user)
+        db.flush()
+
+    db.add(TeacherSubject(teacher_id=user.id, subject=subject))
     db.commit()
     db.refresh(user)
     return user

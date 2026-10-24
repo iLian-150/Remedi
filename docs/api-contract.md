@@ -21,7 +21,7 @@
 当前仍使用无密码 mock 登录，供测试和演示：
 
 1. 学生传入 `username`、`role="student"` 和名册中的 `student_no`；姓名与学号必须匹配，学生由教师先录入班级名册，登录不会自动创建学生。
-2. 教师传入 `username`、`role="teacher"` 和 `subject`；九个可选学科为语文、数学、英语、道法、历史、物理、化学、地理、生物。教师身份和 Agent 数据按学科区分。
+2. 教师只传入 `role="teacher"` 和 `subject`，不需要教师姓名；九个可选学科为语文、数学、英语、道法、历史、物理、化学、地理、生物。教师身份和 Agent 数据按学科区分。
 3. 返回 `token`，后续请求在 Header 中携带：`Authorization: Bearer <token>`。
 4. token 格式为 `mock-<user_id>`（纯演示用，生产环境必须替换为 JWT）。
 
@@ -56,16 +56,18 @@
 
 ```json
 {
-  "username": "林小夏",
   "role": "student",
+  "username": "林小夏",
   "student_no": "S2026001"
 }
 ```
 
-- `username`: string，必填，姓名。
+- `username`: string，学生必填，姓名；教师无需提供，旧客户端传入时不用于教师身份识别。
 - `role`: string，必填，枚举 `teacher | student`。
 - `student_no`: string，学生必填，须和教师录入的名册姓名匹配。
 - `subject`: string，教师必填；可选 `chinese | math | english | politics | history | physics | chemistry | geography | biology`。
+
+教师请求示例：`{"role":"teacher","subject":"math"}`。相同学科始终登录到该学科的教师身份。
 
 响应 `200`：
 
@@ -1815,3 +1817,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.339 | 2026-10-23 | 学生短追问的学科 RAG 检索补入最近同学科提问，解决“为什么呢”“这个过程如何理解”等缺少主题词的跟进问题。 |
 | v0.13.340 | 2026-10-23 | 学科兜底路由支持完整英文科目名，按单词边界识别，兼容模型路由不可用时的英文提问。 |
 | v0.13.341 | 2026-10-23 | 重建学科向量索引前检测调用方 Session 的未提交写入，避免索引操作误提交其他业务数据。 |
+| v0.13.342 | 2026-10-24 | 教师无密码登录移除姓名输入，改为仅按所选学科确定教师身份；学生仍使用名册姓名和学号登录。 |
