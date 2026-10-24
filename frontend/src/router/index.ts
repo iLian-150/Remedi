@@ -33,9 +33,11 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' } },
   { path: '/teacher/assignments/new', component: () => import('../views/teacher/TeacherPublish.vue'), meta: { role: 'teacher', title: '发布作业' } },
   { path: '/teacher/chat', component: () => import('../views/teacher/TeacherChat.vue'), meta: { role: 'teacher', title: 'AI 助手' } },
-  { path: '/teacher/agents', component: () => import('../views/teacher/TeacherKnowledge.vue'), meta: { role: 'teacher', title: '学科 Agent 知识库' } },
-  // 我的练习（v0.6.0）：练习册知识库的书架式管理页，与 4.15~4.17 同一批接口
-  { path: '/teacher/workbooks', component: () => import('../views/teacher/TeacherWorkbooks.vue'), meta: { role: 'teacher', title: '我的练习' } }
+  // 我的资料：管理当前任教学科 Agent 使用的外挂知识库文档。
+  { path: '/teacher/materials', component: () => import('../views/teacher/TeacherKnowledge.vue'), meta: { role: 'teacher', title: '我的资料' } },
+  // 旧知识库、练习册入口兼容：统一进入「我的资料」。练习册仍可在发布作业时管理。
+  { path: '/teacher/agents', redirect: '/teacher/materials' },
+  { path: '/teacher/workbooks', redirect: '/teacher/materials' }
 ]
 
 const router = createRouter({

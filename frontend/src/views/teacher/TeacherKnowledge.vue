@@ -1,8 +1,8 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <h2>{{ subjectLabel }} Agent 知识库</h2>
-      <p class="page-sub">添加教材、讲义或评分标准，让本学科老师回答时参考相关资料，并注明来源。</p>
+      <h2>我的资料</h2>
+      <p class="page-sub">为当前{{ subjectLabel }} Agent 添加外挂知识库文档。Agent 回答相关问题时会检索这些资料并注明来源。</p>
     </div>
 
     <div v-if="!subject" class="card empty">教师登录时需要先选择任教学科。</div>
@@ -14,7 +14,7 @@
       </div>
 
       <div class="card">
-        <h3>添加教学资料</h3>
+        <h3>添加知识库文档</h3>
         <div class="entry-modes" role="group" aria-label="资料添加方式">
           <button type="button" :class="{ selected: entryMode === 'text' }" :aria-pressed="entryMode === 'text'" :disabled="mutating" @click="entryMode = 'text'">粘贴文字</button>
           <button type="button" :class="{ selected: entryMode === 'pdf' }" :aria-pressed="entryMode === 'pdf'" :disabled="mutating" @click="entryMode = 'pdf'">导入 PDF</button>
@@ -35,7 +35,7 @@
         </div>
         <div v-if="entryMode === 'text'" class="form-row">
           <label for="knowledge-content">资料内容</label>
-          <textarea id="knowledge-content" v-model="content" rows="8" maxlength="20000" :disabled="mutating" placeholder="粘贴知识要点、例题解析或评分标准。资料只用于当前学科的答疑。" />
+          <textarea id="knowledge-content" v-model="content" rows="8" maxlength="20000" :disabled="mutating" placeholder="粘贴教材内容、讲义、解题方法或评分标准。文档只供当前学科 Agent 检索。" />
           <span class="hint">{{ content.length }} / 20000 字</span>
         </div>
         <button v-if="entryMode === 'text'" class="btn" :disabled="mutating || !title.trim() || !content.trim()" @click="save">
@@ -68,7 +68,7 @@
 
       <div class="card">
         <div class="knowledge-head">
-          <h3>{{ subjectLabel }}资料 <span class="count">{{ items.length }}</span></h3>
+          <h3>{{ subjectLabel }} Agent 文档 <span class="count">{{ items.length }}</span></h3>
           <div class="head-actions">
             <button class="btn ghost small" :disabled="loading || mutating" @click="load()">刷新</button>
             <button class="btn ghost small" :disabled="loading || mutating || !vectorEnabled || !items.length" @click="reindex">{{ reindexing ? '正在更新索引…' : '重建检索索引' }}</button>
@@ -76,7 +76,7 @@
         </div>
         <p v-if="!loading" class="section-hint">{{ vectorEnabled ? '已配置向量库。完成模型配置后，首次连接或更换向量库请重建检索索引。' : '关键词检索可用；连接向量库后可重建索引。' }}</p>
         <div v-if="loading" class="loading">加载中…</div>
-        <div v-else-if="!items.length" class="empty">这个学科的知识库目前为空。</div>
+        <div v-else-if="!items.length" class="empty">还没有添加{{ subjectLabel }} Agent 的知识库文档。</div>
         <article v-for="item in items" :key="item.id" class="knowledge-item">
           <header>
             <div><b>{{ item.title }}</b><small>来源：{{ item.source_name || '教师整理' }}<span v-if="item.passage_count"> · {{ item.passage_count }} 个检索片段</span></small></div>

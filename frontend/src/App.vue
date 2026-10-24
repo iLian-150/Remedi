@@ -206,7 +206,6 @@ const STUDENT_NAV: NavItem[] = [
 const TEACHER_NAV: NavItem[] = [
   // v0.6.0：AI 助手排第一位（教师登录默认落点仍为总览，不变）
   { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
-  { to: '/teacher/agents', icon: 'book', label: '学科 Agent 知识库' },
   { to: '/teacher/dashboard', icon: 'chart', label: '总览' },
   { to: '/teacher/submissions', icon: 'file', label: '批改' },
   // v0.9.0：AI 批改先过教师审核才发给学生；角标数在 navItems 里从 teacher store 注入
@@ -214,7 +213,7 @@ const TEACHER_NAV: NavItem[] = [
   { to: '/teacher/students', icon: 'users', label: '学生' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', exact: true },
   { to: '/teacher/assignments/new', icon: 'plus-circle', label: '发布作业' },
-  { to: '/teacher/workbooks', icon: 'book', label: '我的练习' },
+  { to: '/teacher/materials', icon: 'file', label: '我的资料' },
   { to: '/teacher/suggestions', icon: 'lightbulb', label: '教学建议' }
 ]
 
