@@ -89,7 +89,7 @@
         </div>
         <div v-if="entryMode === 'pdf'" class="upload-dropzone">
           <span class="pdf-icon">PDF</span>
-          <div><b>{{ pdfFile ? pdfFile.name : '选择一份 PDF 文档' }}</b><small>最大 10 MB，需包含可复制的文字内容</small></div>
+          <div><b>{{ pdfFile ? pdfFile.name : '选择一份 PDF 文档' }}</b><small>最大 20 MB，需包含可复制的文字内容</small></div>
           <label class="choose-file" for="knowledge-pdf">{{ pdfFile ? '重新选择' : '选择文件' }}</label>
           <input id="knowledge-pdf" ref="fileInput" class="sr-only" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
         </div>
@@ -269,8 +269,8 @@ function selectPdf(event: Event) {
     input.value = ''
     return
   }
-  if (file.size > 10 * 1024 * 1024) {
-    error.value = 'PDF 不能超过 10 MB，请拆分后导入。'
+  if (file.size > 20 * 1024 * 1024) {
+    error.value = 'PDF 不能超过 20 MB，请拆分后导入。'
     input.value = ''
     return
   }

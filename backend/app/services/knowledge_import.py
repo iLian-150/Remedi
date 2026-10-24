@@ -1,6 +1,6 @@
 """有界读取教学 PDF 文本；页码始终使用原 PDF 的物理页序。"""
 
-MAX_PDF_BYTES = 10 * 1024 * 1024
+MAX_PDF_BYTES = 20 * 1024 * 1024
 MAX_PDF_PAGES = 80
 MAX_PDF_CHARACTERS = 120_000
 
@@ -9,7 +9,7 @@ def extract_knowledge_pdf(data: bytes) -> dict:
     import pymupdf
 
     if not data or len(data) > MAX_PDF_BYTES:
-        raise ValueError("PDF 不能为空，且不能超过 10MB。")
+        raise ValueError("PDF 不能为空，且不能超过 20MB。")
     try:
         document = pymupdf.open(stream=data, filetype="pdf")
     except Exception as exc:

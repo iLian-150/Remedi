@@ -1401,7 +1401,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、跨资料候选分散、模型重排及父块去重；BM25 也会匹配规范化的公式表达式，保留单字母变量及运算符关系。重排模型为 `qwen3.7-text-rerank`，默认超时 10 秒，不可用时回退本地重排并返回安全警告。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
 
-- `POST /api/teacher/knowledge/{subject}/import-pdf`：multipart 必填 `file`，选填 `title`、`source_name`。最大 10MB、80 页、12 万字，读取带文字层的 PDF；纯扫描件返回 `422` 并提示先 OCR，超大小返回 `413`。保存物理页码；空白/无文字页不索引且返回警告。响应除上述资料字段外新增 `page_count` 和 `indexed_pages`（均为数量）。
+- `POST /api/teacher/knowledge/{subject}/import-pdf`：multipart 必填 `file`，选填 `title`、`source_name`。最大 20MB、80 页、12 万字，读取带文字层的 PDF；纯扫描件返回 `422` 并提示先 OCR，超大小返回 `413`。保存物理页码；空白/无文字页不索引且返回警告。响应除上述资料字段外新增 `page_count` 和 `indexed_pages`（均为数量）。
 - `POST /api/teacher/knowledge/{subject}/search`：请求 `{ "query": "一次函数如何判断增减性", "limit": 4 }`，query 为 1–2000 字且不能纯空白，limit 为 1–8。响应 `{ "items": [...], "retrieval_mode": "bm25 | hybrid", "rerank_mode": "model | local", "warnings": [] }`；`rerank_mode` 为 v0.13.317 新增非 breaking 字段，分别表示完成模型重排或采用本地重排，不改变 `retrieval_mode` 的召回语义。每项含 `document_id`、`title`、`source_name`、`page_number`（文本资料为 null）、`passage_id`（未建立片段的旧资料为 null）、`content`（父块）、`score`（排序分而非可信度）、`citation`（如 `[资料12-片段3]`）。已配置的重排模型调用失败或超时时，返回 `rerank_mode=local` 及安全警告；未配置凭证或关闭重排模型时直接采用本地重排。`warnings` 不包含凭证或原始上游响应。
 - `POST /api/teacher/knowledge/{subject}/reindex`：将该学科全部资料同步到 Milvus，复用已有片段 ID 和 PDF 页码。响应 `documents`、`passage_count`、`vector_status`、`warnings`。同步为幂等 upsert；失败后可重试。
 
@@ -1820,3 +1820,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.342 | 2026-10-24 | 教师无密码登录移除姓名输入，改为仅按所选学科确定教师身份；学生仍使用名册姓名和学号登录。 |
 | v0.13.343 | 2026-10-24 | 教师侧“我的资料”入口集中管理当前学科 Agent 的外挂知识库文档，复用既有上传、检索和文档管理流程；练习册仍可在发布作业时使用。 |
 | v0.13.344 | 2026-10-24 | “我的资料”改为书架式文档陈列与弹窗管理，保留文字/PDF 导入、内容预览、删除、Agent 试查及索引重建。 |
+| v0.13.345 | 2026-10-24 | 学科 Agent RAG PDF 上传大小上限从 10MB 提高到 20MB，前后端校验与接口说明保持一致。 |

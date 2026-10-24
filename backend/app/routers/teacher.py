@@ -309,7 +309,7 @@ async def import_subject_knowledge_pdf(
     finally:
         await file.close()
     if len(data) > MAX_PDF_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF 不能超过 10MB。")
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF 不能超过 20MB。")
     filename = (file.filename or "教学资料.pdf").replace("\\", "/").rsplit("/", 1)[-1]
 
     def save_pdf():
