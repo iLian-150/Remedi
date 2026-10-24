@@ -94,6 +94,28 @@
           <input id="knowledge-pdf" ref="fileInput" class="sr-only" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
         </div>
         <p v-if="entryMode === 'pdf'" class="scan-note">扫描页和疑似乱码页面会自动识别；部分页面无法识别时会在导入后提示。</p>
+        <div v-if="importing" class="import-progress" aria-live="polite">
+          <div class="progress-heading">
+            <b>{{ importProcessing ? '文件已上传，正在处理' : '正在上传 PDF' }}</b>
+            <strong v-if="!importProcessing && importUploadPercent !== null">{{ importUploadPercent }}%</strong>
+            <span v-else class="progress-waiting">{{ importProcessing ? '处理中' : '传输中' }}</span>
+          </div>
+          <p>{{ importProcessing ? '正在识别页面并建立检索索引，请稍候。' : '正在将文件传至服务器。' }}</p>
+          <div
+            class="progress-track"
+            role="progressbar"
+            :aria-label="importProcessing ? '正在识别页面并建立检索索引' : 'PDF 上传进度'"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="!importProcessing ? importUploadPercent ?? undefined : undefined"
+            :aria-valuetext="importProcessing ? '服务器正在处理 PDF' : undefined"
+          >
+            <span
+              :class="['progress-fill', { indeterminate: importProcessing || importUploadPercent === null }]"
+              :style="!importProcessing && importUploadPercent !== null ? { width: `${importUploadPercent}%` } : undefined"
+            ></span>
+          </div>
+        </div>
         <div v-if="entryMode === 'text'" class="dialog-form-row">
           <label for="knowledge-title">资料标题</label>
           <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
@@ -161,6 +183,8 @@ const vectorEnabled = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const importing = ref(false)
+const importUploadPercent = ref<number | null>(null)
+const importProcessing = ref(false)
 const reindexing = ref(false)
 const deletingId = ref<number | null>(null)
 const searching = ref(false)
@@ -214,6 +238,7 @@ function clearFeedback() {
 
 function clearForm() {
   title.value = ''; sourceName.value = ''; content.value = ''; pdfFile.value = null
+  importUploadPercent.value = null; importProcessing.value = false
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -279,9 +304,19 @@ async function importPdf() {
   if (!target || !file || mutating.value) return
   const current = generation
   importing.value = true
+  importUploadPercent.value = null
+  importProcessing.value = false
   clearFeedback()
   try {
-    const result = await teacher.importSubjectKnowledgePdf(target, file)
+    const result = await teacher.importSubjectKnowledgePdf(target, file, percent => {
+      if (current !== generation) return
+      if (percent === null) {
+        importUploadPercent.value = null
+      } else {
+        importUploadPercent.value = Math.max(importUploadPercent.value ?? 0, percent)
+        if (percent >= 100) importProcessing.value = true
+      }
+    })
     if (current !== generation) return
     clearForm()
     uploadOpen.value = false
@@ -462,6 +497,14 @@ watch(subject, () => {
 .upload-dropzone small, .scan-note { color: var(--text-3); font-size: 11px; }
 .choose-file { padding: 8px 11px; border: 1px solid #D9E2F5; border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .scan-note { margin: 0 0 12px; }
+.import-progress { margin: 14px 0 2px; padding: 13px 14px; border: 1px solid #E6ECF8; border-radius: 11px; background: #F8FAFF; }
+.progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text); font-size: 12px; }
+.progress-heading strong { color: var(--primary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.progress-waiting { color: var(--primary); font-size: 11px; }
+.import-progress p { margin: 5px 0 10px; color: var(--text-3); font-size: 11px; }
+.progress-track { position: relative; height: 7px; overflow: hidden; border-radius: 999px; background: #E8EDF6; }
+.progress-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3475F6, #2453D9); transition: width .18s ease; }
+.progress-fill.indeterminate { width: 38%; animation: progress-sweep 1.35s ease-in-out infinite; }
 .dialog-form-row { margin-top: 14px; }
 .dialog-form-row label { display: block; margin-bottom: 7px; color: var(--text-2); font-size: 12px; font-weight: 700; }
 .dialog-form-row label span { color: var(--text-3); font-weight: 400; }
@@ -484,6 +527,7 @@ watch(subject, () => {
 .document-content { max-height: 55vh; margin-top: 19px; padding: 16px; overflow: auto; border: 1px solid #EDF0F5; border-radius: 11px; background: #FBFCFE; color: var(--text-2); font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes progress-sweep { from { transform: translateX(-110%); } to { transform: translateX(280%); } }
 @media (max-width: 720px) {
   .materials-heading { align-items: flex-start; flex-direction: column; gap: 14px; }
   .materials-heading h2 { font-size: 25px; }
