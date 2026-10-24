@@ -188,12 +188,10 @@ export const useTeacherStore = defineStore('teacher', {
       return data
     },
     async importSubjectKnowledgePdf(
-      subject: SubjectAgentCode, file: File, metadata: { title?: string; source_name?: string }
+      subject: SubjectAgentCode, file: File
     ): Promise<SubjectKnowledgeImportResult> {
       const form = new FormData()
       form.append('file', file)
-      if (metadata.title) form.append('title', metadata.title)
-      if (metadata.source_name) form.append('source_name', metadata.source_name)
       const { data } = await api.post<SubjectKnowledgeImportResult>(
         `/api/teacher/knowledge/${subject}/import-pdf`, form, { timeout: 300_000 }
       )

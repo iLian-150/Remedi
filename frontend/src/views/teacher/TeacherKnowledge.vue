@@ -89,16 +89,16 @@
         </div>
         <div v-if="entryMode === 'pdf'" class="upload-dropzone">
           <span class="pdf-icon">PDF</span>
-          <div><b>{{ pdfFile ? pdfFile.name : '选择一份 PDF 文档' }}</b><small>最大 20 MB，需包含可复制的文字内容</small></div>
+          <div><b>{{ pdfFile ? pdfFile.name : '选择一份 PDF 文档' }}</b><small>标题和来源将根据文件名自动生成</small></div>
           <label class="choose-file" for="knowledge-pdf">{{ pdfFile ? '重新选择' : '选择文件' }}</label>
           <input id="knowledge-pdf" ref="fileInput" class="sr-only" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
         </div>
         <p v-if="entryMode === 'pdf'" class="scan-note">扫描版 PDF 请先识别为文字后再导入。</p>
-        <div class="dialog-form-row">
-          <label for="knowledge-title">资料标题 <span v-if="entryMode === 'pdf'">（选填，默认使用文件名）</span></label>
+        <div v-if="entryMode === 'text'" class="dialog-form-row">
+          <label for="knowledge-title">资料标题</label>
           <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
         </div>
-        <div class="dialog-form-row">
+        <div v-if="entryMode === 'text'" class="dialog-form-row">
           <label for="knowledge-source">资料来源 <span>（选填）</span></label>
           <input id="knowledge-source" v-model="sourceName" class="dialog-input" maxlength="200" :disabled="mutating" placeholder="例如：七年级下册教材 / 第三章讲义" />
         </div>
@@ -269,11 +269,6 @@ function selectPdf(event: Event) {
     input.value = ''
     return
   }
-  if (file.size > 20 * 1024 * 1024) {
-    error.value = 'PDF 不能超过 20 MB，请拆分后导入。'
-    input.value = ''
-    return
-  }
   pdfFile.value = file
   input.value = ''
 }
@@ -286,9 +281,7 @@ async function importPdf() {
   importing.value = true
   clearFeedback()
   try {
-    const result = await teacher.importSubjectKnowledgePdf(target, file, {
-      title: title.value.trim() || undefined, source_name: sourceName.value.trim() || undefined
-    })
+    const result = await teacher.importSubjectKnowledgePdf(target, file)
     if (current !== generation) return
     clearForm()
     uploadOpen.value = false

@@ -294,23 +294,20 @@ def add_subject_knowledge(
 @router.post("/knowledge/{subject}/import-pdf", summary="导入带文字层的学科教学 PDF")
 async def import_subject_knowledge_pdf(
     subject: str, file: UploadFile = File(...),
-    title: str = Form(default="", max_length=160),
-    source_name: str = Form(default="", max_length=200),
     db: Session = Depends(get_db), current: User = Depends(require_teacher),
 ):
     if subject not in SUBJECT_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
     _require_teacher_subject(db, current, subject)
-    from ..services.knowledge_import import MAX_PDF_BYTES, extract_knowledge_pdf
+    from ..services.knowledge_import import extract_knowledge_pdf
     from ..services.subject_rag import prepare_knowledge, sync_knowledge
 
     try:
-        data = await file.read(MAX_PDF_BYTES + 1)
+        data = await file.read()
     finally:
         await file.close()
-    if len(data) > MAX_PDF_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF 不能超过 20MB。")
     filename = (file.filename or "教学资料.pdf").replace("\\", "/").rsplit("/", 1)[-1]
+    title_from_filename = filename[:-4] if filename.lower().endswith(".pdf") else filename
 
     def save_pdf():
         try:
@@ -318,9 +315,9 @@ async def import_subject_knowledge_pdf(
         except ValueError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         row = SubjectKnowledgeChunk(
-            subject=subject, title=title.strip() or filename[:160],
+            subject=subject, title=title_from_filename[:160] or "教学资料",
             content="\n\n".join(text for _, text in extracted["pages"]),
-            source_name=source_name.strip() or filename[:200], created_by=current.id,
+            source_name=filename[:200], created_by=current.id,
         )
         db.add(row)
         prepare_knowledge(db, row, pages=extracted["pages"])
