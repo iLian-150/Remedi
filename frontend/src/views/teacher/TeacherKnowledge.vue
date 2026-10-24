@@ -93,7 +93,7 @@
           <label class="choose-file" for="knowledge-pdf">{{ pdfFile ? '重新选择' : '选择文件' }}</label>
           <input id="knowledge-pdf" ref="fileInput" class="sr-only" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
         </div>
-        <p v-if="entryMode === 'pdf'" class="scan-note">扫描版 PDF 请先识别为文字后再导入。</p>
+        <p v-if="entryMode === 'pdf'" class="scan-note">扫描页和疑似乱码页面会自动识别；部分页面无法识别时会在导入后提示。</p>
         <div v-if="entryMode === 'text'" class="dialog-form-row">
           <label for="knowledge-title">资料标题</label>
           <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
@@ -285,7 +285,7 @@ async function importPdf() {
     if (current !== generation) return
     clearForm()
     uploadOpen.value = false
-    notice.value = `PDF 已导入${result.indexed_pages == null ? '' : `，读取 ${result.indexed_pages} 页`}，可检索 ${result.passage_count} 个片段。`
+    notice.value = `PDF 已导入${result.indexed_pages == null ? '' : `，读取 ${result.indexed_pages} 页`}${result.ocr_pages ? `，OCR 识别 ${result.ocr_pages} 页` : ''}，可检索 ${result.passage_count} 个片段。`
     warnings.value = result.warnings ?? []
     searchResult.value = null
     await load(current)

@@ -863,6 +863,7 @@ export interface SubjectKnowledgeImportResult extends SubjectKnowledgeIndexResul
   title: string
   page_count?: number
   indexed_pages?: number
+  ocr_pages?: number
 }
 
 export interface SubjectKnowledgeSearchItem {

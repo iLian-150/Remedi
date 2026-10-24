@@ -291,7 +291,7 @@ def add_subject_knowledge(
             "source_name": row.source_name, "created_at": row.created_at, **result}
 
 
-@router.post("/knowledge/{subject}/import-pdf", summary="导入带文字层的学科教学 PDF")
+@router.post("/knowledge/{subject}/import-pdf", summary="导入学科教学 PDF")
 async def import_subject_knowledge_pdf(
     subject: str, file: UploadFile = File(...),
     db: Session = Depends(get_db), current: User = Depends(require_teacher),
@@ -314,6 +314,8 @@ async def import_subject_knowledge_pdf(
             extracted = extract_knowledge_pdf(data)
         except ValueError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
         row = SubjectKnowledgeChunk(
             subject=subject, title=title_from_filename[:160] or "教学资料",
             content="\n\n".join(text for _, text in extracted["pages"]),
@@ -328,6 +330,7 @@ async def import_subject_knowledge_pdf(
                 "source_name": row.source_name, "created_at": row.created_at,
                 **result, "page_count": extracted["page_count"],
                 "indexed_pages": extracted["indexed_pages"],
+                "ocr_pages": extracted["ocr_pages"],
                 "warnings": extracted["warnings"] + result.get("warnings", [])}
 
     return await run_in_threadpool(save_pdf)

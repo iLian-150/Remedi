@@ -78,7 +78,7 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 | `RAG_EMBEDDING_DIMENSIONS` | `1024` | 向量维度；变更模型或维度后按部署说明使用匹配的 Milvus 集合并重建索引 |
 | `RAG_RERANK_MODEL` | `qwen3.7-text-rerank` | 候选片段的模型重排；不可用时回退本地重排 |
 | `RAG_RERANK_TIMEOUT_SECONDS` | `10` | 模型重排请求等待上限（秒） |
-| `SEED_DEMO_DATA` | 服务器为 `false` | 关闭 Docker 启动时的演示数据初始化，保留已有数据 |
+| `SEED_DEMO_DATA` | `false` | 默认关闭 Docker 启动时的演示数据初始化；显式设为 `true` 才会生成演示数据 |
 | `LLM_TIMEOUT_SECONDS` | `120` | 对话模型等待上限（秒） |
 | `STUBBORN_WINDOW_DAYS` | `30` | 顽固误区判定窗口（天） |
 | `CORS_ORIGINS` | `*` | 允许的前端来源，逗号分隔 |

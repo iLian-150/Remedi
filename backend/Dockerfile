@@ -16,5 +16,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# 服务器可通过 SEED_DEMO_DATA=false 跳过演示数据和其中的模型调用。
+# 默认不生成演示数据；需要时可显式设置 SEED_DEMO_DATA=true。
 ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]

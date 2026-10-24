@@ -64,6 +64,10 @@ class LLMProvider(ABC):
         """将原图直接交给视觉模型回答；不经过 OCR 或文本模型二次解题。"""
         raise RuntimeError("当前模型 Provider 不支持图片问答")
 
+    def extract_text_from_image(self, image_bytes: bytes, content_type: str) -> str:
+        """从扫描页面图片中逐字提取可见内容。"""
+        raise RuntimeError("当前模型 Provider 不支持扫描页文字识别")
+
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
         """模型 Provider 未实现出题时明确报错，不返回预置题目。"""
         raise RuntimeError("当前模型 Provider 不支持生成变式题")
@@ -333,6 +337,28 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
+
+    def extract_text_from_image(self, image_bytes: bytes, content_type: str) -> str:
+        """用现有视觉模型识别 PDF 页面，不补写或概述页面内容。"""
+        from ..config import settings
+
+        data_url = "data:{};base64,{}".format(
+            content_type or "image/png",
+            base64.b64encode(image_bytes).decode("ascii"),
+        )
+        try:
+            text = self._vision_text(
+                data_url,
+                "你是严谨的文档文字识别工具。只转写图中确实可见的内容，不解释、不总结、不补全。",
+                "请按页面阅读顺序完整转写所有清晰可见的文字、标题、公式、编号、表格内容和标点。"
+                "保留段落与题号；数学公式尽量用普通文本准确表示。无法辨认的局部标记为[无法辨认]。"
+                "只返回转写结果，不添加说明或 Markdown。",
+                settings.LLM_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("扫描页文字识别请求失败（%s）", type(exc).__name__)
+            raise RuntimeError("扫描页文字识别服务暂不可用，请稍后重试。") from exc
+        return str(text or "").strip()
 
     def stream_image_answer(self, image_bytes: bytes, content_type: str,
                             question: str = ""):

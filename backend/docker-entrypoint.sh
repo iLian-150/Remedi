@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
+if [ "${SEED_DEMO_DATA:-false}" = "true" ]; then
     python seed.py
 fi
 
