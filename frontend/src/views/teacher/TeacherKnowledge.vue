@@ -92,6 +92,9 @@
           <input id="knowledge-document" ref="fileInput" class="sr-only" type="file" :accept="documentAccept" :disabled="mutating" @change="selectDocument" />
         </div>
         <p v-if="entryMode === 'file'" class="scan-note">支持 PDF、图片、Office 文档和常见文本格式</p>
+        <p v-if="largeDocumentWarning" class="large-file-note" role="status" aria-live="polite">
+          文件较大，上传与解析可能耗时较长；可关闭窗口，右下角会显示进度和结果。
+        </p>
         <div v-if="entryMode === 'text'" class="dialog-form-row">
           <label for="knowledge-title">资料标题</label>
           <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
@@ -208,6 +211,7 @@ const title = ref('')
 const sourceName = ref('')
 const content = ref('')
 const documentFile = ref<File | null>(null)
+const largeDocumentWarning = computed(() => (documentFile.value?.size ?? 0) >= 10 * 1024 * 1024)
 const fileInput = ref<HTMLInputElement | null>(null)
 const items = ref<SubjectKnowledgeItem[]>([])
 const vectorEnabled = ref(false)
@@ -582,6 +586,7 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .upload-dropzone small, .scan-note { color: var(--text-3); font-size: 11px; }
 .choose-file { padding: 8px 11px; border: 1px solid #D9E2F5; border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .scan-note { margin: 0 0 12px; }
+.large-file-note { margin: -3px 0 12px; color: var(--amber); font-size: 12px; line-height: 1.55; }
 .dialog-form-row { margin-top: 14px; }
 .dialog-form-row label { display: block; margin-bottom: 7px; color: var(--text-2); font-size: 12px; font-weight: 700; }
 .dialog-form-row label span { color: var(--text-3); font-weight: 400; }
