@@ -7,6 +7,10 @@
     <div class="page-head">
       <h2>教学建议</h2>
       <p class="page-sub">根据班级错误数据自动生成的辅导与讲评参考。</p>
+      <nav class="workflow-tabs" aria-label="教学工作区">
+        <router-link to="/teacher/dashboard" class="workflow-tab">总览</router-link>
+        <router-link to="/teacher/suggestions" class="workflow-tab">教学建议</router-link>
+      </nav>
     </div>
 
     <div class="note-box">

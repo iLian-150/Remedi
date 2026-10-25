@@ -6,6 +6,10 @@
     <div class="page-head">
       <h2>班级总览</h2>
       <p class="page-sub">一眼看清班级整体的错误分布与高频问题。</p>
+      <nav class="workflow-tabs" aria-label="教学工作区">
+        <router-link to="/teacher/dashboard" class="workflow-tab">总览</router-link>
+        <router-link to="/teacher/suggestions" class="workflow-tab">教学建议</router-link>
+      </nav>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
