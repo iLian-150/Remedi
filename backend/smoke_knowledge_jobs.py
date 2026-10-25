@@ -87,6 +87,16 @@ class KnowledgeJobTests(unittest.TestCase):
         self.assertEqual(self.run_next()["status"], "completed")
         self.assertEqual(self.enqueue()["id"], records[0]["id"])
 
+    def test_duplicate_upload_preserves_source_while_worker_is_reading_it(self):
+        original = self.enqueue()
+        path = next((self.root / "sources" / "math").glob("*.txt"))
+        inode = path.stat().st_ino
+        with path.open("rb") as reader:
+            self.assertEqual(self.enqueue()["id"], original["id"])
+            self.assertEqual(path.stat().st_ino, inode)
+            self.assertEqual(reader.read(), b"source")
+        self.assertFalse(list(path.parent.glob("*.part")))
+
     def test_vector_failure_completes_and_keeps_committed_document(self):
         initial = self.enqueue()
         def fail_vector(db, document_id):

@@ -78,7 +78,12 @@ def enqueue_import(stream, filename: str, subject: str, teacher_id: int) -> dict
             raise ValueError("资料文件不能为空。")
         sha256 = digest.hexdigest()
         relative_path = f"{subject}/{sha256}{extension}"
-        os.replace(temporary, _source_path(relative_path))
+        # 摘要相同的原件不可变。原子创建硬链接让第一个上传获胜，
+        # 其他上传复用已完整写好的文件，避免覆盖正在读取的原件。
+        try:
+            os.link(temporary, _source_path(relative_path))
+        except FileExistsError:
+            pass
     finally:
         temporary.unlink(missing_ok=True)
 
