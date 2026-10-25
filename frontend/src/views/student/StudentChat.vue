@@ -1328,9 +1328,9 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.chat-layout { position: relative; display: flex; width: calc(100% - 20px); min-width: 0; min-height: 0; flex-direction: column; height: calc(100dvh - 20px); margin: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: linear-gradient(180deg, #f8faff 0%, var(--card) 30%); box-shadow: 0 12px 34px rgba(31, 49, 77, 0.06); }
+.chat-layout { position: relative; display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--card); }
 .chat-inner { max-width: 1280px; width: 100%; margin: 0 auto; padding: 0 20px; }
-.chat-header { flex: 0 0 auto; background: rgba(255, 255, 255, 0.76); border-bottom: 1px solid rgba(221, 228, 239, 0.72); padding: 12px 0; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.chat-header { flex: 0 0 auto; padding: 12px 0; }
 .chat-title { display: flex; align-items: center; gap: 10px; color: var(--text); }
 .chat-title-mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(29, 78, 216, 0.08); border-radius: 12px; background: linear-gradient(145deg, #eff5ff, #e8efff); color: var(--primary); }
 .chat-title-copy { display: flex; flex-direction: column; gap: 1px; }
@@ -1547,7 +1547,7 @@ onMounted(async () => {
 }
 
 @media (max-width: 960px) {
-  .chat-layout { height: calc(100dvh - 72px); }
+  .chat-layout { height: calc(100dvh - 52px); }
   .chat-status { display: none; }
   .user-image-card { max-width: min(210px, 72vw); }
   .user-image img { max-width: 190px; max-height: 125px; }
