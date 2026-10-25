@@ -4,7 +4,12 @@ from typing import Dict, List
 from sqlalchemy import and_, case, func, literal, or_
 from sqlalchemy.orm import joinedload, load_only
 
-from ..models import Assignment, AssignmentClass, AssignmentExt, AssignmentSetting, ClassroomMember, Correction, Error, Essay, Question, Step, Submission, SubmissionReview, User, Verification, Workbook
+from ..models import (
+    Assignment, AssignmentClass, AssignmentExt, AssignmentSetting,
+    ClassroomMember, Correction, Error, Essay, Question, Step,
+    StudentMistakeArchive, Submission, SubmissionReview, User, Verification,
+    Workbook,
+)
 
 
 def top_error_questions(
@@ -999,8 +1004,9 @@ def awaiting_verification_knowledge_points(db, student: User,
 
 
 def knowledge_point_errors(db, student: User, knowledge_point: str,
-                           visible_only: bool = False) -> List[Dict]:
-    """某知识点下该生的错题时间线（纵向学习记忆），按时间倒序。"""
+                           visible_only: bool = False,
+                           include_archived: bool = True) -> List[Dict]:
+    """某知识点下该生的错题时间线，按时间倒序；可选排除已从错题本移出的历史记录。"""
     has_correct_correction = db.query(Correction.id).filter(
         Correction.error_id == Error.id,
         Correction.student_id == student.id,
@@ -1031,6 +1037,12 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
         )
         .order_by(Error.created_at.desc(), Error.id.desc())
     )
+    if not include_archived:
+        archived_error = db.query(StudentMistakeArchive.error_id).filter(
+            StudentMistakeArchive.student_id == student.id,
+            StudentMistakeArchive.error_id == Error.id,
+        ).exists()
+        query = query.filter(~archived_error)
     if visible_only:
         pending_review = db.query(SubmissionReview.submission_id).filter(
             SubmissionReview.submission_id == Submission.id,

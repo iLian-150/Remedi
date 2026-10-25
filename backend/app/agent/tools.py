@@ -276,7 +276,10 @@ def build_tools(db: Session, student: User, *, routed_subject: str | None = None
     def get_knowledge_point_errors(knowledge_point: str) -> str:
         """查询学生在某个知识点下的错题时间线，包括题目、本人作答步骤和诊断说明。
         参数 knowledge_point 是知识点名称，例如「一元一次方程」。当学生问某知识点的具体错题时调用。"""
-        items = knowledge_point_errors(db, student, knowledge_point, visible_only=False)
+        items = knowledge_point_errors(
+            db, student, knowledge_point,
+            visible_only=False, include_archived=False,
+        )
         return kp_errors_to_text(knowledge_point, items)
 
     @tool
