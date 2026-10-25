@@ -25,8 +25,10 @@
           <div class="notebook-overview" aria-label="错题复习概览">
             <div class="notebook-stat total"><div class="notebook-stat-copy"><span>收录错题</span><strong>{{ loading ? '—' : allMistakes.length }}<small>条</small></strong></div></div>
             <div class="notebook-stat pending"><div class="notebook-stat-copy"><span>待学习作业</span><strong>{{ loading ? '—' : assignmentReadiness.pending }}<small>份</small></strong></div></div>
-            <div class="notebook-stat repaired"><div class="notebook-stat-copy"><span>错误类别</span><strong>{{ loading ? '—' : `${studiedCategoryCount}/${categoryCount}` }}</strong></div></div>
-            <div class="notebook-progress"><label><span>错误类别学习进度</span><b>{{ loading ? '—' : `${studyPercent}%` }}</b></label><div class="notebook-progress-track" role="progressbar" aria-label="错误类别学习进度" :aria-valuenow="loading ? undefined : studyPercent" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${loading ? 0 : studyPercent}%` }"/></div></div>
+            <div class="notebook-stat repaired">
+              <div class="notebook-stat-copy"><span>已学会类别</span><strong>{{ loading ? '—' : `${studiedCategoryCount}/${categoryCount}` }}</strong></div>
+              <div class="notebook-progress-track" role="progressbar" aria-label="错误类别学习进度" :aria-valuenow="loading ? undefined : studyPercent" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${loading ? 0 : studyPercent}%` }"/></div>
+            </div>
           </div>
 
           <div class="notebook-workspace">
