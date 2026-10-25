@@ -95,6 +95,14 @@ def _render(page, clip=None, *, visual=False):
     return pixmap.tobytes("jpeg", jpg_quality=75) if visual else pixmap.tobytes("png")
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def _filter_regions(page, candidates):
     import pymupdf
 
@@ -209,16 +217,9 @@ def extract_knowledge_pdf(data: bytes | os.PathLike[str] | str, *, progress=None
             raise ValueError("PDF 没有可读取的页面。")
         results, failures = {}, {}
         total = document.page_count
-        if fingerprint:
-            digest = fingerprint
-        elif source_path is None:
-            digest = hashlib.sha256(data).hexdigest()
-        else:
-            checksum = hashlib.sha256()
-            with source_path.open("rb") as source:
-                for block in iter(lambda: source.read(1024 * 1024), b""):
-                    checksum.update(block)
-            digest = checksum.hexdigest()
+        digest = fingerprint or (
+            hashlib.sha256(data).hexdigest() if source_path is None else _sha256_file(source_path)
+        )
 
         def report(stage="extracting"):
             if progress:
@@ -357,13 +358,17 @@ class _VisibleHtmlText(HTMLParser):
         return re.sub(r"[ \t]+", " ", "".join(self.parts)).strip()
 
 
-def _docx_text(data: bytes) -> str:
+def _office_source(data: bytes | os.PathLike[str] | str):
+    return str(data) if isinstance(data, (str, os.PathLike)) else io.BytesIO(data)
+
+
+def _docx_text(data: bytes | os.PathLike[str] | str) -> str:
     from docx import Document
     from docx.oxml.ns import qn
     from docx.table import Table
     from docx.text.paragraph import Paragraph
 
-    document = Document(io.BytesIO(data))
+    document = Document(_office_source(data))
     parts = []
     for block in document.element.body.iterchildren():
         if block.tag == qn("w:p"):
@@ -379,10 +384,10 @@ def _docx_text(data: bytes) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _pptx_pages(data: bytes) -> tuple[list[tuple[None, str]], list[str]]:
+def _pptx_pages(data: bytes | os.PathLike[str] | str) -> tuple[list[tuple[None, str]], list[str]]:
     from pptx import Presentation
 
-    presentation = Presentation(io.BytesIO(data))
+    presentation = Presentation(_office_source(data))
     pages = []
     skipped = []
     for index, slide in enumerate(presentation.slides, start=1):
@@ -406,10 +411,10 @@ def _pptx_pages(data: bytes) -> tuple[list[tuple[None, str]], list[str]]:
     return pages, warnings
 
 
-def _xlsx_text(data: bytes) -> str:
+def _xlsx_text(data: bytes | os.PathLike[str] | str) -> str:
     from openpyxl import load_workbook
 
-    workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=False)
+    workbook = load_workbook(_office_source(data), read_only=True, data_only=False)
     parts = []
     try:
         for sheet in workbook.worksheets:
@@ -423,13 +428,13 @@ def _xlsx_text(data: bytes) -> str:
     return "\n".join(parts).strip()
 
 
-def _office_images(data: bytes, extension: str):
+def _office_images(data: bytes | os.PathLike[str] | str, extension: str):
     """复用现有 Office 解析库，图片型 Word/课件同样进入 OCR/图形链路。"""
     if extension == ".docx":
         from docx import Document
         from docx.parts.image import ImagePart
 
-        for part in Document(io.BytesIO(data)).part.package.parts:
+        for part in Document(_office_source(data)).part.package.parts:
             if isinstance(part, ImagePart):
                 yield part.blob
     elif extension == ".pptx":
@@ -442,23 +447,30 @@ def _office_images(data: bytes, extension: str):
                 elif hasattr(shape, "shapes"):
                     yield from pictures(shape.shapes)
 
-        for slide in Presentation(io.BytesIO(data)).slides:
+        for slide in Presentation(_office_source(data)).slides:
             yield from pictures(slide.shapes)
 
 
-def _extract_picture(data, *, progress=None, checkpoint_dir=None):
+def _extract_picture(data: bytes | os.PathLike[str] | str, *, progress=None, checkpoint_dir=None, fingerprint=None):
     import pymupdf
 
     try:
-        with pymupdf.open(stream=data) as image:
+        if isinstance(data, (str, os.PathLike)):
+            source_path = Path(data)
+            image = pymupdf.open(filename=str(source_path))
+            digest = fingerprint or _sha256_file(source_path)
+        else:
+            image = pymupdf.open(stream=data)
+            digest = fingerprint or hashlib.sha256(data).hexdigest()
+        with image:
             pdf = image.convert_to_pdf()
     except Exception:
         raise ValueError("无法读取图片，请检查文件是否完整或转换为 PNG/JPEG。") from None
     return extract_knowledge_pdf(pdf, progress=progress, checkpoint_dir=checkpoint_dir,
-                                 fingerprint=hashlib.sha256(data).hexdigest(), force_visual=True)
+                                 fingerprint=digest, force_visual=True)
 
 
-def _extract_non_pdf(data: bytes, extension: str, *, progress=None, checkpoint_dir=None) -> dict:
+def _extract_non_pdf(data: bytes | os.PathLike[str] | str, extension: str, *, progress=None, checkpoint_dir=None) -> dict:
     warnings = []
     if extension == ".docx":
         try:
@@ -479,6 +491,8 @@ def _extract_non_pdf(data: bytes, extension: str, *, progress=None, checkpoint_d
             raise ValueError("无法读取 Excel 文档，请确认这是未损坏的 XLSX/XLSM 文件。") from exc
         pages = [(None, text)] if text else []
     else:
+        if isinstance(data, (str, os.PathLike)):
+            data = Path(data).read_bytes()
         text = _decode_text(data)
         if extension in {".csv", ".tsv"}:
             delimiter = "\t" if extension == ".tsv" else ","
@@ -538,7 +552,9 @@ def extract_knowledge_document(data: bytes | os.PathLike[str] | str, filename: s
             data, progress=progress, checkpoint_dir=checkpoint_dir, fingerprint=fingerprint,
         )
     if extension in _IMAGE_FORMATS:
-        return _extract_picture(data, progress=progress, checkpoint_dir=checkpoint_dir)
+        return _extract_picture(
+            data, progress=progress, checkpoint_dir=checkpoint_dir, fingerprint=fingerprint,
+        )
     if progress:
         progress({"stage": "extracting", "completed_pages": 0, "total_pages": None, "message": "正在提取文档内容"})
     return _extract_non_pdf(data, extension, progress=progress, checkpoint_dir=checkpoint_dir)

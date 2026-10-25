@@ -188,9 +188,8 @@ def _run_job(job_id: str) -> None:
             path = _source_path(row.file_path)
         if not has_document:
             _report_progress(job_id, {"stage": "extracting"})
-            source = path if Path(filename).suffix.lower() == ".pdf" else path.read_bytes()
             extracted = extract_knowledge_document(
-                source, filename,
+                path, filename,
                 progress=lambda event: _report_progress(job_id, event),
                 checkpoint_dir=path.parent / (path.stem + ".checkpoint"),
                 fingerprint=fingerprint,
