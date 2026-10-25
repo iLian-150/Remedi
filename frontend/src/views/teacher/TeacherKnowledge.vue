@@ -33,7 +33,7 @@
           <div class="books-row">
             <article v-for="item in items" :key="item.id" class="document-slot">
               <button class="document-cover" :style="bookStyle(item)" :aria-label="`打开资料：${item.title}`" @click="activeDocument = item">
-                <span class="cover-top"><span class="cover-monogram">{{ subjectLabel.slice(0, 1) }}</span><span class="cover-kind">{{ isPdfImported(item) ? 'PDF' : 'TEXT' }}</span></span>
+                <span class="cover-top"><span class="cover-monogram">{{ subjectLabel.slice(0, 1) }}</span><span class="cover-kind">{{ documentFormat(item) }}</span></span>
                 <span class="cover-title">{{ item.title }}</span>
                 <span class="cover-rule"></span>
                 <span class="cover-source">{{ item.source_name || '教师整理' }}</span>
@@ -45,8 +45,8 @@
               </div>
             </article>
 
-            <button class="add-document-slot" :disabled="mutating" @click="openUpload('pdf')">
-              <span class="add-document-card"><span class="add-plus">+</span><b>添加资料</b><small>粘贴文字或导入 PDF</small></span>
+            <button class="add-document-slot" :disabled="mutating" @click="openUpload('file')">
+              <span class="add-document-card"><span class="add-plus">+</span><b>添加资料</b><small>粘贴文字或导入文档</small></span>
             </button>
           </div>
           <div class="shelf-board"></div>
@@ -85,15 +85,15 @@
         </header>
         <div class="entry-modes" role="tablist" aria-label="资料添加方式">
           <button type="button" role="tab" :aria-selected="entryMode === 'text'" :class="{ selected: entryMode === 'text' }" :disabled="mutating" @click="entryMode = 'text'">粘贴文字</button>
-          <button type="button" role="tab" :aria-selected="entryMode === 'pdf'" :class="{ selected: entryMode === 'pdf' }" :disabled="mutating" @click="entryMode = 'pdf'">导入 PDF</button>
+          <button type="button" role="tab" :aria-selected="entryMode === 'file'" :class="{ selected: entryMode === 'file' }" :disabled="mutating" @click="entryMode = 'file'">导入文档</button>
         </div>
-        <div v-if="entryMode === 'pdf'" class="upload-dropzone">
-          <span class="pdf-icon">PDF</span>
-          <div><b>{{ pdfFile ? pdfFile.name : '选择一份 PDF 文档' }}</b><small>标题和来源将根据文件名自动生成</small></div>
-          <label class="choose-file" for="knowledge-pdf">{{ pdfFile ? '重新选择' : '选择文件' }}</label>
-          <input id="knowledge-pdf" ref="fileInput" class="sr-only" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
+        <div v-if="entryMode === 'file'" class="upload-dropzone">
+          <span class="file-icon">{{ documentFile ? documentFile.name.split('.').pop()?.toUpperCase() : 'FILE' }}</span>
+          <div><b>{{ documentFile ? documentFile.name : '选择一份资料文档' }}</b><small>标题和来源将根据文件名自动生成</small></div>
+          <label class="choose-file" for="knowledge-document">{{ documentFile ? '重新选择' : '选择文件' }}</label>
+          <input id="knowledge-document" ref="fileInput" class="sr-only" type="file" accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.yaml,.yml" :disabled="mutating" @change="selectDocument" />
         </div>
-        <p v-if="entryMode === 'pdf'" class="scan-note">扫描页和疑似乱码页面会自动识别；部分页面无法识别时会在导入后提示。</p>
+        <p v-if="entryMode === 'file'" class="scan-note">支持 PDF、DOCX、PPTX、XLSX/XLSM、TXT/MD、CSV/TSV、HTML、JSON、XML、YAML；PDF 扫描页会自动识别。</p>
         <div v-if="entryMode === 'text'" class="dialog-form-row">
           <label for="knowledge-title">资料标题</label>
           <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
@@ -111,48 +111,48 @@
         <footer class="dialog-actions">
           <button class="cancel-button" type="button" :disabled="mutating && !importing" @click="closeUpload">{{ importing ? '收起窗口' : '取消' }}</button>
           <button v-if="entryMode === 'text'" class="save-button" type="button" :disabled="mutating || !title.trim() || !content.trim()" @click="save">{{ saving ? '正在保存…' : '保存到知识库' }}</button>
-          <button v-else class="save-button" type="button" :disabled="mutating || !pdfFile" @click="importPdf">{{ importing ? '正在导入…' : '导入到知识库' }}</button>
+          <button v-else class="save-button" type="button" :disabled="mutating || !documentFile" @click="importDocument">{{ importing ? '正在导入…' : '导入到知识库' }}</button>
         </footer>
       </section>
     </div>
 
     <aside
-      v-if="pdfImportToast"
-      class="pdf-import-toast"
-      :class="`is-${pdfImportToast.status}`"
-      :role="pdfImportToast.status === 'error' ? 'alert' : 'status'"
-      :aria-live="pdfImportToast.status === 'error' ? 'assertive' : 'polite'"
+      v-if="documentImportToast"
+      class="document-import-toast"
+      :class="`is-${documentImportToast.status}`"
+      :role="documentImportToast.status === 'error' ? 'alert' : 'status'"
+      :aria-live="documentImportToast.status === 'error' ? 'assertive' : 'polite'"
       aria-atomic="true"
     >
       <div class="toast-heading">
         <div class="toast-title-group">
-          <strong>{{ pdfImportToast.title }}</strong>
-          <small :title="pdfImportToast.fileName">{{ pdfImportToast.fileName }}</small>
+          <strong>{{ documentImportToast.title }}</strong>
+          <small :title="documentImportToast.fileName">{{ documentImportToast.fileName }}</small>
         </div>
-        <span v-if="pdfImportToast.status === 'uploading'" class="toast-state">
-          {{ pdfImportToast.percent === null ? '上传中' : `${pdfImportToast.percent}%` }}
+        <span v-if="documentImportToast.status === 'uploading'" class="toast-state">
+          {{ documentImportToast.percent === null ? '上传中' : `${documentImportToast.percent}%` }}
         </span>
-        <span v-else-if="pdfImportToast.status === 'processing'" class="toast-state">处理中</span>
-        <button v-else class="toast-close" type="button" aria-label="关闭导入通知" @click="dismissPdfImportToast">×</button>
+        <span v-else-if="documentImportToast.status === 'processing'" class="toast-state">处理中</span>
+        <button v-else class="toast-close" type="button" aria-label="关闭导入通知" @click="dismissDocumentImportToast">×</button>
       </div>
-      <p v-if="pdfImportToast.detail" class="toast-detail">{{ pdfImportToast.detail }}</p>
+      <p v-if="documentImportToast.detail" class="toast-detail">{{ documentImportToast.detail }}</p>
       <div
-        v-if="pdfImportToast.status !== 'error'"
+        v-if="documentImportToast.status !== 'error'"
         class="toast-progress-track"
         role="progressbar"
-        :aria-label="pdfImportToast.status === 'processing' ? '正在识别页面并建立检索索引' : 'PDF 导入进度'"
+        :aria-label="documentImportToast.status === 'processing' ? '正在建立检索索引' : '资料导入进度'"
         aria-valuemin="0"
         aria-valuemax="100"
-        :aria-valuenow="pdfImportToast.status === 'success' ? 100 : pdfImportToast.status === 'uploading' ? pdfImportToast.percent ?? undefined : undefined"
-        :aria-valuetext="pdfImportToast.status === 'processing' ? '文件已上传，正在处理 PDF' : undefined"
+        :aria-valuenow="documentImportToast.status === 'success' ? 100 : documentImportToast.status === 'uploading' ? documentImportToast.percent ?? undefined : undefined"
+        :aria-valuetext="documentImportToast.status === 'processing' ? '文件已上传，正在建立检索索引' : undefined"
       >
         <span
-          :class="['toast-progress-fill', { indeterminate: pdfImportToast.status === 'processing' || (pdfImportToast.status === 'uploading' && pdfImportToast.percent === null) }]"
-          :style="pdfImportToast.status === 'success' ? { width: '100%' } : pdfImportToast.status === 'uploading' && pdfImportToast.percent !== null ? { width: `${pdfImportToast.percent}%` } : undefined"
+          :class="['toast-progress-fill', { indeterminate: documentImportToast.status === 'processing' || (documentImportToast.status === 'uploading' && documentImportToast.percent === null) }]"
+          :style="documentImportToast.status === 'success' ? { width: '100%' } : documentImportToast.status === 'uploading' && documentImportToast.percent !== null ? { width: `${documentImportToast.percent}%` } : undefined"
         ></span>
       </div>
-      <ul v-if="pdfImportToast.warnings.length" class="toast-warnings">
-        <li v-for="warning in pdfImportToast.warnings" :key="warning">{{ warning }}</li>
+      <ul v-if="documentImportToast.warnings.length" class="toast-warnings">
+        <li v-for="warning in documentImportToast.warnings" :key="warning">{{ warning }}</li>
       </ul>
     </aside>
 
@@ -160,7 +160,7 @@
       <section class="document-dialog" role="dialog" aria-modal="true" :aria-label="activeDocument.title">
         <header class="document-dialog-head">
           <span class="preview-cover" :style="bookStyle(activeDocument)">{{ subjectLabel.slice(0, 1) }}</span>
-          <div class="preview-title"><span class="dialog-eyebrow">{{ isPdfImported(activeDocument) ? 'PDF 导入文档' : '文字资料' }}</span><h3>{{ activeDocument.title }}</h3><small>{{ activeDocument.source_name || '教师整理' }} · {{ activeDocument.passage_count }} 个检索片段</small></div>
+          <div class="preview-title"><span class="dialog-eyebrow">{{ importedDocumentLabel(activeDocument) }}</span><h3>{{ activeDocument.title }}</h3><small>{{ activeDocument.source_name || '教师整理' }} · {{ activeDocument.passage_count }} 个检索片段</small></div>
           <button class="close-dialog" type="button" aria-label="关闭" @click="activeDocument = null">×</button>
         </header>
         <div class="document-content">{{ activeDocument.content }}</div>
@@ -212,7 +212,7 @@ const labels: Record<string, string> = {
 }
 const subject = computed<SubjectAgentCode | ''>(() => Object.prototype.hasOwnProperty.call(labels, auth.activeSubject) ? auth.activeSubject as SubjectAgentCode : '')
 const subjectLabel = computed(() => labels[subject.value] ?? '学科')
-const entryMode = ref<'text' | 'pdf'>('text')
+const entryMode = ref<'text' | 'file'>('text')
 const uploadOpen = ref(false)
 const activeDocument = ref<SubjectKnowledgeItem | null>(null)
 const deleteConfirmDocument = ref<SubjectKnowledgeItem | null>(null)
@@ -220,18 +220,18 @@ const deleteConfirmCancelButton = ref<HTMLButtonElement | null>(null)
 const title = ref('')
 const sourceName = ref('')
 const content = ref('')
-const pdfFile = ref<File | null>(null)
+const documentFile = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
-type PdfImportToastStatus = 'uploading' | 'processing' | 'success' | 'error'
-interface PdfImportToast {
-  status: PdfImportToastStatus
+type DocumentImportToastStatus = 'uploading' | 'processing' | 'success' | 'error'
+interface DocumentImportToast {
+  status: DocumentImportToastStatus
   fileName: string
   title: string
   percent: number | null
   detail: string
   warnings: string[]
 }
-const pdfImportToast = ref<PdfImportToast | null>(null)
+const documentImportToast = ref<DocumentImportToast | null>(null)
 const items = ref<SubjectKnowledgeItem[]>([])
 const vectorEnabled = ref(false)
 const loading = ref(false)
@@ -256,11 +256,20 @@ function bookStyle(item: SubjectKnowledgeItem): Record<string, string> {
   return { background: `linear-gradient(148deg, ${color} 0%, ${color} 54%, #17233E 100%)` }
 }
 
-function isPdfImported(item: SubjectKnowledgeItem): boolean {
-  return `${item.title} ${item.source_name ?? ''}`.toLowerCase().includes('.pdf')
+function documentFormat(item: SubjectKnowledgeItem): string {
+  const filename = item.source_name || item.title
+  const extension = filename.match(/\.([a-z0-9]+)$/i)?.[1]?.toUpperCase()
+  return extension && ['PDF', 'DOCX', 'PPTX', 'XLSX', 'XLSM', 'TXT', 'MD', 'CSV', 'TSV', 'HTML', 'HTM', 'JSON', 'XML', 'YAML', 'YML'].includes(extension)
+    ? extension
+    : 'TEXT'
 }
 
-function openUpload(mode: 'text' | 'pdf' = 'text') {
+function importedDocumentLabel(item: SubjectKnowledgeItem): string {
+  const format = documentFormat(item)
+  return format === 'TEXT' ? '文字资料' : `${format} 导入文档`
+}
+
+function openUpload(mode: 'text' | 'file' = 'text') {
   if (mutating.value) return
   clearFeedback()
   clearForm()
@@ -275,9 +284,9 @@ function closeUpload() {
   if (!importing.value) clearForm()
 }
 
-function dismissPdfImportToast() {
+function dismissDocumentImportToast() {
   if (importing.value) return
-  pdfImportToast.value = null
+  documentImportToast.value = null
 }
 
 function errorMessage(cause: unknown, fallback: string): string {
@@ -294,7 +303,7 @@ function clearFeedback() {
 }
 
 function clearForm() {
-  title.value = ''; sourceName.value = ''; content.value = ''; pdfFile.value = null
+  title.value = ''; sourceName.value = ''; content.value = ''; documentFile.value = null
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -339,42 +348,44 @@ async function save() {
   }
 }
 
-function selectPdf(event: Event) {
+function selectDocument(event: Event) {
   clearFeedback()
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  pdfFile.value = null
+  documentFile.value = null
   if (!file) return
-  if (!/\.pdf$/i.test(file.name)) {
-    error.value = '请选择 PDF 文件。'
+  const extension = file.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase()
+  const supported = new Set(['pdf', 'docx', 'pptx', 'xlsx', 'xlsm', 'txt', 'md', 'csv', 'tsv', 'html', 'htm', 'json', 'xml', 'yaml', 'yml'])
+  if (!extension || !supported.has(extension)) {
+    error.value = '暂不支持此文件格式。请选择 PDF、DOCX、PPTX、XLSX/XLSM、TXT/MD、CSV/TSV、HTML、JSON、XML 或 YAML 文件。'
     input.value = ''
     return
   }
-  pdfFile.value = file
+  documentFile.value = file
   input.value = ''
 }
 
-async function importPdf() {
+async function importDocument() {
   const target = subject.value
-  const file = pdfFile.value
+  const file = documentFile.value
   if (!target || !file || mutating.value) return
   const current = generation
   importing.value = true
-  pdfImportToast.value = {
-    status: 'uploading', fileName: file.name, title: '正在上传 PDF', percent: null, detail: '正在将文件传至服务器。', warnings: []
+  documentImportToast.value = {
+    status: 'uploading', fileName: file.name, title: '正在上传资料', percent: null, detail: '正在将文件传至服务器。', warnings: []
   }
   clearFeedback()
   try {
-    const result = await teacher.importSubjectKnowledgePdf(target, file, percent => {
-      if (current !== generation || !pdfImportToast.value) return
+    const result = await teacher.importSubjectKnowledgeDocument(target, file, percent => {
+      if (current !== generation || !documentImportToast.value) return
       if (percent === null) {
-        pdfImportToast.value.percent = null
+        documentImportToast.value.percent = null
       } else {
-        pdfImportToast.value.percent = Math.max(pdfImportToast.value.percent ?? 0, percent)
+        documentImportToast.value.percent = Math.max(documentImportToast.value.percent ?? 0, percent)
         if (percent >= 100) {
-          pdfImportToast.value.status = 'processing'
-          pdfImportToast.value.title = '正在识别页面并建立索引'
-          pdfImportToast.value.detail = '文件已上传，正在识别 PDF 页面并建立检索索引。'
+          documentImportToast.value.status = 'processing'
+          documentImportToast.value.title = '正在提取内容并建立索引'
+          documentImportToast.value.detail = '文件已上传，正在提取文字并建立检索索引。'
         }
       }
     })
@@ -384,8 +395,8 @@ async function importPdf() {
       result.ocr_pages ? `OCR 识别 ${result.ocr_pages} 页` : '',
       `可检索 ${result.passage_count} 个片段`
     ].filter(Boolean).join('，')
-    pdfImportToast.value = {
-      status: 'success', fileName: file.name, title: 'PDF 导入成功', percent: 100,
+    documentImportToast.value = {
+      status: 'success', fileName: file.name, title: '资料导入成功', percent: 100,
       detail: details, warnings: result.warnings ?? []
     }
     clearForm()
@@ -396,9 +407,9 @@ async function importPdf() {
     await load(current)
   } catch (cause) {
     if (current === generation) {
-      const message = errorMessage(cause, 'PDF 导入失败，请检查文件后重试。')
-      pdfImportToast.value = {
-        status: 'error', fileName: file.name, title: 'PDF 导入失败', percent: null,
+      const message = errorMessage(cause, '资料导入失败，请检查文件后重试。')
+      documentImportToast.value = {
+        status: 'error', fileName: file.name, title: '资料导入失败', percent: null,
         detail: message, warnings: []
       }
       error.value = message
@@ -494,7 +505,7 @@ watch(subject, () => {
   loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
   uploadOpen.value = false; activeDocument.value = null; deleteConfirmDocument.value = null
-  pdfImportToast.value = null
+  documentImportToast.value = null
   clearFeedback(); clearForm()
   void load()
 }, { immediate: true })
@@ -586,15 +597,15 @@ watch(subject, () => {
 .entry-modes button.selected { background: #fff; color: var(--primary); box-shadow: 0 2px 7px rgba(23, 37, 62, .1); font-weight: 700; }
 .entry-modes button:disabled { opacity: .55; cursor: default; }
 .upload-dropzone { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding: 14px; border: 1px dashed #B9CAF3; border-radius: 12px; background: #F7F9FF; }
-.pdf-icon { display: grid; width: 42px; height: 46px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: #E7EDFF; color: var(--primary); font-size: 11px; font-weight: 800; }
+.file-icon { display: grid; width: 48px; min-height: 46px; flex: 0 0 auto; place-items: center; padding: 0 5px; border-radius: 9px; background: #E7EDFF; color: var(--primary); font-size: 10px; font-weight: 800; overflow-wrap: anywhere; text-align: center; }
 .upload-dropzone > div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
 .upload-dropzone b { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .upload-dropzone small, .scan-note { color: var(--text-3); font-size: 11px; }
 .choose-file { padding: 8px 11px; border: 1px solid #D9E2F5; border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .scan-note { margin: 0 0 12px; }
-.pdf-import-toast { position: fixed; right: 24px; bottom: 24px; z-index: 500; width: min(380px, calc(100vw - 32px)); padding: 16px; border: 1px solid #DCE5F4; border-radius: 14px; background: #fff; box-shadow: 0 18px 48px rgba(20, 35, 64, .2); animation: dialog-in .18s ease both; }
-.pdf-import-toast.is-success { border-color: #BFE7D2; }
-.pdf-import-toast.is-error { border-color: #F0C6C3; }
+.document-import-toast { position: fixed; right: 24px; bottom: 24px; z-index: 500; width: min(380px, calc(100vw - 32px)); padding: 16px; border: 1px solid #DCE5F4; border-radius: 14px; background: #fff; box-shadow: 0 18px 48px rgba(20, 35, 64, .2); animation: dialog-in .18s ease both; }
+.document-import-toast.is-success { border-color: #BFE7D2; }
+.document-import-toast.is-error { border-color: #F0C6C3; }
 .toast-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .toast-title-group { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .toast-title-group strong { color: var(--text); font-size: 13px; line-height: 1.45; }
@@ -659,11 +670,11 @@ watch(subject, () => {
   .upload-dialog, .document-dialog { padding: 17px; }
   .upload-dropzone { flex-wrap: wrap; }
   .choose-file { margin-left: 54px; }
-  .pdf-import-toast { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+  .document-import-toast { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .document-cover, .add-document-card, .reindex-button, .search-button, .save-button { transition: none; }
   .document-cover:hover, .add-document-slot:hover .add-document-card { transform: none; }
-  .upload-dialog, .document-dialog, .pdf-import-toast { animation: none; }
+  .upload-dialog, .document-dialog, .document-import-toast { animation: none; }
 }
 </style>

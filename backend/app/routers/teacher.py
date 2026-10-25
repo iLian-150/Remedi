@@ -291,27 +291,28 @@ def add_subject_knowledge(
             "source_name": row.source_name, "created_at": row.created_at, **result}
 
 
-@router.post("/knowledge/{subject}/import-pdf", summary="导入学科教学 PDF")
-async def import_subject_knowledge_pdf(
+@router.post("/knowledge/{subject}/import-pdf", include_in_schema=False)
+@router.post("/knowledge/{subject}/import", summary="导入学科教学资料")
+async def import_subject_knowledge_document(
     subject: str, file: UploadFile = File(...),
     db: Session = Depends(get_db), current: User = Depends(require_teacher),
 ):
     if subject not in SUBJECT_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
     _require_teacher_subject(db, current, subject)
-    from ..services.knowledge_import import extract_knowledge_pdf
+    from ..services.knowledge_import import extract_knowledge_document
     from ..services.subject_rag import prepare_knowledge, sync_knowledge
 
     try:
         data = await file.read()
     finally:
         await file.close()
-    filename = (file.filename or "教学资料.pdf").replace("\\", "/").rsplit("/", 1)[-1]
-    title_from_filename = filename[:-4] if filename.lower().endswith(".pdf") else filename
+    filename = (file.filename or "教学资料").replace("\\", "/").rsplit("/", 1)[-1]
+    title_from_filename = filename.rsplit(".", 1)[0] if "." in filename else filename
 
-    def save_pdf():
+    def save_document():
         try:
-            extracted = extract_knowledge_pdf(data)
+            extracted = extract_knowledge_document(data, filename)
         except ValueError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except RuntimeError as exc:
@@ -328,12 +329,12 @@ async def import_subject_knowledge_pdf(
         result = sync_knowledge(db, row.id)
         return {"id": row.id, "subject": subject, "title": row.title,
                 "source_name": row.source_name, "created_at": row.created_at,
-                **result, "page_count": extracted["page_count"],
-                "indexed_pages": extracted["indexed_pages"],
-                "ocr_pages": extracted["ocr_pages"],
+                **result, "page_count": extracted.get("page_count"),
+                "indexed_pages": extracted.get("indexed_pages"),
+                "ocr_pages": extracted.get("ocr_pages", 0),
                 "warnings": extracted["warnings"] + result.get("warnings", [])}
 
-    return await run_in_threadpool(save_pdf)
+    return await run_in_threadpool(save_document)
 
 
 @router.post("/knowledge/{subject}/search", summary="试查当前学科知识库并返回来源")

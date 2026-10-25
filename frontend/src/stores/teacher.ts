@@ -187,13 +187,13 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.post<SubjectKnowledgeImportResult>(`/api/teacher/knowledge/${subject}`, payload)
       return data
     },
-    async importSubjectKnowledgePdf(
+    async importSubjectKnowledgeDocument(
       subject: SubjectAgentCode, file: File, onUploadProgress?: (percent: number | null) => void
     ): Promise<SubjectKnowledgeImportResult> {
       const form = new FormData()
       form.append('file', file)
       const { data } = await api.post<SubjectKnowledgeImportResult>(
-        `/api/teacher/knowledge/${subject}/import-pdf`, form, {
+        `/api/teacher/knowledge/${subject}/import`, form, {
           timeout: 300_000,
           onUploadProgress: event => {
             const percent = event.total && event.total > 0
