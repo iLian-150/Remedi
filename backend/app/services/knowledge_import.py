@@ -263,9 +263,8 @@ def extract_knowledge_pdf(data: bytes, *, progress=None, checkpoint_dir=None, fi
         if failures:
             # 缺页不能静默标记为整本完成；成功页面已缓存，重试只处理失败页。
             raise RuntimeError(f"第 {'、'.join(map(str, sorted(failures)))} 页文字识别失败；已完成页面已保存，重试可继续。")
-        visual_pending = [str(number) for number, record in results.items() if not record.get("complete")]
-        if visual_pending:
-            raise RuntimeError("第 " + "、".join(visual_pending) + " 页图形解析未完成；文字与已完成图形已保存，重试可继续。")
+        # 图形理解是文字 OCR 的补充。视觉模型暂时超时不能阻止已经识别的
+        # 正文入库；未完成的图形页仍保留不完整检查点，后续重试可复用 OCR。
         if not pages:
             raise ValueError("文件中没有识别到可检索内容，请检查扫描清晰度。")
         return {"pages": pages, "page_count": total, "indexed_pages": len(pages),

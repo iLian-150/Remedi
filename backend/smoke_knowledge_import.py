@@ -165,12 +165,13 @@ class KnowledgeExtractionTests(unittest.TestCase):
         self.describe.side_effect = RuntimeError("图形服务不可用。")
         data = self.pdf_bytes("scan")
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(RuntimeError, "图形解析未完成"):
-                importer.extract_knowledge_pdf(data, checkpoint_dir=directory)
+            first = importer.extract_knowledge_pdf(data, checkpoint_dir=directory)
             checkpoint = json.loads(next(Path(directory).glob("*/page-1.json")).read_text(encoding="utf-8"))
             self.assertFalse(checkpoint["complete"])
             self.assertTrue(checkpoint["ocr_done"])
             self.assertIn("三角形 ABC", checkpoint["text"])
+            self.assertIn("三角形 ABC", first["pages"][0][1])
+            self.assertTrue(any("图形解析暂不可用" in warning for warning in first["warnings"]))
             self.recognize.reset_mock()
             self.recognize.side_effect = AssertionError("retry must keep OCR")
             self.describe.side_effect = None
@@ -223,14 +224,16 @@ class KnowledgeExtractionTests(unittest.TestCase):
         self.describe.side_effect = ["第一幅图中 AB 垂直于 BC。", RuntimeError("第二幅图解析超时。")]
         data = self.multi_image_pdf()
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(RuntimeError, "图形解析未完成"):
-                importer.extract_knowledge_pdf(data, checkpoint_dir=directory)
+            first = importer.extract_knowledge_pdf(data, checkpoint_dir=directory)
             self.assertEqual(self.describe.call_count, 2)
             self.assertEqual(self.recognize.call_count, 2)
             checkpoint = json.loads(next(Path(directory).glob("*/page-1.json")).read_text(encoding="utf-8"))
             self.assertTrue(checkpoint["ocr_done"])
             self.assertFalse(checkpoint["complete"])
             self.assertEqual(len(checkpoint["visual_parts"]), 1)
+            self.assertIn("图中注释文字。", first["pages"][0][1])
+            self.assertIn("第一幅图中 AB 垂直于 BC。", first["pages"][0][1])
+            self.assertTrue(any("图形解析暂不可用" in warning for warning in first["warnings"]))
             self.recognize.reset_mock()
             self.recognize.side_effect = AssertionError("successful OCR must be reused")
             self.describe.reset_mock()
