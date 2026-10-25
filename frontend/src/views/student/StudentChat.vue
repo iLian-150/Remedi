@@ -11,11 +11,7 @@
       <div class="chat-inner">
         <div class="chat-title">
           <span class="chat-title-mark"><AppIcon name="sparkles" :size="17" /></span>
-          <span class="chat-title-copy">
-            <strong>Remedi 学习助手</strong>
-            <small>一个入口，自动识别闲聊、错题分析、作业批改和学习答疑</small>
-          </span>
-          <span class="chat-status"><i></i> 随时可以提问</span>
+          <strong>Remedi 学习助手</strong>
         </div>
       </div>
     </div>
@@ -1330,14 +1326,10 @@ onMounted(async () => {
 <style scoped>
 .chat-layout { position: relative; display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--card); }
 .chat-inner { max-width: 1280px; width: 100%; margin: 0 auto; padding: 0 20px; }
-.chat-header { flex: 0 0 auto; padding: 12px 0; }
+.chat-header { flex: 0 0 auto; border-bottom: 1px solid var(--border); padding: 10px 0; }
 .chat-title { display: flex; align-items: center; gap: 10px; color: var(--text); }
 .chat-title-mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(29, 78, 216, 0.08); border-radius: 12px; background: linear-gradient(145deg, #eff5ff, #e8efff); color: var(--primary); }
-.chat-title-copy { display: flex; flex-direction: column; gap: 1px; }
-.chat-title-copy strong { font-size: 15px; font-weight: 720; line-height: 1.3; letter-spacing: -0.01em; }
-.chat-title-copy small { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
-.chat-status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(16, 185, 129, 0.13); border-radius: 999px; background: rgba(236, 253, 245, 0.78); padding: 6px 10px; color: #16805b; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-.chat-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
+.chat-title > strong { font-size: 15px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; }
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
 .ai-message-text { display: flex; align-items: flex-start; gap: 8px; line-height: 1.65; }
@@ -1548,7 +1540,6 @@ onMounted(async () => {
 
 @media (max-width: 960px) {
   .chat-layout { height: calc(100dvh - 52px); }
-  .chat-status { display: none; }
   .user-image-card { max-width: min(210px, 72vw); }
   .user-image img { max-width: 190px; max-height: 125px; }
   .bubble { max-width: 88%; }
@@ -1560,8 +1551,6 @@ onMounted(async () => {
   .chat-header { padding: 7px 0; }
   .chat-inner { padding-right: 14px; padding-left: 14px; }
   .chat-title-mark { width: 32px; height: 32px; }
-  .chat-title-copy small { max-width: 66vw; font-size: 10px; line-height: 1.35; }
-  .chat-status { display: none; }
   .welcome-kicker { margin-bottom: 10px; }
   .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
   .welcome-description { max-width: 330px; font-size: 13px; }
