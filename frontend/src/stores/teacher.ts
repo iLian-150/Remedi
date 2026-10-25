@@ -218,7 +218,7 @@ export const useTeacherStore = defineStore('teacher', {
       try {
         const { data } = await api.post<SubjectKnowledgeImportResult>(
           `/api/teacher/knowledge/${subject}/import`, form, {
-            timeout: 300_000,
+            timeout: 3_600_000,
             onUploadProgress: event => {
               const toast = this.knowledgeImportToast
               if (sequence !== this.knowledgeImportSequence || !toast) return
@@ -263,7 +263,9 @@ export const useTeacherStore = defineStore('teacher', {
           if (axios.isAxiosError(cause)) {
             const responseDetail = cause.response?.data?.detail
             if (typeof responseDetail === 'string') detail = responseDetail
-            else if (cause.code === 'ECONNABORTED') detail = '处理时间较长，请刷新资料列表确认结果后再操作。'
+            else if (cause.response?.status === 504 || cause.code === 'ECONNABORTED') {
+              detail = '处理时间较长，服务器可能仍在导入。请先刷新资料书架确认结果，避免重复导入。'
+            }
           }
           this.knowledgeImportToast = {
             status: 'error', fileName: file.name, title: '资料导入失败', percent: null,
