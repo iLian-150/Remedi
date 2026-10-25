@@ -263,7 +263,7 @@ const railMode = computed<RailMode>(() =>
 
 // ---------- 右侧栏展开状态（v0.8.2）：按场景分键存 localStorage，互不串扰 ----------
 // notes 与 calendar 各记各的展开状态；切换场景（路由变化）时读入该场景的记忆值。
-// 首次默认展开（窄屏默认收起）。旧的单键 remedi-rail-open 自 v0.8.2 起不再读写。
+// 提醒栏首次默认收起，其他桌面右栏默认展开；用户主动调整后记住选择。旧的单键 remedi-rail-open 自 v0.8.2 起不再读写。
 const RAIL_KEYS = {
   notes: 'remedi-rail-open-notes',
   mistakes: 'remedi-rail-open-mistakes',
@@ -272,8 +272,8 @@ const RAIL_KEYS = {
   timeline: 'remedi-rail-open-timeline'
 } as const
 const railFabCount = computed(() => railMode.value === 'mistakes' ? student.mistakeReviewCount : student.unreadCount)
-function railDefaultOpen(): boolean {
-  return window.innerWidth >= 1200
+function railDefaultOpen(mode: RailScene): boolean {
+  return mode !== 'notes' && window.innerWidth >= 1200
 }
 function initRailFor(mode: RailScene): boolean {
   try {
@@ -283,9 +283,9 @@ function initRailFor(mode: RailScene): boolean {
   } catch {
     /* localStorage 不可用时走默认 */
   }
-  return railDefaultOpen()
+  return railDefaultOpen(mode)
 }
-const railOpen = ref(railDefaultOpen())
+const railOpen = ref(false)
 watch(railMode, (mode) => {
   if (mode !== 'none') railOpen.value = initRailFor(mode)
 }, { immediate: true })
@@ -326,7 +326,7 @@ function logout() {
   useStudentStore().clearSessionState()
   useTeacherStore().clearSessionState()
   // v0.8.2：重置右栏展开态（回默认并清掉分键记忆）与未读数，避免换人登录后残留
-  railOpen.value = railDefaultOpen()
+  railOpen.value = railMode.value === 'none' ? false : railDefaultOpen(railMode.value)
   try {
     localStorage.removeItem(RAIL_KEYS.notes)
     localStorage.removeItem(RAIL_KEYS.mistakes)
