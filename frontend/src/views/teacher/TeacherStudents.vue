@@ -29,10 +29,6 @@
           <button class="btn secondary small" :disabled="savingStudent || !studentName.trim() || !studentNo.trim()" @click="addStudent">{{ savingStudent ? '保存中…' : '加入班级' }}</button>
         </div>
         <div v-if="rosterError" class="error-msg">{{ rosterError }}</div>
-        <div class="roster-list">
-          <span v-for="member in classStudents" :key="member.id">{{ member.name }} <b>{{ member.student_no }}</b></span>
-          <span v-if="!classStudents.length" class="hint">班级里还没有学生。</span>
-        </div>
       </div>
     </section>
 
@@ -40,9 +36,9 @@
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="!loading">
-      <div v-if="students.length" class="stu-grid">
+      <div v-if="rosterCards.length" class="stu-grid">
         <router-link
-          v-for="s in students"
+          v-for="s in rosterCards"
           :key="s.id"
           :to="`/teacher/students/${s.id}`"
           class="card hoverable stu-card"
@@ -56,14 +52,13 @@
             <AppIcon name="chevron-right" :size="17" class="stu-arrow" />
           </div>
           <div class="stu-stats">
-            <div class="stu-stat"><span class="stu-stat-num tnum">{{ s.submission_count }}</span><span class="stu-stat-label">累计提交</span></div>
-            <div class="stu-stat"><span class="stu-stat-num tnum err">{{ s.error_count }}</span><span class="stu-stat-label">累计错误</span></div>
-            <div class="stu-stat"><span class="stu-stat-num tnum">{{ errorRate(s) }}</span><span class="stu-stat-label">错误率</span></div>
+            <div class="stu-stat"><span class="stu-stat-num tnum">{{ s.summary?.submission_count ?? 0 }}</span><span class="stu-stat-label">累计提交</span></div>
+            <div class="stu-stat"><span class="stu-stat-num tnum err">{{ s.summary?.error_count ?? 0 }}</span><span class="stu-stat-label">累计错误</span></div>
+            <div class="stu-stat"><span class="stu-stat-num tnum">{{ errorRate(s.summary) }}</span><span class="stu-stat-label">错误率</span></div>
           </div>
-          <div class="stu-bar"><span :style="{ width: errorRateWidth(s) }"></span></div>
+          <div class="stu-bar"><span :style="{ width: errorRateWidth(s.summary) }"></span></div>
         </router-link>
       </div>
-      <div v-else class="card"><div class="empty">暂无学生数据。</div></div>
     </template>
   </div>
 </template>
@@ -81,6 +76,10 @@ const students = ref<StudentSummary[]>([])
 const classrooms = ref<Classroom[]>([])
 const classStudents = ref<ClassroomStudent[]>([])
 const selectedClass = ref<Classroom | null>(null)
+const rosterCards = computed(() => classStudents.value.map((member) => ({
+  ...member,
+  summary: students.value.find((student) => student.id === member.id),
+})))
 const className = ref('')
 const studentName = ref('')
 const studentNo = ref('')
@@ -104,9 +103,15 @@ async function loadClassrooms() {
 
 async function selectClass(room: Classroom) {
   selectedClass.value = room
+  classStudents.value = []
   rosterError.value = ''
-  try { classStudents.value = await teacher.fetchClassroomStudents(room.id) }
-  catch (e) { rosterError.value = '班级名册加载失败。'; console.error(e) }
+  try {
+    const members = await teacher.fetchClassroomStudents(room.id)
+    if (selectedClass.value?.id === room.id) classStudents.value = members
+  } catch (e) {
+    if (selectedClass.value?.id === room.id) rosterError.value = '班级名册加载失败。'
+    console.error(e)
+  }
 }
 
 async function createClass() {
@@ -139,12 +144,13 @@ async function addStudent() {
 }
 
 // 错误率 = 累计错误 / 累计提交（契约 4.5 口径可直接推导）
-function errorRate(s: StudentSummary): string {
-  if (!s.submission_count) return '—'
+type StudentLearningStats = Pick<StudentSummary, 'submission_count' | 'error_count'>
+function errorRate(s?: StudentLearningStats): string {
+  if (!s?.submission_count) return '—'
   return `${Math.round((s.error_count / s.submission_count) * 100)}%`
 }
-function errorRateWidth(s: StudentSummary): string {
-  if (!s.submission_count) return '0%'
+function errorRateWidth(s?: StudentLearningStats): string {
+  if (!s?.submission_count) return '0%'
   return `${Math.min(100, Math.round((s.error_count / s.submission_count) * 100))}%`
 }
 
@@ -176,9 +182,6 @@ onMounted(async () => {
 .roster-body { margin-top: 15px; border-top: 1px solid var(--border); padding-top: 14px; }
 .roster-form input:first-child { width: 180px; }
 .roster-form input:nth-child(2) { width: 220px; }
-.roster-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.roster-list > span { background: var(--bg); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
-.roster-list b { margin-left: 6px; color: var(--text-3); font-weight: 500; }
 .small-empty { margin: 14px 0 0; }
 .stu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .stu-card { margin-bottom: 0; color: var(--text); display: block; }
