@@ -78,7 +78,7 @@
       <div class="sidebar-user">
         <span class="user-avatar">{{ avatarLetter }}</span>
         <div class="user-meta">
-          <div class="user-name">{{ auth.name }}</div>
+          <div class="user-name">{{ sidebarDisplayName }}</div>
           <div class="user-role">
             {{ auth.role === 'teacher' ? '教师' : '学生' }}<template v-if="auth.role === 'student' && auth.user?.student_no"> · {{ auth.user.student_no }}</template>
           </div>
@@ -225,7 +225,16 @@ const navItems = computed<NavItem[]>(() => {
       : it
   )
 })
-const avatarLetter = computed(() => (auth.name ? auth.name.slice(0, 1) : 'R'))
+const TEACHER_SUBJECT_LABELS: Record<string, string> = {
+  chinese: '语文', math: '数学', english: '英语', politics: '道法', history: '历史',
+  physics: '物理', chemistry: '化学', geography: '地理', biology: '生物'
+}
+const sidebarDisplayName = computed(() => {
+  if (auth.role !== 'teacher') return auth.name || 'R'
+  const subjectLabel = TEACHER_SUBJECT_LABELS[auth.activeSubject]
+  return subjectLabel ? `${subjectLabel}老师` : '任课老师'
+})
+const avatarLetter = computed(() => sidebarDisplayName.value.slice(0, 1) || 'R')
 
 // ---------- 右侧栏场景（v0.3.1）：按角色 + 当前路由决定 ----------
 // 学生：错题本放复习清单；作业列表页放作业日历；订正页放订正日历；报告页放错题时间线；
