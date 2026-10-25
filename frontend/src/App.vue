@@ -61,7 +61,7 @@
           v-for="item in navItems"
           :key="item.to"
           :to="item.to"
-          :class="{ active: item.activePaths?.includes(route.path) }"
+          :class="{ active: item.activePaths?.some(path => route.path === path || route.path.startsWith(`${path}/`)) }"
           :data-label="item.label"
           :title="sidebarCollapsed ? undefined : item.label"
           :aria-label="item.label"
@@ -221,9 +221,8 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/assignments', icon: 'clipboard', label: '作业', activePaths: ['/student/assignments', '/student/submit'] },
   { to: '/student/mistakes', icon: 'book', label: '错题本' },
-  { to: '/student/report', icon: 'chart', label: '学习报告' },
+  { to: '/student/profile', icon: 'chart', label: '学习档案', activePaths: ['/student/profile', '/student/report'] },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
-  { to: '/student/profile', icon: 'user', label: '我的档案' }
 ]
 
 const TEACHER_NAV: NavItem[] = [

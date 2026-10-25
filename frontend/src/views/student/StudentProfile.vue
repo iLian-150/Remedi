@@ -8,9 +8,14 @@
      「已订正」口径 = 本机提交订正且判定正确；知识点「已修复」以学习报告为准。 -->
 <template>
   <div class="page">
-    <div class="page-head">
-      <h2>我的档案</h2>
-      <p class="page-sub">记录你的每一次进步：错过的知识点，一个一个修复。</p>
+    <div class="page-head profile-page-head">
+      <div>
+        <h2>我的档案</h2>
+        <p class="page-sub">记录你的每一次进步：错过的知识点，一个一个修复。</p>
+      </div>
+      <router-link to="/student/report" class="btn small secondary inline-icon profile-report-link">
+        <AppIcon name="chart" :size="15" /> 学习报告
+      </router-link>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -308,6 +313,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.profile-page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-report-link { flex-shrink: 0; }
 /* ================= 大黑板 ================= */
 .board-frame {
   /* 木质边框：多层渐变模拟木纹 + 外阴影 */
