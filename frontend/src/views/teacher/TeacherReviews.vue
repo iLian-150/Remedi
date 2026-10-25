@@ -12,6 +12,12 @@
     <div class="page-head">
       <h2>待审核</h2>
       <p class="page-sub">整份作业结算后，百分制总分低于 60 分才进入复核；学生已能查看系统评分、错题和订正任务。点击作业打开审核窗口，在窗口中切换学生和题目，确认无误后点「通过」。</p>
+      <nav class="workflow-tabs" aria-label="批改工作区">
+        <router-link to="/teacher/submissions" class="workflow-tab">批改记录</router-link>
+        <router-link to="/teacher/reviews" class="workflow-tab">
+          待审核<span v-if="teacher.pendingReviewCount" class="workflow-tab-count tnum">{{ teacher.pendingReviewCount }}</span>
+        </router-link>
+      </nav>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>

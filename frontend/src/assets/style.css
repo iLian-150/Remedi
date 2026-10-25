@@ -64,6 +64,11 @@ html { scrollbar-gutter: stable; }
 .page-head { margin-bottom: 20px; }
 .page-head h2 { font-size: 22px; margin-bottom: 4px; }
 .page-sub { color: var(--text-2); font-size: 14px; }
+.workflow-tabs { display: flex; align-items: center; gap: 4px; margin-top: 14px; border-bottom: 1px solid var(--border); }
+.workflow-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; color: var(--text-2); border-bottom: 2px solid transparent; font-size: 14px; }
+.workflow-tab:hover { color: var(--text); }
+.workflow-tab.router-link-active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.workflow-tab-count { color: var(--amber); }
 .page h2.page-title { font-size: 22px; margin-bottom: 16px; }
 
 /* ---------- 卡片 ---------- */

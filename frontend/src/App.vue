@@ -229,9 +229,7 @@ const TEACHER_NAV: NavItem[] = [
   // v0.6.0：AI 助手排第一位（教师登录默认落点仍为总览，不变）
   { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
   { to: '/teacher/dashboard', icon: 'chart', label: '总览' },
-  { to: '/teacher/submissions', icon: 'file', label: '批改' },
-  // v0.9.0：AI 批改先过教师审核才发给学生；角标数在 navItems 里从 teacher store 注入
-  { to: '/teacher/reviews', icon: 'check', label: '待审核' },
+  { to: '/teacher/submissions', icon: 'file', label: '批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },
   { to: '/teacher/students', icon: 'users', label: '学生' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', exact: true },
   { to: '/teacher/assignments/new', icon: 'plus-circle', label: '发布作业' },
@@ -242,7 +240,7 @@ const TEACHER_NAV: NavItem[] = [
 const navItems = computed<NavItem[]>(() => {
   if (auth.role !== 'teacher') return STUDENT_NAV
   return TEACHER_NAV.map((it) =>
-    it.to === '/teacher/reviews' && teacher.pendingReviewCount > 0
+    it.to === '/teacher/submissions' && teacher.pendingReviewCount > 0
       ? { ...it, badge: teacher.pendingReviewCount }
       : it
   )

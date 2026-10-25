@@ -6,6 +6,12 @@
     <div class="page-head">
       <h2>批改纠错</h2>
       <p class="page-sub">每条记录都是一次 AI 诊断；分类存疑的可以在详情页一键纠错，回标数据会入库用于模型优化。</p>
+      <nav class="workflow-tabs" aria-label="批改工作区">
+        <router-link to="/teacher/submissions" class="workflow-tab">批改记录</router-link>
+        <router-link to="/teacher/reviews" class="workflow-tab">
+          待审核<span v-if="teacher.pendingReviewCount" class="workflow-tab-count tnum">{{ teacher.pendingReviewCount }}</span>
+        </router-link>
+      </nav>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
