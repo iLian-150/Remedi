@@ -133,8 +133,8 @@
       v-if="deleteConfirmDocument"
       class="modal-mask delete-confirm-mask"
       tabindex="-1"
-      @keydown.esc="deleteConfirmDocument = null"
-      @click.self="deleteConfirmDocument = null"
+      @keydown.esc="closeDeleteConfirm"
+      @click.self="closeDeleteConfirm"
     >
       <section
         class="delete-confirm-dialog"
@@ -146,9 +146,37 @@
         <span class="delete-confirm-icon" aria-hidden="true">!</span>
         <h3 id="delete-confirm-title">删除这份资料？</h3>
         <p id="delete-confirm-description">确定删除「{{ deleteConfirmDocument.title }}」？删除后无法恢复。</p>
+        <div v-if="deletingId === deleteConfirmDocument.id" class="delete-progress" role="status" aria-live="polite">
+          <span>{{ deleteProgressDone ? '已删除' : '正在删除资料…' }}</span>
+          <div class="delete-progress-track" :class="{ complete: deleteProgressDone }"><span></span></div>
+        </div>
+        <p v-if="deleteError" class="dialog-error" role="alert">{{ deleteError }}</p>
         <footer class="delete-confirm-actions">
-          <button ref="deleteConfirmCancelButton" class="cancel-button" type="button" @click="deleteConfirmDocument = null">取消</button>
-          <button class="confirm-delete-button" type="button" @click="confirmRemove">删除资料</button>
+          <button ref="deleteConfirmCancelButton" class="cancel-button" type="button" :disabled="deletingId !== null" @click="closeDeleteConfirm">取消</button>
+          <button class="confirm-delete-button" type="button" :disabled="deletingId !== null" @click="confirmRemove">{{ deletingId !== null ? '正在删除…' : '删除资料' }}</button>
+        </footer>
+      </section>
+    </div>
+
+    <div
+      v-if="duplicateImportJob"
+      class="modal-mask duplicate-import-mask"
+      tabindex="-1"
+      @keydown.esc="duplicateImportJob = null"
+      @click.self="duplicateImportJob = null"
+    >
+      <section
+        class="delete-confirm-dialog duplicate-import-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="duplicate-import-title"
+        aria-describedby="duplicate-import-description"
+      >
+        <span class="delete-confirm-icon duplicate-import-icon" aria-hidden="true">i</span>
+        <h3 id="duplicate-import-title">{{ duplicateImportTitle }}</h3>
+        <p id="duplicate-import-description">{{ duplicateImportMessage }}</p>
+        <footer class="delete-confirm-actions">
+          <button class="save-button" type="button" @click="duplicateImportJob = null">知道了</button>
         </footer>
       </section>
     </div>
@@ -160,7 +188,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
-import type { SubjectAgentCode, SubjectKnowledgeItem, SubjectKnowledgeSearchResult } from '../../api/types'
+import type { SubjectAgentCode, SubjectKnowledgeImportJob, SubjectKnowledgeItem, SubjectKnowledgeSearchResult } from '../../api/types'
 
 const auth = useAuthStore()
 const teacher = useTeacherStore()
@@ -174,6 +202,7 @@ const entryMode = ref<'text' | 'file'>('text')
 const uploadOpen = ref(false)
 const activeDocument = ref<SubjectKnowledgeItem | null>(null)
 const deleteConfirmDocument = ref<SubjectKnowledgeItem | null>(null)
+const duplicateImportJob = ref<SubjectKnowledgeImportJob | null>(null)
 const deleteConfirmCancelButton = ref<HTMLButtonElement | null>(null)
 const title = ref('')
 const sourceName = ref('')
@@ -187,6 +216,8 @@ const saving = ref(false)
 const importing = ref(false)
 const reindexing = ref(false)
 const deletingId = ref<number | null>(null)
+const deleteProgressDone = ref(false)
+const deleteError = ref('')
 const searching = ref(false)
 const mutating = computed(() => saving.value || importing.value || reindexing.value || deletingId.value !== null || searching.value)
 const error = ref('')
@@ -196,6 +227,16 @@ const query = ref('')
 const searchResult = ref<SubjectKnowledgeSearchResult | null>(null)
 let generation = 0
 let loadSequence = 0
+
+const duplicateImportTitle = computed(() => duplicateImportJob.value?.status === 'completed'
+  ? '资料已在知识库' : duplicateImportJob.value?.status === 'failed' ? '该资料已有失败任务' : '该资料已提交过')
+const duplicateImportMessage = computed(() => {
+  const job = duplicateImportJob.value
+  if (!job) return ''
+  if (job.status === 'completed') return `「${job.filename}」已在当前${subjectLabel.value}知识库中，不会重复导入。`
+  if (job.status === 'failed') return `「${job.filename}」已有失败任务，可在导入通知中重试。`
+  return `「${job.filename}」已在导入中，不会重复创建任务。`
+})
 
 const BOOK_COLORS = ['#2556C9', '#087A73', '#B76C27', '#9E4765', '#6552A2', '#3C718B']
 const supportedDocumentFormats = new Set([
@@ -320,13 +361,14 @@ async function importDocument() {
   importing.value = true
   clearFeedback()
   try {
-    await teacher.importSubjectKnowledgeDocument(target, file)
+    const result = await teacher.importSubjectKnowledgeDocument(target, file)
     if (current !== generation) return
     clearForm()
     uploadOpen.value = false
     notice.value = ''
     warnings.value = []
     searchResult.value = null
+    if (result.duplicate) duplicateImportJob.value = result
   } catch {
     // 上传结果由应用外壳中的全局提示卡展示，避免在资料页重复报错。
   } finally {
@@ -378,7 +420,18 @@ async function reindex() {
 }
 
 function askToRemove(item: SubjectKnowledgeItem) {
-  if (!mutating.value) deleteConfirmDocument.value = item
+  if (!mutating.value) {
+    deleteError.value = ''
+    deleteProgressDone.value = false
+    deleteConfirmDocument.value = item
+  }
+}
+
+function closeDeleteConfirm() {
+  if (deletingId.value !== null) return
+  deleteConfirmDocument.value = null
+  deleteError.value = ''
+  deleteProgressDone.value = false
 }
 
 function confirmRemove() {
@@ -395,22 +448,29 @@ watch(deleteConfirmDocument, async item => {
 async function remove(item: SubjectKnowledgeItem) {
   const target = subject.value
   if (!target || mutating.value) return
-  deleteConfirmDocument.value = null
   const current = generation
   deletingId.value = item.id
+  deleteProgressDone.value = false
+  deleteError.value = ''
   clearFeedback()
   try {
     const result = await teacher.deleteSubjectKnowledge(target, item.id)
     if (current !== generation) return
+    items.value = items.value.filter(existing => existing.id !== item.id)
     activeDocument.value = null
     notice.value = '资料已删除。'
     warnings.value = result.warnings ?? []
     searchResult.value = null
-    await load(current)
+    deleteProgressDone.value = true
+    await new Promise(resolve => window.setTimeout(resolve, 260))
+    if (current === generation) deleteConfirmDocument.value = null
   } catch (cause) {
-    if (current === generation) error.value = errorMessage(cause, '删除失败，请稍后重试。')
+    if (current === generation) deleteError.value = errorMessage(cause, '删除失败，请重试。')
   } finally {
-    if (current === generation) deletingId.value = null
+    if (current === generation) {
+      deletingId.value = null
+      if (!deleteConfirmDocument.value) deleteProgressDone.value = false
+    }
   }
 }
 
@@ -420,6 +480,7 @@ watch(subject, () => {
   loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
   uploadOpen.value = false; activeDocument.value = null; deleteConfirmDocument.value = null
+  duplicateImportJob.value = null; deleteProgressDone.value = false; deleteError.value = ''
   clearFeedback(); clearForm()
   void load()
 }, { immediate: true })
@@ -541,6 +602,15 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .delete-confirm-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
 .confirm-delete-button { padding: 9px 14px; border: 1px solid #B42318; border-radius: 9px; background: #B42318; color: #fff; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
 .confirm-delete-button:hover { border-color: #912018; background: #912018; }
+.confirm-delete-button:disabled, .cancel-button:disabled { opacity: .58; cursor: wait; }
+.delete-progress { display: grid; gap: 9px; margin-top: 16px; color: var(--text-2); font-size: 12px; }
+.delete-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: var(--border); }
+.delete-progress-track > span { display: block; width: 36%; height: 100%; border-radius: inherit; background: var(--primary); animation: delete-progress 1.2s ease-in-out infinite; }
+.delete-progress-track.complete > span { width: 100%; animation: none; transition: width .2s ease; }
+.duplicate-import-mask { z-index: 330; }
+.duplicate-import-icon { background: var(--primary-50); color: var(--primary); font-size: 18px; }
+.duplicate-import-dialog .save-button { min-height: 38px; }
+@keyframes delete-progress { 0% { transform: translateX(-105%); } 100% { transform: translateX(290%); } }
 .document-dialog { padding: 22px; }
 .document-dialog-head { display: flex; align-items: center; gap: 14px; }
 .preview-cover { display: grid; width: 54px; height: 70px; flex: 0 0 auto; place-items: center; border-radius: 3px 6px 6px 3px; color: #fff; font-size: 23px; font-weight: 800; box-shadow: inset 4px 0 8px rgba(0,0,0,.2), 0 5px 12px rgba(15,23,42,.2); }

@@ -87,6 +87,7 @@ def enqueue_import(stream, filename: str, subject: str, teacher_id: int) -> dict
     finally:
         temporary.unlink(missing_ok=True)
 
+    created = False
     with SessionLocal() as db:
         row = db.query(KnowledgeImportJob).filter_by(subject=subject, file_sha256=sha256).first()
         if row is None:
@@ -97,9 +98,11 @@ def enqueue_import(stream, filename: str, subject: str, teacher_id: int) -> dict
             db.add(row)
             try:
                 db.commit()
+                created = True
             except IntegrityError:
                 db.rollback()
                 row = db.query(KnowledgeImportJob).filter_by(subject=subject, file_sha256=sha256).one()
+        duplicate = not created
         # 删除过的文档可以重新导入；历史任务保留，原始文件也继续复用。
         if row.status == "completed" and (
             row.document_id is None or db.get(SubjectKnowledgeChunk, row.document_id) is None
@@ -109,12 +112,17 @@ def enqueue_import(stream, filename: str, subject: str, teacher_id: int) -> dict
             row.completed_pages = 0
             row.total_pages = 0
             _reset_for_retry(db, row)
-        db.query(KnowledgeImportDismissal).filter_by(
-            job_id=row.id, teacher_id=teacher_id,
-        ).delete(synchronize_session=False)
+            duplicate = False
+        if not duplicate or row.status != "completed":
+            db.query(KnowledgeImportDismissal).filter_by(
+                job_id=row.id, teacher_id=teacher_id,
+            ).delete(synchronize_session=False)
         db.commit()
         result = job_payload(row)
-    _wake.set()
+        result["duplicate"] = duplicate
+        should_wake = not duplicate or row.status == "queued"
+    if should_wake:
+        _wake.set()
     return result
 
 

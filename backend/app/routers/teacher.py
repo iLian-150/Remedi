@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from functools import wraps
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -414,11 +414,13 @@ def reindex_subject_knowledge(
 def delete_subject_knowledge(
     subject: str,
     chunk_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
     if subject not in SUBJECT_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    from ..services.rag_milvus import configured as vector_store_configured
     from ..services.subject_rag import delete_knowledge_index, delete_vector_index
 
     try:
@@ -454,9 +456,14 @@ def delete_subject_knowledge(
         # Release the SQLite reservation on 403/404 as well as write failures.
         db.rollback()
         raise
-    # Remote cleanup must never hold the local transaction's write lock.
-    warnings = delete_vector_index(subject, deleted_passage_ids)
-    return {"deleted": True, "id": chunk_id, "subject": subject, "warnings": warnings}
+    # The SQL row is now gone, so retrieval will ignore any stale Milvus IDs.
+    # Clean the remote vectors after returning the response; a large document
+    # can otherwise keep the delete dialog waiting on several network batches.
+    cleanup_pending = bool(deleted_passage_ids) and vector_store_configured()
+    if cleanup_pending:
+        background_tasks.add_task(delete_vector_index, subject, deleted_passage_ids)
+    return {"deleted": True, "id": chunk_id, "subject": subject,
+            "vector_cleanup_pending": cleanup_pending, "warnings": []}
 
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")
 

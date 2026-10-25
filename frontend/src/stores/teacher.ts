@@ -316,8 +316,10 @@ export const useTeacherStore = defineStore('teacher', {
         )
         if (sequence === this.knowledgeImportSequence && owner === importIdentity()) {
           this.knowledgeUploads = this.knowledgeUploads.filter(item => item.id !== id)
-          this.applyKnowledgeImportJob(data)
-          this.scheduleKnowledgeImportPoll(0)
+          if (!data.duplicate || data.status !== 'completed') {
+            this.applyKnowledgeImportJob(data)
+            this.scheduleKnowledgeImportPoll(0)
+          }
         }
         return data
       } catch (cause) {
@@ -519,8 +521,8 @@ export const useTeacherStore = defineStore('teacher', {
       )
       return data
     },
-    async deleteSubjectKnowledge(subject: SubjectAgentCode, chunkId: number): Promise<{ warnings: string[] }> {
-      const { data } = await api.delete<{ warnings: string[] }>(`/api/teacher/knowledge/${subject}/${chunkId}`)
+    async deleteSubjectKnowledge(subject: SubjectAgentCode, chunkId: number): Promise<{ warnings: string[]; vector_cleanup_pending?: boolean }> {
+      const { data } = await api.delete<{ warnings: string[]; vector_cleanup_pending?: boolean }>(`/api/teacher/knowledge/${subject}/${chunkId}`)
       return data
     },
     // 4.6 学生画像查询（结构同 3.10）

@@ -868,6 +868,7 @@ export interface SubjectKnowledgeImportResult extends SubjectKnowledgeIndexResul
 
 export interface SubjectKnowledgeImportJob {
   id: string
+  duplicate?: boolean
   subject: SubjectAgentCode
   filename: string
   status: 'queued' | 'running' | 'completed' | 'failed'
