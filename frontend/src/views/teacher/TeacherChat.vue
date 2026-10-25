@@ -144,8 +144,14 @@ function isAbortError(error: unknown): boolean {
 const suggestions = ref<string[]>([])
 const isWelcomeState = computed(() => !messages.value.some(msg => msg.side === 'user'))
 
-const WELCOME = () =>
-  `${auth.name}，今天想先了解哪项班级情况？`
+const SUBJECT_LABELS: Record<string, string> = {
+  chinese: '语文', math: '数学', english: '英语', politics: '道法', history: '历史',
+  physics: '物理', chemistry: '化学', geography: '地理', biology: '生物'
+}
+const WELCOME = () => {
+  const subject = SUBJECT_LABELS[auth.activeSubject]
+  return `${subject ? `${subject}老师` : '老师'}你好，今天想先了解哪项班级情况？`
+}
 
 function createMsg(side: 'ai' | 'user', text: string, pending = false): Msg {
   return { id: ++seq, side, text, pending }
