@@ -1,7 +1,7 @@
-# Agent 工具集：按学生身份查个人数据，并将学生明确提供的数学作答接入现有诊断管线。
+# Agent 工具集：按学生身份查个人数据，并将各学科文字作答接入统一诊断管线。
 # 学生身份（db 会话 + student 对象）在建工具时以闭包注入，模型无法传 user_id，
 # 从根本上杜绝越权查询他人数据。工具返回值是给模型看的紧凑文本摘要，不塞原始 JSON。
-from typing import List
+from typing import List, Literal
 
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
@@ -10,6 +10,9 @@ from datetime import datetime
 
 from ..models import (
     Assignment,
+    AssignmentClass,
+    ClassroomMember,
+    ClassroomTeacherSubject,
     Correction,
     Error,
     Question,
@@ -21,13 +24,16 @@ from ..models import (
 )
 from ..services import reviews as review_svc
 from ..services.learning_memory import student_memory_to_text
-from ..services.diagnosis import diagnose_submission
+from ..services.diagnosis import diagnose_visual_submission
+from ..services.providers import get_provider
+from ..services.scoring import compute_ai_score
 from ..services.stats import (
     knowledge_point_errors,
     student_briefing,
     student_report,
 )
 from ..services.related_mistakes import find_related_mistake
+from .subjects import SUBJECT_AGENTS, build_subject_context, normalize_subject
 
 _STATUS_LABEL = {
     "pending": "待修复",
@@ -168,7 +174,8 @@ def student_notebook_to_text(db: Session, student: User, limit: int = 12) -> str
     return "学生当前错题本记录（最近记录优先；待审核条目是暂定判断）：\n" + "\n".join(lines)
 
 
-def build_tools(db: Session, student: User) -> tuple[list, dict]:
+def build_tools(db: Session, student: User, *, routed_subject: str | None = None,
+                subject_context: str = "") -> tuple[list, dict]:
     """按当前学生构造工具列表（身份闭包注入）。"""
     related_result: dict = {"mistake": None}
     text_diagnosis_result: dict = {"summary": None}
@@ -182,7 +189,9 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
         stem = (question_text or "").strip()[:12000]
         if not stem:
             return "题目内容为空，没有加入错题本。"
-        normalized_subject = (subject or "math").strip()[:32] or "math"
+        normalized_subject = normalize_subject(subject)
+        if not normalized_subject:
+            return "还不能确定这道题的学科，请告诉我学科后再加入错题本。"
         capture = StudentQuestionCapture(
             student_id=student.id,
             subject=normalized_subject,
@@ -251,8 +260,8 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
     @tool
     def find_my_related_mistake(subject: str, knowledge_point: str) -> str:
         """查找学生过去在这个学科和知识点做错的最近一道题，供回看历史作业。
-        学生只发来题目、没有自己的作答步骤并需要解题或讲解时，识别学科（math 或 english）和知识点后调用一次；
-        学生已经给出数学作答过程时改用 diagnose_student_text_work，不要与该工具同轮调用；
+        学生只发来题目、没有自己的作答并需要解题或讲解时，识别学科和知识点后调用一次；
+        学生已经给出本人作答时改用 diagnose_student_text_work，不要与该工具同轮调用；
         普通闲聊或查询学习报告时不要调用。"""
         match = find_related_mistake(
             db, student.id, subject, knowledge_point
@@ -271,58 +280,139 @@ def build_tools(db: Session, student: User) -> tuple[list, dict]:
     def save_student_text_question(question_text: str, subject: str,
                                    knowledge_point: str = "") -> str:
         """将学生明确要求收录的纯文字题目加入其错题本。
-        subject 使用 math、english 等学科标识。仅在学生明确要求加入、收藏或保存时调用；
+        subject 使用九个学科代码或对应中文学科名称。仅在学生明确要求加入、收藏或保存时调用；
         不得因学生只问答案而收录。"""
         return save_text_capture(question_text, subject, knowledge_point)
 
     @tool
-    def diagnose_student_text_work(question_stem: str, steps: List[str],
-                                   knowledge_point: str,
-                                   save_to_mistakes: bool = False) -> str:
-        """诊断学生在聊天消息中明确写出的数学题目和本人作答步骤。
-        学生只要给出具体题干和至少一步本人作答就调用，不要求其额外说“检查”；
+    def diagnose_student_text_work(
+        subject: Literal[
+            "chinese", "math", "english", "politics", "history", "physics",
+            "chemistry", "geography", "biology",
+        ],
+        question_stem: str,
+        steps: List[str],
+        knowledge_point: str = "",
+        save_to_mistakes: bool = False,
+    ) -> str:
+        """调用对应学科 Agent 批改学生在聊天中写出的作答。
+        数学步骤、语文/英语作文与默写、其他学科文字作答都适用；只要明确是学生本人作答就调用，
+        不要求其额外说“检查”。不要把纯题目、题目自带答案、引用的解法或老师批注当成学生作答；
         只有题目、没有本人作答时不要调用。save_to_mistakes 仅在学生明确要求收录时设为 true。
-        此工具会保存一次提交，重复调用同轮只使用首次结果。"""
+        此工具会调用专属学科批改 Agent、保存评分和错题，并按低于 60 分的规则进入教师审核；
+        重复调用同轮只使用首次结果。"""
         if text_diagnosis_result["summary"] is not None:
             return text_diagnosis_result["summary"]
         stem = (question_stem or "").strip()[:12000]
         student_steps = [str(step).strip()[:2000] for step in (steps or []) if str(step).strip()]
+        normalized_subject = normalize_subject(subject)
+        if not normalized_subject:
+            return "暂时无法确定作答学科，请先确认学科后再批改。"
         if not stem or not student_steps or len(student_steps) > 20:
             return "没有足够的题干和作答步骤，未创建提交记录。"
 
-        kp = (knowledge_point or "").strip()[:64] or "自主输入题"
-        related_result["mistake"] = find_related_mistake(db, student.id, "math", kp)
+        grading_context = subject_context
+        if normalize_subject(routed_subject) != normalized_subject or not grading_context:
+            grading_context = build_subject_context(
+                db, normalized_subject, f"{stem}\n" + "\n".join(student_steps),
+            )
+        grade = get_provider().diagnose_homework_text(
+            subject=normalized_subject,
+            question_text=stem,
+            student_work=student_steps,
+            knowledge_context=grading_context,
+        )
+        graded_steps = grade.get("steps") or []
+        if not grade.get("student_work_detected") or not graded_steps:
+            if save_to_mistakes:
+                return save_text_capture(
+                    stem, normalized_subject, knowledge_point,
+                    "已收到你的收录请求，但暂未识别到本人作答；这条记录未判定为答错。",
+                )
+            return "暂时没有识别到明确的本人作答，所以没有生成批改记录；请补充题目或作答内容。"
+
+        subject_name = SUBJECT_AGENTS[normalized_subject][0]
+        kp = (
+            (knowledge_point or "").strip()
+            or str(grade.get("knowledge_point") or "").strip()
+        )[:64] or "自主输入题"
+        related_result["mistake"] = find_related_mistake(
+            db, student.id, normalized_subject, kp,
+        )
         assignment = Assignment(
-            title=f"学习助手文本题目 · {datetime.now():%Y-%m-%d %H:%M}",
-            description="学生在学习助手中提交的数学作答。",
-            created_by=student.id,
+            title=f"学习助手文字批改 · {subject_name} · {datetime.now():%Y-%m-%d %H:%M}",
+            description=f"学生在学习助手中提交的{subject_name}文字作答。",
+            # 不归属为教师发布的正式作业；通过学科班级映射提供给对应任课老师审核。
+            created_by=None,
+        )
+        db.add(assignment)
+        db.flush()
+        teacher_class_ids = [row[0] for row in db.query(
+            ClassroomMember.classroom_id,
+        ).join(
+            ClassroomTeacherSubject,
+            ClassroomTeacherSubject.classroom_id == ClassroomMember.classroom_id,
+        ).filter(
+            ClassroomMember.student_id == student.id,
+            ClassroomTeacherSubject.subject == normalized_subject,
+        ).distinct().all()]
+        db.add_all(
+            AssignmentClass(assignment_id=assignment.id, classroom_id=classroom_id)
+            for classroom_id in teacher_class_ids
         )
         question = Question(
             assignment=assignment,
-            subject="math",
+            subject=normalized_subject,
             knowledge_point=kp,
             stem=stem,
             order_num=1,
         )
 
-        submission, _, errors = diagnose_submission(db, student, question, student_steps)
+        submission, _, errors = diagnose_visual_submission(
+            db, student, question, graded_steps,
+        )
+        score = compute_ai_score(db, submission)["ai_score"]
         pending = review_svc.create_review_if_needed(db, submission) is not None
+        correct_count = sum(1 for item in graded_steps if item.get("result") == "correct")
+        total_count = sum(
+            1 for item in graded_steps
+            if item.get("result") in {"correct", "incorrect", "uncertain"}
+        )
+        lines = [
+            f"{subject_name} Agent 已完成批改：本次 AI 评分 {score:.1f}/100 "
+            f"（{correct_count}/{total_count} 项正确）。"
+        ]
         if pending:
-            summary = (
-                "整份作业得分低于 60 分，错题已同步加入错题本和订正流程，并提交教师复核；"
-                "请继续回答学生的问题，可以说明错因目前待老师复核，老师调整后记录会同步更新。"
-            )
+            if teacher_class_ids:
+                lines.append(
+                    "本次得分低于 60 分，错题已同步进入错题本和订正流程，并进入对应学科任课教师审核；"
+                    "错因目前是暂定诊断，教师改判后会同步更新。"
+                )
+            else:
+                lines.append(
+                    "本次得分低于 60 分，错题已进入错题本和订正流程，并标记为待教师审核；"
+                    "但该学生目前没有关联的本学科任课班级，教师端暂时无法收到审核项。"
+                )
         elif errors:
-            summary = "批改发现作答错误，错题已加入错题本并进入订正流程。"
+            lines.append("发现的错误已加入错题本并进入订正流程。")
         else:
             if save_to_mistakes:
-                summary = save_text_capture(
-                    stem, "math", kp,
+                lines.append(save_text_capture(
+                    stem, normalized_subject, kp,
                     "学习助手已检查这份作答，未发现错误；按学生要求收录复习。",
-                )
-                summary = "检查后作答正确；" + summary
+                ))
             else:
-                summary = "检查后作答正确，没有创建错题记录。"
+                lines.append("没有发现错误，因此没有新增错题记录。")
+        for item in graded_steps:
+            if item.get("result") != "correct":
+                lines.append(
+                    f"- 学生作答「{str(item.get('text') or '')[:180]}」："
+                    f"{str(item.get('detail') or '建议结合题目重新核对。')[:500]}"
+                )
+        feedback = str(grade.get("feedback") or "").strip()
+        if feedback:
+            lines.append("学科 Agent 的订正讲解：" + feedback)
+        summary = "\n".join(lines)
         text_diagnosis_result["summary"] = summary
         text_diagnosis_result["submission_id"] = submission.id
         return summary

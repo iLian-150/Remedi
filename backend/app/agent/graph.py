@@ -66,12 +66,28 @@ def _resolve_student_subject(
 def _fallback_student_route(user_text: str, fallback_subject: str | None = None) -> tuple[str, str | None]:
     """路由模型不可用时的保守兜底；只识别高置信度意图。"""
     text = (user_text or "").strip().lower()
-    if any(word in text for word in ("错题", "错因", "以前做错", "我哪里错", "薄弱点", "最弱")):
-        intent = "mistake_summary"
-    elif any(word in text for word in ("作业", "订正", "学习报告", "进度", "完成了多少", "还剩几")):
-        intent = "learning_data"
-    elif any(word in text for word in ("批改", "检查一下", "对不对", "帮我看", "我写的是", "我的答案")):
+    if any(word in text for word in (
+        "批改", "检查一下", "对不对", "帮我看", "我写的是", "我的答案",
+        "答案：", "答案:", "作答：", "作答:", "作文：", "作文:", "默写：", "默写:",
+        "answer:", "my answer", "my work", "我的作答", "我的步骤", "我写了",
+        "我做的是", "我算出来", "我认为是", "我认为答案", "解题过程",
+    )):
         intent = "grading"
+    elif any(phrase in text for phrase in (
+        "加入错题本", "放进错题本", "放入错题本", "收录到错题本",
+        "收藏到错题本", "保存到错题本", "记到错题本", "记入错题本",
+        "加入我的错题本", "收藏这道题", "收录这道题",
+    )):
+        # 当前题目收录需要开放写入工具；不能落入只读的历史错题查询分支。
+        intent = "tutoring"
+    elif any(word in text for word in ("错题", "错因", "以前做错", "我哪里错", "薄弱点", "最弱")):
+        intent = "mistake_summary"
+    elif any(word in text for word in (
+        "作业进度", "作业列表", "作业做完", "作业完成", "还有作业",
+        "未完成", "没做", "还没做", "订正", "学习报告", "学习进度",
+        "完成了多少", "还剩几",
+    )):
+        intent = "learning_data"
     elif len(text) <= 24 and any(word in text for word in ("你好", "您好", "在吗", "早上好", "晚上好", "你是谁", "谢谢", "hi", "hello")):
         intent = "smalltalk"
     else:
@@ -92,7 +108,8 @@ def _classify_student_request(
         "smalltalk=问候、闲聊、询问助手身份；mistake_summary=查询或总结本人错题、错因、薄弱点；"
         "grading=学生提交了本人作答并希望检查、批改或评分；tutoring=学科问题、只发题目求讲解；"
         "learning_data=作业/订正进度、学习报告等个人数据查询。"
-        "只发题目而没有本人作答时选 tutoring。明确给出本人作答过程、即使没说检查，也选 grading。"
+        "只发题目而没有本人作答时选 tutoring。明确给出本人作答（数学过程、作文、默写或其他作答），即使没说检查，也选 grading。"
+        "明确要求把当前题目加入、保存、收藏或收录到错题本时，不要归为 mistake_summary；选 tutoring（没有本人作答时照常讲题，主 Agent 会一并使用收录工具）。"
         "subject 只在本轮确实涉及某一学科题目或作答时填写九个代码之一；纯闲聊、个人数据查询、"
         "多学科比较或无法确定时填写 unknown。必须调用 route_student_request，不要输出自然语言。"
     ))
@@ -123,6 +140,12 @@ def _classify_student_request(
         subject = _resolve_student_subject(
             user_text, raw_subject, fallback_subject,
         )
+        if intent == "mistake_summary" and fallback[0] in {"grading", "tutoring"}:
+            # 对明确批改/收录当前题目的请求，纠正模型误分到只读错题查询的情况。
+            intent = fallback[0]
+            subject = _resolve_student_subject(
+                user_text, raw_subject, fallback_subject,
+            )
         if intent not in {"grading", "tutoring"}:
             subject = None
         return intent, subject
@@ -354,7 +377,9 @@ def agent_reply_stream(db: Session, student: User,
             tools = []
             llm_with_tools = llm
         else:
-            tools, related_result = build_tools(db, student)
+            tools, related_result = build_tools(
+                db, student, routed_subject=subject, subject_context=subject_context,
+            )
             if intent == "smalltalk":
                 # 闲聊分支不开放任何学生数据工具，避免无关问题触发个人信息查询。
                 tools = []
