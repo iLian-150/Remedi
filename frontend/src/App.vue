@@ -61,10 +61,11 @@
           v-for="item in navItems"
           :key="item.to"
           :to="item.to"
+          :class="{ active: item.activePaths?.includes(route.path) }"
           :data-label="item.label"
           :title="sidebarCollapsed ? undefined : item.label"
           :aria-label="item.label"
-          :active-class="item.exact ? '' : 'active'"
+          :active-class="item.exact || item.activePaths ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
         >
           <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span><span class="nav-label">{{ item.label }}</span><span v-if="item.badge" class="nav-badge tnum">{{ item.badge }}</span>
@@ -212,13 +213,13 @@ interface NavItem {
   icon: IconName
   label: string
   exact?: boolean
+  activePaths?: string[]
   badge?: number // v0.9.0：角标数（如教师「待审核」待审数），0/缺省不显示
 }
 
 const STUDENT_NAV: NavItem[] = [
   { to: '/student/chat', icon: 'chat', label: '智能批改' },
-  { to: '/student/assignments', icon: 'clipboard', label: '作业列表' },
-  { to: '/student/submit', icon: 'edit', label: '交作业' },
+  { to: '/student/assignments', icon: 'clipboard', label: '作业', activePaths: ['/student/assignments', '/student/submit'] },
   { to: '/student/mistakes', icon: 'book', label: '错题本' },
   { to: '/student/report', icon: 'chart', label: '学习报告' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
