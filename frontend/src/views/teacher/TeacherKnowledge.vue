@@ -147,8 +147,32 @@
         </header>
         <div class="document-content">{{ activeDocument.content }}</div>
         <footer class="dialog-actions">
-          <button class="delete-button" type="button" :disabled="mutating" @click="remove(activeDocument)">{{ deletingId === activeDocument.id ? '正在删除…' : '删除资料' }}</button>
+          <button class="delete-button" type="button" :disabled="mutating" @click="askToRemove(activeDocument)">{{ deletingId === activeDocument.id ? '正在删除…' : '删除资料' }}</button>
           <button class="save-button" type="button" @click="activeDocument = null">完成</button>
+        </footer>
+      </section>
+    </div>
+
+    <div
+      v-if="deleteConfirmDocument"
+      class="modal-mask delete-confirm-mask"
+      tabindex="-1"
+      @keydown.esc="deleteConfirmDocument = null"
+      @click.self="deleteConfirmDocument = null"
+    >
+      <section
+        class="delete-confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-title"
+        aria-describedby="delete-confirm-description"
+      >
+        <span class="delete-confirm-icon" aria-hidden="true">!</span>
+        <h3 id="delete-confirm-title">删除这份资料？</h3>
+        <p id="delete-confirm-description">确定删除「{{ deleteConfirmDocument.title }}」？删除后无法恢复。</p>
+        <footer class="delete-confirm-actions">
+          <button ref="deleteConfirmCancelButton" class="cancel-button" type="button" @click="deleteConfirmDocument = null">取消</button>
+          <button class="confirm-delete-button" type="button" @click="confirmRemove">删除资料</button>
         </footer>
       </section>
     </div>
@@ -156,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
@@ -173,6 +197,8 @@ const subjectLabel = computed(() => labels[subject.value] ?? '学科')
 const entryMode = ref<'text' | 'pdf'>('text')
 const uploadOpen = ref(false)
 const activeDocument = ref<SubjectKnowledgeItem | null>(null)
+const deleteConfirmDocument = ref<SubjectKnowledgeItem | null>(null)
+const deleteConfirmCancelButton = ref<HTMLButtonElement | null>(null)
 const title = ref('')
 const sourceName = ref('')
 const content = ref('')
@@ -374,9 +400,25 @@ async function reindex() {
   }
 }
 
+function askToRemove(item: SubjectKnowledgeItem) {
+  if (!mutating.value) deleteConfirmDocument.value = item
+}
+
+function confirmRemove() {
+  const item = deleteConfirmDocument.value
+  if (item) void remove(item)
+}
+
+watch(deleteConfirmDocument, async item => {
+  if (!item) return
+  await nextTick()
+  deleteConfirmCancelButton.value?.focus()
+})
+
 async function remove(item: SubjectKnowledgeItem) {
   const target = subject.value
-  if (!target || mutating.value || !window.confirm(`删除「${item.title}」？`)) return
+  if (!target || mutating.value) return
+  deleteConfirmDocument.value = null
   const current = generation
   deletingId.value = item.id
   clearFeedback()
@@ -400,7 +442,7 @@ watch(subject, () => {
   items.value = []; vectorEnabled.value = false
   loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
-  uploadOpen.value = false; activeDocument.value = null
+  uploadOpen.value = false; activeDocument.value = null; deleteConfirmDocument.value = null
   clearFeedback(); clearForm()
   void load()
 }, { immediate: true })
@@ -479,6 +521,7 @@ watch(subject, () => {
 .source { margin: 6px 0 0; color: var(--text-3); font-size: 12px; }
 .passage { margin: 9px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .modal-mask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 22px; background: rgba(15, 23, 42, .46); backdrop-filter: blur(4px); }
+.delete-confirm-mask { z-index: 320; }
 .upload-dialog, .document-dialog { width: min(590px, 100%); max-height: min(88dvh, 820px); overflow: auto; border: 1px solid rgba(255,255,255,.7); border-radius: 18px; background: #fff; box-shadow: 0 28px 80px rgba(16, 31, 58, .28); animation: dialog-in .18s ease both; }
 .upload-dialog { padding: 23px; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
@@ -518,6 +561,13 @@ watch(subject, () => {
 .save-button { min-height: 40px; padding: 9px 16px; font-size: 13px; }
 .delete-button { margin-right: auto; border-color: #F4D1CF; color: #B42318; }
 .delete-button:hover { background: #FFF6F5; }
+.delete-confirm-dialog { width: min(420px, 100%); padding: 25px; border: 1px solid rgba(255,255,255,.7); border-radius: 16px; background: #fff; box-shadow: 0 28px 80px rgba(16, 31, 58, .3); animation: dialog-in .18s ease both; }
+.delete-confirm-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: #FFF0EF; color: #B42318; font-size: 22px; font-weight: 800; }
+.delete-confirm-dialog h3 { margin: 16px 0 7px; color: var(--text); font-size: 18px; }
+.delete-confirm-dialog p { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.delete-confirm-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+.confirm-delete-button { padding: 9px 14px; border: 1px solid #B42318; border-radius: 9px; background: #B42318; color: #fff; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.confirm-delete-button:hover { border-color: #912018; background: #912018; }
 .document-dialog { padding: 22px; }
 .document-dialog-head { display: flex; align-items: center; gap: 14px; }
 .preview-cover { display: grid; width: 54px; height: 70px; flex: 0 0 auto; place-items: center; border-radius: 3px 6px 6px 3px; color: #fff; font-size: 23px; font-weight: 800; box-shadow: inset 4px 0 8px rgba(0,0,0,.2), 0 5px 12px rgba(15,23,42,.2); }
