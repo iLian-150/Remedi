@@ -146,6 +146,8 @@
 
     <DocumentImportToast v-if="auth.role === 'teacher'" />
   </div>
+
+  <AppUpdateNotice />
 </template>
 
 <script setup lang="ts">
@@ -160,6 +162,7 @@ import BrandLogo from './components/BrandLogo.vue'
 import RightRail from './components/RightRail.vue'
 import SidebarSessions from './components/SidebarSessions.vue'
 import DocumentImportToast from './components/DocumentImportToast.vue'
+import AppUpdateNotice from './components/AppUpdateNotice.vue'
 
 const auth = useAuthStore()
 const student = useStudentStore()
