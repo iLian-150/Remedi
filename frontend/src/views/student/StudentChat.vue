@@ -101,7 +101,6 @@
                   <p class="brief-card-more">去学习报告 <AppIcon name="chevron-right" :size="13" /></p>
                 </div>
               </div>
-              <p v-if="welcomeBriefing.recent_feedback" class="welcome-briefing-feedback">{{ sanitizeStudentCopy(welcomeBriefing.recent_feedback) }}</p>
             </template>
           </div>
         </section>
@@ -307,7 +306,6 @@
           <textarea
             v-model="chatInput"
             class="chat-text-input"
-            :class="{ 'chat-text-input-welcome': isWelcomeScreen }"
             rows="1"
             :placeholder="isWelcomeScreen ? '说说你想做什么：闲聊、总结错题、批改作业或问学习问题…' : '输入内容，助手会自动识别并处理'"
             :disabled="chatSending"
@@ -1374,7 +1372,7 @@ onMounted(async () => {
 /* 底部留白给悬浮输入卡让位（v0.8.1）：最后的消息不被卡片遮住 */
 .chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 0 168px; background: var(--card); }
 .chat-body-welcome { flex: 0 0 auto; overflow: visible; padding: 0; }
-.welcome-mode .chat-inner { max-width: 820px; padding: 0; }
+.welcome-mode .chat-body > .chat-inner { max-width: 820px; padding: 0; }
 .welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
 .welcome-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--text-2); font-size: 12px; font-weight: 600; }
 .welcome-kicker::before { width: 18px; height: 2px; border-radius: 2px; background: var(--primary); content: ''; }
@@ -1397,7 +1395,6 @@ onMounted(async () => {
 .brief-weakstat .brief-big { color: var(--amber); }
 .brief-weak-list { display: flex; flex-direction: column; gap: 4px; }
 .brief-weak-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.welcome-briefing-feedback { margin: 11px 0 0; border-top: 1px solid var(--border); padding-top: 9px; color: var(--text-2); font-size: 11.5px; }
 /* 待老师审核状态盒（v0.9.0）：对话诊断卡与详情共用语义 */
 .review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px; padding: 13px 15px; }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
@@ -1530,7 +1527,6 @@ onMounted(async () => {
 .image-lightbox-close { position: absolute; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50%; background: rgba(255, 255, 255, 0.95); color: #1f2937; cursor: pointer; }
 .chat-text-input { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none; font: inherit; font-size: 15px; line-height: 1.65; }
 .chat-text-input:focus { border: 0; outline: 0; box-shadow: none; }
-.chat-text-input-welcome { min-height: 54px; font-size: 16px; }
 .composer-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; }
 .composer-tools { display: flex; min-width: 0; align-items: center; gap: 9px; }
 .composer-photo-btn { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--text-2); padding: 0; cursor: pointer; transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.2s ease; }
@@ -1541,7 +1537,7 @@ onMounted(async () => {
 .send-btn:hover:not(:disabled) { transform: scale(1.07); }
 .send-btn:disabled { background: var(--gray-bg); color: var(--text-3); cursor: default; }
 .send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
-.chat-composer-welcome .chat-inner { max-width: 820px; padding: 0; }
+.chat-composer-welcome .chat-inner { max-width: 1280px; }
 .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
@@ -1557,7 +1553,6 @@ onMounted(async () => {
   .user-image img { max-width: 190px; max-height: 125px; }
   .bubble { max-width: 88%; }
   .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 150px; }
-  .chat-composer-welcome .chat-inner { padding: 0; }
   .composer-panel { padding: 10px 11px; }
 }
 
