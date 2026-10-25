@@ -20,7 +20,6 @@
           <header class="notebook-header">
             <div class="notebook-eyebrow"><AppIcon name="book" :size="17"/><span>温故 · 知新</span></div>
             <h1>我的错题本<span>。</span></h1>
-            <p>按作业梳理错因，学完一整份作业，再一次性移出错题本。</p>
           </header>
 
           <div class="notebook-overview" aria-label="错题复习概览">
@@ -31,11 +30,6 @@
           </div>
 
           <div class="notebook-workspace">
-            <div class="notebook-section-head"><div><h2>从一份作业开始</h2><p>同类错误会合并显示，也会提醒你以前在哪份作业错过。</p></div><button class="notebook-review-button" type="button" :disabled="loading || !nextMistake" @click="nextMistake && openAssistant(nextMistake)">开始复习<AppIcon name="arrow-right" :size="13"/></button></div>
-            <div class="notebook-subjects" role="group" aria-label="按学科筛选">
-              <button type="button" :class="{ selected: subject === 'all' }" :aria-pressed="subject === 'all'" @click="subject = 'all'">全部学科<small>{{ allMistakes.length }}</small></button>
-              <button v-for="option in subjectOptions" :key="option.key" type="button" :class="{ selected: subject === option.key }" :aria-pressed="subject === option.key" @click="subject = option.key">{{ option.label }}<small>{{ subjectCountByKey.get(option.key) ?? 0 }}</small></button>
-            </div>
             <div class="notebook-filterbar">
               <div class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
                 <button v-for="option in statusOptions" :key="option.key" type="button" :class="{ selected: status === option.key }" :aria-pressed="status === option.key" @click="status = option.key">{{ option.label }}<small>{{ option.count }}</small></button>
@@ -73,7 +67,7 @@
               </details>
               <button v-if="displayedAssignments.length < visibleAssignments.length" type="button" class="notebook-more-assignments" @click="showMoreAssignments">继续显示作业（{{ displayedAssignments.length }} / {{ visibleAssignments.length }}）</button>
             </div>
-            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '留一页，给每一次进步' }}</h3><p>{{ allMistakes.length ? '换个关键词，或调整学科与学习进度试试。' : '完成作业诊断后，错题会按作业和错误类别整理在这里。' }}</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
+            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '留一页，给每一次进步' }}</h3><p>{{ allMistakes.length ? '换个关键词，或调整学习进度试试。' : '完成作业诊断后，错题会按作业和错误类别整理在这里。' }}</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
           </div>
           <div class="notebook-footer-note"><AppIcon name="book" :size="14"/>每学会一类错误，就离下一次做对更近一步。</div>
         </div>
@@ -120,8 +114,6 @@ interface AssignmentGroup { id: number; title: string; createdAt: string; subjec
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
 type AssignmentSearchIndex = Map<number, string>
 interface NotebookData {
-  subjectOptions: Array<{ key: string; label: string }>
-  subjectCountByKey: Map<string, number>
   assignmentGroups: AssignmentGroup[]
   assignmentGroupsById: Map<number, AssignmentGroup>
   categoryCount: number
@@ -139,7 +131,6 @@ const loadError = ref('')
 const actionError = ref('')
 const view = ref<NotebookView>('notebook')
 const selectedOriginalMistake = ref<RelatedMistake | StudentMistake | null>(null)
-const subject = ref('all')
 const status = ref<'all' | 'pending' | 'ready'>('all')
 const query = ref('')
 const sort = ref('recent')
@@ -174,8 +165,6 @@ const relatedMistakeIndexCache = new WeakMap<StudentMistake[], RelatedMistakeInd
 const assignmentSearchIndexCache = new WeakMap<StudentMistake[], AssignmentSearchIndex>()
 
 const notebookData = computed(() => buildNotebookData(allMistakes.value))
-const subjectOptions = computed(() => notebookData.value.subjectOptions)
-const subjectCountByKey = computed(() => notebookData.value.subjectCountByKey)
 const assignmentGroups = computed(() => notebookData.value.assignmentGroups)
 const categoryCount = computed(() => notebookData.value.categoryCount)
 const studiedCategoryCount = computed(() => notebookData.value.studiedCategoryCount)
@@ -209,7 +198,6 @@ const sortedAssignments = computed(() => [...assignmentGroups.value].sort((left,
 const visibleAssignments = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
   return sortedAssignments.value.filter((assignment) => {
-    if (subject.value !== 'all' && assignment.subject !== subject.value) return false
     if (status.value === 'pending' && assignment.ready || status.value === 'ready' && !assignment.ready) return false
     if (!needle) return true
     return assignmentSearchText(assignment).includes(needle)
@@ -218,7 +206,7 @@ const visibleAssignments = computed(() => {
 const displayedAssignments = computed(() =>
   visibleAssignments.value.slice(0, visibleAssignmentLimit.value)
 )
-watch([subject, status, query, sort], () => {
+watch([status, query, sort], () => {
   visibleAssignmentLimit.value = notebookAssignmentPageSize
 })
 watch(() => view.value === 'notebook' ? visibleAssignments.value : null, (assignments, previous) => {
@@ -231,15 +219,7 @@ watch(() => view.value === 'notebook' ? visibleAssignments.value : null, (assign
   }
   expandedAssignmentIds.value = next
 }, { immediate: true })
-const filtersApplied = computed(() => subject.value !== 'all' || status.value !== 'all' || Boolean(query.value.trim()))
-const nextMistake = computed(() => {
-  for (const assignment of visibleAssignments.value) {
-    for (const category of assignment.categories) {
-      if (!category.studied && category.firstItem) return category.firstItem
-    }
-  }
-  return undefined
-})
+const filtersApplied = computed(() => status.value !== 'all' || Boolean(query.value.trim()))
 const relatedMistakes = computed(() => {
   const mistake = selectedMistake.value
   if (!mistake) return []
@@ -328,17 +308,10 @@ function showMoreCategoryItems(assignmentId: number, category: MistakeCategory) 
 }
 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
-  const subjectKeys = new Set<string>()
-  const subjectCountByKey = new Map<string, number>()
   const groups = new Map<number, AssignmentGroup>()
   const categoriesByAssignment = new Map<number, Map<string, MistakeCategory>>()
   const studiedByCategory = new Map<string, boolean>()
   for (const item of items) {
-    subjectKeys.add(item.question_subject)
-    subjectCountByKey.set(
-      item.question_subject,
-      (subjectCountByKey.get(item.question_subject) ?? 0) + 1,
-    )
     if (!isStudentSaved(item)) {
       const categoryKey = `${item.assignment_id}:${item.category_key}`
       studiedByCategory.set(
@@ -401,8 +374,6 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
     if (studied) studiedCategoryCount += 1
   }
   return {
-    subjectOptions: Array.from(subjectKeys, (key) => ({ key, label: subjectName(key) })),
-    subjectCountByKey,
     assignmentGroups,
     assignmentGroupsById: groups,
     categoryCount: studiedByCategory.size,
@@ -483,7 +454,7 @@ function openSimilarOriginal(previous: StudentMistake['similar_occurrences'][num
     latest_correction: null,
   }
 }
-function resetFilters() { subject.value = 'all'; status.value = 'all'; query.value = '' }
+function resetFilters() { status.value = 'all'; query.value = '' }
 
 async function loadMistakes(): Promise<boolean> {
   loading.value = true
@@ -678,15 +649,13 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistake-network-topic-nav { top: 62px; }
 .remedi-mistake-book .notebook-header h1 { color: var(--text); font-size: clamp(28px, 3vw, 39px); }
 .remedi-mistake-book .notebook-header h1 span { color: var(--primary); }
-.remedi-mistake-book .notebook-header p { color: var(--text-2); }
 .remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
 .remedi-mistake-book .notebook-overview { margin: 24px 0 30px; }
 .remedi-mistake-book .notebook-stat, .remedi-mistake-book .notebook-progress { border-color: var(--border); background: var(--card); box-shadow: var(--shadow); }
 .remedi-mistake-book .notebook-stat-icon { color: var(--primary); background: var(--primary-50); }
 /* 进度填充用主色实色（v0.13.0 修复：此前误用 primary-50 浅色，进度条几乎看不见） */
 .remedi-mistake-book .notebook-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
-.remedi-mistake-book .notebook-review-button { border-color: var(--primary); background: var(--primary); }
-.remedi-mistake-book .notebook-subjects button.selected, .remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
+.remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
 .remedi-mistake-book .notebook-search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
 .remedi-mistake-book .notebook-assignment { border-color: var(--border); background: var(--card); }
 .remedi-mistake-book .notebook-assignment[open] { border-color: var(--blue-bg); box-shadow: var(--shadow-md); }
