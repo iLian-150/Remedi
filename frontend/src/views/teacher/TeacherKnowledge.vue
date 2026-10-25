@@ -81,7 +81,7 @@
       <section class="upload-dialog" role="dialog" aria-modal="true" aria-labelledby="upload-title">
         <header class="dialog-heading">
           <div><span class="dialog-eyebrow">{{ subjectLabel }} Agent 知识库</span><h3 id="upload-title">添加资料</h3></div>
-          <button class="close-dialog" type="button" aria-label="关闭" :disabled="mutating" @click="closeUpload">×</button>
+          <button class="close-dialog" type="button" aria-label="关闭" :disabled="mutating && !importing" @click="closeUpload">×</button>
         </header>
         <div class="entry-modes" role="tablist" aria-label="资料添加方式">
           <button type="button" role="tab" :aria-selected="entryMode === 'text'" :class="{ selected: entryMode === 'text' }" :disabled="mutating" @click="entryMode = 'text'">粘贴文字</button>
@@ -94,28 +94,6 @@
           <input id="knowledge-pdf" ref="fileInput" class="sr-only" type="file" accept=".pdf,application/pdf" :disabled="mutating" @change="selectPdf" />
         </div>
         <p v-if="entryMode === 'pdf'" class="scan-note">扫描页和疑似乱码页面会自动识别；部分页面无法识别时会在导入后提示。</p>
-        <div v-if="importing" class="import-progress" aria-live="polite">
-          <div class="progress-heading">
-            <b>{{ importProcessing ? '文件已上传，正在处理' : '正在上传 PDF' }}</b>
-            <strong v-if="!importProcessing && importUploadPercent !== null">{{ importUploadPercent }}%</strong>
-            <span v-else class="progress-waiting">{{ importProcessing ? '处理中' : '传输中' }}</span>
-          </div>
-          <p>{{ importProcessing ? '正在识别页面并建立检索索引，请稍候。' : '正在将文件传至服务器。' }}</p>
-          <div
-            class="progress-track"
-            role="progressbar"
-            :aria-label="importProcessing ? '正在识别页面并建立检索索引' : 'PDF 上传进度'"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            :aria-valuenow="!importProcessing ? importUploadPercent ?? undefined : undefined"
-            :aria-valuetext="importProcessing ? '服务器正在处理 PDF' : undefined"
-          >
-            <span
-              :class="['progress-fill', { indeterminate: importProcessing || importUploadPercent === null }]"
-              :style="!importProcessing && importUploadPercent !== null ? { width: `${importUploadPercent}%` } : undefined"
-            ></span>
-          </div>
-        </div>
         <div v-if="entryMode === 'text'" class="dialog-form-row">
           <label for="knowledge-title">资料标题</label>
           <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
@@ -131,12 +109,52 @@
         </div>
         <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
         <footer class="dialog-actions">
-          <button class="cancel-button" type="button" :disabled="mutating" @click="closeUpload">取消</button>
+          <button class="cancel-button" type="button" :disabled="mutating && !importing" @click="closeUpload">{{ importing ? '收起窗口' : '取消' }}</button>
           <button v-if="entryMode === 'text'" class="save-button" type="button" :disabled="mutating || !title.trim() || !content.trim()" @click="save">{{ saving ? '正在保存…' : '保存到知识库' }}</button>
           <button v-else class="save-button" type="button" :disabled="mutating || !pdfFile" @click="importPdf">{{ importing ? '正在导入…' : '导入到知识库' }}</button>
         </footer>
       </section>
     </div>
+
+    <aside
+      v-if="pdfImportToast"
+      class="pdf-import-toast"
+      :class="`is-${pdfImportToast.status}`"
+      :role="pdfImportToast.status === 'error' ? 'alert' : 'status'"
+      :aria-live="pdfImportToast.status === 'error' ? 'assertive' : 'polite'"
+      aria-atomic="true"
+    >
+      <div class="toast-heading">
+        <div class="toast-title-group">
+          <strong>{{ pdfImportToast.title }}</strong>
+          <small :title="pdfImportToast.fileName">{{ pdfImportToast.fileName }}</small>
+        </div>
+        <span v-if="pdfImportToast.status === 'uploading'" class="toast-state">
+          {{ pdfImportToast.percent === null ? '上传中' : `${pdfImportToast.percent}%` }}
+        </span>
+        <span v-else-if="pdfImportToast.status === 'processing'" class="toast-state">处理中</span>
+        <button v-else class="toast-close" type="button" aria-label="关闭导入通知" @click="dismissPdfImportToast">×</button>
+      </div>
+      <p v-if="pdfImportToast.detail" class="toast-detail">{{ pdfImportToast.detail }}</p>
+      <div
+        v-if="pdfImportToast.status !== 'error'"
+        class="toast-progress-track"
+        role="progressbar"
+        :aria-label="pdfImportToast.status === 'processing' ? '正在识别页面并建立检索索引' : 'PDF 导入进度'"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-valuenow="pdfImportToast.status === 'success' ? 100 : pdfImportToast.status === 'uploading' ? pdfImportToast.percent ?? undefined : undefined"
+        :aria-valuetext="pdfImportToast.status === 'processing' ? '文件已上传，正在处理 PDF' : undefined"
+      >
+        <span
+          :class="['toast-progress-fill', { indeterminate: pdfImportToast.status === 'processing' || (pdfImportToast.status === 'uploading' && pdfImportToast.percent === null) }]"
+          :style="pdfImportToast.status === 'success' ? { width: '100%' } : pdfImportToast.status === 'uploading' && pdfImportToast.percent !== null ? { width: `${pdfImportToast.percent}%` } : undefined"
+        ></span>
+      </div>
+      <ul v-if="pdfImportToast.warnings.length" class="toast-warnings">
+        <li v-for="warning in pdfImportToast.warnings" :key="warning">{{ warning }}</li>
+      </ul>
+    </aside>
 
     <div v-if="activeDocument" class="modal-mask" tabindex="-1" @keydown.esc="activeDocument = null" @click.self="activeDocument = null">
       <section class="document-dialog" role="dialog" aria-modal="true" :aria-label="activeDocument.title">
@@ -204,13 +222,21 @@ const sourceName = ref('')
 const content = ref('')
 const pdfFile = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+type PdfImportToastStatus = 'uploading' | 'processing' | 'success' | 'error'
+interface PdfImportToast {
+  status: PdfImportToastStatus
+  fileName: string
+  title: string
+  percent: number | null
+  detail: string
+  warnings: string[]
+}
+const pdfImportToast = ref<PdfImportToast | null>(null)
 const items = ref<SubjectKnowledgeItem[]>([])
 const vectorEnabled = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const importing = ref(false)
-const importUploadPercent = ref<number | null>(null)
-const importProcessing = ref(false)
 const reindexing = ref(false)
 const deletingId = ref<number | null>(null)
 const searching = ref(false)
@@ -243,10 +269,15 @@ function openUpload(mode: 'text' | 'pdf' = 'text') {
 }
 
 function closeUpload() {
-  if (mutating.value) return
+  if (mutating.value && !importing.value) return
   uploadOpen.value = false
   error.value = ''
-  clearForm()
+  if (!importing.value) clearForm()
+}
+
+function dismissPdfImportToast() {
+  if (importing.value) return
+  pdfImportToast.value = null
 }
 
 function errorMessage(cause: unknown, fallback: string): string {
@@ -264,7 +295,6 @@ function clearFeedback() {
 
 function clearForm() {
   title.value = ''; sourceName.value = ''; content.value = ''; pdfFile.value = null
-  importUploadPercent.value = null; importProcessing.value = false
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -330,28 +360,49 @@ async function importPdf() {
   if (!target || !file || mutating.value) return
   const current = generation
   importing.value = true
-  importUploadPercent.value = null
-  importProcessing.value = false
+  pdfImportToast.value = {
+    status: 'uploading', fileName: file.name, title: '正在上传 PDF', percent: null, detail: '正在将文件传至服务器。', warnings: []
+  }
   clearFeedback()
   try {
     const result = await teacher.importSubjectKnowledgePdf(target, file, percent => {
-      if (current !== generation) return
+      if (current !== generation || !pdfImportToast.value) return
       if (percent === null) {
-        importUploadPercent.value = null
+        pdfImportToast.value.percent = null
       } else {
-        importUploadPercent.value = Math.max(importUploadPercent.value ?? 0, percent)
-        if (percent >= 100) importProcessing.value = true
+        pdfImportToast.value.percent = Math.max(pdfImportToast.value.percent ?? 0, percent)
+        if (percent >= 100) {
+          pdfImportToast.value.status = 'processing'
+          pdfImportToast.value.title = '正在识别页面并建立索引'
+          pdfImportToast.value.detail = '文件已上传，正在识别 PDF 页面并建立检索索引。'
+        }
       }
     })
     if (current !== generation) return
+    const details = [
+      result.indexed_pages == null ? '' : `读取 ${result.indexed_pages} 页`,
+      result.ocr_pages ? `OCR 识别 ${result.ocr_pages} 页` : '',
+      `可检索 ${result.passage_count} 个片段`
+    ].filter(Boolean).join('，')
+    pdfImportToast.value = {
+      status: 'success', fileName: file.name, title: 'PDF 导入成功', percent: 100,
+      detail: details, warnings: result.warnings ?? []
+    }
     clearForm()
     uploadOpen.value = false
-    notice.value = `PDF 已导入${result.indexed_pages == null ? '' : `，读取 ${result.indexed_pages} 页`}${result.ocr_pages ? `，OCR 识别 ${result.ocr_pages} 页` : ''}，可检索 ${result.passage_count} 个片段。`
-    warnings.value = result.warnings ?? []
+    notice.value = ''
+    warnings.value = []
     searchResult.value = null
     await load(current)
   } catch (cause) {
-    if (current === generation) error.value = errorMessage(cause, 'PDF 导入失败，请检查文件后重试。')
+    if (current === generation) {
+      const message = errorMessage(cause, 'PDF 导入失败，请检查文件后重试。')
+      pdfImportToast.value = {
+        status: 'error', fileName: file.name, title: 'PDF 导入失败', percent: null,
+        detail: message, warnings: []
+      }
+      error.value = message
+    }
   } finally {
     if (current === generation) importing.value = false
   }
@@ -443,6 +494,7 @@ watch(subject, () => {
   loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
   uploadOpen.value = false; activeDocument.value = null; deleteConfirmDocument.value = null
+  pdfImportToast.value = null
   clearFeedback(); clearForm()
   void load()
 }, { immediate: true })
@@ -540,14 +592,24 @@ watch(subject, () => {
 .upload-dropzone small, .scan-note { color: var(--text-3); font-size: 11px; }
 .choose-file { padding: 8px 11px; border: 1px solid #D9E2F5; border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .scan-note { margin: 0 0 12px; }
-.import-progress { margin: 14px 0 2px; padding: 13px 14px; border: 1px solid #E6ECF8; border-radius: 11px; background: #F8FAFF; }
-.progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text); font-size: 12px; }
-.progress-heading strong { color: var(--primary); font-size: 12px; font-variant-numeric: tabular-nums; }
-.progress-waiting { color: var(--primary); font-size: 11px; }
-.import-progress p { margin: 5px 0 10px; color: var(--text-3); font-size: 11px; }
-.progress-track { position: relative; height: 7px; overflow: hidden; border-radius: 999px; background: #E8EDF6; }
-.progress-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3475F6, #2453D9); transition: width .18s ease; }
-.progress-fill.indeterminate { width: 38%; animation: progress-sweep 1.35s ease-in-out infinite; }
+.pdf-import-toast { position: fixed; right: 24px; bottom: 24px; z-index: 500; width: min(380px, calc(100vw - 32px)); padding: 16px; border: 1px solid #DCE5F4; border-radius: 14px; background: #fff; box-shadow: 0 18px 48px rgba(20, 35, 64, .2); animation: dialog-in .18s ease both; }
+.pdf-import-toast.is-success { border-color: #BFE7D2; }
+.pdf-import-toast.is-error { border-color: #F0C6C3; }
+.toast-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.toast-title-group { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.toast-title-group strong { color: var(--text); font-size: 13px; line-height: 1.45; }
+.toast-title-group small { overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.toast-state { flex: 0 0 auto; color: var(--primary); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 750; }
+.is-success .toast-state { color: #16845C; }
+.is-error .toast-state { color: #B42318; }
+.toast-close { display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; margin: -3px -3px 0 0; border: 0; border-radius: 7px; background: transparent; color: #64748B; font-size: 21px; line-height: 1; cursor: pointer; }
+.toast-close:hover { background: #F1F4F8; color: var(--text); }
+.toast-detail { margin: 10px 0 11px; color: var(--text-2); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.toast-progress-track { position: relative; height: 7px; overflow: hidden; border-radius: 999px; background: #E8EDF6; }
+.toast-progress-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3475F6, #2453D9); transition: width .18s ease; }
+.toast-progress-fill.indeterminate { width: 38%; animation: progress-sweep 1.35s ease-in-out infinite; }
+.is-success .toast-progress-fill { background: linear-gradient(90deg, #27AE78, #16845C); }
+.toast-warnings { display: grid; gap: 5px; margin: 11px 0 0; padding-left: 17px; color: #9A5B11; font-size: 11px; line-height: 1.5; }
 .dialog-form-row { margin-top: 14px; }
 .dialog-form-row label { display: block; margin-bottom: 7px; color: var(--text-2); font-size: 12px; font-weight: 700; }
 .dialog-form-row label span { color: var(--text-3); font-weight: 400; }
@@ -597,10 +659,11 @@ watch(subject, () => {
   .upload-dialog, .document-dialog { padding: 17px; }
   .upload-dropzone { flex-wrap: wrap; }
   .choose-file { margin-left: 54px; }
+  .pdf-import-toast { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .document-cover, .add-document-card, .reindex-button, .search-button, .save-button { transition: none; }
   .document-cover:hover, .add-document-slot:hover .add-document-card { transform: none; }
-  .upload-dialog, .document-dialog { animation: none; }
+  .upload-dialog, .document-dialog, .pdf-import-toast { animation: none; }
 }
 </style>
