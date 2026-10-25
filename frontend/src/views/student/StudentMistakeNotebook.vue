@@ -650,14 +650,6 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-header h1 { color: var(--text); font-size: clamp(28px, 3vw, 39px); }
 .remedi-mistake-book .notebook-header h1 span { color: var(--primary); }
 .remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
-.remedi-mistake-book .notebook-overview { margin: 24px 0 30px; }
-.remedi-mistake-book .notebook-overview { gap: 0; padding: 18px 0; border: 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
-.remedi-mistake-book .notebook-stat { min-height: 48px; padding: 4px 20px; border: 0; border-right: 1px solid var(--border); background: transparent; box-shadow: none; }
-.remedi-mistake-book .notebook-stat:first-child { padding-left: 0; }
-.remedi-mistake-book .notebook-stat-icon { display: none; }
-.remedi-mistake-book .notebook-stat-copy { gap: 4px; }
-.remedi-mistake-book .notebook-progress { padding-left: 20px; border: 0; background: transparent; box-shadow: none; }
-.remedi-mistake-book .notebook-progress-track { margin-top: 8px; }
 /* 进度填充用主色实色（v0.13.0 修复：此前误用 primary-50 浅色，进度条几乎看不见） */
 .remedi-mistake-book .notebook-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
 .remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
@@ -687,19 +679,6 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-action-error { margin: 10px 0; color: #991B1B; font-size: 12px; }
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
-@container (max-width: 930px) {
-  .remedi-mistake-book .notebook-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 16px 0; }
-  .remedi-mistake-book .notebook-stat { padding-inline: 12px; }
-  .remedi-mistake-book .notebook-stat:first-child { padding-left: 0; }
-  .remedi-mistake-book .notebook-stat:nth-child(3) { border-right: 0; }
-  .remedi-mistake-book .notebook-progress { grid-column: 1 / -1; padding: 14px 0 0; border-top: 1px solid var(--border); }
-}
-@container (max-width: 570px) {
-  .remedi-mistake-book .notebook-overview { gap: 14px 0; margin: 18px 0 22px; padding: 14px 0; }
-  .remedi-mistake-book .notebook-stat { min-height: 0; padding-inline: 9px; }
-  .remedi-mistake-book .notebook-stat-copy { gap: 5px; }
-  .remedi-mistake-book .notebook-progress { padding-top: 12px; }
-}
 @media (max-width: 960px) {
   .remedi-mistake-book { height: calc(100dvh - 52px); }
   .remedi-mistake-book .mistake-notebook-content { padding: 72px 24px 20px; }
