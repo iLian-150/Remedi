@@ -651,8 +651,10 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-header h1 span { color: var(--primary); }
 .remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
 .remedi-mistake-book .notebook-overview { margin: 24px 0 30px; }
-.remedi-mistake-book .notebook-stat, .remedi-mistake-book .notebook-progress { border-color: var(--border); background: var(--card); box-shadow: var(--shadow); }
-.remedi-mistake-book .notebook-stat-icon { color: var(--primary); background: var(--primary-50); }
+.remedi-mistake-book .notebook-overview { border-color: var(--border); background: var(--card); box-shadow: var(--shadow); }
+.remedi-mistake-book .notebook-stat, .remedi-mistake-book .notebook-progress { border: 0; background: transparent; box-shadow: none; }
+.remedi-mistake-book .notebook-stat-icon { border-color: transparent; color: var(--primary); background: var(--primary-50); }
+.remedi-mistake-book .notebook-stat.pending .notebook-stat-icon { color: var(--amber); background: var(--amber-bg); }
 /* 进度填充用主色实色（v0.13.0 修复：此前误用 primary-50 浅色，进度条几乎看不见） */
 .remedi-mistake-book .notebook-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
 .remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
