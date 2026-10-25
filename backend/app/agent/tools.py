@@ -16,6 +16,7 @@ from ..models import (
     Correction,
     Error,
     Question,
+    Step,
     StudentMistakeArchive,
     StudentQuestionCapture,
     Submission,
@@ -45,6 +46,10 @@ _STATUS_LABEL = {
 
 def _fmt_date(dt) -> str:
     return dt.strftime("%Y-%m-%d") if dt else ""
+
+
+def _compact_text(value: str | None, limit: int) -> str:
+    return " ".join((value or "").split())[:limit]
 
 
 def briefing_to_text(briefing: dict) -> str:
@@ -101,10 +106,16 @@ def kp_errors_to_text(knowledge_point: str, items: List[dict]) -> str:
     for it in items[:10]:
         seq = f"，第 {it['first_error_seq']} 步出错" if it.get("first_error_seq") is not None else ""
         corr = "已订正" if it.get("corrected") else "未订正"
-        lines.append(
-            f"- {_fmt_date(it['created_at'])} 《{it['assignment_title']}》{it['question_prompt']}"
-            f"{seq}，问题类型：{it['error_type']}，{corr}。"
+        line = (
+            f"- {_fmt_date(it['created_at'])} 《{it['assignment_title']}》"
+            f"题目：{_compact_text(it.get('question_prompt'), 320)}{seq}，"
         )
+        if it.get("student_step_text"):
+            line += f"学生作答：{_compact_text(it['student_step_text'], 320)}；"
+        line += f"问题类型：{it['error_type']}；"
+        if it.get("detail"):
+            line += f"诊断：{_compact_text(it['detail'], 360)}；"
+        lines.append(f"{line}{corr}。")
     return "\n".join(lines)
 
 
@@ -117,10 +128,13 @@ def student_notebook_to_text(db: Session, student: User, limit: int = 12) -> str
             Question.stem,
             Assignment.title,
             SubmissionReview.status,
+            Step.seq,
+            Step.text,
         )
         .join(Submission, Submission.id == Error.submission_id)
         .join(Question, Question.id == Submission.question_id)
         .join(Assignment, Assignment.id == Question.assignment_id)
+        .outerjoin(Step, Step.id == Error.step_id)
         .outerjoin(
             SubmissionReview,
             SubmissionReview.submission_id == Submission.id,
@@ -139,7 +153,7 @@ def student_notebook_to_text(db: Session, student: User, limit: int = 12) -> str
         .all()
     )
     lines = []
-    for error, subject, stem, assignment_title, review_status in rows:
+    for error, subject, stem, assignment_title, review_status, step_seq, step_text in rows:
         latest_correction = db.query(Correction).filter(
             Correction.error_id == error.id,
             Correction.student_id == student.id,
@@ -151,11 +165,18 @@ def student_notebook_to_text(db: Session, student: User, limit: int = 12) -> str
             else "订正已提交，结果待确认"
         )
         review_label = "待教师审核" if review_status == review_svc.PENDING else "系统批改记录"
-        lines.append(
+        line = (
             f"- [{review_label}] {subject} / {error.knowledge_point}，"
-            f"作业《{assignment_title}》，题目：{stem}；错因：{error.error_type}；"
-            f"{correction_status}；记录日期：{_fmt_date(error.created_at)}。"
+            f"作业《{assignment_title}》，题目：{_compact_text(stem, 320)}；"
         )
+        if step_text:
+            step_label = step_seq if step_seq is not None else "?"
+            line += f"学生第 {step_label} 步作答：{_compact_text(step_text, 320)}；"
+        line += f"错因：{error.error_type}；"
+        if error.detail:
+            line += f"诊断：{_compact_text(error.detail, 360)}；"
+        line += f"{correction_status}；记录日期：{_fmt_date(error.created_at)}。"
+        lines.append(line)
 
     captures = db.query(StudentQuestionCapture).filter(
         StudentQuestionCapture.student_id == student.id,
@@ -241,8 +262,8 @@ def build_tools(db: Session, student: User, *, routed_subject: str | None = None
 
     @tool
     def get_my_mistake_notebook() -> str:
-        """直接读取学生本人错题本与订正状态，包括待教师审核条目和自主收录题。
-        学生询问具体错题、错因、订正进度或最薄弱知识点时调用；待审核诊断必须说明是暂定判断。"""
+        """读取学生本人错题本与订正状态，包括题目、学生出错步骤、诊断说明、待审核条目和自主收录题。
+        学生询问具体错题、错因、订正进度或薄弱知识点时调用；待审核诊断必须说明是暂定判断。"""
         return student_notebook_to_text(db, student)
 
     @tool
@@ -253,7 +274,8 @@ def build_tools(db: Session, student: User, *, routed_subject: str | None = None
 
     @tool
     def get_knowledge_point_errors(knowledge_point: str) -> str:
-        """查询学生在某个知识点下的错题时间线。参数 knowledge_point 是知识点名称，例如「一元一次方程」。当学生问"我在某个知识点错过哪些题"时调用。"""
+        """查询学生在某个知识点下的错题时间线，包括题目、本人作答步骤和诊断说明。
+        参数 knowledge_point 是知识点名称，例如「一元一次方程」。当学生问某知识点的具体错题时调用。"""
         items = knowledge_point_errors(db, student, knowledge_point, visible_only=False)
         return kp_errors_to_text(knowledge_point, items)
 

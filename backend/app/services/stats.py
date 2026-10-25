@@ -1018,7 +1018,7 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
         .options(
             load_only(
                 Error.id, Error.submission_id, Error.knowledge_point,
-                Error.error_type, Error.step_id, Error.created_at,
+                Error.error_type, Error.detail, Error.step_id, Error.created_at,
             ),
             load_only(Submission.id),
             load_only(Question.id, Question.stem),
@@ -1048,7 +1048,9 @@ def knowledge_point_errors(db, student: User, knowledge_point: str,
             "assignment_title": assignment.title if assignment else "",
             "question_prompt": question.stem if question else "",
             "first_error_seq": step.seq if step else None,
+            "student_step_text": step.text if step else None,
             "error_type": error.error_type,
+            "detail": error.detail,
             "corrected": bool(corrected),
             "submission_id": submission.id,
         })
