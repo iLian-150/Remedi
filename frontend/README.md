@@ -2,6 +2,8 @@
 
 Vue 3 + TypeScript + Vite + Vue Router + Pinia + ECharts + axios。
 
+界面实现须遵循 [前端设计与实现规范](../docs/frontend-design-guidelines.md)：优先复用现有依赖和共享组件，统一使用项目设计 token，避免重复依赖和不必要的辅助文案。
+
 ## 本地启动
 
 ```bash
