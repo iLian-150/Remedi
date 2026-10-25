@@ -24,6 +24,7 @@ SUPPORTED_KNOWLEDGE_FORMATS = (
 )
 _IMAGE_FORMATS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 _PIPELINE_VERSION = 1
+_OCR_STRATEGY_VERSION = 2
 
 
 def _looks_like_unusable_pdf_text(text: str) -> bool:
@@ -94,17 +95,11 @@ def _render(page, clip=None, *, visual=False):
     return pixmap.tobytes("jpeg", jpg_quality=75) if visual else pixmap.tobytes("png")
 
 
-def _visual_regions(page):
-    """复用 PyMuPDF 的图片定位与矢量绘图聚类；整页扫描不误当成图形区域。"""
+def _filter_regions(page, candidates):
     import pymupdf
 
     rects = []
     area = page.rect.get_area() or 1
-    candidates = [item["bbox"] for item in page.get_image_info()]
-    try:
-        candidates.extend(page.cluster_drawings())
-    except (AttributeError, ValueError, RuntimeError):
-        pass
     for bounds in candidates:
         rect = pymupdf.Rect(bounds) & page.rect
         if rect.width < 40 or rect.height < 30 or not 0.012 <= rect.get_area() / area <= 0.82:
@@ -113,6 +108,23 @@ def _visual_regions(page):
             continue
         rects.append(rect)
     return rects
+
+
+def _raster_regions(page, image_info=None):
+    """仅定位嵌入位图，供文字 OCR 使用；原生矢量绘图不重复 OCR。"""
+    image_info = page.get_image_info() if image_info is None else image_info
+    return _filter_regions(page, [item["bbox"] for item in image_info])
+
+
+def _visual_regions(page, image_info=None):
+    """定位位图与矢量图形，供按需视觉理解使用。"""
+    image_info = page.get_image_info() if image_info is None else image_info
+    candidates = [item["bbox"] for item in image_info]
+    try:
+        candidates.extend(page.cluster_drawings())
+    except (AttributeError, ValueError, RuntimeError):
+        pass
+    return _filter_regions(page, candidates)
 
 
 def _process_page(native_text, ocr_images, visual_images, context_image, cached, checkpoint):
@@ -140,7 +152,8 @@ def _process_page(native_text, ocr_images, visual_images, context_image, cached,
         text = "\n\n".join(parts).strip()
         if text and ocr_images and confidence < 0.55:
             warnings.append("文字识别置信度较低，请对照原件核对公式和符号。")
-        record.update(text=text, confidence=confidence, ocr_done=True, ocr=bool(ocr_images), warnings=warnings)
+        record.update(text=text, confidence=confidence, ocr_done=True, ocr=bool(ocr_images),
+                      ocr_strategy=_OCR_STRATEGY_VERSION, warnings=warnings)
         _write_checkpoint(checkpoint, record)
     text = record.get("text", "")
     if settings.RAG_VISUAL_ENABLED and not record.get("visual_done"):
@@ -217,6 +230,11 @@ def extract_knowledge_pdf(data: bytes, *, progress=None, checkpoint_dir=None, fi
                 number = index + 1
                 checkpoint = _checkpoint_path(checkpoint_dir, digest, number)
                 cached = _read_checkpoint(checkpoint)
+                if cached.get("ocr_strategy") != _OCR_STRATEGY_VERSION:
+                    # 旧检查点可能把矢量图形也送去 OCR；仅重算文本步骤并复用图像 OCR 结果。
+                    cached = dict(cached)
+                    cached["ocr_done"] = False
+                    cached["complete"] = False
                 if cached.get("complete"):
                     results[number] = cached
                     report()
@@ -231,12 +249,22 @@ def extract_knowledge_pdf(data: bytes, *, progress=None, checkpoint_dir=None, fi
                 )
                 # 无任何绘制内容的空白页直接跳过，不加载 OCR。
                 blank = not text and not image_info and not page.get_drawings()
-                regions = [] if scan else _visual_regions(page)
-                ocr_images = [] if cached.get("ocr_done") or blank else (
-                    [_render(page)] if scan or full_scan_image else [_render(page, rect) for rect in regions]
+                raster_regions = [] if scan else _raster_regions(page, image_info)
+                visual_regions = (
+                    _visual_regions(page, image_info)
+                    if not scan and settings.RAG_VISUAL_ENABLED else []
                 )
-                visuals = [_render(page, rect, visual=True) for rect in regions] if settings.RAG_VISUAL_ENABLED else []
-                context_image = _render(page, visual=True) if settings.RAG_VISUAL_ENABLED and not blank else None
+                ocr_images = [] if cached.get("ocr_done") or blank else (
+                    [_render(page)] if scan or full_scan_image else [_render(page, rect) for rect in raster_regions]
+                )
+                visuals = [_render(page, rect, visual=True) for rect in visual_regions]
+                needs_page_context = force_visual or scan or (
+                    not visual_regions and needs_visual_context(text, cached.get("confidence", 1))
+                )
+                context_image = (
+                    _render(page, visual=True)
+                    if settings.RAG_VISUAL_ENABLED and not blank and needs_page_context else None
+                )
                 if force_visual and context_image:
                     visuals = [context_image]
                 report("ocr" if ocr_images else "visual" if visuals else "extracting")
