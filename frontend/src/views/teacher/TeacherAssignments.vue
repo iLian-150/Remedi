@@ -9,8 +9,11 @@
       <div>
         <h2>作业管理</h2>
         <p class="page-sub">已发布的作业与每道题的提交情况。</p>
+        <nav class="workflow-tabs" aria-label="作业工作区">
+          <router-link to="/teacher/assignments" class="workflow-tab">作业管理</router-link>
+          <router-link to="/teacher/assignments/new" class="workflow-tab">发布作业</router-link>
+        </nav>
       </div>
-      <router-link to="/teacher/assignments/new"><button class="btn inline-icon"><AppIcon name="plus" :size="16" /> 发布新作业</button></router-link>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>

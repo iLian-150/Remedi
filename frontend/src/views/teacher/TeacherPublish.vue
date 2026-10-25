@@ -13,6 +13,10 @@
       <div class="ph-main">
         <h2>发布作业</h2>
         <p class="page-sub">先选一种发布方式，再填写内容发布；发布后学生端立即可见，返回重选不会清空已填内容。</p>
+        <nav class="workflow-tabs" aria-label="作业工作区">
+          <router-link to="/teacher/assignments" class="workflow-tab">作业管理</router-link>
+          <router-link to="/teacher/assignments/new" class="workflow-tab">发布作业</router-link>
+        </nav>
       </div>
       <div v-if="step === 'form'" class="ph-actions">
         <button type="button" class="btn ghost inline-icon back-btn" @click="backToChoose">
