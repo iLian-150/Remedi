@@ -35,6 +35,13 @@ services:
       - RAG_TIMEOUT_SECONDS=${RAG_TIMEOUT_SECONDS:-8}
       - RAG_RERANK_MODEL=${RAG_RERANK_MODEL:-qwen3.7-text-rerank}
       - RAG_RERANK_TIMEOUT_SECONDS=${RAG_RERANK_TIMEOUT_SECONDS:-10}
+      - KNOWLEDGE_IMPORT_DIR=/data/knowledge-imports
+      - RAG_OCR_LANGUAGE=${RAG_OCR_LANGUAGE:-chi_sim+eng}
+      - RAG_OCR_DPI=${RAG_OCR_DPI:-200}
+      - RAG_OCR_WORKERS=${RAG_OCR_WORKERS:-2}
+      - RAG_OCR_TIMEOUT_SECONDS=${RAG_OCR_TIMEOUT_SECONDS:-90}
+      - RAG_VISUAL_ENABLED=${RAG_VISUAL_ENABLED:-true}
+      - RAG_VISUAL_TIMEOUT_SECONDS=${RAG_VISUAL_TIMEOUT_SECONDS:-45}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]

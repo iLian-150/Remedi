@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
@@ -39,6 +39,8 @@ from ..models import (
     Correction,
     Error,
     Essay,
+    KnowledgeImportDismissal,
+    KnowledgeImportJob,
     Notification,
     Question,
     QuestionWeight,
@@ -240,6 +242,72 @@ def _require_teacher_subject(db: Session, teacher: User, subject: str) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "你没有该学科 Agent 的管理范围。")
 
 
+@router.get("/knowledge/import-jobs", summary="读取当前任教学科的导入任务")
+def list_knowledge_import_jobs(
+    db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    from ..services.knowledge_jobs import job_payload
+
+    permitted = select(TeacherSubject.subject).where(TeacherSubject.teacher_id == current.id)
+    dismissed = select(KnowledgeImportDismissal.job_id).where(
+        KnowledgeImportDismissal.teacher_id == current.id,
+    )
+    rows = db.query(KnowledgeImportJob).filter(
+        KnowledgeImportJob.subject.in_(permitted),
+        ~KnowledgeImportJob.id.in_(dismissed),
+    ).order_by(KnowledgeImportJob.created_at.desc(), KnowledgeImportJob.id.desc()).all()
+    return {"items": [job_payload(row) for row in rows], "total": len(rows)}
+
+
+def _require_import_job(db: Session, teacher: User, job_id: str) -> KnowledgeImportJob:
+    row = db.get(KnowledgeImportJob, job_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "导入任务不存在。")
+    _require_teacher_subject(db, teacher, row.subject)
+    return row
+
+
+@router.get("/knowledge/import-jobs/{job_id}", summary="读取导入进度与结果")
+def get_knowledge_import_job(
+    job_id: str, db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    from ..services.knowledge_jobs import job_payload
+
+    return job_payload(_require_import_job(db, current, job_id))
+
+
+@router.post("/knowledge/import-jobs/{job_id}/dismiss", summary="关闭已结束的导入提示")
+def dismiss_knowledge_import_job(
+    job_id: str, db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    from ..services.knowledge_jobs import TERMINAL_STATUSES
+
+    row = _require_import_job(db, current, job_id)
+    if row.status not in TERMINAL_STATUSES:
+        raise HTTPException(status.HTTP_409_CONFLICT, "导入仍在进行，完成后可以关闭提示。")
+    if db.get(KnowledgeImportDismissal, (job_id, current.id)) is None:
+        db.add(KnowledgeImportDismissal(job_id=job_id, teacher_id=current.id))
+        try:
+            db.commit()
+        except IntegrityError:
+            # 两个页面同时关闭同一提示时视为同一次操作。
+            db.rollback()
+    return {"dismissed": True, "id": job_id}
+
+
+@router.post("/knowledge/import-jobs/{job_id}/retry", status_code=202, summary="从已缓存的进度继续失败任务")
+def retry_knowledge_import_job(
+    job_id: str, db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    from ..services.knowledge_jobs import retry_import
+
+    row = _require_import_job(db, current, job_id)
+    try:
+        return retry_import(db, row)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
 @router.get("/knowledge/{subject}", summary="读取学科 Agent 的专属知识库")
 def list_subject_knowledge(
     subject: str, db: Session = Depends(get_db), current: User = Depends(require_teacher),
@@ -291,8 +359,8 @@ def add_subject_knowledge(
             "source_name": row.source_name, "created_at": row.created_at, **result}
 
 
-@router.post("/knowledge/{subject}/import-pdf", include_in_schema=False)
-@router.post("/knowledge/{subject}/import", summary="导入学科教学资料")
+@router.post("/knowledge/{subject}/import-pdf", status_code=202, include_in_schema=False)
+@router.post("/knowledge/{subject}/import", status_code=202, summary="上传资料并创建后台导入任务")
 async def import_subject_knowledge_document(
     subject: str, file: UploadFile = File(...),
     db: Session = Depends(get_db), current: User = Depends(require_teacher),
@@ -300,41 +368,17 @@ async def import_subject_knowledge_document(
     if subject not in SUBJECT_LABELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
     _require_teacher_subject(db, current, subject)
-    from ..services.knowledge_import import extract_knowledge_document
-    from ..services.subject_rag import prepare_knowledge, sync_knowledge
+    from ..services.knowledge_jobs import enqueue_import
 
     try:
-        data = await file.read()
+        return await run_in_threadpool(enqueue_import, file.file, file.filename, subject, current.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except OSError as exc:
+        logger.warning("资料上传落盘失败（error=%s）", type(exc).__name__)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "资料暂时无法保存，请稍后重试。") from exc
     finally:
         await file.close()
-    filename = (file.filename or "教学资料").replace("\\", "/").rsplit("/", 1)[-1]
-    title_from_filename = filename.rsplit(".", 1)[0] if "." in filename else filename
-
-    def save_document():
-        try:
-            extracted = extract_knowledge_document(data, filename)
-        except ValueError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
-        row = SubjectKnowledgeChunk(
-            subject=subject, title=title_from_filename[:160] or "教学资料",
-            content="\n\n".join(text for _, text in extracted["pages"]),
-            source_name=filename[:200], created_by=current.id,
-        )
-        db.add(row)
-        prepare_knowledge(db, row, pages=extracted["pages"])
-        db.commit()
-        db.refresh(row)
-        result = sync_knowledge(db, row.id)
-        return {"id": row.id, "subject": subject, "title": row.title,
-                "source_name": row.source_name, "created_at": row.created_at,
-                **result, "page_count": extracted.get("page_count"),
-                "indexed_pages": extracted.get("indexed_pages"),
-                "ocr_pages": extracted.get("ocr_pages", 0),
-                "warnings": extracted["warnings"] + result.get("warnings", [])}
-
-    return await run_in_threadpool(save_document)
 
 
 @router.post("/knowledge/{subject}/search", summary="试查当前学科知识库并返回来源")
@@ -395,6 +439,9 @@ def delete_subject_knowledge(
         if row is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "资料不存在。")
         deleted_passage_ids = delete_knowledge_index(db, row.id)
+        db.query(KnowledgeImportJob).filter_by(document_id=row.id).update(
+            {"document_id": None}, synchronize_session=False,
+        )
         db.delete(row)
         db.commit()
     except OperationalError as exc:
@@ -408,7 +455,7 @@ def delete_subject_knowledge(
         db.rollback()
         raise
     # Remote cleanup must never hold the local transaction's write lock.
-    warnings = delete_vector_index(deleted_passage_ids)
+    warnings = delete_vector_index(subject, deleted_passage_ids)
     return {"deleted": True, "id": chunk_id, "subject": subject, "warnings": warnings}
 
 ERROR_TYPES = ("计算失误", "概念混淆", "审题遗漏", "无法解析")

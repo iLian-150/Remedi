@@ -18,7 +18,8 @@ Remedi 的常规发布流程是：本地修改 → 推送到 GitHub → 服务�
 - 仓库目录：`/remedi`；只操作该目录和本项目 Docker 资源，不修改其他目录或项目。
 - 模型凭证及 Compose 参数统一放服务器 `/remedi/.env`，权限 `600`；不要打印或提交真实凭证。该文件通过 `COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml` 启用完整服务，后续发布保留此配置。
 - 用户当前指定阿里云百炼：`LLM_PROVIDER=bailian`，文字 `Kimi-K3`、视觉 `qwen3-vl-plus`、向量 `qwen3.7-text-embedding-flash`（1024 维）、重排 `qwen3.7-text-rerank`（超时 10 秒）。用户已提供 API Key，仅保存到服务器 `/remedi/.env`，不得打印、提交或复制进文档；示例 Key 保持为空。`DASHSCOPE_BASE_URL` 必须使用用户确认的控制台工作空间专属 APIHost（如 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，工作空间和地域按账号确定）；未做实际调用验证时不得宣称模型可用。
-- 新向量集合使用 `remedi_subject_knowledge_qwen37_flash`，变更模型后重建索引，保留旧集合和业务数据。向量不可用时回退 BM25；模型重排不可用时回退本地重排，响应新增 `rerank_mode=model|local`，警告不得含凭证或原始上游响应。保留 `SEED_DEMO_DATA=false`；模型缺失不得阻止网站、数据库或健康检查启动。
+- 学科向量集合使用 `RAG_MILVUS_COLLECTION + "_" + subject`（默认前缀 `remedi_subject_knowledge_qwen37_flash`），九科独立集合。旧同名前缀共享集合保留，只通过 `migrate_subject_vectors` 显式迁移有效片段，不删除旧向量或业务数据；变更向量模型后重建索引。向量不可用时回退 BM25；模型重排不可用时回退本地重排，响应保留 `rerank_mode=model|local`，警告不得含凭证或原始上游响应。保留 `SEED_DEMO_DATA=false`；模型缺失不得阻止网站、数据库或健康检查启动。
+- 知识库文档上传后返回持久任务，原件与逐页检查点保存在 `/remedi/data/api/knowledge-imports`，不得放到公开的 uploads 静态目录。扫描文字复用 Tesseract 专用 OCR，Qwen-VL 仅按需解析图形；重试复用缓存，不能恢复整书逐页远程转写。任务须可查询、重启恢复、按学科和 SHA256 防重复，通知由用户显式关闭。
 - `Kimi-K3` 必须启用思考并在工具调用循环中按协议回传模型推理字段；仅在本次请求内存中保留，不将隐藏推理发送到界面、SSE 正文或持久化聊天记录。不得恢复旧 Cloudflare 凭证或擅自切换用户指定模型。
 - Python 使用虚拟环境：本地 `.venv`，后端 Docker 镜像内 `/app/.venv`；不要向宿主机全局 Python 安装项目依赖。
 - 前端发布 `5001`，后端发布 `5000`；Milvus 端口仅绑定本机，etcd/MinIO 不发布公网端口。

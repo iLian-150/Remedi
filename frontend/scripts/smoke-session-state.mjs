@@ -52,6 +52,8 @@ function fixture(kind) {
     module, exports: module.exports, localStorage, console: { ...console, error: (...args) => errors.push(args) },
     require: name => {
       if (name === 'pinia') return require('pinia')
+      if (name === 'vue') return require('vue')
+      if (name === 'axios') return require('axios')
       if (name === '../api/client') return { __esModule: true, default: api }
       if (name === './auth') return { useAuthStore: () => auth }
       if (name === '../utils/visionImage') return { visionImageForModel: () => { throw new Error('Unexpected image request') } }

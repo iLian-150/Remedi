@@ -129,6 +129,43 @@ class SubjectKnowledgePassage(Base):
     page_number = Column(Integer, nullable=True)
 
 
+class KnowledgeImportJob(Base):
+    """持久化学科导入任务；原文件、逐页缓存与已提交文档一起支持断点恢复。"""
+    __tablename__ = "knowledge_import_jobs"
+    __table_args__ = (
+        Index("ix_knowledge_import_jobs_subject_digest", "subject", "file_sha256", unique=True),
+        Index("ix_knowledge_import_jobs_status_created", "status", "created_at"),
+    )
+
+    id = Column(String(32), primary_key=True)
+    subject = Column(String(32), nullable=False)
+    filename = Column(String(255), nullable=False)
+    file_sha256 = Column(String(64), nullable=False)
+    file_path = Column(Text, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(16), nullable=False, default="queued")
+    stage = Column(String(24), nullable=False, default="queued")
+    progress = Column(Integer, nullable=False, default=0)
+    completed_pages = Column(Integer, nullable=False, default=0)
+    total_pages = Column(Integer, nullable=False, default=0)
+    message = Column(Text, nullable=False, default="等待导入")
+    document_id = Column(Integer, ForeignKey("subject_knowledge_chunks.id"), nullable=True)
+    vector_status = Column(String(16), nullable=False, default="pending")
+    warnings_json = Column(Text, nullable=False, default="[]")
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class KnowledgeImportDismissal(Base):
+    """关闭提示只影响当前教师，不删除原文件、任务或其他教师的任务提示。"""
+    __tablename__ = "knowledge_import_dismissals"
+
+    job_id = Column(String(32), ForeignKey("knowledge_import_jobs.id"), primary_key=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    dismissed_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class StudentLearningMemory(Base):
     """由错题、订正和验证状态派生的结构化学生长期记忆。"""
     __tablename__ = "student_learning_memories"

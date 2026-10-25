@@ -148,7 +148,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useStudentStore } from './stores/student'
@@ -166,6 +166,21 @@ const teacher = useTeacherStore()
 const router = useRouter()
 const route = useRoute()
 const sidebarOpen = ref(false)
+
+watch(
+  () => [auth.token, auth.user?.id, auth.role],
+  () => teacher.syncKnowledgeImportSession(),
+  { immediate: true, flush: 'sync' }
+)
+
+const refreshImportJobs = () => { void teacher.refreshKnowledgeImportJobs() }
+window.addEventListener('online', refreshImportJobs)
+window.addEventListener('focus', refreshImportJobs)
+onBeforeUnmount(() => {
+  window.removeEventListener('online', refreshImportJobs)
+  window.removeEventListener('focus', refreshImportJobs)
+  teacher.resetKnowledgeImport()
+})
 
 // ---------- 对话页路由判定（v0.6.2）：侧栏会话区仅在双端对话页出现 ----------
 const isChatRoute = computed(

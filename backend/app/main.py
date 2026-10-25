@@ -11,6 +11,7 @@ from .config import settings
 from .database import SessionLocal, init_db
 from .services import deferral as deferral_svc
 from .services import reviews as review_svc
+from .services import knowledge_jobs
 from .routers import auth as auth_router
 from .routers import health as health_router
 from .routers import student as student_router
@@ -59,6 +60,16 @@ def _startup():
         logger.exception("补齐历史低正确率作业审核记录失败")
     finally:
         db.close()
+    try:
+        knowledge_jobs.start_worker()
+    except Exception as exc:
+        # 队列异常不阻止健康检查与其他业务启动；数据库中的任务等待恢复。
+        logger.warning("导入任务队列启动失败（error=%s）", type(exc).__name__)
+
+
+@app.on_event("shutdown")
+def _stop_knowledge_imports():
+    knowledge_jobs.stop_worker()
 
 
 async def _deferred_grading_loop() -> None:

@@ -1,6 +1,7 @@
 // 教师端 store：错误记录、一键纠错、班级看板统计、学生画像
 // 路径与字段严格对齐 docs/api-contract.md v0.1.0
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import axios from 'axios'
 import api from '../api/client'
 import { useAuthStore } from './auth'
@@ -33,6 +34,7 @@ import type {
   SubjectAgentCode,
   SubjectKnowledgeList,
   SubjectKnowledgeImportResult,
+  SubjectKnowledgeImportJob,
   SubjectKnowledgeSearchResult,
   SubjectKnowledgeReindexResult,
   TopQuestion,
@@ -51,15 +53,48 @@ export interface ErrorFilter {
 
 const inFlightAssignmentRequests = new Map<string, Promise<TeacherAssignment[]>>()
 
-export type KnowledgeImportStatus = 'uploading' | 'processing' | 'success' | 'error'
+export type KnowledgeImportStatus = 'uploading' | 'processing' | 'success' | 'error' | 'waiting'
 
 export interface KnowledgeImportToast {
+  id: string
+  jobId?: string
   status: KnowledgeImportStatus
   fileName: string
   title: string
   percent: number | null
   detail: string
   warnings: string[]
+  canDismiss: boolean
+  canRetry: boolean
+  busy: boolean
+  actionError?: string
+}
+
+interface KnowledgeUpload {
+  id: string
+  key: string
+  subject: SubjectAgentCode
+  fileName: string
+  startedAt: number
+  status: 'uploading' | 'waiting' | 'error'
+  percent: number | null
+  detail: string
+}
+
+function importIdentity(): string {
+  const auth = useAuthStore()
+  return auth.role === 'teacher' && auth.user && auth.token ? `${auth.user.id}:${auth.token}` : ''
+}
+
+function importJobIsActive(job: SubjectKnowledgeImportJob): boolean {
+  return job.status === 'queued' || job.status === 'running'
+}
+
+function importRequestError(cause: unknown, fallback: string): string {
+  if (axios.isAxiosError(cause) && typeof cause.response?.data?.detail === 'string') {
+    return cause.response.data.detail
+  }
+  return fallback
 }
 
 function coalesceAssignmentRequest(
@@ -103,10 +138,21 @@ export const useTeacherStore = defineStore('teacher', {
     sessionCreatePromise: null as Promise<ChatSession> | null,
     sessionsGeneration: 0,
     sessionsMutationVersion: 0,
-    knowledgeImportToast: null as KnowledgeImportToast | null,
-    knowledgeImportInProgress: false,
+    knowledgeImportJobs: [] as SubjectKnowledgeImportJob[],
+    knowledgeUploads: [] as KnowledgeUpload[],
     knowledgeImportVersion: 0,
+    knowledgeImportVersions: {} as Partial<Record<SubjectAgentCode, number>>,
     knowledgeImportSequence: 0,
+    knowledgeUploadSequence: 0,
+    knowledgeImportOwner: '',
+    knowledgeImportTimer: null as ReturnType<typeof setTimeout> | null,
+    knowledgeImportLoadPromise: null as Promise<void> | null,
+    knowledgeImportMutationVersion: 0,
+    knowledgeImportDismissedIds: [] as string[],
+    knowledgeImportActionBusyIds: [] as string[],
+    knowledgeImportActionErrors: {} as Record<string, string>,
+    knowledgeImportPollingError: '',
+    knowledgeImportControllers: [] as AbortController[],
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
@@ -115,6 +161,36 @@ export const useTeacherStore = defineStore('teacher', {
       seq: number
     }
   }),
+  getters: {
+    knowledgeImportInProgress: state => state.knowledgeUploads.some(item => item.status === 'uploading')
+      || state.knowledgeImportJobs.some(importJobIsActive),
+    knowledgeImportToasts(state): KnowledgeImportToast[] {
+      const uploads: KnowledgeImportToast[] = state.knowledgeUploads.map(item => ({
+        id: item.id, status: item.status, fileName: item.fileName,
+        title: item.status === 'error' ? '资料上传失败' : item.status === 'waiting'
+          ? '正在确认导入状态' : item.percent === 100 ? '正在确认上传' : '正在上传资料',
+        percent: item.percent, detail: item.detail, warnings: [],
+        canDismiss: item.status !== 'uploading', canRetry: false, busy: false
+      }))
+      return [...uploads, ...state.knowledgeImportJobs.map((job): KnowledgeImportToast => {
+        const active = importJobIsActive(job)
+        const pageCount = job.total_pages > 0 ? `${job.completed_pages} / ${job.total_pages} 页` : ''
+        return {
+          id: `job:${job.id}`, jobId: job.id,
+          status: job.status === 'completed' ? 'success' : job.status === 'failed' ? 'error' : 'processing',
+          fileName: job.filename,
+          title: job.status === 'completed' ? '资料导入成功' : job.status === 'failed' ? '资料导入失败'
+            : job.status === 'queued' ? '等待导入' : job.message || '正在导入资料',
+          percent: Math.max(0, Math.min(100, job.progress)),
+          detail: active ? state.knowledgeImportPollingError || pageCount
+            : job.status === 'failed' ? job.error || job.message : job.message,
+          warnings: job.warnings ?? [], canDismiss: !active, canRetry: job.status === 'failed',
+          busy: state.knowledgeImportActionBusyIds.includes(job.id),
+          actionError: state.knowledgeImportActionErrors[job.id]
+        }
+      })]
+    }
+  },
   actions: {
     setAssignmentDateFilter(date: string) {
       this.assignmentDateFilter = date
@@ -205,85 +281,229 @@ export const useTeacherStore = defineStore('teacher', {
     },
     async importSubjectKnowledgeDocument(
       subject: SubjectAgentCode, file: File
-    ): Promise<SubjectKnowledgeImportResult> {
-      if (this.knowledgeImportInProgress) throw new Error('已有资料正在导入。')
-      const sequence = ++this.knowledgeImportSequence
-      this.knowledgeImportInProgress = true
-      this.knowledgeImportToast = {
-        status: 'uploading', fileName: file.name, title: '正在上传资料', percent: null,
-        detail: '正在将文件传至服务器。', warnings: []
+    ): Promise<SubjectKnowledgeImportJob> {
+      this.syncKnowledgeImportSession()
+      const owner = this.knowledgeImportOwner
+      if (!owner) throw new Error('请先登录教师账号。')
+      const sequence = this.knowledgeImportSequence
+      const key = `${subject}:${file.name}:${file.size}:${file.lastModified}`
+      if (this.knowledgeUploads.some(item => item.key === key && item.status === 'uploading')) {
+        throw new Error('该文件正在上传。')
       }
+      const id = `upload:${++this.knowledgeUploadSequence}`
+      const controller = this.createKnowledgeImportController()
+      this.knowledgeUploads.push({
+        id, key, subject, fileName: file.name, startedAt: Date.now(),
+        status: 'uploading', percent: null, detail: ''
+      })
       const form = new FormData()
       form.append('file', file)
       try {
-        const { data } = await api.post<SubjectKnowledgeImportResult>(
+        const { data } = await api.post<SubjectKnowledgeImportJob>(
           `/api/teacher/knowledge/${subject}/import`, form, {
             timeout: 3_600_000,
+            signal: controller.signal,
             onUploadProgress: event => {
-              const toast = this.knowledgeImportToast
-              if (sequence !== this.knowledgeImportSequence || !toast) return
+              if (sequence !== this.knowledgeImportSequence || owner !== importIdentity()) return
+              const upload = this.knowledgeUploads.find(item => item.id === id)
+              if (!upload) return
               const percent = event.total && event.total > 0
                 ? Math.min(100, Math.round(event.loaded / event.total * 100))
                 : null
-              if (percent !== null && percent >= 100) {
-                this.knowledgeImportToast = {
-                  ...toast,
-                  status: 'processing',
-                  percent: 100,
-                  title: '正在提取内容并建立索引',
-                  detail: '文件已上传，正在提取文字并建立检索索引。'
-                }
-              } else {
-                this.knowledgeImportToast = {
-                  ...toast,
-                  percent: percent === null
-                    ? null
-                    : Math.max(toast.percent ?? 0, percent)
-                }
-              }
+              upload.percent = percent === null ? null : Math.max(upload.percent ?? 0, percent)
             }
           }
         )
-        if (sequence === this.knowledgeImportSequence) {
-          const details = [
-            data.indexed_pages == null ? '' : `读取 ${data.indexed_pages} 页`,
-            data.ocr_pages ? `OCR 识别 ${data.ocr_pages} 页` : '',
-            `可检索 ${data.passage_count} 个片段`
-          ].filter(Boolean).join('，')
-          this.knowledgeImportToast = {
-            status: 'success', fileName: file.name, title: '资料导入成功', percent: 100,
-            detail: details, warnings: data.warnings ?? []
-          }
-          this.knowledgeImportVersion += 1
+        if (sequence === this.knowledgeImportSequence && owner === importIdentity()) {
+          this.knowledgeUploads = this.knowledgeUploads.filter(item => item.id !== id)
+          this.applyKnowledgeImportJob(data)
+          this.scheduleKnowledgeImportPoll(0)
         }
         return data
       } catch (cause) {
-        if (sequence === this.knowledgeImportSequence) {
-          let detail = '资料导入失败，请检查文件后重试。'
-          if (axios.isAxiosError(cause)) {
-            const responseDetail = cause.response?.data?.detail
-            if (typeof responseDetail === 'string') detail = responseDetail
-            else if (cause.response?.status === 504 || cause.code === 'ECONNABORTED') {
-              detail = '处理时间较长，服务器可能仍在导入。请先刷新资料书架确认结果，避免重复导入。'
-            }
-          }
-          this.knowledgeImportToast = {
-            status: 'error', fileName: file.name, title: '资料导入失败', percent: null,
-            detail, warnings: []
+        if (sequence === this.knowledgeImportSequence && owner === importIdentity()) {
+          const upload = this.knowledgeUploads.find(item => item.id === id)
+          if (upload) {
+            const uncertain = axios.isAxiosError(cause) && (!cause.response
+              || [502, 504].includes(cause.response.status) || cause.code === 'ECONNABORTED')
+            upload.status = uncertain ? 'waiting' : 'error'
+            upload.percent = null
+            upload.detail = uncertain ? '连接中断，正在查询服务器是否已接收。'
+              : importRequestError(cause, '上传失败，请重新选择文件。')
+            if (uncertain) this.scheduleKnowledgeImportPoll(0)
           }
         }
         throw cause
       } finally {
-        if (sequence === this.knowledgeImportSequence) this.knowledgeImportInProgress = false
+        this.knowledgeImportControllers = this.knowledgeImportControllers.filter(item => item !== controller)
       }
     },
-    dismissKnowledgeImportToast() {
-      if (!this.knowledgeImportInProgress) this.knowledgeImportToast = null
+    syncKnowledgeImportSession() {
+      const owner = importIdentity()
+      if (owner === this.knowledgeImportOwner) return
+      this.resetKnowledgeImport()
+      this.knowledgeImportOwner = owner
+      if (owner) void this.refreshKnowledgeImportJobs()
+    },
+    createKnowledgeImportController() {
+      const controller = markRaw(new AbortController())
+      this.knowledgeImportControllers.push(controller)
+      return controller
+    },
+    applyKnowledgeImportJob(job: SubjectKnowledgeImportJob) {
+      const previous = this.knowledgeImportJobs.find(item => item.id === job.id)
+      if (job.status === 'completed' && previous?.status !== 'completed') {
+        this.knowledgeImportVersion += 1
+        this.knowledgeImportVersions[job.subject] = (this.knowledgeImportVersions[job.subject] ?? 0) + 1
+      }
+      this.knowledgeImportDismissedIds = this.knowledgeImportDismissedIds.filter(id => id !== job.id)
+      this.knowledgeImportJobs = [...this.knowledgeImportJobs.filter(item => item.id !== job.id), job]
+      this.knowledgeImportMutationVersion += 1
+    },
+    scheduleKnowledgeImportPoll(delay = 2500) {
+      if (this.knowledgeImportTimer !== null) clearTimeout(this.knowledgeImportTimer)
+      this.knowledgeImportTimer = null
+      if (!this.knowledgeImportOwner || this.knowledgeImportOwner !== importIdentity()) return
+      this.knowledgeImportTimer = setTimeout(() => {
+        this.knowledgeImportTimer = null
+        void this.refreshKnowledgeImportJobs()
+      }, delay)
+    },
+    refreshKnowledgeImportJobs(): Promise<void> {
+      const owner = this.knowledgeImportOwner
+      if (!owner || owner !== importIdentity()) return Promise.resolve()
+      if (this.knowledgeImportTimer !== null) clearTimeout(this.knowledgeImportTimer)
+      this.knowledgeImportTimer = null
+      if (this.knowledgeImportLoadPromise) return this.knowledgeImportLoadPromise
+      const sequence = this.knowledgeImportSequence
+      const mutationVersion = this.knowledgeImportMutationVersion
+      const controller = this.createKnowledgeImportController()
+      let retryPoll = false
+      const request = (async () => {
+        try {
+          const { data } = await api.get<{ items: SubjectKnowledgeImportJob[] }>(
+            '/api/teacher/knowledge/import-jobs', { timeout: 15_000, signal: controller.signal }
+          )
+          if (sequence !== this.knowledgeImportSequence || owner !== importIdentity()) return
+          this.knowledgeImportPollingError = ''
+          // An upload, retry or dismissal may complete while this snapshot is in flight.
+          if (mutationVersion !== this.knowledgeImportMutationVersion) {
+            retryPoll = true
+            return
+          }
+          const jobs = data.items.filter(item => !this.knowledgeImportDismissedIds.includes(item.id))
+          const previous = new Map(this.knowledgeImportJobs.map(item => [item.id, item.status]))
+          for (const job of jobs) {
+            if (job.status === 'completed' && previous.get(job.id) !== 'completed') {
+              this.knowledgeImportVersion += 1
+              this.knowledgeImportVersions[job.subject] = (this.knowledgeImportVersions[job.subject] ?? 0) + 1
+            }
+          }
+          this.knowledgeImportJobs = jobs
+          this.knowledgeUploads = this.knowledgeUploads.filter(upload => {
+            if (upload.status !== 'waiting') return true
+            return !jobs.some(job => {
+              const created = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(job.created_at)
+                ? job.created_at : `${job.created_at}Z`)
+              return job.subject === upload.subject && job.filename === upload.fileName
+                && created >= upload.startedAt - 5000
+            })
+          })
+        } catch {
+          if (sequence !== this.knowledgeImportSequence || owner !== importIdentity()) return
+          // A failed status request says nothing about the worker's result.
+          this.knowledgeImportPollingError = '连接中断，正在重连…'
+          retryPoll = true
+        } finally {
+          this.knowledgeImportControllers = this.knowledgeImportControllers.filter(item => item !== controller)
+          if (sequence === this.knowledgeImportSequence && owner === importIdentity()) {
+            this.knowledgeImportLoadPromise = null
+            if (retryPoll || this.knowledgeImportJobs.some(importJobIsActive)
+              || this.knowledgeUploads.some(item => item.status === 'waiting')) {
+              this.scheduleKnowledgeImportPoll(retryPoll ? 5000 : 2500)
+            }
+          }
+        }
+      })()
+      this.knowledgeImportLoadPromise = request
+      return request
+    },
+    async dismissKnowledgeImportToast(id: string) {
+      if (!id.startsWith('job:')) {
+        this.knowledgeUploads = this.knowledgeUploads.filter(item => item.id !== id || item.status === 'uploading')
+        return
+      }
+      const jobId = id.slice(4)
+      const job = this.knowledgeImportJobs.find(item => item.id === jobId)
+      if (!job || importJobIsActive(job) || this.knowledgeImportActionBusyIds.includes(jobId)) return
+      const sequence = this.knowledgeImportSequence
+      const owner = this.knowledgeImportOwner
+      if (!owner || owner !== importIdentity()) return
+      const controller = this.createKnowledgeImportController()
+      this.knowledgeImportActionBusyIds.push(jobId)
+      delete this.knowledgeImportActionErrors[jobId]
+      try {
+        await api.post(`/api/teacher/knowledge/import-jobs/${encodeURIComponent(jobId)}/dismiss`, undefined,
+          { signal: controller.signal })
+        if (sequence !== this.knowledgeImportSequence || owner !== importIdentity()) return
+        this.knowledgeImportDismissedIds.push(jobId)
+        this.knowledgeImportJobs = this.knowledgeImportJobs.filter(item => item.id !== jobId)
+        this.knowledgeImportMutationVersion += 1
+      } catch (cause) {
+        if (sequence === this.knowledgeImportSequence && owner === importIdentity()) {
+          this.knowledgeImportActionErrors[jobId] = importRequestError(cause, '通知关闭失败，请重试。')
+        }
+      } finally {
+        this.knowledgeImportControllers = this.knowledgeImportControllers.filter(item => item !== controller)
+        if (sequence === this.knowledgeImportSequence) {
+          this.knowledgeImportActionBusyIds = this.knowledgeImportActionBusyIds.filter(item => item !== jobId)
+        }
+      }
+    },
+    async retryKnowledgeImport(jobId: string) {
+      const job = this.knowledgeImportJobs.find(item => item.id === jobId)
+      if (!job || job.status !== 'failed' || this.knowledgeImportActionBusyIds.includes(jobId)) return
+      const sequence = this.knowledgeImportSequence
+      const owner = this.knowledgeImportOwner
+      if (!owner || owner !== importIdentity()) return
+      const controller = this.createKnowledgeImportController()
+      this.knowledgeImportActionBusyIds.push(jobId)
+      delete this.knowledgeImportActionErrors[jobId]
+      try {
+        const { data } = await api.post<SubjectKnowledgeImportJob>(
+          `/api/teacher/knowledge/import-jobs/${encodeURIComponent(jobId)}/retry`, undefined,
+          { signal: controller.signal }
+        )
+        if (sequence !== this.knowledgeImportSequence || owner !== importIdentity()) return
+        this.applyKnowledgeImportJob(data)
+        this.scheduleKnowledgeImportPoll(0)
+      } catch (cause) {
+        if (sequence === this.knowledgeImportSequence && owner === importIdentity()) {
+          this.knowledgeImportActionErrors[jobId] = importRequestError(cause, '重试失败，请稍后再试。')
+        }
+      } finally {
+        this.knowledgeImportControllers = this.knowledgeImportControllers.filter(item => item !== controller)
+        if (sequence === this.knowledgeImportSequence) {
+          this.knowledgeImportActionBusyIds = this.knowledgeImportActionBusyIds.filter(item => item !== jobId)
+        }
+      }
     },
     resetKnowledgeImport() {
       this.knowledgeImportSequence += 1
-      this.knowledgeImportInProgress = false
-      this.knowledgeImportToast = null
+      for (const controller of this.knowledgeImportControllers) controller.abort()
+      this.knowledgeImportControllers = []
+      if (this.knowledgeImportTimer !== null) clearTimeout(this.knowledgeImportTimer)
+      this.knowledgeImportTimer = null
+      this.knowledgeImportLoadPromise = null
+      this.knowledgeImportOwner = ''
+      this.knowledgeImportJobs = []
+      this.knowledgeUploads = []
+      this.knowledgeImportDismissedIds = []
+      this.knowledgeImportActionBusyIds = []
+      this.knowledgeImportActionErrors = {}
+      this.knowledgeImportPollingError = ''
+      this.knowledgeImportVersions = {}
+      this.knowledgeImportMutationVersion += 1
     },
     async searchSubjectKnowledge(
       subject: SubjectAgentCode, query: string

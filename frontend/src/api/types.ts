@@ -866,6 +866,24 @@ export interface SubjectKnowledgeImportResult extends SubjectKnowledgeIndexResul
   ocr_pages?: number
 }
 
+export interface SubjectKnowledgeImportJob {
+  id: string
+  subject: SubjectAgentCode
+  filename: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  stage: string
+  progress: number
+  completed_pages: number
+  total_pages: number
+  message: string
+  document_id: number | null
+  vector_status: 'ready' | 'pending' | 'disabled' | null
+  warnings: string[]
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface SubjectKnowledgeSearchItem {
   document_id: number
   title: string

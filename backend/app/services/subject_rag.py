@@ -178,6 +178,7 @@ def index_knowledge(db: Session, document, pages=None) -> dict:
 
 def reindex_subject(db: Session, subject: str) -> dict:
     """重建单一学科索引；拒绝提交调用方 Session 中其他未完成的写事务。"""
+    rag_milvus.validate_subject(subject)
     if _has_uncommitted_session_writes(db):
         raise ValueError("请先提交或回滚当前 Session 的数据库修改，再重建学科索引。")
     documents = db.query(SubjectKnowledgeChunk).filter_by(subject=subject).order_by(SubjectKnowledgeChunk.id).all()
@@ -200,15 +201,38 @@ def delete_knowledge_index(db: Session, document_id: int) -> list[int]:
     return passage_ids
 
 
-def delete_vector_index(passage_ids: list[int]) -> list[str]:
+def delete_vector_index(subject: str, passage_ids: list[int]) -> list[str]:
     """只删除旧片段向量，避免复用的文档 ID 让延迟清理误删新资料。"""
     if passage_ids and rag_milvus.configured():
         try:
-            rag_milvus.delete_passages(passage_ids)
+            rag_milvus.delete_passages(subject, passage_ids)
         except Exception as exc:
             logger.warning("移除向量索引失败（passage_count=%s, error=%s）", len(passage_ids), type(exc).__name__)
             return ["资料已移除；Milvus 中的旧索引暂未清理，检索会忽略这些已删除资料。"]
     return []
+
+
+def migrate_subject_vectors(db: Session, subject: str) -> dict:
+    """部署迁移入口：仅复制仍属于该学科的现有向量，不重跑解析或嵌入。"""
+    collection = rag_milvus.collection_name(subject)
+    if _has_uncommitted_session_writes(db):
+        raise ValueError("请先提交或回滚当前 Session 的数据库修改，再迁移学科索引。")
+    rows = db.query(SubjectKnowledgePassage.id, SubjectKnowledgePassage.document_id).join(
+        SubjectKnowledgeChunk, SubjectKnowledgeChunk.id == SubjectKnowledgePassage.document_id,
+    ).filter(SubjectKnowledgeChunk.subject == subject).order_by(SubjectKnowledgePassage.id).all()
+    if not rag_milvus.configured():
+        return {"collection": collection, "migrated": 0, "missing": len(rows),
+                "vector_status": "disabled", "warnings": []}
+    try:
+        result = rag_milvus.migrate_legacy_subject(subject, [
+            {"id": row.id, "document_id": row.document_id} for row in rows
+        ])
+        return {**result, "vector_status": "pending" if result["missing"] else "ready",
+                "warnings": [_VECTOR_WARNING] if result["missing"] else []}
+    except Exception as exc:
+        logger.warning("学科向量迁移失败（subject=%s, error=%s）", subject, type(exc).__name__)
+        return {"collection": collection, "migrated": 0, "missing": len(rows),
+                "vector_status": "pending", "warnings": [_VECTOR_WARNING]}
 
 
 def _load_candidates(db: Session, subject: str) -> list[dict]:
@@ -266,6 +290,7 @@ def _bm25_rank(
 
 def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> dict:
     """分通道排序后做 RRF，恢复父块并去重；score 是排序分而非可信度。"""
+    rag_milvus.validate_subject(subject)
     empty = {"items": [], "retrieval_mode": "bm25", "rerank_mode": "local", "warnings": []}
     if not query or not query.strip() or limit <= 0:
         return empty

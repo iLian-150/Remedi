@@ -56,6 +56,16 @@ class Settings:
         "UPLOAD_DIR",
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"),
     )
+    # 知识库原件与检查点不放在公开的 /api/uploads 静态目录。
+    KNOWLEDGE_IMPORT_DIR: str = os.getenv(
+        "KNOWLEDGE_IMPORT_DIR", os.path.join(os.path.dirname(os.path.abspath(UPLOAD_DIR)), "knowledge-imports"),
+    )
+    RAG_OCR_LANGUAGE: str = os.getenv("RAG_OCR_LANGUAGE", "chi_sim+eng")
+    RAG_OCR_DPI: int = max(96, min(_get_int("RAG_OCR_DPI", 200), 300))
+    RAG_OCR_WORKERS: int = max(1, min(_get_int("RAG_OCR_WORKERS", 2), 4))
+    RAG_OCR_TIMEOUT_SECONDS: int = max(10, _get_int("RAG_OCR_TIMEOUT_SECONDS", 90))
+    RAG_VISUAL_ENABLED: bool = os.getenv("RAG_VISUAL_ENABLED", "true").lower() == "true"
+    RAG_VISUAL_TIMEOUT_SECONDS: int = max(5, min(_get_int("RAG_VISUAL_TIMEOUT_SECONDS", 45), 120))
 
     # 顽固误区判定窗口（天）：同一学生同一知识点 N 天内重复出错即记顽固
     STUBBORN_WINDOW_DAYS: int = _get_int("STUBBORN_WINDOW_DAYS", 30)
@@ -68,7 +78,7 @@ class Settings:
         os.getenv("APP_TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai"
     )
 
-    APP_VERSION: str = "0.13.376"
+    APP_VERSION: str = "0.13.377"
 
 
 settings = Settings()

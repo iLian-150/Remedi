@@ -16,15 +16,22 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import SubjectKnowledgeChunk, SubjectKnowledgePassage, TeacherSubject, User
+from app.models import KnowledgeImportJob, SubjectKnowledgeChunk, SubjectKnowledgePassage, TeacherSubject, User
 from app.routers.teacher import router
+from app.services import knowledge_jobs
 
 
 class KnowledgeApiTests(unittest.TestCase):
     def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="remedi-knowledge-api-")
+        self.addCleanup(temporary.cleanup)
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         Base.metadata.create_all(self.engine)
         self.sessions = sessionmaker(self.engine, autoflush=False, expire_on_commit=False)
+        self.enterContext(patch.object(knowledge_jobs, "SessionLocal", self.sessions))
+        self.enterContext(patch.object(knowledge_jobs.settings, "KNOWLEDGE_IMPORT_DIR", temporary.name))
+        self.enterContext(patch.object(knowledge_jobs.settings, "RAG_VISUAL_ENABLED", False))
+        knowledge_jobs._stop.clear()
         with self.sessions() as db:
             db.add_all([User(id=1, name="数学老师", role="teacher"),
                         User(id=2, name="英语老师", role="teacher"),
@@ -106,16 +113,29 @@ class KnowledgeApiTests(unittest.TestCase):
             pdf.new_page().insert_text((60, 80), "Discriminant determines the number of real roots.")
             return pdf.tobytes()
 
+    def run_import(self, response):
+        self.assertEqual(response.status_code, 202, response.text)
+        initial = response.json()
+        self.assertEqual(initial["status"], "queued")
+        self.assertEqual(knowledge_jobs._claim_next(), initial["id"])
+        knowledge_jobs._run_job(initial["id"])
+        result = self.client.get(f"/api/teacher/knowledge/import-jobs/{initial['id']}", headers=self.headers)
+        self.assertEqual(result.status_code, 200, result.text)
+        return result.json()
+
     def test_pdf_pages_and_reindex(self):
         response = self.client.post("/api/teacher/knowledge/math/import-pdf", headers=self.headers,
                                     files={"file": ("lesson.pdf", self.pdf_bytes(), "application/pdf")},
                                     data={"title": "Quadratic lesson"})
-        self.assertEqual(response.status_code, 200, response.text)
-        saved = response.json()
-        self.assertEqual((saved["page_count"], saved["indexed_pages"]), (3, 2))
+        saved = self.run_import(response)
+        self.assertEqual(saved["status"], "completed", saved)
+        self.assertEqual((saved["completed_pages"], saved["total_pages"]), (3, 3))
+        self.assertEqual(saved["progress"], 100)
         self.assertTrue(saved["warnings"])
         with self.sessions() as db:
             before = [(row.id, row.page_number) for row in db.query(SubjectKnowledgePassage).order_by(SubjectKnowledgePassage.id)]
+            self.assertEqual({page for _, page in before}, {1, 3})
+            self.assertEqual(db.get(SubjectKnowledgeChunk, saved["document_id"]).source_name, "lesson.pdf")
         with patch("app.services.rag_milvus.configured", return_value=True), \
                 patch("app.services.rag_milvus.upsert_passages") as upsert:
             rebuilt = self.client.post("/api/teacher/knowledge/math/reindex", headers=self.headers)
@@ -131,19 +151,23 @@ class KnowledgeApiTests(unittest.TestCase):
         self.assertEqual(found["items"][0]["page_number"], 3)
 
     def test_bad_or_image_only_pdf(self):
-        for data in (b"not a pdf", b""):
-            response = self.client.post("/api/teacher/knowledge/math/import-pdf", headers=self.headers,
-                                        files={"file": ("bad.pdf", data, "application/pdf")})
-            self.assertEqual(response.status_code, 422, response.text)
+        empty = self.client.post("/api/teacher/knowledge/math/import-pdf", headers=self.headers,
+                                 files={"file": ("empty.pdf", b"", "application/pdf")})
+        self.assertEqual(empty.status_code, 422, empty.text)
+        malformed = self.client.post("/api/teacher/knowledge/math/import-pdf", headers=self.headers,
+                                     files={"file": ("bad.pdf", b"not a pdf", "application/pdf")})
+        self.assertEqual(self.run_import(malformed)["status"], "failed")
         with pymupdf.open() as pdf:
             pdf.new_page()
             data = pdf.tobytes()
         response = self.client.post("/api/teacher/knowledge/math/import-pdf", headers=self.headers,
                                     files={"file": ("scan.pdf", data, "application/pdf")})
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("OCR", response.json()["detail"])
+        blank = self.run_import(response)
+        self.assertEqual(blank["status"], "failed")
+        self.assertTrue(blank["error"])
         with self.sessions() as db:
             self.assertEqual(db.query(SubjectKnowledgeChunk).count(), 0)
+            self.assertEqual(db.query(KnowledgeImportJob).count(), 2)
 
     def test_vector_outage_preserves_document(self):
         with patch("app.services.rag_milvus.configured", return_value=True), \
@@ -419,7 +443,7 @@ class KnowledgeDeleteConcurrencyTests(unittest.TestCase):
                 continue_delete.set()
             response = pending.result(timeout=5)
         self.assertEqual(response.status_code, 200, response.text)
-        cleanup.assert_called_once_with(old_passage_ids)
+        cleanup.assert_called_once_with("math", old_passage_ids)
         new_id, new_passage_ids = self.save_document(replacement_subject)
         self.assertEqual(new_id, document_id, "regression requires a reused document ID")
         self.assertTrue(set(old_passage_ids).isdisjoint(new_passage_ids))
@@ -505,7 +529,8 @@ class KnowledgeDeleteConcurrencyTests(unittest.TestCase):
         cleanup_started = threading.Event()
         finish_cleanup = threading.Event()
 
-        def delayed_cleanup(passage_ids):
+        def delayed_cleanup(subject, passage_ids):
+            self.assertEqual(subject, "math")
             self.assertEqual(passage_ids, old_ids)
             cleanup_started.set()
             if not finish_cleanup.wait(3):

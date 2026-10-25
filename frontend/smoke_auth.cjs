@@ -62,7 +62,9 @@ function loadLogin(post) {
     console: { error() {} },
     require(id) {
       if (id === 'vue') return vue
-      if (id === 'vue-router') return { useRouter: () => ({ push: to => redirects.push(to) }) }
+      if (id === 'vue-router') return { useRouter: () => ({
+        push: to => redirects.push(to), replace: to => redirects.push(to)
+      }) }
       if (id === '../stores/auth') return { useAuthStore: () => ({ setSession: (...args) => sessions.push(args) }) }
       if (id === '../api/client') return { default: { post: (url, payload) => {
         requests.push({ url, payload })
@@ -157,7 +159,7 @@ test('student login validates both identity fields before requesting', async () 
   const { state, requests } = loadLogin(() => { throw new Error('unexpected request') })
   assert.equal(state.username.value, '')
   await state.login()
-  assert.equal(state.error.value, '请输入用户名')
+  assert.equal(state.error.value, '请输入学生姓名')
   state.username.value = '同学甲'
   await state.login()
   assert.equal(state.error.value, '请输入学号')

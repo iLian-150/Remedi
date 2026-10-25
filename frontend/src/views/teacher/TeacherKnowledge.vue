@@ -4,7 +4,6 @@
       <div>
         <div class="agent-badge"><span class="agent-pulse"></span>{{ subjectLabel }} Agent <span class="badge-divider">·</span> 专属知识库</div>
         <h2>我的资料</h2>
-        <p class="page-sub">把教材、讲义和评分标准放进书架，让{{ subjectLabel }} Agent 回答时能检索并引用。</p>
       </div>
       <button class="reindex-button" :disabled="loading || mutating || !vectorEnabled || !items.length" @click="reindex">
         <span class="refresh-symbol">↻</span>{{ reindexing ? '正在更新索引…' : '重建检索索引' }}
@@ -23,7 +22,6 @@
         <div class="shelf-heading">
           <div>
             <div class="shelf-title-line"><h3>知识库书架</h3><span class="document-count">{{ items.length }} 份资料</span></div>
-            <p>每份资料只进入当前学科 Agent 的检索范围</p>
           </div>
           <span :class="['index-status', vectorEnabled ? 'ready' : 'keyword']"><i></i>{{ vectorEnabled ? '语义 + 关键词检索' : '关键词检索' }}</span>
         </div>
@@ -46,18 +44,18 @@
             </article>
 
             <button class="add-document-slot" :disabled="mutating" @click="openUpload('file')">
-              <span class="add-document-card"><span class="add-plus">+</span><b>添加资料</b><small>粘贴文字或导入文档</small></span>
+              <span class="add-document-card"><span class="add-plus">+</span><b>添加资料</b></span>
             </button>
           </div>
           <div class="shelf-board"></div>
-          <p v-if="!items.length" class="shelf-empty">书架还是空的，点“添加资料”把第一份 Agent 知识文档放上来。</p>
+          <p v-if="!items.length" class="shelf-empty">暂无资料</p>
         </div>
       </section>
 
       <section class="search-panel">
         <div class="search-heading">
           <span class="search-mark">⌕</span>
-          <div><h3>试查 Agent 检索</h3><p>输入学生可能提出的问题，确认这份资料能否被检索到。</p></div>
+          <div><h3>试查 Agent 检索</h3></div>
         </div>
         <form class="search-form" @submit.prevent="search">
           <label class="sr-only" for="knowledge-query">试查问题</label>
@@ -89,11 +87,11 @@
         </div>
         <div v-if="entryMode === 'file'" class="upload-dropzone">
           <span class="file-icon">{{ documentFile ? documentFile.name.split('.').pop()?.toUpperCase() : 'FILE' }}</span>
-          <div><b>{{ documentFile ? documentFile.name : '选择一份资料文档' }}</b><small>标题和来源将根据文件名自动生成</small></div>
+          <div><b>{{ documentFile ? documentFile.name : '选择一份资料文档' }}</b></div>
           <label class="choose-file" for="knowledge-document">{{ documentFile ? '重新选择' : '选择文件' }}</label>
-          <input id="knowledge-document" ref="fileInput" class="sr-only" type="file" accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.yaml,.yml" :disabled="mutating" @change="selectDocument" />
+          <input id="knowledge-document" ref="fileInput" class="sr-only" type="file" :accept="documentAccept" :disabled="mutating" @change="selectDocument" />
         </div>
-        <p v-if="entryMode === 'file'" class="scan-note">支持 PDF、DOCX、PPTX、XLSX/XLSM、TXT/MD、CSV/TSV、HTML、JSON、XML、YAML；PDF 扫描页会自动识别。</p>
+        <p v-if="entryMode === 'file'" class="scan-note">支持 PDF、图片、Office 文档和常见文本格式</p>
         <div v-if="entryMode === 'text'" class="dialog-form-row">
           <label for="knowledge-title">资料标题</label>
           <input id="knowledge-title" v-model="title" class="dialog-input" maxlength="160" :disabled="mutating" placeholder="例如：一次函数图像与性质" />
@@ -190,7 +188,7 @@ const importing = ref(false)
 const reindexing = ref(false)
 const deletingId = ref<number | null>(null)
 const searching = ref(false)
-const mutating = computed(() => saving.value || importing.value || teacher.knowledgeImportInProgress || reindexing.value || deletingId.value !== null || searching.value)
+const mutating = computed(() => saving.value || importing.value || reindexing.value || deletingId.value !== null || searching.value)
 const error = ref('')
 const notice = ref('')
 const warnings = ref<string[]>([])
@@ -200,6 +198,11 @@ let generation = 0
 let loadSequence = 0
 
 const BOOK_COLORS = ['#2556C9', '#087A73', '#B76C27', '#9E4765', '#6552A2', '#3C718B']
+const supportedDocumentFormats = new Set([
+  'pdf', 'docx', 'pptx', 'xlsx', 'xlsm', 'txt', 'md', 'csv', 'tsv', 'html', 'htm', 'json', 'xml', 'yaml', 'yml',
+  'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff'
+])
+const documentAccept = [...supportedDocumentFormats].map(format => `.${format}`).join(',')
 
 function bookStyle(item: SubjectKnowledgeItem): Record<string, string> {
   const color = BOOK_COLORS[(item.id - 1) % BOOK_COLORS.length]
@@ -209,14 +212,14 @@ function bookStyle(item: SubjectKnowledgeItem): Record<string, string> {
 function documentFormat(item: SubjectKnowledgeItem): string {
   const filename = item.source_name || item.title
   const extension = filename.match(/\.([a-z0-9]+)$/i)?.[1]?.toUpperCase()
-  return extension && ['PDF', 'DOCX', 'PPTX', 'XLSX', 'XLSM', 'TXT', 'MD', 'CSV', 'TSV', 'HTML', 'HTM', 'JSON', 'XML', 'YAML', 'YML'].includes(extension)
+  return extension && supportedDocumentFormats.has(extension.toLowerCase())
     ? extension
     : 'TEXT'
 }
 
 function importedDocumentLabel(item: SubjectKnowledgeItem): string {
   const format = documentFormat(item)
-  return format === 'TEXT' ? '文字资料' : `${format} 导入文档`
+  return format === 'TEXT' ? '文字资料' : `${format} 资料`
 }
 
 function openUpload(mode: 'text' | 'file' = 'text') {
@@ -300,9 +303,8 @@ function selectDocument(event: Event) {
   documentFile.value = null
   if (!file) return
   const extension = file.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase()
-  const supported = new Set(['pdf', 'docx', 'pptx', 'xlsx', 'xlsm', 'txt', 'md', 'csv', 'tsv', 'html', 'htm', 'json', 'xml', 'yaml', 'yml'])
-  if (!extension || !supported.has(extension)) {
-    error.value = '暂不支持此文件格式。请选择 PDF、DOCX、PPTX、XLSX/XLSM、TXT/MD、CSV/TSV、HTML、JSON、XML 或 YAML 文件。'
+  if (!extension || !supportedDocumentFormats.has(extension)) {
+    error.value = '暂不支持此格式，请选择 PDF、图片、Office 文档或文本文件。'
     input.value = ''
     return
   }
@@ -422,7 +424,7 @@ watch(subject, () => {
   void load()
 }, { immediate: true })
 
-watch(() => teacher.knowledgeImportVersion, () => {
+watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 : 0, () => {
   void load()
 })
 </script>

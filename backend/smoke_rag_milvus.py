@@ -187,7 +187,7 @@ class MilvusAdapterTests(unittest.TestCase):
         state = self.state(existing=True, dimension=4)
         with self.assertRaises(RuntimeError):
             rag._ensure_collection(state, "remedi_test", dimension=3)
-        self.assertNotIn("remedi_test", state.ready)
+        self.assertNotIn("remedi_test_math", state.ready)
         state.client.create_collection.assert_not_called()
         state.client.load_collection.assert_not_called()
         cached = self.state()
@@ -218,6 +218,7 @@ class MilvusAdapterTests(unittest.TestCase):
         ):
             self.assertEqual(rag.search_passages("math", "question", limit=999), [(7, 0.94)])
         request = state.client.search.call_args.kwargs
+        self.assertEqual(request["collection_name"], "remedi_test_math")
         self.assertEqual(request["filter"], "subject == {subject} and embedding_model == {embedding_model}")
         self.assertEqual(request["filter_params"], {"subject": "math", "embedding_model": "qwen3.7-text-embedding-flash"})
         self.assertEqual(request["anns_field"], "vectors")
@@ -239,16 +240,18 @@ class MilvusAdapterTests(unittest.TestCase):
         self.assertEqual(batches[:4], batches[4:])
         self.assertTrue(all(row["document_id"] == 9 and row["subject"] == "math" and row["embedding_model"] == "qwen3.7-text-embedding-flash" for batch in batches for row in batch))
         self.assertEqual(embed.call_args_list[0].args[0][0], "Lesson\nPassage 0")
+        self.assertTrue(all(call.kwargs["collection_name"] == "remedi_test_math"
+                            for call in state.client.upsert.call_args_list))
         state.client.create_collection.assert_called_once()
 
     def test_delete_missing_collection_does_not_create_it(self):
         state = self.state()
         with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
-            rag.delete_document(9)
+            rag.delete_document("math", 9)
             state.client.delete.assert_not_called()
             state.client.has_collection.return_value = True
-            rag.delete_document(9)
-        self.assertEqual(state.client.delete.call_args.kwargs["filter"], "document_id == 9")
+            rag.delete_document("math", 9)
+        self.assertEqual(state.client.delete.call_args.kwargs["filter"], 'document_id == 9 and subject == "math"')
         self.assertEqual(state.client.delete.call_args.kwargs["timeout"], 2)
         state.client.create_collection.assert_not_called()
 
@@ -259,12 +262,13 @@ class MilvusAdapterTests(unittest.TestCase):
 
         def delete(**request):
             self.assertNotIn("filter", request)
+            self.assertEqual(request["collection_name"], "remedi_test_math")
             for passage_id in request["ids"]:
                 vectors.pop(passage_id, None)
 
         state.client.delete.side_effect = delete
         with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
-            rag.delete_passages(list(range(1, 301)) + [1])
+            rag.delete_passages("math", list(range(1, 301)) + [1])
         self.assertEqual(vectors, {301: 9})
         batches = [call.kwargs["ids"] for call in state.client.delete.call_args_list]
         self.assertEqual([len(batch) for batch in batches], [256, 44])
@@ -273,31 +277,130 @@ class MilvusAdapterTests(unittest.TestCase):
 
     def test_empty_or_invalid_passage_cleanup_does_not_connect(self):
         with patch.object(rag, "_client_state") as connect:
-            rag.delete_passages([])
+            rag.delete_passages("math", [])
             for ids in ([0], [-1], [True], ["1"], [2 ** 63]):
                 with self.subTest(ids=ids), self.assertRaises(ValueError):
-                    rag.delete_passages(ids)
+                    rag.delete_passages("math", ids)
         connect.assert_not_called()
         state = self.state(existing=False)
         with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
-            rag.delete_passages([1])
+            rag.delete_passages("math", [1])
         state.client.delete.assert_not_called()
         state.client.create_collection.assert_not_called()
 
     def test_failed_passage_cleanup_sanitizes_errors_and_invalidates_cache(self):
         state = self.state(existing=True)
-        state.ready["remedi_test"] = 3
+        state.ready["remedi_test_math"] = 3
         state.client.delete.side_effect = RuntimeError("test-milvus-token private delete response")
         with patch.object(rag, "_client_state", return_value=(state, "remedi_test")), self.assertRaises(RuntimeError) as raised:
-            rag.delete_passages([1])
+            rag.delete_passages("math", [1])
         self.assertNotIn("test-milvus-token", str(raised.exception))
         self.assertNotIn("private delete response", str(raised.exception))
         self.assertTrue(raised.exception.__suppress_context__)
-        self.assertNotIn("remedi_test", state.ready)
+        self.assertNotIn("remedi_test_math", state.ready)
+
+    def test_subject_collections_are_distinct_and_reject_unknown_subjects(self):
+        names = {subject: rag.collection_name(subject) for subject in rag.SUBJECTS}
+        self.assertEqual(len(names), 9)
+        self.assertEqual(len(set(names.values())), 9)
+        self.assertEqual(names["math"], "remedi_test_math")
+        self.assertEqual(names["chinese"], "remedi_test_chinese")
+        for value in ("", "Math", "all", "math or subject != math", "unknown", None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                rag.collection_name(value)
+        with patch.object(rag, "_client_state") as connect, patch.object(rag, "embed_texts") as embed:
+            for action in (lambda: rag.upsert_passages("all", [{"content": "test"}]),
+                           lambda: rag.delete_passages("all", [1]),
+                           lambda: rag.search_passages("all", "question"),
+                           lambda: rag.migrate_legacy_subject("all", [])):
+                with self.assertRaises(ValueError):
+                    action()
+        connect.assert_not_called()
+        embed.assert_not_called()
+
+    def test_identical_ids_in_other_subject_collections_are_untouched(self):
+        state = self.state(existing=True)
+        rows = {"remedi_test_math": {1}, "remedi_test_english": {1}, "remedi_test": {1}}
+
+        def delete(**request):
+            rows[request["collection_name"]].difference_update(request["ids"])
+
+        state.client.delete.side_effect = delete
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
+            rag.delete_passages("math", [1])
+        self.assertEqual(rows, {"remedi_test_math": set(), "remedi_test_english": {1}, "remedi_test": {1}})
+
+    def test_migration_copies_only_sql_owned_subject_and_model_without_embeddings(self):
+        state = self.state(existing=True, dimension=256)
+        model = rag.settings.RAG_EMBEDDING_MODEL
+        row = {"id": 1, "document_id": 10, "subject": "math", "embedding_model": model,
+               "vectors": [0.5] * 256}
+        state.client.query.return_value = [
+            row,
+            {**row, "id": 2, "subject": "english"},
+            {**row, "id": 3, "embedding_model": "old-model"},
+            {**row, "id": 4, "document_id": 99},
+            {**row, "id": 100},  # Vector outlived its SQL document.
+        ]
+        expected = [{"id": passage_id, "document_id": 10} for passage_id in range(1, 5)]
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")), patch.object(
+            rag, "embed_texts", side_effect=AssertionError("migration must reuse vectors"),
+        ), patch.object(rag.settings, "DASHSCOPE_API_KEY", ""):
+            result = rag.migrate_legacy_subject("math", expected)
+        self.assertEqual(result, {"collection": "remedi_test_math", "migrated": 1, "missing": 3})
+        request = state.client.query.call_args.kwargs
+        self.assertEqual(request["collection_name"], "remedi_test")
+        self.assertEqual(request["filter_params"], {"subject": "math", "embedding_model": model, "ids": [1, 2, 3, 4]})
+        state.client.upsert.assert_called_once_with(collection_name="remedi_test_math", data=[row], timeout=2)
+        state.client.delete.assert_not_called()
+        state.client.drop_collection.assert_not_called()
+        rag.requests.post.assert_not_called()
+
+    def test_migration_is_batched_idempotent_and_preserves_old_collection(self):
+        state = self.state(existing=True, dimension=256)
+        model = rag.settings.RAG_EMBEDDING_MODEL
+        legacy = {passage_id: {"id": passage_id, "document_id": 10, "subject": "math",
+                  "embedding_model": model, "vectors": [0.5] * 256} for passage_id in range(1, 301)}
+        copied = {}
+        state.client.query.side_effect = lambda **request: [legacy[key] for key in request["filter_params"]["ids"]]
+
+        def upsert(**request):
+            self.assertEqual(request["collection_name"], "remedi_test_math")
+            copied.update({row["id"]: row for row in request["data"]})
+
+        state.client.upsert.side_effect = upsert
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
+            for _ in range(2):
+                self.assertEqual(rag.migrate_legacy_subject("math", list(legacy.values()))["migrated"], 300)
+        self.assertEqual(copied, legacy)
+        self.assertEqual([len(call.kwargs["filter_params"]["ids"]) for call in state.client.query.call_args_list],
+                         [256, 44, 256, 44])
+        state.client.delete.assert_not_called()
+        state.client.drop_collection.assert_not_called()
+
+    def test_migration_missing_legacy_creates_only_subject_collection(self):
+        state = self.state(dimension=256)
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")):
+            result = rag.migrate_legacy_subject("math", [{"id": 1, "document_id": 10}])
+        self.assertEqual(result["missing"], 1)
+        self.assertEqual(state.client.create_collection.call_args.kwargs["collection_name"], "remedi_test_math")
+        state.client.query.assert_not_called()
+        state.client.upsert.assert_not_called()
+
+    def test_failed_migration_keeps_legacy_and_sanitizes_remote_details(self):
+        state = self.state(existing=True, dimension=256)
+        state.client.query.side_effect = RuntimeError("test-milvus-token private remote response")
+        with patch.object(rag, "_client_state", return_value=(state, "remedi_test")), self.assertRaises(RuntimeError) as raised:
+            rag.migrate_legacy_subject("math", [{"id": 1, "document_id": 10}])
+        self.assertNotIn("private remote response", str(raised.exception))
+        self.assertNotIn("test-milvus-token", str(raised.exception))
+        self.assertNotIn("remedi_test_math", state.ready)
+        state.client.delete.assert_not_called()
+        state.client.drop_collection.assert_not_called()
 
     def test_failed_search_invalidates_cached_collection_and_sanitizes_error(self):
         state = self.state(existing=True)
-        state.ready["remedi_test"] = 3
+        state.ready["remedi_test_math"] = 3
         state.client.search.side_effect = RuntimeError("test-milvus-token private remote response")
         with patch.object(rag, "_client_state", return_value=(state, "remedi_test")), patch.object(
             rag, "embed_texts", return_value=[[1, 2, 3]],
@@ -306,7 +409,7 @@ class MilvusAdapterTests(unittest.TestCase):
         self.assertNotIn("test-milvus-token", str(raised.exception))
         self.assertNotIn("private remote response", str(raised.exception))
         self.assertTrue(raised.exception.__suppress_context__)
-        self.assertNotIn("remedi_test", state.ready)
+        self.assertNotIn("remedi_test_math", state.ready)
 
 
 if __name__ == "__main__":

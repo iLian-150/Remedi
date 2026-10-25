@@ -1,20 +1,29 @@
-"""读取教学资料中的文本；PDF 扫描页和疑似乱码页面会交给视觉模型识别。"""
+"""保留文字层，扫描文字使用专用 OCR，图表按需视觉补全并逐页保存检查点。"""
 
 import csv
 import io
 import json
 import logging
+import hashlib
+import os
 import re
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+from ..config import settings
+from .knowledge_ocr import describe_visual, needs_visual_context, recognize_text
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_KNOWLEDGE_FORMATS = (
     ".pdf", ".docx", ".pptx", ".xlsx", ".xlsm",
     ".txt", ".md", ".csv", ".tsv", ".html", ".htm", ".json", ".xml", ".yaml", ".yml",
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff",
 )
+_IMAGE_FORMATS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+_PIPELINE_VERSION = 1
 
 
 def _looks_like_unusable_pdf_text(text: str) -> bool:
@@ -47,7 +56,126 @@ def _looks_like_unusable_pdf_text(text: str) -> bool:
     replacement = value.count("�") + value.count("?")
     return meaningful / len(value) < 0.35 or replacement / len(value) >= 0.08
 
-def extract_knowledge_pdf(data: bytes) -> dict:
+def _checkpoint_path(directory, digest: str, page: int):
+    if directory is None:
+        return None
+    root = Path(directory) / digest
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"page-{page}.json"
+
+
+def _read_checkpoint(path):
+    if path is None or not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if value.get("version") == _PIPELINE_VERSION else {}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+def _write_checkpoint(path, record):
+    if path is None:
+        return
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"version": _PIPELINE_VERSION, **record}, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _render(page, clip=None, *, visual=False):
+    import pymupdf
+
+    rect = clip or page.rect
+    scale = min(1280 / max(rect.width, rect.height), 2.0) if visual else settings.RAG_OCR_DPI / 72
+    pixmap = page.get_pixmap(
+        matrix=pymupdf.Matrix(scale, scale), clip=clip, alpha=False,
+        colorspace=pymupdf.csRGB if visual else pymupdf.csGRAY,
+    )
+    return pixmap.tobytes("jpeg", jpg_quality=75) if visual else pixmap.tobytes("png")
+
+
+def _visual_regions(page):
+    """复用 PyMuPDF 的图片定位与矢量绘图聚类；整页扫描不误当成图形区域。"""
+    import pymupdf
+
+    rects = []
+    area = page.rect.get_area() or 1
+    candidates = [item["bbox"] for item in page.get_image_info()]
+    try:
+        candidates.extend(page.cluster_drawings())
+    except (AttributeError, ValueError, RuntimeError):
+        pass
+    for bounds in candidates:
+        rect = pymupdf.Rect(bounds) & page.rect
+        if rect.width < 40 or rect.height < 30 or not 0.012 <= rect.get_area() / area <= 0.82:
+            continue
+        if any((rect & previous).get_area() >= 0.85 * min(rect.get_area(), previous.get_area()) for previous in rects):
+            continue
+        rects.append(rect)
+    return rects
+
+
+def _process_page(native_text, ocr_images, visual_images, context_image, cached, checkpoint):
+    # 此工作线程只运行 Tesseract 子进程/网络请求，PyMuPDF 页面始终由主线程访问。
+    record = dict(cached)
+    warnings = []
+    if not record.get("ocr_done"):
+        parts = [native_text] if native_text else []
+        confidence = 1.0
+        ocr_parts = record.setdefault("ocr_parts", {})
+        for image in ocr_images:
+            image_key = hashlib.sha256(image).hexdigest()
+            try:
+                recognized = ocr_parts.get(image_key)
+                if recognized is None:
+                    recognized = recognize_text(image)
+                    ocr_parts[image_key] = recognized
+                    _write_checkpoint(checkpoint, record)
+            except RuntimeError:
+                # 即使存在原生页眉，也不能把失败的扫描正文标记为完成。
+                raise RuntimeError("本页部分图片文字识别失败，已识别内容已保存，可重试继续。") from None
+            if recognized["text"]:
+                parts.append(recognized["text"])
+                confidence = min(confidence, recognized["confidence"])
+        text = "\n\n".join(parts).strip()
+        if text and ocr_images and confidence < 0.55:
+            warnings.append("文字识别置信度较低，请对照原件核对公式和符号。")
+        record.update(text=text, confidence=confidence, ocr_done=True, ocr=bool(ocr_images), warnings=warnings)
+        _write_checkpoint(checkpoint, record)
+    text = record.get("text", "")
+    if settings.RAG_VISUAL_ENABLED and not record.get("visual_done"):
+        record["warnings"] = [item for item in record.get("warnings", []) if not item.startswith("图形解析")]
+        images = visual_images
+        if not images and context_image and needs_visual_context(text, record.get("confidence", 1)):
+            images = [context_image]
+        descriptions = []
+        visual_failed = False
+        visual_parts = record.setdefault("visual_parts", {})
+        for image in images:
+            image_key = hashlib.sha256(image).hexdigest()
+            try:
+                description = visual_parts.get(image_key)
+                if description is None:
+                    description = describe_visual(image, text)
+                    visual_parts[image_key] = description
+                    _write_checkpoint(checkpoint, record)
+                if description:
+                    descriptions.append(description)
+            except RuntimeError:
+                visual_failed = True
+                warnings.append("图形解析暂不可用，已保留文字，可对照原件查看。")
+        record["visual_text"] = "\n\n".join(descriptions)
+        record["visual_done"] = not visual_failed
+        record["warnings"] = list(dict.fromkeys(record.get("warnings", []) + warnings))
+    else:
+        record.setdefault("visual_text", "")
+        record.setdefault("visual_done", not settings.RAG_VISUAL_ENABLED)
+    record["complete"] = record.get("ocr_done") and record.get("visual_done")
+    _write_checkpoint(checkpoint, record)
+    return record
+
+
+def extract_knowledge_pdf(data: bytes, *, progress=None, checkpoint_dir=None, fingerprint=None, force_visual=False) -> dict:
     import pymupdf
 
     if not data:
@@ -61,56 +189,87 @@ def extract_knowledge_pdf(data: bytes) -> dict:
             raise ValueError("请先解除 PDF 密码保护再导入。")
         if document.page_count < 1:
             raise ValueError("PDF 没有可读取的页面。")
-        pages = []
-        skipped = []
-        failed = []
-        repaired = []
-        provider = None
-        for index, page in enumerate(document):
-            text = page.get_text("text", sort=True).replace("\x00", "").strip()
-            needs_ocr = not text or _looks_like_unusable_pdf_text(text)
-            if needs_ocr:
+        results, failures = {}, {}
+        total = document.page_count
+        digest = fingerprint or hashlib.sha256(data).hexdigest()
+
+        def report(stage="extracting"):
+            if progress:
+                completed = sum(bool(record.get("complete")) for record in results.values())
+                progress({"stage": stage, "completed_pages": completed,
+                          "total_pages": total, "message": f"已处理 {completed}/{total} 页"})
+
+        def collect(pending):
+            completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in completed:
+                number = pending.pop(future)
                 try:
-                    if provider is None:
-                        from .providers import get_provider
-                        provider = get_provider()
-                    scale = 150 / 72
-                    image_bytes = page.get_pixmap(
-                        matrix=pymupdf.Matrix(scale, scale), alpha=False,
-                    ).tobytes("png")
-                    ocr_text = provider.extract_text_from_image(image_bytes, "image/png")
-                except Exception as exc:
-                    logger.warning(
-                        "PDF 第 %s 页 OCR 失败（%s）", index + 1, type(exc).__name__,
-                    )
-                    failed.append(index + 1)
-                else:
-                    if ocr_text:
-                        text = ocr_text
-                        repaired.append(index + 1)
-                    elif not text:
-                        skipped.append(index + 1)
-                    else:
-                        failed.append(index + 1)
-            if not text:
-                if index + 1 not in skipped:
-                    skipped.append(index + 1)
-                continue
-            pages.append((index + 1, text))
+                    results[number] = future.result()
+                except RuntimeError as exc:
+                    failures[number] = str(exc)
+                    logger.warning("教材第 %s 页文字识别失败（%s）", number, type(exc).__name__)
+                report()
+
+        with ThreadPoolExecutor(max_workers=settings.RAG_OCR_WORKERS, thread_name_prefix="knowledge-page") as pool:
+            pending = {}
+            for index, page in enumerate(document):
+                number = index + 1
+                checkpoint = _checkpoint_path(checkpoint_dir, digest, number)
+                cached = _read_checkpoint(checkpoint)
+                if cached.get("complete"):
+                    results[number] = cached
+                    report()
+                    continue
+                text = page.get_text("text", sort=True).replace("\x00", "").strip()
+                scan = not text or _looks_like_unusable_pdf_text(text)
+                image_info = page.get_image_info()
+                # 带原生页眉的扫描正文仍需 OCR，不能因为有少量文字层而漏掉正文。
+                full_scan_image = any(
+                    (pymupdf.Rect(item["bbox"]) & page.rect).get_area() / max(page.rect.get_area(), 1) > 0.82
+                    for item in image_info
+                )
+                # 无任何绘制内容的空白页直接跳过，不加载 OCR。
+                blank = not text and not image_info and not page.get_drawings()
+                regions = [] if scan else _visual_regions(page)
+                ocr_images = [] if cached.get("ocr_done") or blank else (
+                    [_render(page)] if scan or full_scan_image else [_render(page, rect) for rect in regions]
+                )
+                visuals = [_render(page, rect, visual=True) for rect in regions] if settings.RAG_VISUAL_ENABLED else []
+                context_image = _render(page, visual=True) if settings.RAG_VISUAL_ENABLED and not blank else None
+                if force_visual and context_image:
+                    visuals = [context_image]
+                report("ocr" if ocr_images else "visual" if visuals else "extracting")
+                future = pool.submit(_process_page, "" if scan else text, ocr_images, visuals,
+                                     context_image, cached, checkpoint)
+                pending[future] = number
+                if len(pending) >= settings.RAG_OCR_WORKERS * 2:
+                    collect(pending)
+            while pending:
+                collect(pending)
+        pages, warnings, ocr_pages, visual_pages = [], [], 0, 0
+        for number in sorted(results):
+            record = results[number]
+            text = record.get("text", "")
+            visual = record.get("visual_text", "")
+            if visual:
+                text += "\n\n[图形语义补全]\n" + visual
+                visual_pages += 1
+            if text.strip():
+                pages.append((number, text.strip()))
+            else:
+                warnings.append(f"第 {number} 页未识别到文字或图形内容。")
+            ocr_pages += bool(record.get("ocr"))
+            warnings.extend(f"第 {number} 页：{warning}" for warning in record.get("warnings", []))
+        if failures:
+            # 缺页不能静默标记为整本完成；成功页面已缓存，重试只处理失败页。
+            raise RuntimeError(f"第 {'、'.join(map(str, sorted(failures)))} 页文字识别失败；已完成页面已保存，重试可继续。")
+        visual_pending = [str(number) for number, record in results.items() if not record.get("complete")]
+        if visual_pending:
+            raise RuntimeError("第 " + "、".join(visual_pending) + " 页图形解析未完成；文字与已完成图形已保存，重试可继续。")
         if not pages:
-            if failed:
-                raise RuntimeError("扫描页文字识别服务暂不可用，请稍后重试。")
-            raise ValueError("PDF 页面中没有识别到可用文字，请检查扫描清晰度后重试。")
-        warnings = []
-        if skipped:
-            warnings.append("以下页未能识别到文字，未进入检索库：" + "、".join(map(str, skipped)) + "。")
-        if failed:
-            warnings.append("以下页的 OCR 暂未成功：" + "、".join(map(str, failed)) + "。")
-        if repaired:
-            warnings.append("已对以下扫描或疑似乱码页面进行 OCR：" + "、".join(map(str, repaired)) + "。")
-        return {"pages": pages, "page_count": document.page_count,
-                "indexed_pages": len(pages), "ocr_pages": len(repaired),
-                "warnings": warnings}
+            raise ValueError("文件中没有识别到可检索内容，请检查扫描清晰度。")
+        return {"pages": pages, "page_count": total, "indexed_pages": len(pages),
+                "ocr_pages": ocr_pages, "visual_pages": visual_pages, "warnings": warnings}
 
 
 def _decode_text(data: bytes) -> str:
@@ -222,7 +381,42 @@ def _xlsx_text(data: bytes) -> str:
     return "\n".join(parts).strip()
 
 
-def _extract_non_pdf(data: bytes, extension: str) -> dict:
+def _office_images(data: bytes, extension: str):
+    """复用现有 Office 解析库，图片型 Word/课件同样进入 OCR/图形链路。"""
+    if extension == ".docx":
+        from docx import Document
+        from docx.parts.image import ImagePart
+
+        for part in Document(io.BytesIO(data)).part.package.parts:
+            if isinstance(part, ImagePart):
+                yield part.blob
+    elif extension == ".pptx":
+        from pptx import Presentation
+
+        def pictures(shapes):
+            for shape in shapes:
+                if hasattr(shape, "image"):
+                    yield shape.image.blob
+                elif hasattr(shape, "shapes"):
+                    yield from pictures(shape.shapes)
+
+        for slide in Presentation(io.BytesIO(data)).slides:
+            yield from pictures(slide.shapes)
+
+
+def _extract_picture(data, *, progress=None, checkpoint_dir=None):
+    import pymupdf
+
+    try:
+        with pymupdf.open(stream=data) as image:
+            pdf = image.convert_to_pdf()
+    except Exception:
+        raise ValueError("无法读取图片，请检查文件是否完整或转换为 PNG/JPEG。") from None
+    return extract_knowledge_pdf(pdf, progress=progress, checkpoint_dir=checkpoint_dir,
+                                 fingerprint=hashlib.sha256(data).hexdigest(), force_visual=True)
+
+
+def _extract_non_pdf(data: bytes, extension: str, *, progress=None, checkpoint_dir=None) -> dict:
     warnings = []
     if extension == ".docx":
         try:
@@ -267,12 +461,29 @@ def _extract_non_pdf(data: bytes, extension: str) -> dict:
                 raise ValueError("无法读取 XML 文件，请检查文件格式。") from exc
         pages = [(None, text)] if text else []
 
+    if extension in {".docx", ".pptx"}:
+        seen = set()
+        for image_index, image in enumerate(_office_images(data, extension), 1):
+            digest = hashlib.sha256(image).hexdigest()
+            if digest in seen:
+                continue
+            seen.add(digest)
+            if progress:
+                progress({"stage": "visual", "message": f"正在处理文档图片 {image_index}"})
+            try:
+                extracted = _extract_picture(image, checkpoint_dir=checkpoint_dir)
+            except ValueError:
+                warnings.append(f"文档图片 {image_index} 格式无法读取，请对照原件核对。")
+                continue
+            pages.append((None, f"文档图片 {image_index}\n" + "\n\n".join(t for _, t in extracted["pages"])))
+            warnings.extend(extracted["warnings"])
+        text = "\n\n".join(t for _, t in pages)
     if not text.strip():
         raise ValueError("文件中没有提取到可检索的文字内容。")
     return {"pages": pages, "warnings": warnings}
 
 
-def extract_knowledge_document(data: bytes, filename: str) -> dict:
+def extract_knowledge_document(data: bytes, filename: str, *, progress=None, checkpoint_dir=None) -> dict:
     """按文件扩展名读取常见教学资料，统一交给学科 RAG 切分和索引。"""
     if not data:
         raise ValueError("资料文件不能为空。")
@@ -281,5 +492,9 @@ def extract_knowledge_document(data: bytes, filename: str) -> dict:
         supported = "、".join(SUPPORTED_KNOWLEDGE_FORMATS)
         raise ValueError(f"暂不支持此文件格式。支持：{supported}。")
     if extension == ".pdf":
-        return extract_knowledge_pdf(data)
-    return _extract_non_pdf(data, extension)
+        return extract_knowledge_pdf(data, progress=progress, checkpoint_dir=checkpoint_dir)
+    if extension in _IMAGE_FORMATS:
+        return _extract_picture(data, progress=progress, checkpoint_dir=checkpoint_dir)
+    if progress:
+        progress({"stage": "extracting", "completed_pages": 0, "total_pages": None, "message": "正在提取文档内容"})
+    return _extract_non_pdf(data, extension, progress=progress, checkpoint_dir=checkpoint_dir)

@@ -236,15 +236,15 @@ class SubjectRagTests(unittest.TestCase):
         self.assertTrue(set(old_passage_ids).isdisjoint(new_passage_ids))
         vectors = {passage_id: old_document_id for passage_id in old_passage_ids + new_passage_ids}
 
-        def cleanup(ids):
+        def cleanup(subject, ids):
             for passage_id in ids:
                 vectors.pop(passage_id, None)
 
         with patch.object(subject_rag.rag_milvus, "configured", return_value=True), patch.object(
             subject_rag.rag_milvus, "delete_passages", side_effect=cleanup,
         ) as delete, patch.object(subject_rag.rag_milvus, "delete_document") as legacy:
-            self.assertEqual(subject_rag.delete_vector_index(old_passage_ids), [])
-        delete.assert_called_once_with(old_passage_ids)
+            self.assertEqual(subject_rag.delete_vector_index("math", old_passage_ids), [])
+        delete.assert_called_once_with("math", old_passage_ids)
         legacy.assert_not_called()
         self.assertEqual(set(vectors), set(new_passage_ids))
         self.assertIsNotNone(self.db.get(SubjectKnowledgeChunk, new.id))
@@ -261,7 +261,7 @@ class SubjectRagTests(unittest.TestCase):
         ), patch.object(subject_rag.rag_milvus, "search_passages", return_value=[
             (deleted_ids[0], 0.99), (kept_id, 0.9),
         ]):
-            warnings = subject_rag.delete_vector_index(deleted_ids)
+            warnings = subject_rag.delete_vector_index("math", deleted_ids)
             result = subject_rag.search_knowledge(self.db, "math", "冷门概念")
         self.assertTrue(warnings)
         self.assertNotIn("private remote details", str(warnings))
@@ -299,6 +299,33 @@ class SubjectRagTests(unittest.TestCase):
         hit = subject_rag.search_knowledge(self.db, "math", "完全平方公式交叉项")["items"][0]
         self.assertEqual(hit["document_id"], document.id)
         self.assertEqual(hit["page_number"], 9)
+
+    def test_migration_sends_only_current_subject_sql_passages_and_preserves_pages(self):
+        document = self.document("数学教材", "原文", pages=[(7, "完全平方公式的交叉项。")])
+        self.document("英语教材", "English grammar.", subject="english")
+        passages = self.db.query(SubjectKnowledgePassage).filter_by(document_id=document.id).all()
+        expected = [{"id": row.id, "document_id": document.id} for row in passages]
+        with patch.object(subject_rag.rag_milvus, "configured", return_value=True), patch.object(
+            subject_rag.rag_milvus, "migrate_legacy_subject", return_value={
+                "collection": "remedi_subject_knowledge_math", "migrated": len(passages), "missing": 0,
+            },
+        ) as migrate, patch.object(subject_rag.rag_milvus, "upsert_passages") as embed:
+            result = subject_rag.migrate_subject_vectors(self.db, "math")
+        migrate.assert_called_once_with("math", expected)
+        embed.assert_not_called()
+        self.assertEqual(result["vector_status"], "ready")
+        self.assertEqual(self.db.query(SubjectKnowledgePassage).filter_by(document_id=document.id).one().page_number, 7)
+
+    def test_migration_failure_preserves_bm25_and_masks_remote_details(self):
+        document = self.document("数学教材", "完全平方公式的交叉项。")
+        with patch.object(subject_rag.rag_milvus, "configured", return_value=True), patch.object(
+            subject_rag.rag_milvus, "migrate_legacy_subject", side_effect=TimeoutError("private remote response"),
+        ), patch.object(subject_rag.rag_milvus, "search_passages", side_effect=TimeoutError):
+            migration = subject_rag.migrate_subject_vectors(self.db, "math")
+            hit = subject_rag.search_knowledge(self.db, "math", "完全平方公式")["items"][0]
+        self.assertEqual(migration["vector_status"], "pending")
+        self.assertNotIn("private remote response", str(migration))
+        self.assertEqual(hit["document_id"], document.id)
 
     def test_reindex_refuses_to_commit_unrelated_session_changes(self):
         self.document("数学资料", "平方差公式可以用于因式分解。", indexed=False)

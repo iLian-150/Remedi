@@ -19,6 +19,8 @@ from ..config import settings
 
 _BATCH_SIZE = 10
 _DELETE_BATCH_SIZE = 256
+# Keep this registry independent of agent prompts to avoid circular imports.
+SUBJECTS = ("chinese", "math", "english", "politics", "history", "physics", "chemistry", "geography", "biology")
 _states_lock = RLock()
 
 
@@ -221,20 +223,31 @@ def _invalidate(state: _ClientState, collection: str) -> None:
         state.ready.pop(collection, None)
 
 
-def _subject(value: str) -> str:
-    if not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", value):
+def validate_subject(value: str) -> str:
+    if value not in SUBJECTS:
         raise ValueError("学科代码无效")
     return value
+
+
+def collection_name(subject: str, base: str | None = None) -> str:
+    """Each registered subject owns one physical collection on the shared server."""
+    subject = validate_subject(subject)
+    base = settings.RAG_MILVUS_COLLECTION.strip() if base is None else base
+    name = f"{base}_{subject}"
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,254}", name):
+        raise RuntimeError("Milvus 学科集合名称无效")
+    return name
 
 
 def upsert_passages(subject: str, passages: list[dict]) -> None:
     """Idempotently synchronize passage IDs; vectors exist only in Milvus."""
     if not passages:
         return
-    subject = _subject(subject)
+    subject = validate_subject(subject)
     _embedding_key()
     model = _model()
-    state, collection = _client_state()
+    state, base = _client_state()
+    collection = collection_name(subject, base)
     try:
         for offset in range(0, len(passages), _BATCH_SIZE):
             batch = passages[offset:offset + _BATCH_SIZE]
@@ -255,18 +268,20 @@ def upsert_passages(subject: str, passages: list[dict]) -> None:
         raise RuntimeError("Milvus 索引同步失败") from None
 
 
-def delete_passages(passage_ids: list[int]) -> None:
+def delete_passages(subject: str, passage_ids: list[int]) -> None:
     """Delete exact committed passage IDs captured before the SQL deletion.
 
     Document IDs may be reused by SQLite. Delayed cleanup must never select
     by document_id, because that could match a newly uploaded document.
     """
+    subject = validate_subject(subject)
     if not passage_ids:
         return
     if any(isinstance(value, bool) or not isinstance(value, int) or not 0 < value < 2 ** 63 for value in passage_ids):
         raise ValueError("Milvus 片段 ID 必须为有效的正整数")
     unique_ids = list(dict.fromkeys(passage_ids))
-    state, collection = _client_state()
+    state, base = _client_state()
+    collection = collection_name(subject, base)
     try:
         if not state.client.has_collection(collection_name=collection, timeout=state.timeout):
             return
@@ -281,16 +296,19 @@ def delete_passages(passage_ids: list[int]) -> None:
         raise RuntimeError("Milvus 片段索引删除失败") from None
 
 
-def delete_document(document_id: int) -> None:
+def delete_document(subject: str, document_id: int) -> None:
     """Legacy maintenance helper; online deletion must use exact passage IDs."""
+    subject = validate_subject(subject)
     document_id = int(document_id)
-    state, collection = _client_state()
+    state, base = _client_state()
+    collection = collection_name(subject, base)
     try:
         if not state.client.has_collection(collection_name=collection, timeout=state.timeout):
             return
         state.client.load_collection(collection_name=collection, timeout=state.timeout)
         state.client.delete(
-            collection_name=collection, filter=f"document_id == {document_id}", timeout=state.timeout,
+            collection_name=collection, filter=f'document_id == {document_id} and subject == "{subject}"',
+            timeout=state.timeout,
         )
     except Exception:
         _invalidate(state, collection)
@@ -299,11 +317,12 @@ def delete_document(document_id: int) -> None:
 
 def search_passages(subject: str, query: str, limit: int = 24) -> list[tuple[int, float]]:
     """Recall only the requested subject and current embedding model on the server."""
-    subject = _subject(subject)
+    subject = validate_subject(subject)
     if not query.strip() or limit <= 0:
         return []
     vector = embed_texts([query])[0]
-    state, collection = _client_state()
+    state, base = _client_state()
+    collection = collection_name(subject, base)
     try:
         _ensure_collection(state, collection, len(vector))
         results = state.client.search(
@@ -323,3 +342,57 @@ def search_passages(subject: str, query: str, limit: int = 24) -> list[tuple[int
     except Exception:
         _invalidate(state, collection)
         raise RuntimeError("Milvus 检索失败") from None
+
+
+def migrate_legacy_subject(subject: str, passages: list[dict]) -> dict:
+    """Copy SQL-owned vectors to the subject collection without embedding/OCR.
+
+    The configured base remains the read-only legacy collection. No ordinary
+    query searches it, and migration never deletes or rewrites its rows.
+    Passage/document IDs, subject, model and vector dimensions must all match
+    before a legacy row is admitted to the new collection. The operation is
+    idempotent and can be retried after a partial transport failure.
+    """
+    subject = validate_subject(subject)
+    expected = {int(row["id"]): int(row["document_id"]) for row in passages}
+    if any(not 0 < passage_id < 2 ** 63 or document_id <= 0 for passage_id, document_id in expected.items()):
+        raise ValueError("迁移片段 ID 无效")
+    dimension = _embedding_dimensions()
+    model = _model()
+    state, legacy = _client_state()
+    target = collection_name(subject, legacy)
+    try:
+        _ensure_collection(state, target, dimension)
+        if not expected or not state.client.has_collection(collection_name=legacy, timeout=state.timeout):
+            return {"collection": target, "migrated": 0, "missing": len(expected)}
+        state.client.load_collection(collection_name=legacy, timeout=state.timeout)
+        migrated_ids = set()
+        passage_ids = list(expected)
+        for start in range(0, len(passage_ids), _DELETE_BATCH_SIZE):
+            ids = passage_ids[start:start + _DELETE_BATCH_SIZE]
+            rows = state.client.query(
+                collection_name=legacy,
+                filter="subject == {subject} and embedding_model == {embedding_model} and id in {ids}",
+                filter_params={"subject": subject, "embedding_model": model, "ids": ids},
+                output_fields=["id", "document_id", "subject", "embedding_model", "vectors"],
+                limit=len(ids), consistency_level="Strong", timeout=state.timeout,
+            )
+            safe_rows = []
+            for row in rows:
+                passage_id = row.get("id")
+                if (passage_id not in ids or row.get("document_id") != expected.get(passage_id)
+                        or row.get("subject") != subject or row.get("embedding_model") != model
+                        or passage_id in migrated_ids):
+                    continue
+                vector = _validate_vectors([row.get("vectors")], 1)[0]
+                if len(vector) != dimension:
+                    raise RuntimeError("旧集合向量维数不匹配")
+                safe_rows.append({"id": passage_id, "document_id": expected[passage_id],
+                                  "subject": subject, "embedding_model": model, "vectors": vector})
+                migrated_ids.add(passage_id)
+            if safe_rows:
+                state.client.upsert(collection_name=target, data=safe_rows, timeout=state.timeout)
+        return {"collection": target, "migrated": len(migrated_ids), "missing": len(expected) - len(migrated_ids)}
+    except Exception:
+        _invalidate(state, target)
+        raise RuntimeError("Milvus 学科向量迁移失败，原集合与业务资料已保留") from None

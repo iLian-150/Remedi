@@ -2,6 +2,22 @@
 
 学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合，再使用 `qwen3.7-text-rerank` 重排。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、百炼向量模型超时或索引暂不可用时，资料检索继续使用本地 BM25；模型重排失败时使用本地重排，并返回不含凭证或上游响应的安全警告。
 
+## 持久化导入与 OCR
+
+文件上传完成后，`POST /api/teacher/knowledge/{subject}/import` 返回 `202` 与任务对象。后台工作线程独立处理，浏览器关闭弹窗、切页或刷新不影响任务。`GET /api/teacher/knowledge/import-jobs` 查询有权限学科的任务；`POST /api/teacher/knowledge/import-jobs/{id}/retry` 重试失败任务，`.../{id}/dismiss` 保存关闭通知。完成和失败通知不自动消失。
+
+原始资料与页级检查点位于 `/data/knowledge-imports`（宿主机 `/remedi/data/api/knowledge-imports`），不通过 `/api/uploads` 公网静态目录公开。文件按学科与 SHA256 去重，重复点击返回原任务，完成后重传不会重新 OCR。旧版没有文件摘要的历史资料保留，不按文件名猜测相同内容或删除。
+
+文字层使用 PyMuPDF 直接提取；扫描页、乱码页和混合页面中的图片文字使用容器内 Tesseract（`chi_sim+eng`）。复用 PyMuPDF 图片定位与矢量绘图聚类，只把相关图形区域交给 `qwen3-vl-plus`；无法分区的扫描页在出现图形指示时使用压缩页面补充图形语义，不逐字转写整页。图形语义单独标记，模型不得补造未标注的关系。专用 OCR 不保证复杂公式完全准确，低可信度页面保留核对警告和原件。
+
+OCR 与视觉网络请求最多同时执行 `RAG_OCR_WORKERS` 个页面（默认 2），PyMuPDF 渲染仅在导入线程执行。页面与区域完成后原子保存检查点；失败任务重试和进程重启复用已完成结果。任务进度来自后台成功页数和索引阶段。原文、片段、任务关联文档 ID 同一 SQL 事务提交后才同步 Milvus，向量故障返回待索引状态并继续提供 BM25。
+
+## 九科学科集合与旧数据迁移
+
+`RAG_MILVUS_COLLECTION` 现在是集合前缀。九科分别使用 `<前缀>_chinese`、`_math`、`_english`、`_politics`、`_history`、`_physics`、`_chemistry`、`_geography`、`_biology`，读写删除全部由后端固定学科映射选择集合，保留 `subject` 与当前向量模型过滤以及 SQL 片段归属校验。
+
+升级后在后端容器内调用 `subject_rag.migrate_subject_vectors(db, subject)`。该操作将旧共享集合中仍属于当前 SQL 文档的向量复制到对应集合，校验片段 ID、文档 ID、学科、向量模型和维度；不调用 OCR、不重新计算已有向量、不删除旧集合。检查返回的 `migrated`、`missing`、`vector_status`。若旧向量缺失，可针对该科重建索引，直接使用 SQL 中的片段，不重新 OCR。
+
 ## 镜像与 ARM64
 
 默认固定 `milvusdb/milvus:v2.6.25`，Python 依赖为 `pymilvus>=2.6.17,<2.7`，遵循 [Milvus 2.6.25 发布兼容表](https://github.com/milvus-io/milvus/releases/tag/v2.6.25)。etcd 使用 `quay.io/coreos/etcd:v3.5.25`；MinIO 使用 [Milvus 官方 Compose](https://github.com/milvus-io/milvus/blob/master/deployments/docker/standalone/docker-compose.yml)采用的 `milvusdb/minio:RELEASE.2024-12-18T13-15-44Z`。
