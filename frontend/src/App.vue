@@ -6,8 +6,8 @@
        - 教师其他页面 → 不挂右栏
      右栏可收起：收起后内容区右上角出现场景专属悬浮按钮（notes=信封形 notes-fab + 未读角标，
      未读数读 student store；calendar=日历形 cal-fab，无角标），点它重新展开；
-     展开状态按场景分键存 localStorage（remedi-rail-open-notes / remedi-rail-open-calendar），
-     首次默认展开，移动端默认收起（抽屉式）。
+     右栏在所有页面初始收起；页面导航后也会收起，用户可通过场景专属入口手动展开。
+     移动端沿用抽屉式交互。
      v0.6.2：双端对话页时左侧栏主导航下方多一段会话区（SidebarSessions，ChatGPT 式：
      新对话按钮 + 按今天/昨天/更早分组的会话列表）；移动端沿用抽屉不受影响。
      v0.8.2：全局侧栏成为双端唯一侧栏（学生对话页不再自带页内侧栏，统一走这里：
@@ -283,44 +283,12 @@ const railMode = computed<RailMode>(() =>
   railModeForPath(route.path, auth.role, Boolean(auth.token))
 )
 
-// ---------- 右侧栏展开状态（v0.8.2）：按场景分键存 localStorage，互不串扰 ----------
-// notes 与 calendar 各记各的展开状态；切换场景（路由变化）时读入该场景的记忆值。
-// 提醒栏首次默认收起，其他桌面右栏默认展开；用户主动调整后记住选择。旧的单键 remedi-rail-open 自 v0.8.2 起不再读写。
-const RAIL_KEYS = {
-  notes: 'remedi-rail-open-notes',
-  mistakes: 'remedi-rail-open-mistakes',
-  calendar: 'remedi-rail-open-calendar',
-  corrections: 'remedi-rail-open-corrections',
-  timeline: 'remedi-rail-open-timeline'
-} as const
+// ---------- 右侧栏展开状态：所有页面默认收起，导航后重新收起 ----------
 const railFabCount = computed(() => railMode.value === 'mistakes' ? student.mistakeReviewCount : student.unreadCount)
-function railDefaultOpen(mode: RailScene): boolean {
-  return mode !== 'notes' && window.innerWidth >= 1200
-}
-function initRailFor(mode: RailScene): boolean {
-  try {
-    const saved = localStorage.getItem(RAIL_KEYS[mode])
-    if (saved === '1') return true
-    if (saved === '0') return false
-  } catch {
-    /* localStorage 不可用时走默认 */
-  }
-  return railDefaultOpen(mode)
-}
 const railOpen = ref(false)
-watch(railMode, (mode) => {
-  if (mode !== 'none') railOpen.value = initRailFor(mode)
-}, { immediate: true })
 
 function setRail(open: boolean) {
   railOpen.value = open
-  const mode = railMode.value
-  if (mode === 'none') return
-  try {
-    localStorage.setItem(RAIL_KEYS[mode], open ? '1' : '0')
-  } catch {
-    /* 忽略写入失败 */
-  }
 }
 
 // ---------- 未读数 / 待审计数刷新（v0.8.2 / v0.9.0）：进入对应角色页面时刷新轻量计数 ----------
@@ -329,6 +297,7 @@ function setRail(open: boolean) {
 watch(
   () => route.path,
   (path, previousPath) => {
+    railOpen.value = false
     const mode = railModeForPath(path, auth.role, Boolean(auth.token))
     const previousMode = railModeForPath(previousPath ?? '', auth.role, Boolean(auth.token))
     const enteringNotesRail = mode === 'notes' && previousMode !== 'notes'
@@ -348,17 +317,8 @@ function logout() {
   useStudentStore().clearSessionState()
   useTeacherStore().clearSessionState()
   useTeacherStore().resetKnowledgeImport()
-  // v0.8.2：重置右栏展开态（回默认并清掉分键记忆）与未读数，避免换人登录后残留
-  railOpen.value = railMode.value === 'none' ? false : railDefaultOpen(railMode.value)
-  try {
-    localStorage.removeItem(RAIL_KEYS.notes)
-    localStorage.removeItem(RAIL_KEYS.mistakes)
-    localStorage.removeItem(RAIL_KEYS.calendar)
-    localStorage.removeItem(RAIL_KEYS.corrections)
-    localStorage.removeItem(RAIL_KEYS.timeline)
-  } catch {
-    /* 忽略清理失败 */
-  }
+  // 右栏默认收起，避免切换账号后继续显示上一用户主动展开的面板。
+  railOpen.value = false
   student.resetUnread()
   student.mistakeReviewCount = 0
   // v0.9.0：待审核角标一并清掉，避免换人登录后残留上一位老师的数字
