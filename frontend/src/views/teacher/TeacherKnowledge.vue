@@ -116,46 +116,6 @@
       </section>
     </div>
 
-    <aside
-      v-if="documentImportToast"
-      class="document-import-toast"
-      :class="`is-${documentImportToast.status}`"
-      :role="documentImportToast.status === 'error' ? 'alert' : 'status'"
-      :aria-live="documentImportToast.status === 'error' ? 'assertive' : 'polite'"
-      aria-atomic="true"
-    >
-      <div class="toast-heading">
-        <div class="toast-title-group">
-          <strong>{{ documentImportToast.title }}</strong>
-          <small :title="documentImportToast.fileName">{{ documentImportToast.fileName }}</small>
-        </div>
-        <span v-if="documentImportToast.status === 'uploading'" class="toast-state">
-          {{ documentImportToast.percent === null ? '上传中' : `${documentImportToast.percent}%` }}
-        </span>
-        <span v-else-if="documentImportToast.status === 'processing'" class="toast-state">处理中</span>
-        <button v-else class="toast-close" type="button" aria-label="关闭导入通知" @click="dismissDocumentImportToast">×</button>
-      </div>
-      <p v-if="documentImportToast.detail" class="toast-detail">{{ documentImportToast.detail }}</p>
-      <div
-        v-if="documentImportToast.status !== 'error'"
-        class="toast-progress-track"
-        role="progressbar"
-        :aria-label="documentImportToast.status === 'processing' ? '正在建立检索索引' : '资料导入进度'"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        :aria-valuenow="documentImportToast.status === 'success' ? 100 : documentImportToast.status === 'uploading' ? documentImportToast.percent ?? undefined : undefined"
-        :aria-valuetext="documentImportToast.status === 'processing' ? '文件已上传，正在建立检索索引' : undefined"
-      >
-        <span
-          :class="['toast-progress-fill', { indeterminate: documentImportToast.status === 'processing' || (documentImportToast.status === 'uploading' && documentImportToast.percent === null) }]"
-          :style="documentImportToast.status === 'success' ? { width: '100%' } : documentImportToast.status === 'uploading' && documentImportToast.percent !== null ? { width: `${documentImportToast.percent}%` } : undefined"
-        ></span>
-      </div>
-      <ul v-if="documentImportToast.warnings.length" class="toast-warnings">
-        <li v-for="warning in documentImportToast.warnings" :key="warning">{{ warning }}</li>
-      </ul>
-    </aside>
-
     <div v-if="activeDocument" class="modal-mask" tabindex="-1" @keydown.esc="activeDocument = null" @click.self="activeDocument = null">
       <section class="document-dialog" role="dialog" aria-modal="true" :aria-label="activeDocument.title">
         <header class="document-dialog-head">
@@ -222,16 +182,6 @@ const sourceName = ref('')
 const content = ref('')
 const documentFile = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
-type DocumentImportToastStatus = 'uploading' | 'processing' | 'success' | 'error'
-interface DocumentImportToast {
-  status: DocumentImportToastStatus
-  fileName: string
-  title: string
-  percent: number | null
-  detail: string
-  warnings: string[]
-}
-const documentImportToast = ref<DocumentImportToast | null>(null)
 const items = ref<SubjectKnowledgeItem[]>([])
 const vectorEnabled = ref(false)
 const loading = ref(false)
@@ -240,7 +190,7 @@ const importing = ref(false)
 const reindexing = ref(false)
 const deletingId = ref<number | null>(null)
 const searching = ref(false)
-const mutating = computed(() => saving.value || importing.value || reindexing.value || deletingId.value !== null || searching.value)
+const mutating = computed(() => saving.value || importing.value || teacher.knowledgeImportInProgress || reindexing.value || deletingId.value !== null || searching.value)
 const error = ref('')
 const notice = ref('')
 const warnings = ref<string[]>([])
@@ -282,11 +232,6 @@ function closeUpload() {
   uploadOpen.value = false
   error.value = ''
   if (!importing.value) clearForm()
-}
-
-function dismissDocumentImportToast() {
-  if (importing.value) return
-  documentImportToast.value = null
 }
 
 function errorMessage(cause: unknown, fallback: string): string {
@@ -371,51 +316,19 @@ async function importDocument() {
   if (!target || !file || mutating.value) return
   const current = generation
   importing.value = true
-  documentImportToast.value = {
-    status: 'uploading', fileName: file.name, title: '正在上传资料', percent: null, detail: '正在将文件传至服务器。', warnings: []
-  }
   clearFeedback()
   try {
-    const result = await teacher.importSubjectKnowledgeDocument(target, file, percent => {
-      if (current !== generation || !documentImportToast.value) return
-      if (percent === null) {
-        documentImportToast.value.percent = null
-      } else {
-        documentImportToast.value.percent = Math.max(documentImportToast.value.percent ?? 0, percent)
-        if (percent >= 100) {
-          documentImportToast.value.status = 'processing'
-          documentImportToast.value.title = '正在提取内容并建立索引'
-          documentImportToast.value.detail = '文件已上传，正在提取文字并建立检索索引。'
-        }
-      }
-    })
+    await teacher.importSubjectKnowledgeDocument(target, file)
     if (current !== generation) return
-    const details = [
-      result.indexed_pages == null ? '' : `读取 ${result.indexed_pages} 页`,
-      result.ocr_pages ? `OCR 识别 ${result.ocr_pages} 页` : '',
-      `可检索 ${result.passage_count} 个片段`
-    ].filter(Boolean).join('，')
-    documentImportToast.value = {
-      status: 'success', fileName: file.name, title: '资料导入成功', percent: 100,
-      detail: details, warnings: result.warnings ?? []
-    }
     clearForm()
     uploadOpen.value = false
     notice.value = ''
     warnings.value = []
     searchResult.value = null
-    await load(current)
-  } catch (cause) {
-    if (current === generation) {
-      const message = errorMessage(cause, '资料导入失败，请检查文件后重试。')
-      documentImportToast.value = {
-        status: 'error', fileName: file.name, title: '资料导入失败', percent: null,
-        detail: message, warnings: []
-      }
-      error.value = message
-    }
+  } catch {
+    // 上传结果由应用外壳中的全局提示卡展示，避免在资料页重复报错。
   } finally {
-    if (current === generation) importing.value = false
+    importing.value = false
   }
 }
 
@@ -505,10 +418,13 @@ watch(subject, () => {
   loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
   uploadOpen.value = false; activeDocument.value = null; deleteConfirmDocument.value = null
-  documentImportToast.value = null
   clearFeedback(); clearForm()
   void load()
 }, { immediate: true })
+
+watch(() => teacher.knowledgeImportVersion, () => {
+  void load()
+})
 </script>
 
 <style scoped>
@@ -603,24 +519,6 @@ watch(subject, () => {
 .upload-dropzone small, .scan-note { color: var(--text-3); font-size: 11px; }
 .choose-file { padding: 8px 11px; border: 1px solid #D9E2F5; border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .scan-note { margin: 0 0 12px; }
-.document-import-toast { position: fixed; right: 24px; bottom: 24px; z-index: 500; width: min(380px, calc(100vw - 32px)); padding: 16px; border: 1px solid #DCE5F4; border-radius: 14px; background: #fff; box-shadow: 0 18px 48px rgba(20, 35, 64, .2); animation: dialog-in .18s ease both; }
-.document-import-toast.is-success { border-color: #BFE7D2; }
-.document-import-toast.is-error { border-color: #F0C6C3; }
-.toast-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.toast-title-group { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
-.toast-title-group strong { color: var(--text); font-size: 13px; line-height: 1.45; }
-.toast-title-group small { overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.toast-state { flex: 0 0 auto; color: var(--primary); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 750; }
-.is-success .toast-state { color: #16845C; }
-.is-error .toast-state { color: #B42318; }
-.toast-close { display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; margin: -3px -3px 0 0; border: 0; border-radius: 7px; background: transparent; color: #64748B; font-size: 21px; line-height: 1; cursor: pointer; }
-.toast-close:hover { background: #F1F4F8; color: var(--text); }
-.toast-detail { margin: 10px 0 11px; color: var(--text-2); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
-.toast-progress-track { position: relative; height: 7px; overflow: hidden; border-radius: 999px; background: #E8EDF6; }
-.toast-progress-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3475F6, #2453D9); transition: width .18s ease; }
-.toast-progress-fill.indeterminate { width: 38%; animation: progress-sweep 1.35s ease-in-out infinite; }
-.is-success .toast-progress-fill { background: linear-gradient(90deg, #27AE78, #16845C); }
-.toast-warnings { display: grid; gap: 5px; margin: 11px 0 0; padding-left: 17px; color: #9A5B11; font-size: 11px; line-height: 1.5; }
 .dialog-form-row { margin-top: 14px; }
 .dialog-form-row label { display: block; margin-bottom: 7px; color: var(--text-2); font-size: 12px; font-weight: 700; }
 .dialog-form-row label span { color: var(--text-3); font-weight: 400; }
@@ -650,7 +548,6 @@ watch(subject, () => {
 .document-content { max-height: 55vh; margin-top: 19px; padding: 16px; overflow: auto; border: 1px solid #EDF0F5; border-radius: 11px; background: #FBFCFE; color: var(--text-2); font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes progress-sweep { from { transform: translateX(-110%); } to { transform: translateX(280%); } }
 @media (max-width: 720px) {
   .materials-heading { align-items: flex-start; flex-direction: column; gap: 14px; }
   .materials-heading h2 { font-size: 25px; }
@@ -670,11 +567,10 @@ watch(subject, () => {
   .upload-dialog, .document-dialog { padding: 17px; }
   .upload-dropzone { flex-wrap: wrap; }
   .choose-file { margin-left: 54px; }
-  .document-import-toast { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .document-cover, .add-document-card, .reindex-button, .search-button, .save-button { transition: none; }
   .document-cover:hover, .add-document-slot:hover .add-document-card { transform: none; }
-  .upload-dialog, .document-dialog, .document-import-toast { animation: none; }
+  .upload-dialog, .document-dialog { animation: none; }
 }
 </style>

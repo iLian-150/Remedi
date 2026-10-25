@@ -142,6 +142,8 @@
     >
       <AppIcon name="history" :size="20" />
     </button>
+
+    <DocumentImportToast v-if="auth.role === 'teacher'" />
   </div>
 </template>
 
@@ -156,6 +158,7 @@ import type { IconName } from './components/icons/paths'
 import BrandLogo from './components/BrandLogo.vue'
 import RightRail from './components/RightRail.vue'
 import SidebarSessions from './components/SidebarSessions.vue'
+import DocumentImportToast from './components/DocumentImportToast.vue'
 
 const auth = useAuthStore()
 const student = useStudentStore()
@@ -329,6 +332,7 @@ function logout() {
   useTeacherStore().setAssignmentDateFilter('')
   useStudentStore().clearSessionState()
   useTeacherStore().clearSessionState()
+  useTeacherStore().resetKnowledgeImport()
   // v0.8.2：重置右栏展开态（回默认并清掉分键记忆）与未读数，避免换人登录后残留
   railOpen.value = railMode.value === 'none' ? false : railDefaultOpen(railMode.value)
   try {

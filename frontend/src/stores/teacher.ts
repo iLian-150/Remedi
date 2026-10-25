@@ -1,6 +1,7 @@
 // 教师端 store：错误记录、一键纠错、班级看板统计、学生画像
 // 路径与字段严格对齐 docs/api-contract.md v0.1.0
 import { defineStore } from 'pinia'
+import axios from 'axios'
 import api from '../api/client'
 import { useAuthStore } from './auth'
 import type {
@@ -50,6 +51,17 @@ export interface ErrorFilter {
 
 const inFlightAssignmentRequests = new Map<string, Promise<TeacherAssignment[]>>()
 
+export type KnowledgeImportStatus = 'uploading' | 'processing' | 'success' | 'error'
+
+export interface KnowledgeImportToast {
+  status: KnowledgeImportStatus
+  fileName: string
+  title: string
+  percent: number | null
+  detail: string
+  warnings: string[]
+}
+
 function coalesceAssignmentRequest(
   userId: number | undefined,
   createdOn: string | undefined,
@@ -91,6 +103,10 @@ export const useTeacherStore = defineStore('teacher', {
     sessionCreatePromise: null as Promise<ChatSession> | null,
     sessionsGeneration: 0,
     sessionsMutationVersion: 0,
+    knowledgeImportToast: null as KnowledgeImportToast | null,
+    knowledgeImportInProgress: false,
+    knowledgeImportVersion: 0,
+    knowledgeImportSequence: 0,
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
      *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
@@ -188,22 +204,84 @@ export const useTeacherStore = defineStore('teacher', {
       return data
     },
     async importSubjectKnowledgeDocument(
-      subject: SubjectAgentCode, file: File, onUploadProgress?: (percent: number | null) => void
+      subject: SubjectAgentCode, file: File
     ): Promise<SubjectKnowledgeImportResult> {
+      if (this.knowledgeImportInProgress) throw new Error('已有资料正在导入。')
+      const sequence = ++this.knowledgeImportSequence
+      this.knowledgeImportInProgress = true
+      this.knowledgeImportToast = {
+        status: 'uploading', fileName: file.name, title: '正在上传资料', percent: null,
+        detail: '正在将文件传至服务器。', warnings: []
+      }
       const form = new FormData()
       form.append('file', file)
-      const { data } = await api.post<SubjectKnowledgeImportResult>(
-        `/api/teacher/knowledge/${subject}/import`, form, {
-          timeout: 300_000,
-          onUploadProgress: event => {
-            const percent = event.total && event.total > 0
-              ? Math.min(100, Math.round(event.loaded / event.total * 100))
-              : null
-            onUploadProgress?.(percent)
+      try {
+        const { data } = await api.post<SubjectKnowledgeImportResult>(
+          `/api/teacher/knowledge/${subject}/import`, form, {
+            timeout: 300_000,
+            onUploadProgress: event => {
+              const toast = this.knowledgeImportToast
+              if (sequence !== this.knowledgeImportSequence || !toast) return
+              const percent = event.total && event.total > 0
+                ? Math.min(100, Math.round(event.loaded / event.total * 100))
+                : null
+              if (percent !== null && percent >= 100) {
+                this.knowledgeImportToast = {
+                  ...toast,
+                  status: 'processing',
+                  percent: 100,
+                  title: '正在提取内容并建立索引',
+                  detail: '文件已上传，正在提取文字并建立检索索引。'
+                }
+              } else {
+                this.knowledgeImportToast = {
+                  ...toast,
+                  percent: percent === null
+                    ? null
+                    : Math.max(toast.percent ?? 0, percent)
+                }
+              }
+            }
+          }
+        )
+        if (sequence === this.knowledgeImportSequence) {
+          const details = [
+            data.indexed_pages == null ? '' : `读取 ${data.indexed_pages} 页`,
+            data.ocr_pages ? `OCR 识别 ${data.ocr_pages} 页` : '',
+            `可检索 ${data.passage_count} 个片段`
+          ].filter(Boolean).join('，')
+          this.knowledgeImportToast = {
+            status: 'success', fileName: file.name, title: '资料导入成功', percent: 100,
+            detail: details, warnings: data.warnings ?? []
+          }
+          this.knowledgeImportVersion += 1
+        }
+        return data
+      } catch (cause) {
+        if (sequence === this.knowledgeImportSequence) {
+          let detail = '资料导入失败，请检查文件后重试。'
+          if (axios.isAxiosError(cause)) {
+            const responseDetail = cause.response?.data?.detail
+            if (typeof responseDetail === 'string') detail = responseDetail
+            else if (cause.code === 'ECONNABORTED') detail = '处理时间较长，请刷新资料列表确认结果后再操作。'
+          }
+          this.knowledgeImportToast = {
+            status: 'error', fileName: file.name, title: '资料导入失败', percent: null,
+            detail, warnings: []
           }
         }
-      )
-      return data
+        throw cause
+      } finally {
+        if (sequence === this.knowledgeImportSequence) this.knowledgeImportInProgress = false
+      }
+    },
+    dismissKnowledgeImportToast() {
+      if (!this.knowledgeImportInProgress) this.knowledgeImportToast = null
+    },
+    resetKnowledgeImport() {
+      this.knowledgeImportSequence += 1
+      this.knowledgeImportInProgress = false
+      this.knowledgeImportToast = null
     },
     async searchSubjectKnowledge(
       subject: SubjectAgentCode, query: string
