@@ -90,7 +90,11 @@
     </aside>
 
     <main class="shell-main">
-      <router-view />
+      <!-- 登录成功切换到应用外壳时，路由仍可能短暂停留在公开登录页；不要把登录表单渲染进已登录布局。 -->
+      <router-view v-if="!route.meta.public" />
+      <div v-else class="shell-route-loading" role="status" aria-live="polite">
+        正在进入…
+      </div>
     </main>
 
     <!-- 右侧栏：有场景时才挂载；用 class 控制展开/收起动画 -->

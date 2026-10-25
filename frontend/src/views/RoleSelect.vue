@@ -124,7 +124,7 @@ async function login() {
   try {
     const { data } = await api.post<LoginResponse>('/api/auth/login', payload)
     auth.setSession(data.token, data.user, data.active_subject ?? '')
-    await router.push(data.user.role === 'teacher' ? '/teacher/dashboard' : '/student/chat')
+    await router.replace(data.user.role === 'teacher' ? '/teacher/dashboard' : '/student/chat')
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
     error.value = typeof detail === 'string'
