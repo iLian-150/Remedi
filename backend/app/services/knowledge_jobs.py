@@ -184,14 +184,16 @@ def _run_job(job_id: str) -> None:
                 return
             document_id = row.document_id
             has_document = document_id is not None and db.get(SubjectKnowledgeChunk, document_id) is not None
-            filename, subject, created_by = row.filename, row.subject, row.created_by
+            filename, subject, created_by, fingerprint = row.filename, row.subject, row.created_by, row.file_sha256
             path = _source_path(row.file_path)
         if not has_document:
             _report_progress(job_id, {"stage": "extracting"})
+            source = path if Path(filename).suffix.lower() == ".pdf" else path.read_bytes()
             extracted = extract_knowledge_document(
-                path.read_bytes(), filename,
+                source, filename,
                 progress=lambda event: _report_progress(job_id, event),
                 checkpoint_dir=path.parent / (path.stem + ".checkpoint"),
+                fingerprint=fingerprint,
             )
             pages = extracted["pages"]
             if not pages or not any(str(text).strip() for _, text in pages):

@@ -188,13 +188,18 @@ def _process_page(native_text, ocr_images, visual_images, context_image, cached,
     return record
 
 
-def extract_knowledge_pdf(data: bytes, *, progress=None, checkpoint_dir=None, fingerprint=None, force_visual=False) -> dict:
+def extract_knowledge_pdf(data: bytes | os.PathLike[str] | str, *, progress=None, checkpoint_dir=None, fingerprint=None, force_visual=False) -> dict:
     import pymupdf
 
-    if not data:
+    if isinstance(data, bytes) and not data:
         raise ValueError("PDF 不能为空。")
     try:
-        document = pymupdf.open(stream=data, filetype="pdf")
+        if isinstance(data, (str, os.PathLike)):
+            source_path = Path(data)
+            document = pymupdf.open(filename=str(source_path))
+        else:
+            source_path = None
+            document = pymupdf.open(stream=data, filetype="pdf")
     except Exception as exc:
         raise ValueError("无法打开 PDF，请确认文件完整且格式正确。") from exc
     with document:
@@ -204,7 +209,16 @@ def extract_knowledge_pdf(data: bytes, *, progress=None, checkpoint_dir=None, fi
             raise ValueError("PDF 没有可读取的页面。")
         results, failures = {}, {}
         total = document.page_count
-        digest = fingerprint or hashlib.sha256(data).hexdigest()
+        if fingerprint:
+            digest = fingerprint
+        elif source_path is None:
+            digest = hashlib.sha256(data).hexdigest()
+        else:
+            checksum = hashlib.sha256()
+            with source_path.open("rb") as source:
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    checksum.update(block)
+            digest = checksum.hexdigest()
 
         def report(stage="extracting"):
             if progress:
@@ -511,7 +525,7 @@ def _extract_non_pdf(data: bytes, extension: str, *, progress=None, checkpoint_d
     return {"pages": pages, "warnings": warnings}
 
 
-def extract_knowledge_document(data: bytes, filename: str, *, progress=None, checkpoint_dir=None) -> dict:
+def extract_knowledge_document(data: bytes | os.PathLike[str] | str, filename: str, *, progress=None, checkpoint_dir=None, fingerprint=None) -> dict:
     """按文件扩展名读取常见教学资料，统一交给学科 RAG 切分和索引。"""
     if not data:
         raise ValueError("资料文件不能为空。")
@@ -520,7 +534,9 @@ def extract_knowledge_document(data: bytes, filename: str, *, progress=None, che
         supported = "、".join(SUPPORTED_KNOWLEDGE_FORMATS)
         raise ValueError(f"暂不支持此文件格式。支持：{supported}。")
     if extension == ".pdf":
-        return extract_knowledge_pdf(data, progress=progress, checkpoint_dir=checkpoint_dir)
+        return extract_knowledge_pdf(
+            data, progress=progress, checkpoint_dir=checkpoint_dir, fingerprint=fingerprint,
+        )
     if extension in _IMAGE_FORMATS:
         return _extract_picture(data, progress=progress, checkpoint_dir=checkpoint_dir)
     if progress:
