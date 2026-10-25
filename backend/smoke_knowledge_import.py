@@ -164,14 +164,16 @@ class KnowledgeExtractionTests(unittest.TestCase):
         self.mock_ocr("如图，三角形 ABC 是直角三角形。")
         self.describe.side_effect = RuntimeError("图形服务不可用。")
         data = self.pdf_bytes("scan")
+        updates = []
         with tempfile.TemporaryDirectory() as directory:
-            first = importer.extract_knowledge_pdf(data, checkpoint_dir=directory)
+            first = importer.extract_knowledge_pdf(data, checkpoint_dir=directory, progress=updates.append)
             checkpoint = json.loads(next(Path(directory).glob("*/page-1.json")).read_text(encoding="utf-8"))
             self.assertFalse(checkpoint["complete"])
             self.assertTrue(checkpoint["ocr_done"])
             self.assertIn("三角形 ABC", checkpoint["text"])
             self.assertIn("三角形 ABC", first["pages"][0][1])
             self.assertTrue(any("图形解析暂不可用" in warning for warning in first["warnings"]))
+            self.assertEqual(updates[-1]["completed_pages"], 1)
             self.recognize.reset_mock()
             self.recognize.side_effect = AssertionError("retry must keep OCR")
             self.describe.side_effect = None

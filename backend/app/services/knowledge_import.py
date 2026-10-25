@@ -195,7 +195,8 @@ def extract_knowledge_pdf(data: bytes, *, progress=None, checkpoint_dir=None, fi
 
         def report(stage="extracting"):
             if progress:
-                completed = sum(bool(record.get("complete")) for record in results.values())
+                # 页进度表示文字已读取；可选的图形理解超时不能让进度停在原地。
+                completed = sum(bool(record.get("ocr_done")) for record in results.values())
                 progress({"stage": stage, "completed_pages": completed,
                           "total_pages": total, "message": f"已处理 {completed}/{total} 页"})
 
