@@ -225,9 +225,12 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(155px, 1.2fr);
   align-items: center;
-  gap: 28px;
+  gap: 0;
   margin: 24px 0 30px;
-  padding: 0;
+  padding: 12px 0;
+  border-block: 1px solid var(--border);
+  background: transparent;
+  box-shadow: none;
 }
 
 .remedi-mistake-book .notebook-stat, .remedi-mistake-book.notebook-stat {
@@ -236,8 +239,13 @@
   min-height: 48px;
   align-items: center;
   gap: 0;
-  padding: 4px 0;
+  padding: 4px 18px;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  box-shadow: none;
 }
+
+.remedi-mistake-book .notebook-stat:first-child { padding-left: 0; }
 
 .remedi-mistake-book .notebook-stat-icon, .remedi-mistake-book.notebook-stat-icon {
   display: none;
@@ -256,7 +264,7 @@
 }
 
 .remedi-mistake-book .notebook-stat-copy strong small, .remedi-mistake-book.notebook-stat-copy strong small { margin-left: 5px; color: var(--text-2); font-size: 12px; font-weight: 400; }
-.remedi-mistake-book .notebook-progress, .remedi-mistake-book.notebook-progress { min-width: 0; }
+.remedi-mistake-book .notebook-progress, .remedi-mistake-book.notebook-progress { min-width: 0; padding-left: 20px; }
 .remedi-mistake-book .notebook-progress label, .remedi-mistake-book.notebook-progress label { display: flex; justify-content: space-between; gap: 10px; color: var(--text-2); font-size: 12px; }
 .remedi-mistake-book .notebook-progress label b, .remedi-mistake-book.notebook-progress label b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .remedi-mistake-book .notebook-progress-track, .remedi-mistake-book.notebook-progress-track { height: 5px; margin-top: 8px; overflow: hidden; border-radius: 5px; background: var(--border); }
@@ -432,9 +440,11 @@
   .remedi-mistake-book .is-notebook .mistake-removal-notice, .remedi-mistake-book.is-notebook .mistake-removal-notice { width: calc(100% - 56px); margin: 18px auto 0; }
   .remedi-mistake-book .mistake-notebook-content, .remedi-mistake-book.mistake-notebook-content { padding: 25px 28px 28px; }
   .remedi-mistake-book .notebook-header, .remedi-mistake-book.notebook-header { padding-right: 0; }
-  .remedi-mistake-book .notebook-overview, .remedi-mistake-book.notebook-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 22px; padding: 0; }
-  .remedi-mistake-book .notebook-stat, .remedi-mistake-book.notebook-stat { padding: 0; }
-  .remedi-mistake-book .notebook-progress, .remedi-mistake-book.notebook-progress { grid-column: 1 / -1; padding: 0; }
+  .remedi-mistake-book .notebook-overview, .remedi-mistake-book.notebook-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 12px 0; }
+  .remedi-mistake-book .notebook-stat, .remedi-mistake-book.notebook-stat { padding: 0 12px; }
+  .remedi-mistake-book .notebook-stat:first-child { padding-left: 0; }
+  .remedi-mistake-book .notebook-stat:nth-child(3) { border-right: 0; }
+  .remedi-mistake-book .notebook-progress, .remedi-mistake-book.notebook-progress { grid-column: 1 / -1; padding: 12px 0 0; }
   .remedi-mistake-book .notebook-progress-track, .remedi-mistake-book.notebook-progress-track { margin-top: 9px; }
 }
 
@@ -450,9 +460,12 @@
   .remedi-mistake-book .mistake-notebook-content, .remedi-mistake-book.mistake-notebook-content { padding: 18px 18px 24px; }
   .remedi-mistake-book .notebook-eyebrow, .remedi-mistake-book.notebook-eyebrow { display: none; }
   .remedi-mistake-book .notebook-header h1, .remedi-mistake-book.notebook-header h1 { margin-top: 0; font-size: 25px; }
-  .remedi-mistake-book .notebook-overview, .remedi-mistake-book.notebook-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 18px 0 22px; padding: 0; }
-  .remedi-mistake-book .notebook-progress, .remedi-mistake-book.notebook-progress { grid-column: 1 / -1; padding-top: 0; }
-  .remedi-mistake-book .notebook-stat, .remedi-mistake-book.notebook-stat { min-height: 0; align-items: flex-start; padding: 0; }
+  .remedi-mistake-book .notebook-overview, .remedi-mistake-book.notebook-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 0; margin: 18px 0 22px; padding: 14px 0; }
+  .remedi-mistake-book .notebook-stat, .remedi-mistake-book.notebook-stat { min-height: 0; align-items: flex-start; padding: 0 12px; }
+  .remedi-mistake-book .notebook-stat:nth-child(2) { border-right: 0; }
+  .remedi-mistake-book .notebook-stat:nth-child(3) { border-right: 0; }
+  .remedi-mistake-book .notebook-stat:first-child { padding-left: 0; }
+  .remedi-mistake-book .notebook-progress, .remedi-mistake-book.notebook-progress { grid-column: 2; padding: 0 0 0 12px; border-left: 1px solid var(--border); }
   .remedi-mistake-book .notebook-stat-icon, .remedi-mistake-book.notebook-stat-icon { display: none; }
   .remedi-mistake-book .notebook-stat-copy, .remedi-mistake-book.notebook-stat-copy { gap: 9px; }
   .remedi-mistake-book .notebook-stat-copy > span, .remedi-mistake-book.notebook-stat-copy > span { font-size: 11px; }
