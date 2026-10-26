@@ -13,15 +13,23 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './icons/AppIcon.vue'
 
-const currentEntry = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute('src') ?? ''
-const availableEntry = ref('')
-const dismissedEntry = ref('')
-const visible = computed(() => Boolean(availableEntry.value && availableEntry.value !== dismissedEntry.value))
+const currentAssets = getAssetSignature(document)
+const availableAssets = ref('')
+const dismissedAssets = ref('')
+const visible = computed(() => Boolean(availableAssets.value && availableAssets.value !== dismissedAssets.value))
 let pollId: number | undefined
 let checking = false
 
+function getAssetSignature(doc: Document): string {
+  const scripts = Array.from(doc.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'))
+    .map((script) => script.getAttribute('src'))
+  const stylesheets = Array.from(doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]'))
+    .map((link) => link.getAttribute('href'))
+  return [...scripts, ...stylesheets].filter((asset): asset is string => Boolean(asset)).sort().join('\n')
+}
+
 async function checkForUpdate() {
-  if (import.meta.env.DEV || document.hidden || checking || !currentEntry) return
+  if (import.meta.env.DEV || document.hidden || checking || !currentAssets) return
   checking = true
 
   try {
@@ -29,12 +37,14 @@ async function checkForUpdate() {
     if (!response.ok) return
 
     const html = await response.text()
-    const latestEntry = new DOMParser()
-      .parseFromString(html, 'text/html')
-      .querySelector<HTMLScriptElement>('script[type="module"][src]')
-      ?.getAttribute('src')
+    const latestAssets = getAssetSignature(new DOMParser().parseFromString(html, 'text/html'))
 
-    if (latestEntry && latestEntry !== currentEntry) availableEntry.value = latestEntry
+    if (latestAssets && latestAssets !== currentAssets) {
+      availableAssets.value = latestAssets
+    } else {
+      availableAssets.value = ''
+      dismissedAssets.value = ''
+    }
   } catch {
     // 更新检查失败不影响当前页面操作。
   } finally {
@@ -47,7 +57,7 @@ function onVisibilityChange() {
 }
 
 function dismiss() {
-  dismissedEntry.value = availableEntry.value
+  dismissedAssets.value = availableAssets.value
 }
 
 function reload() {
