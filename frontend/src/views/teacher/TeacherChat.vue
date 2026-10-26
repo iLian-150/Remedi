@@ -76,7 +76,8 @@
             v-model="input"
             class="tchat-input"
             type="text"
-            placeholder="输入问题，回车发送（例如：《第一周数学作业》谁还没交？）"
+            aria-label="输入问题"
+            placeholder="输入问题…"
             :disabled="sending"
             @keyup.enter="sendText(input)"
           />
