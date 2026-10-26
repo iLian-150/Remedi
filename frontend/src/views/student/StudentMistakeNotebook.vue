@@ -60,7 +60,7 @@
               </details>
               <button v-if="displayedAssignments.length < visibleAssignments.length" type="button" class="notebook-more-assignments" @click="showMoreAssignments">继续显示作业（{{ displayedAssignments.length }} / {{ visibleAssignments.length }}）</button>
             </div>
-            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '留一页，给每一次进步' }}</h3><p>{{ allMistakes.length ? '换个关键词，或调整学习进度试试。' : '完成作业诊断后，错题会按作业和错误类别整理在这里。' }}</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
+            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '暂无错题' }}</h3><p v-if="allMistakes.length">换个关键词，或调整学习进度试试。</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
           </div>
         </div>
         <MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/>
