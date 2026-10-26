@@ -1105,7 +1105,10 @@ def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(r
         for student_id, subject, knowledge_point in memory_scopes:
             refresh_student_learning_memory(
                 db, student_id, subject=subject, knowledge_point=knowledge_point,
+                commit=False,
             )
+        if memory_scopes:
+            db.commit()
     return {"approved_count": len(approved_ids)}
 
 
