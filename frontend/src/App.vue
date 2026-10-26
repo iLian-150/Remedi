@@ -228,8 +228,8 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/assignments', icon: 'clipboard', label: '作业', activePaths: ['/student/assignments', '/student/submit'] },
   { to: '/student/mistakes', icon: 'book', label: '错题本' },
-  { to: '/student/profile', icon: 'chart', label: '学习档案', activePaths: ['/student/profile', '/student/report'] },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
+  { to: '/student/profile', icon: 'chart', label: '学习档案', activePaths: ['/student/profile', '/student/report'] },
 ]
 
 const TEACHER_NAV: NavItem[] = [
