@@ -22,6 +22,7 @@ _stop = threading.Event()
 _worker_lock = threading.Lock()
 _worker = None
 _VECTOR_WARNING = "资料已保存，向量索引暂未就绪，可使用关键词检索，稍后可重建索引。"
+_PROGRESS_MIN_INTERVAL_SECONDS = 1.0
 
 
 def job_payload(row: KnowledgeImportJob) -> dict:
@@ -158,18 +159,29 @@ def _report_progress(job_id: str, event: dict) -> None:
         stage = event.get("stage", "extracting")
         if stage not in {"extracting", "ocr", "visual", "indexing"}:
             stage = "extracting"
-        row.stage = stage
-        row.total_pages = max(row.total_pages, int(event.get("total_pages") or 0))
-        row.completed_pages = max(row.completed_pages, int(event.get("completed_pages") or 0))
-        percentage = 5 + int(85 * min(row.completed_pages, row.total_pages) / row.total_pages) if row.total_pages else 5
+        total_pages = max(row.total_pages, int(event.get("total_pages") or 0))
+        completed_pages = max(row.completed_pages, int(event.get("completed_pages") or 0))
+        percentage = 5 + int(85 * min(completed_pages, total_pages) / total_pages) if total_pages else 5
         if stage == "indexing":
             percentage = max(percentage, 92)
-        row.progress = max(row.progress, min(percentage, 99))
+        progress = max(row.progress, min(percentage, 99))
+        now = datetime.now()
+        stage_changed = stage != row.stage
+        keepalive_due = (
+            row.updated_at is None
+            or (now - row.updated_at).total_seconds() >= _PROGRESS_MIN_INTERVAL_SECONDS
+        )
+        if not stage_changed and not (progress > row.progress) and not keepalive_due:
+            return
+        row.stage = stage
+        row.total_pages = total_pages
+        row.completed_pages = completed_pages
+        row.progress = progress
         row.message = str(event.get("message") or {
             "extracting": "正在解析资料", "ocr": "正在识别文字",
             "visual": "正在解析图表", "indexing": "正在建立检索索引",
         }[stage])[:500]
-        row.updated_at = datetime.now()
+        row.updated_at = now
         db.commit()
 
 

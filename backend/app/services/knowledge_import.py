@@ -217,23 +217,30 @@ def extract_knowledge_pdf(data: bytes | os.PathLike[str] | str, *, progress=None
             raise ValueError("PDF 没有可读取的页面。")
         results, failures = {}, {}
         total = document.page_count
+        completed_text_pages = 0
+        last_report_stage = "extracting"
         digest = fingerprint or (
             hashlib.sha256(data).hexdigest() if source_path is None else _sha256_file(source_path)
         )
 
-        def report(stage="extracting"):
+        def report(stage=None):
+            nonlocal last_report_stage
+            if stage is not None:
+                last_report_stage = stage
             if progress:
-                # 页进度表示文字已读取；可选的图形理解超时不能让进度停在原地。
-                completed = sum(bool(record.get("ocr_done")) for record in results.values())
-                progress({"stage": stage, "completed_pages": completed,
-                          "total_pages": total, "message": f"已处理 {completed}/{total} 页"})
+                # 由完成事件增量维护，避免每页重新扫描此前所有结果。
+                progress({"stage": last_report_stage, "completed_pages": completed_text_pages,
+                          "total_pages": total, "message": f"已处理 {completed_text_pages}/{total} 页"})
 
         def collect(pending):
+            nonlocal completed_text_pages
             completed, _ = wait(pending, return_when=FIRST_COMPLETED)
             for future in completed:
                 number = pending.pop(future)
                 try:
-                    results[number] = future.result()
+                    record = future.result()
+                    results[number] = record
+                    completed_text_pages += int(bool(record.get("ocr_done")))
                 except RuntimeError as exc:
                     failures[number] = str(exc)
                     logger.warning("教材第 %s 页文字识别失败（%s）", number, type(exc).__name__)
@@ -252,6 +259,7 @@ def extract_knowledge_pdf(data: bytes | os.PathLike[str] | str, *, progress=None
                     cached["complete"] = False
                 if cached.get("complete"):
                     results[number] = cached
+                    completed_text_pages += int(bool(cached.get("ocr_done")))
                     report()
                     continue
                 text = page.get_text("text", sort=True).replace("\x00", "").strip()
