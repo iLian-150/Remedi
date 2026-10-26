@@ -16,7 +16,6 @@
         <AppIcon name="chevron-left" :size="16" /> 返回学习报告
       </router-link>
       <h2>{{ subjectName }} · 学习报告</h2>
-      <p class="page-sub">看看这个科目的进步轨迹：哪个知识点还没修好、错过几次、最近一次错在哪一步。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
