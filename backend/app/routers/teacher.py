@@ -1097,12 +1097,15 @@ def reviews_approve_all(db: Session = Depends(get_db), current: User = Depends(r
         scoring_svc.finalize_on_approve_many(db, approved_subs, current)
         db.commit()
         from ..services.learning_memory import refresh_student_learning_memory
-        for sub in subs:
-            if sub.id in approved_ids and sub.question is not None:
-                refresh_student_learning_memory(
-                    db, sub.student_id, subject=sub.question.subject,
-                    knowledge_point=sub.question.knowledge_point,
-                )
+        memory_scopes = {
+            (sub.student_id, sub.question.subject, sub.question.knowledge_point)
+            for sub in subs
+            if sub.id in approved_ids and sub.question is not None
+        }
+        for student_id, subject, knowledge_point in memory_scopes:
+            refresh_student_learning_memory(
+                db, student_id, subject=subject, knowledge_point=knowledge_point,
+            )
     return {"approved_count": len(approved_ids)}
 
 
