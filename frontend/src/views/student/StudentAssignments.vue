@@ -95,8 +95,8 @@
                 <span class="assign-time">{{ fmtTime(a.created_at) }} 发布</span>
               </div>
               <div class="item-foot">
-                <router-link :to="`/student/submit?assignment_id=${a.id}`">
-                  <button class="btn">{{ a.photo_required ? '拍照批改' : '在线作答' }}</button>
+                <router-link :to="`/student/submit?assignment_id=${a.id}`" class="btn">
+                  {{ a.photo_required ? '拍照批改' : '在线作答' }}
                 </router-link>
               </div>
             </section>

@@ -88,7 +88,7 @@
           </p>
           <p v-if="e.detail" class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
           <div class="toolbar" style="margin-top: 8px; margin-bottom: 0">
-            <router-link :to="{ path: '/student/corrections', query: { error_id: e.id } }"><button class="btn small secondary">去订正这道题</button></router-link>
+            <router-link :to="{ path: '/student/corrections', query: { error_id: e.id } }" class="btn small secondary">去订正这道题</router-link>
           </div>
         </div>
         <!-- 追问（v0.4.0）：订正之前先想一想 -->

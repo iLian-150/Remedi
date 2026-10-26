@@ -237,7 +237,7 @@
                 </p>
                 <p v-if="e.detail" class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
                 <div class="toolbar" style="margin-top: 8px; margin-bottom: 0">
-                  <router-link to="/student/corrections"><button class="btn small secondary">去订正这道题</button></router-link>
+                  <router-link to="/student/corrections" class="btn small secondary">去订正这道题</router-link>
                 </div>
               </div>
             </template>

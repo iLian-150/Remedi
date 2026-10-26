@@ -43,7 +43,7 @@
                 <p v-if="r.step_text" class="step-text">{{ r.step_text }}</p>
                 <p v-if="r.detail" class="detail">{{ r.detail }}</p>
                 <p style="margin-top: 6px">
-                  <router-link :to="`/teacher/submissions/${r.id}`"><button class="btn small ghost inline-icon">查看诊断 <AppIcon name="chevron-right" :size="14" /></button></router-link>
+                  <router-link :to="`/teacher/submissions/${r.id}`" class="btn small ghost inline-icon">查看诊断 <AppIcon name="chevron-right" :size="14" /></router-link>
                 </p>
               </div>
             </div>

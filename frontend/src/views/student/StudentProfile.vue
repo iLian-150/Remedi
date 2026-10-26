@@ -130,8 +130,8 @@
                   <span v-else class="badge badge-amber">加固中</span>
                 </td>
                 <td>
-                  <router-link v-if="!fixedIds.has(e.id)" to="/student/corrections">
-                    <button class="btn small ghost inline-icon">去订正 <AppIcon name="chevron-right" :size="14" /></button>
+                  <router-link v-if="!fixedIds.has(e.id)" to="/student/corrections" class="btn small ghost inline-icon">
+                    去订正 <AppIcon name="chevron-right" :size="14" />
                   </router-link>
                 </td>
               </tr>
