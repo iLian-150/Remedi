@@ -9,10 +9,7 @@
 <template>
   <div class="page">
     <div class="page-head profile-page-head">
-      <div>
-        <h2>我的档案</h2>
-        <p class="page-sub">记录你的每一次进步：错过的知识点，一个一个修复。</p>
-      </div>
+      <h2>我的档案</h2>
       <router-link to="/student/report" class="btn small secondary inline-icon profile-report-link">
         <AppIcon name="chart" :size="15" /> 学习报告
       </router-link>
@@ -25,13 +22,6 @@
       <!-- ================= 大黑板 ================= -->
       <section class="board-frame">
         <div class="board">
-          <div class="board-head">
-            <span class="board-title chalk">
-              <AppIcon name="cap" :size="19" /> 我的学习档案
-            </span>
-            <span class="board-class chalk-dim">Remedi 学习档案 · 黑板报</span>
-          </div>
-
           <div class="board-identity">
             <div class="chalk-name chalk">{{ profile.student.name }}</div>
             <p class="chalk-meta chalk-dim">
@@ -67,7 +57,7 @@
 
           <!-- 知识点掌握度：粉笔条 -->
           <div class="board-mastery" v-if="profile.knowledge_points.length">
-            <p class="board-section-title chalk">知识点掌握度 <span class="chalk-dim board-section-sub">—— 粉笔条越长，掌握得越牢</span></p>
+            <p class="board-section-title chalk">知识点掌握度</p>
             <div v-for="k in profile.knowledge_points" :key="k.knowledge_point" class="chalk-row">
               <span class="chalk-kp chalk">{{ k.knowledge_point }}</span>
               <span class="chalk-track">
@@ -81,7 +71,7 @@
               <span class="chalk-pct chalk tnum">{{ Math.round(k.mastery * 100) }}%</span>
             </div>
           </div>
-          <p v-else class="chalk-dim board-empty">还没有作答记录，去完成第一份作业，这里就会写满你的进步啦。</p>
+          <p v-else class="chalk-dim board-empty">暂无作答记录。</p>
 
           <!-- 老师寄语（粉笔手写在板角） -->
           <div class="board-message" v-if="profile.suggestion">
@@ -101,7 +91,6 @@
       <!-- ================= 奖状墙 ================= -->
       <div class="card">
         <h3><AppIcon name="sparkles" :size="17" /> 我的奖状墙</h3>
-        <p class="card-sub">每订正对一道错题，就有一张小奖状。攒满它们，知识点就真正属于你了。</p>
         <div v-if="certificates.length" class="cert-grid">
           <div v-for="e in visibleCertificates" :key="e.id" class="cert">
             <p class="cert-head">奖 状</p>
@@ -113,7 +102,7 @@
             <span class="cert-seal">已订正</span>
           </div>
         </div>
-        <div v-else class="empty">还没有奖状——去订正页做对第一道错题，第一张奖状就是你的。</div>
+        <div v-else class="empty">暂无奖状。</div>
         <button
           v-if="visibleCertificates.length < certificates.length"
           type="button"
@@ -125,7 +114,6 @@
       <!-- ================= 成长记录表（课表式网格） ================= -->
       <div class="card">
         <h3>成长记录表</h3>
-        <p class="card-sub">像课程表一样排下来的错误轨迹：先订正，再去学习报告做一道同类题验证，知识点就真正修复了。</p>
         <div v-if="timeline.length" class="record-wrap">
           <table class="record-table">
             <thead>
@@ -150,7 +138,7 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="empty">还没有错误记录，继续保持！</div>
+        <div v-else class="empty">暂无错误记录。</div>
         <button
           v-if="visibleTimeline.length < timeline.length"
           type="button"
@@ -162,7 +150,6 @@
       <!-- 问题类型分布 -->
       <div class="card">
         <h3>问题类型分布</h3>
-        <p class="card-sub">看看你的问题主要出在哪一类，对症练习最有效。</p>
         <EChart v-if="typeOptionData.length" :option="typeOption" />
         <div v-else class="empty">暂无数据。</div>
       </div>
@@ -354,11 +341,7 @@ onMounted(async () => {
 .chalk-green { color: #B5E7A0; text-shadow: 0 0 1px rgba(181, 231, 160, 0.6), 0 0 8px rgba(181, 231, 160, 0.2); }
 .chalk-pink { color: #FFB7C5; text-shadow: 0 0 1px rgba(255, 183, 197, 0.6), 0 0 8px rgba(255, 183, 197, 0.2); }
 
-.board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.board-title { font-size: 17px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
-.board-title :deep(svg) { filter: drop-shadow(0 0 3px rgba(247, 243, 232, 0.35)); }
-.board-class { font-size: 13px; }
-.board-identity { margin-top: 16px; }
+.board-identity { margin-top: 0; }
 .chalk-name { font-size: 38px; font-weight: 700; line-height: 1.15; }
 .chalk-meta { margin-top: 6px; font-size: 15px; }
 /* 粉笔分隔线：断续虚线像手划的 */
@@ -375,7 +358,6 @@ onMounted(async () => {
 
 .board-mastery { margin-top: 20px; }
 .board-section-title { font-size: 16.5px; font-weight: 700; margin-bottom: 10px; }
-.board-section-sub { font-size: 13px; font-weight: 400; }
 .chalk-row { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
 .chalk-kp { flex: 0 0 118px; font-size: 15px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chalk-track {
