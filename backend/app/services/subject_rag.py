@@ -6,10 +6,13 @@ SQL 保存原文和片段，Milvus 仅作为可重建的向量索引。向量服
 import logging
 import math
 import re
+import threading
 import unicodedata
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
+from dataclasses import dataclass
+from types import SimpleNamespace
 
-from sqlalchemy import event
+from sqlalchemy import event, func
 from sqlalchemy.orm import Session
 
 from ..models import SubjectKnowledgeChunk, SubjectKnowledgePassage
@@ -36,6 +39,20 @@ _VECTOR_WARNING = "向量检索尚未就绪，请检查向量模型和 Milvus �
 _RERANK_WARNING = "百炼重排暂不可用，当前使用本地排序。"
 _WRITE_TRANSACTION = "_remedi_rag_write_transaction"
 _SESSION_WRITE_TRANSACTION = "_remedi_session_write_transaction"
+_SEARCH_INDEX_CACHE_MAX_SUBJECTS = 2
+_SEARCH_INDEX_CACHE_MAX_CHARS = 2_000_000
+_SEARCH_INDEX_CACHE_LOCK = threading.Lock()
+_SEARCH_INDEX_CACHE = OrderedDict()
+
+
+@dataclass(frozen=True)
+class _SearchIndex:
+    candidates: list[dict]
+    counters: tuple[Counter, ...]
+    lengths: tuple[int, ...]
+    average_length: float
+    document_frequencies: Counter
+    text_char_count: int
 
 
 @event.listens_for(Session, "after_flush")
@@ -236,7 +253,11 @@ def migrate_subject_vectors(db: Session, subject: str) -> dict:
 
 
 def _load_candidates(db: Session, subject: str) -> list[dict]:
-    documents = db.query(SubjectKnowledgeChunk).filter_by(subject=subject).order_by(SubjectKnowledgeChunk.id).all()
+    documents = db.query(
+        SubjectKnowledgeChunk.id,
+        SubjectKnowledgeChunk.title,
+        SubjectKnowledgeChunk.source_name,
+    ).filter_by(subject=subject).order_by(SubjectKnowledgeChunk.id).all()
     if not documents:
         return []
     rows = db.query(SubjectKnowledgePassage).join(
@@ -245,35 +266,103 @@ def _load_candidates(db: Session, subject: str) -> list[dict]:
     by_document = defaultdict(list)
     for row in rows:
         by_document[row.document_id].append(row)
+    legacy_content = dict(db.query(
+        SubjectKnowledgeChunk.id, SubjectKnowledgeChunk.content,
+    ).filter(
+        SubjectKnowledgeChunk.subject == subject,
+        ~SubjectKnowledgeChunk.id.in_(db.query(SubjectKnowledgePassage.document_id)),
+    ).all())
     candidates = []
-    for document in documents:
-        passages = by_document.get(document.id)
+    for document_id, title, source_name in documents:
+        passages = by_document.get(document_id)
         if passages:
-            records = [{"passage_id": row.id, "document_id": document.id,
+            records = [{"passage_id": row.id, "document_id": document_id,
                         "parent_index": row.parent_index, "chunk_index": row.chunk_index,
                         "content": row.content, "parent_content": row.parent_content,
                         "page_number": row.page_number} for row in passages]
         else:
             # 历史资料立即可检索；读请求不写库，也不批量调用远程嵌入接口。
-            records = [{"passage_id": None, **record} for record in _passage_data(document)]
+            legacy_document = SimpleNamespace(id=document_id, content=legacy_content.get(document_id, ""))
+            records = [{"passage_id": None, **record} for record in _passage_data(legacy_document)]
         for record in records:
-            record.update(title=document.title, source_name=document.source_name)
+            record.update(title=title, source_name=source_name)
             candidates.append(record)
     return candidates
 
 
+def _subject_index_version(db: Session, subject: str) -> tuple[int, int, int, int]:
+    document_count, max_document_id = db.query(
+        func.count(SubjectKnowledgeChunk.id), func.max(SubjectKnowledgeChunk.id),
+    ).filter_by(subject=subject).one()
+    passage_count, max_passage_id = db.query(
+        func.count(SubjectKnowledgePassage.id), func.max(SubjectKnowledgePassage.id),
+    ).join(
+        SubjectKnowledgeChunk, SubjectKnowledgeChunk.id == SubjectKnowledgePassage.document_id,
+    ).filter(SubjectKnowledgeChunk.subject == subject).one()
+    return (document_count, max_document_id or 0, passage_count, max_passage_id or 0)
+
+
+def _build_search_index(candidates: list[dict]) -> _SearchIndex:
+    counters = tuple(Counter(
+        _tokenize(item["title"]) * 2 + _tokenize(item["content"])
+    ) for item in candidates)
+    lengths = tuple(sum(counter.values()) for counter in counters)
+    average_length = sum(lengths) / max(len(lengths), 1) or 1
+    document_frequencies = Counter(token for counter in counters for token in counter)
+    text_char_count = sum(
+        len(item["title"]) + len(item["content"]) + len(item["parent_content"])
+        + len(item["source_name"] or "")
+        for item in candidates
+    )
+    return _SearchIndex(
+        candidates=candidates, counters=counters, lengths=lengths,
+        average_length=average_length, document_frequencies=document_frequencies,
+        text_char_count=text_char_count,
+    )
+
+
+def _search_index(db: Session, subject: str) -> _SearchIndex:
+    if _has_uncommitted_knowledge(db):
+        return _build_search_index(_load_candidates(db, subject))
+
+    version = _subject_index_version(db, subject)
+    with _SEARCH_INDEX_CACHE_LOCK:
+        cached = _SEARCH_INDEX_CACHE.get(subject)
+        if cached is not None and cached[0] == version:
+            _SEARCH_INDEX_CACHE.move_to_end(subject)
+            return cached[1]
+        _SEARCH_INDEX_CACHE.pop(subject, None)
+
+    index = _build_search_index(_load_candidates(db, subject))
+    if index.text_char_count <= _SEARCH_INDEX_CACHE_MAX_CHARS:
+        with _SEARCH_INDEX_CACHE_LOCK:
+            _SEARCH_INDEX_CACHE[subject] = (version, index)
+            _SEARCH_INDEX_CACHE.move_to_end(subject)
+            while len(_SEARCH_INDEX_CACHE) > _SEARCH_INDEX_CACHE_MAX_SUBJECTS:
+                _SEARCH_INDEX_CACHE.popitem(last=False)
+    return index
+
+
 def _bm25_rank(
-    candidates: list[dict], query_tokens: set[str], single_cjk_token: str | None = None,
+    search_index: _SearchIndex, query_tokens: set[str], single_cjk_token: str | None = None,
 ) -> list[tuple[int, float]]:
-    counters = [Counter(
-        _tokenize(item["title"], single_cjk_token)
-        * 2 + _tokenize(item["content"], single_cjk_token)
-    ) for item in candidates]
-    lengths = [sum(counter.values()) for counter in counters]
-    average = sum(lengths) / max(len(lengths), 1) or 1
-    frequencies = Counter(token for counter in counters for token in counter if token in query_tokens)
+    if single_cjk_token:
+        counters = [Counter(
+            _tokenize(item["title"], single_cjk_token)
+            * 2 + _tokenize(item["content"], single_cjk_token)
+        ) for item in search_index.candidates]
+        lengths = [sum(counter.values()) for counter in counters]
+        average = sum(lengths) / max(len(lengths), 1) or 1
+        frequencies = Counter(
+            token for counter in counters for token in counter if token in query_tokens
+        )
+    else:
+        counters = search_index.counters
+        lengths = search_index.lengths
+        average = search_index.average_length
+        frequencies = search_index.document_frequencies
     ranked = []
-    for index, counter in enumerate(counters):
+    for candidate_index, counter in enumerate(counters):
         score = 0.0
         # 单独共享一个题目数值不能说明两段材料相关，例如 2+2 不应命中“面积除以2”。
         overlap = query_tokens & counter.keys()
@@ -281,10 +370,11 @@ def _bm25_rank(
             continue
         for token in overlap:
             count = counter[token]
-            idf = math.log(1 + (len(counters) - frequencies[token] + 0.5) / (frequencies[token] + 0.5))
-            score += idf * count * 2.2 / (count + 1.2 * (0.25 + 0.75 * lengths[index] / average))
+            frequency = frequencies[token]
+            idf = math.log(1 + (len(counters) - frequency + 0.5) / (frequency + 0.5))
+            score += idf * count * 2.2 / (count + 1.2 * (0.25 + 0.75 * lengths[candidate_index] / average))
         if score > 0:
-            ranked.append((index, score))
+            ranked.append((candidate_index, score))
     return sorted(ranked, key=lambda entry: (-entry[1], entry[0]))
 
 
@@ -300,10 +390,11 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
         and query not in _SINGLE_CJK_STOP_TOKENS
     ) else None
     query_tokens = set(_tokenize(query, single_cjk_token))
-    candidates = _load_candidates(db, subject)
+    search_index = _search_index(db, subject)
+    candidates = search_index.candidates
     if not candidates:
         return empty
-    lexical = _bm25_rank(candidates, query_tokens, single_cjk_token) if query_tokens else []
+    lexical = _bm25_rank(search_index, query_tokens, single_cjk_token) if query_tokens else []
     scores = defaultdict(float)
     candidate_limit = max(24, min(int(limit), 10) * 6)
     lexical_ranks = {index: rank for rank, (index, _) in enumerate(lexical, 1)}
