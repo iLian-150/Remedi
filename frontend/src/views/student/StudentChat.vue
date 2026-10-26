@@ -21,14 +21,13 @@
     <div class="chat-body" :class="{ 'chat-body-welcome': isWelcomeScreen }" ref="bodyRef">
       <div class="chat-inner">
         <section v-if="isWelcomeScreen" class="welcome-home">
-          <div class="welcome-kicker">今日学习</div>
           <h1>{{ auth.name || '同学' }}，今天想聊点什么？</h1>
           <p class="welcome-description">直接输入内容或上传题目图片，助手会自动判断意图并进入对应处理流程。</p>
 
           <div v-if="welcomeBriefing" class="welcome-briefing">
             <div class="welcome-briefing-heading">
               <span class="welcome-briefing-icon"><AppIcon name="clipboard" :size="16" /></span>
-              <div><strong>学习简报</strong><small>根据你的作业和订正情况整理</small></div>
+              <strong>学习简报</strong>
               <router-link class="welcome-briefing-book" to="/student/mistakes">打开错题本 <AppIcon name="chevron-right" :size="13" /></router-link>
             </div>
 
@@ -1366,15 +1365,11 @@ onMounted(async () => {
 .chat-body-welcome { flex: 0 0 auto; overflow: visible; padding: 0; }
 .welcome-mode .chat-body > .chat-inner { max-width: 820px; padding: 0; }
 .welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
-.welcome-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--text-2); font-size: 12px; font-weight: 600; }
-.welcome-kicker::before { width: 18px; height: 2px; border-radius: 2px; background: var(--primary); content: ''; }
 .welcome-home h1 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
 .welcome-description { max-width: 650px; margin-top: 10px; color: var(--text-2); font-size: 14px; line-height: 1.7; }
 .welcome-briefing { margin-top: 22px; padding: 17px 19px; border: 1px solid rgba(220, 228, 240, 0.9); border-radius: 17px; background: rgba(255, 255, 255, 0.92); box-shadow: 0 10px 28px rgba(31, 49, 77, 0.045); }
 .welcome-briefing-heading { display: flex; align-items: center; gap: 9px; color: var(--text); }
-.welcome-briefing-heading > div { display: flex; flex-direction: column; gap: 1px; }
 .welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
-.welcome-briefing-heading small { color: var(--text-3); font-size: 11px; }
 .welcome-briefing-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; background: var(--primary-50); color: var(--text-2); }
 .welcome-briefing-book { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; color: var(--primary); font-size: 12px; font-weight: 600; white-space: nowrap; }
 @keyframes welcome-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
@@ -1551,7 +1546,6 @@ onMounted(async () => {
   .chat-header { padding: 7px 0; }
   .chat-inner { padding-right: 14px; padding-left: 14px; }
   .chat-title-mark { width: 32px; height: 32px; }
-  .welcome-kicker { margin-bottom: 10px; }
   .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
   .welcome-description { max-width: 330px; font-size: 13px; }
   .welcome-briefing { margin-top: 17px; padding: 12px; }
