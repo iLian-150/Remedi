@@ -51,6 +51,31 @@ def refresh_student_learning_memory(
     existing = {
         (row.subject, row.knowledge_point): row for row in memory_query.all()
     }
+    eligible_error_ids = query.with_entities(Error.id).subquery()
+    error_key_by_id = {
+        error.id: key
+        for key, error_list in errors_by_key.items()
+        for error in error_list
+    }
+    latest_correction_by_error = {}
+    correction_rows = db.query(Correction).filter(
+        Correction.student_id == student_id,
+        Correction.error_id.in_(eligible_error_ids),
+    ).order_by(Correction.submitted_at, Correction.id).all()
+    for correction in correction_rows:
+        latest_correction_by_error[correction.error_id] = correction
+
+    verifications_by_key = defaultdict(list)
+    verification_rows = db.query(Verification).filter(
+        Verification.student_id == student_id,
+        Verification.source_error_id.in_(eligible_error_ids),
+        Verification.status.in_(("passed", "failed")),
+    ).order_by(Verification.created_at, Verification.id).all()
+    for verification in verification_rows:
+        key = error_key_by_id.get(verification.source_error_id)
+        if key is not None:
+            verifications_by_key[key].append(verification)
+
     keys = set(errors_by_key) | set(existing)
     now = datetime.now()
     changed = 0
@@ -64,25 +89,17 @@ def refresh_student_learning_memory(
             continue
 
         error_ids = [error.id for error in error_list]
-        correction_rows = db.query(Correction).filter(
-            Correction.student_id == student_id,
-            Correction.error_id.in_(error_ids),
-        ).order_by(Correction.submitted_at, Correction.id).all()
-        latest_correction = {}
-        for correction in correction_rows:
-            latest_correction[correction.error_id] = correction
         known_corrections = [
-            item for item in latest_correction.values() if item.is_correct is not None
+            latest_correction_by_error[error_id]
+            for error_id in error_ids
+            if error_id in latest_correction_by_error
+            and latest_correction_by_error[error_id].is_correct is not None
         ]
         successful = sum(1 for item in known_corrections if item.is_correct is True)
         corrected_count = successful
         correction_rate = successful / len(known_corrections) if known_corrections else 0.0
 
-        verifications = db.query(Verification).filter(
-            Verification.student_id == student_id,
-            Verification.source_error_id.in_(error_ids),
-            Verification.status.in_(("passed", "failed")),
-        ).order_by(Verification.created_at, Verification.id).all()
+        verifications = verifications_by_key.get(key, [])
         passed = sum(1 for item in verifications if item.status == "passed")
         verification_rate = passed / len(verifications) if verifications else 0.0
         latest_verification = verifications[-1].status if verifications else None
