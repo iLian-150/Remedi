@@ -32,7 +32,7 @@
   <div v-else class="app-shell">
     <!-- 移动端顶栏 -->
     <header class="mobile-topbar">
-      <button class="icon-btn" title="菜单" @click="sidebarOpen = !sidebarOpen">
+      <button class="icon-btn" aria-label="菜单" title="菜单" @click="sidebarOpen = !sidebarOpen">
         <AppIcon name="menu" :size="22" />
       </button>
       <span class="mobile-brand"><BrandLogo :size="21" /> Remedi</span>
@@ -49,6 +49,7 @@
         </div>
         <button
           class="icon-btn sidebar-collapse-btn"
+          :aria-label="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
           :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
           @click="setSidebarCollapsed(!sidebarCollapsed)"
         >
@@ -84,7 +85,7 @@
             {{ auth.role === 'teacher' ? '教师' : '学生' }}<template v-if="auth.role === 'student' && auth.user?.student_no"> · {{ auth.user.student_no }}</template>
           </div>
         </div>
-        <button class="icon-btn" title="退出登录" @click="logout">
+        <button class="icon-btn" aria-label="退出登录" title="退出登录" @click="logout">
           <AppIcon name="logout" :size="18" />
         </button>
       </div>
@@ -121,6 +122,7 @@
       v-if="(railMode === 'notes' || railMode === 'mistakes') && !railOpen"
       class="notes-fab"
       :class="{ 'has-unread': railFabCount > 0 }"
+      :aria-label="railFabLabel"
       :title="railMode === 'mistakes' ? '打开错题复习' : '打开提醒'"
       @click="setRail(true)"
     >
@@ -130,6 +132,7 @@
     <button
       v-else-if="(railMode === 'calendar' || railMode === 'corrections') && !railOpen"
       class="cal-fab"
+      aria-label="打开日历"
       title="打开日历"
       @click="setRail(true)"
     >
@@ -138,6 +141,7 @@
     <button
       v-else-if="railMode === 'timeline' && !railOpen"
       class="cal-fab"
+      aria-label="打开错题时间线"
       title="打开错题时间线"
       @click="setRail(true)"
     >
@@ -284,6 +288,11 @@ const railMode = computed<RailMode>(() =>
 
 // ---------- 右侧栏展开状态：所有页面默认收起，导航后重新收起 ----------
 const railFabCount = computed(() => railMode.value === 'mistakes' ? student.mistakeReviewCount : student.unreadCount)
+const railFabLabel = computed(() => {
+  const count = railFabCount.value
+  if (railMode.value === 'mistakes') return count ? `打开错题复习，${count} 类待复习` : '打开错题复习'
+  return count ? `打开提醒，${count} 条未读` : '打开提醒'
+})
 const railOpen = ref(false)
 
 function setRail(open: boolean) {

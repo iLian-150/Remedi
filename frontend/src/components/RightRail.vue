@@ -21,7 +21,7 @@
         <AppIcon :name="mode === 'notes' ? 'megaphone' : mode === 'mistakes' ? 'book' : mode === 'timeline' ? 'history' : 'calendar'" :size="17" />
         {{ mode === 'notes' ? '提醒' : mode === 'mistakes' ? '错题复习' : mode === 'corrections' ? '订正日历' : mode === 'timeline' ? '错题时间线' : '日历' }}
       </span>
-      <button class="icon-btn" title="收起右侧栏" @click="$emit('close')">
+      <button class="icon-btn" aria-label="收起右侧栏" title="收起右侧栏" @click="$emit('close')">
         <AppIcon name="chevron-right" :size="17" />
       </button>
     </div>

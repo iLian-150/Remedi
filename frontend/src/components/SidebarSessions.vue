@@ -37,7 +37,7 @@
               <button class="sb-main" :title="s.title" @click="onSelect(s.id)">
                 <span class="sb-title">{{ s.title }}</span>
               </button>
-              <button class="sb-trash" title="删除这条对话" @click="confirmId = s.id">
+              <button class="sb-trash" aria-label="删除这条对话" title="删除这条对话" @click="confirmId = s.id">
                 <AppIcon name="trash" :size="15" />
               </button>
             </template>

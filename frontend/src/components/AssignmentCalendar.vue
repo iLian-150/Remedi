@@ -4,9 +4,9 @@
 <template>
   <div class="cal">
     <div class="cal-head">
-      <button class="icon-btn" title="上个月" @click="move(-1)"><AppIcon name="chevron-left" :size="18" /></button>
+      <button class="icon-btn" aria-label="上个月" title="上个月" @click="move(-1)"><AppIcon name="chevron-left" :size="18" /></button>
       <span class="cal-title">{{ viewYear }} 年 {{ viewMonth + 1 }} 月</span>
-      <button class="icon-btn" title="下个月" @click="move(1)"><AppIcon name="chevron-right" :size="18" /></button>
+      <button class="icon-btn" aria-label="下个月" title="下个月" @click="move(1)"><AppIcon name="chevron-right" :size="18" /></button>
       <button class="btn small cal-today-btn" @click="goToday">回到今天</button>
     </div>
     <div class="cal-grid cal-week">

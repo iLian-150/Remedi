@@ -8,7 +8,7 @@
   <div class="verify-panel">
     <div class="vp-head">
       <p class="vp-title"><AppIcon name="target" :size="17" /> 二次验证 · {{ knowledgePoint }}</p>
-      <button class="icon-btn" title="收起验证" @click="emit('close')"><AppIcon name="x" :size="16" /></button>
+      <button class="icon-btn" aria-label="收起验证" title="收起验证" @click="emit('close')"><AppIcon name="x" :size="16" /></button>
     </div>
     <p class="hint" style="margin-bottom: 10px">
       订正对了还不算真正掌握——独立做对这道同类题，这个知识点就修复啦。
@@ -35,7 +35,7 @@
       <div v-for="(s, i) in steps" :key="i" class="vp-step-row">
         <span class="tnum step-idx">{{ i + 1 }}</span>
         <input v-model="steps[i]" type="text" :disabled="passed" :placeholder="i === 0 ? '例如：2x+3=7' : ''" />
-        <button class="icon-btn" title="删除这一步" :disabled="passed" @click="steps.splice(i, 1)">
+        <button class="icon-btn" :aria-label="`删除第 ${i + 1} 步`" title="删除这一步" :disabled="passed" @click="steps.splice(i, 1)">
           <AppIcon name="x" :size="15" />
         </button>
       </div>

@@ -38,7 +38,7 @@
       <div v-for="(s, i) in steps" :key="i" class="transcribe-step">
         <span class="tnum step-idx">{{ i + 1 }}</span>
         <input v-model="steps[i]" type="text" :disabled="confirmed && !fixOpen" />
-        <button class="icon-btn" title="删除这一步" :disabled="confirmed && !fixOpen" @click="steps.splice(i, 1)">
+        <button class="icon-btn" :aria-label="`删除第 ${i + 1} 步`" title="删除这一步" :disabled="confirmed && !fixOpen" @click="steps.splice(i, 1)">
           <AppIcon name="x" :size="15" />
         </button>
       </div>

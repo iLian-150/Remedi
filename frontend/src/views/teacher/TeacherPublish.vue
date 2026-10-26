@@ -185,9 +185,9 @@
         <div class="time-grid">
           <div class="cal">
             <div class="cal-head">
-              <button type="button" class="cal-nav" title="上个月" @click="shiftMonth(-1)"><AppIcon name="chevron-left" :size="15" /></button>
+              <button type="button" class="cal-nav" aria-label="上个月" title="上个月" @click="shiftMonth(-1)"><AppIcon name="chevron-left" :size="15" /></button>
               <span class="cal-title">{{ calCursor.y }}年{{ calCursor.m + 1 }}月</span>
-              <button type="button" class="cal-nav" title="下个月" @click="shiftMonth(1)"><AppIcon name="chevron-right" :size="15" /></button>
+              <button type="button" class="cal-nav" aria-label="下个月" title="下个月" @click="shiftMonth(1)"><AppIcon name="chevron-right" :size="15" /></button>
             </div>
             <div class="cal-week"><span v-for="w in ['一', '二', '三', '四', '五', '六', '日']" :key="w">{{ w }}</span></div>
             <div class="cal-days">
