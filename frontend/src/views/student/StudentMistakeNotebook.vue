@@ -22,15 +22,6 @@
             <h1>我的错题本<span>。</span></h1>
           </header>
 
-          <div class="notebook-overview" aria-label="错题复习概览">
-            <div class="notebook-stat total"><div class="notebook-stat-copy"><span>收录错题</span><strong>{{ loading ? '—' : allMistakes.length }}<small>条</small></strong></div></div>
-            <div class="notebook-stat pending"><div class="notebook-stat-copy"><span>待学习作业</span><strong>{{ loading ? '—' : assignmentReadiness.pending }}<small>份</small></strong></div></div>
-            <div class="notebook-stat repaired">
-              <div class="notebook-stat-copy"><span>已学会类别</span><strong>{{ loading ? '—' : `${studiedCategoryCount}/${categoryCount}` }}</strong></div>
-              <div class="notebook-progress-track" role="progressbar" aria-label="错误类别学习进度" :aria-valuenow="loading ? undefined : studyPercent" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${loading ? 0 : studyPercent}%` }"/></div>
-            </div>
-          </div>
-
           <div class="notebook-workspace">
             <div class="notebook-filterbar">
               <div class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
@@ -71,7 +62,6 @@
             </div>
             <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '留一页，给每一次进步' }}</h3><p>{{ allMistakes.length ? '换个关键词，或调整学习进度试试。' : '完成作业诊断后，错题会按作业和错误类别整理在这里。' }}</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
           </div>
-          <div class="notebook-footer-note"><AppIcon name="book" :size="14"/>每学会一类错误，就离下一次做对更近一步。</div>
         </div>
         <MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/>
       </section>
@@ -118,8 +108,6 @@ type AssignmentSearchIndex = Map<number, string>
 interface NotebookData {
   assignmentGroups: AssignmentGroup[]
   assignmentGroupsById: Map<number, AssignmentGroup>
-  categoryCount: number
-  studiedCategoryCount: number
 }
 
 const router = useRouter()
@@ -168,9 +156,6 @@ const assignmentSearchIndexCache = new WeakMap<StudentMistake[], AssignmentSearc
 
 const notebookData = computed(() => buildNotebookData(allMistakes.value))
 const assignmentGroups = computed(() => notebookData.value.assignmentGroups)
-const categoryCount = computed(() => notebookData.value.categoryCount)
-const studiedCategoryCount = computed(() => notebookData.value.studiedCategoryCount)
-const studyPercent = computed(() => categoryCount.value ? Math.round(studiedCategoryCount.value / categoryCount.value * 100) : 0)
 const assignmentReadiness = computed(() => {
   let pending = 0
   let ready = 0
@@ -312,15 +297,7 @@ function showMoreCategoryItems(assignmentId: number, category: MistakeCategory) 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
   const groups = new Map<number, AssignmentGroup>()
   const categoriesByAssignment = new Map<number, Map<string, MistakeCategory>>()
-  const studiedByCategory = new Map<string, boolean>()
   for (const item of items) {
-    if (!isStudentSaved(item)) {
-      const categoryKey = `${item.assignment_id}:${item.category_key}`
-      studiedByCategory.set(
-        categoryKey,
-        (studiedByCategory.get(categoryKey) ?? true) && item.category_studied,
-      )
-    }
     let group = groups.get(item.assignment_id)
     if (!group) {
       group = {
@@ -371,15 +348,9 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
     group.ready = group.categories.length > 0 && group.studiedCategoryCount === group.categories.length
     return group
   })
-  let studiedCategoryCount = 0
-  for (const studied of studiedByCategory.values()) {
-    if (studied) studiedCategoryCount += 1
-  }
   return {
     assignmentGroups,
     assignmentGroupsById: groups,
-    categoryCount: studiedByCategory.size,
-    studiedCategoryCount,
   }
 }
 function subjectName(value: string) { return subjectNames[value] || value || '其他学科' }
@@ -644,7 +615,6 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistake-notebook { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: 1240px; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-color: var(--border) transparent; scrollbar-width: thin; padding: 68px 42px 18px; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-footer-note { margin-top: 12px; }
 .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { padding: 75px 28px 22px; }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book .mistake-network-viewport { height: 100%; min-height: 0; }
@@ -652,8 +622,6 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-header h1 { color: var(--text); font-size: clamp(28px, 3vw, 39px); }
 .remedi-mistake-book .notebook-header h1 span { color: var(--primary); }
 .remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
-/* 进度填充用主色实色（v0.13.0 修复：此前误用 primary-50 浅色，进度条几乎看不见） */
-.remedi-mistake-book .notebook-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
 .remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
 .remedi-mistake-book .notebook-search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
 .remedi-mistake-book .notebook-assignment { border-color: var(--border); background: var(--card); }
@@ -677,7 +645,6 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-category-questions article > button:last-child { flex: 0 0 auto; grid-column: auto; grid-row: auto; margin-top: 4px; }
 .remedi-mistake-book .notebook-question-excerpt, .remedi-mistake-book .notebook-question-detail { display: -webkit-box; width: 100%; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .remedi-mistake-book .notebook-assignment-footer button { border-color: var(--primary); background: var(--primary); }
-.remedi-mistake-book .notebook-footer-note { padding-top: 12px; color: var(--text-2); }
 .remedi-mistake-book .notebook-action-error { margin: 10px 0; color: #991B1B; font-size: 12px; }
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
