@@ -72,7 +72,7 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 | `DASHSCOPE_API_KEY` | 空 | 示例不含真实百炼 API Key；实际凭证只保存在服务器环境配置 |
 | `DASHSCOPE_BASE_URL` | 按工作空间配置 | 使用控制台工作空间专属 APIHost，并附加 `/compatible-mode/v1`，地域须与账号一致 |
 | `DASHSCOPE_MODEL` | `kimi-k3` | Kimi-K3 文本问答模型，始终启用思考 |
-| `DASHSCOPE_VISION_MODEL` | `kimi-k2.6` | 图片识别与讲解模型；默认关闭思考以缩短首字等待 |
+| `DASHSCOPE_VISION_MODEL` | `kimi-k3` | 图片识别与讲解模型；始终启用思考 |
 | `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_qwen37_flash` | 新向量模型使用独立集合，保留原集合 |
 | `RAG_EMBEDDING_MODEL` | `qwen3.7-text-embedding-flash` | 学科知识库向量化模型，通过百炼接口调用 |
 | `RAG_EMBEDDING_DIMENSIONS` | `1024` | 向量维度；变更模型或维度后按部署说明使用匹配的 Milvus 集合并重建索引 |
