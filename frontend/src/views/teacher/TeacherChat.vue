@@ -37,8 +37,10 @@
                 { 'welcome-bubble': isWelcomeState && msg.side === 'ai' }
               ]"
             >
-              <AppIcon v-if="msg.pending" name="spinner" :size="15" class="spin" />
-              {{ msg.text }}
+              <span v-if="msg.pending" class="pending-status" role="status">
+                {{ msg.text }}<span class="pending-elapsed"> · {{ pendingElapsedSeconds }} 秒</span>
+              </span>
+              <template v-else>{{ msg.text }}</template>
             </div>
           </div>
 
@@ -133,6 +135,15 @@ const historyLoadError = ref('')
 const historyCursor = ref<AgentHistoryCursor | null>(null)
 let activeStreamController: AbortController | null = null
 let historyRequestToken = 0
+const pendingElapsedSeconds = ref(0)
+let pendingTimer: number | undefined
+
+function stopPendingTimer() {
+  if (pendingTimer !== undefined) {
+    window.clearInterval(pendingTimer)
+    pendingTimer = undefined
+  }
+}
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null &&
@@ -196,7 +207,13 @@ async function sendText(raw: string) {
   input.value = ''
   suggestions.value = []
   pushMsg('user', text)
-  const wait = pushMsg('ai', '正在查询…', true)
+  const wait = pushMsg('ai', '正在查询班级数据', true)
+  pendingElapsedSeconds.value = 0
+  const pendingStartedAt = Date.now()
+  stopPendingTimer()
+  pendingTimer = window.setInterval(() => {
+    pendingElapsedSeconds.value = Math.floor((Date.now() - pendingStartedAt) / 1000)
+  }, 1000)
   const controller = new AbortController()
   activeStreamController = controller
   sending.value = true
@@ -207,6 +224,7 @@ async function sendText(raw: string) {
       if (!receivedCharacter) {
         wait.text = ''
         wait.pending = false
+        stopPendingTimer()
         receivedCharacter = true
       }
       wait.text += character
@@ -221,6 +239,7 @@ async function sendText(raw: string) {
     wait.text = '查询失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
   } finally {
+    stopPendingTimer()
     if (activeStreamController === controller) activeStreamController = null
     wait.pending = false
     sending.value = false
@@ -228,7 +247,10 @@ async function sendText(raw: string) {
   }
 }
 
-onUnmounted(() => activeStreamController?.abort())
+onUnmounted(() => {
+  stopPendingTimer()
+  activeStreamController?.abort()
+})
 
 function restoreHistoryMessage(row: AgentHistoryItem, shouldScroll = false) {
   pushMsg(row.role === 'user' ? 'user' : 'ai', row.content, false, shouldScroll)
@@ -433,12 +455,11 @@ onMounted(async () => {
 }
 .send-circle:hover:not(:disabled) { transform: scale(1.07); box-shadow: 0 6px 16px rgba(29, 78, 216, 0.42); }
 .send-circle:disabled { opacity: 0.45; cursor: not-allowed; }
-.spin { animation: tchat-spin 1s linear infinite; flex-shrink: 0; margin-top: 2px; }
-@keyframes tchat-spin { to { transform: rotate(360deg); } }
+.pending-status { color: var(--text-2); }
+.pending-elapsed { color: var(--text-3); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   .welcome-prompts button, .suggest-chip { transition: none; }
   .suggest-chip { animation: none; }
-  .spin { animation: none; }
   .tchat-composer, .send-circle { transition: none; }
   .send-circle:hover:not(:disabled) { transform: none; }
 }
