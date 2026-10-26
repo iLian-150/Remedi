@@ -22,7 +22,6 @@
       <div class="chat-inner">
         <section v-if="isWelcomeScreen" class="welcome-home">
           <h1>{{ auth.name || '同学' }}，今天想聊点什么？</h1>
-          <p class="welcome-description">直接输入内容或上传题目图片，助手会自动判断意图并进入对应处理流程。</p>
 
           <div v-if="welcomeBriefing" class="welcome-briefing">
             <div class="welcome-briefing-heading">
@@ -302,7 +301,8 @@
             v-model="chatInput"
             class="chat-text-input"
             rows="1"
-            :placeholder="isWelcomeScreen ? '说说你想做什么：闲聊、总结错题、批改作业或问学习问题…' : '输入内容，助手会自动识别并处理'"
+            aria-label="输入内容"
+            placeholder="输入内容…"
             :disabled="chatSending"
             @keydown.enter.exact.prevent="sendChat()"
           ></textarea>
@@ -1366,7 +1366,6 @@ onMounted(async () => {
 .welcome-mode .chat-body > .chat-inner { max-width: 820px; padding: 0; }
 .welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
 .welcome-home h1 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
-.welcome-description { max-width: 650px; margin-top: 10px; color: var(--text-2); font-size: 14px; line-height: 1.7; }
 .welcome-briefing { margin-top: 22px; padding: 17px 19px; border: 1px solid rgba(220, 228, 240, 0.9); border-radius: 17px; background: rgba(255, 255, 255, 0.92); box-shadow: 0 10px 28px rgba(31, 49, 77, 0.045); }
 .welcome-briefing-heading { display: flex; align-items: center; gap: 9px; color: var(--text); }
 .welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
@@ -1547,7 +1546,6 @@ onMounted(async () => {
   .chat-inner { padding-right: 14px; padding-left: 14px; }
   .chat-title-mark { width: 32px; height: 32px; }
   .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
-  .welcome-description { max-width: 330px; font-size: 13px; }
   .welcome-briefing { margin-top: 17px; padding: 12px; }
   .composer-bottom-row { gap: 6px; }
   .composer-tools { gap: 5px; }
