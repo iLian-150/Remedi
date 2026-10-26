@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -20,6 +21,7 @@ def refresh_student_learning_memory(
     commit: bool = True,
 ) -> int:
     """重算指定范围的记忆状态；待教师审核的暂定错因不进入长期记忆。"""
+    db.info.pop(("student_learning_memory_checked", student_id), None)
     query = db.query(Error, Question.subject).join(
         Submission, Submission.id == Error.submission_id,
     ).join(
@@ -127,8 +129,31 @@ def refresh_student_learning_memory(
     return changed
 
 
+def ensure_student_learning_memory(db: Session, student_id: int) -> None:
+    """仅在派生记忆缺漏时重建，避免每次对话都扫描全部错题和逐点查询。"""
+    cache_key = ("student_learning_memory_checked", student_id)
+    if db.info.get(cache_key):
+        return
+    source_error_count = db.query(func.count(Error.id)).join(
+        Submission, Submission.id == Error.submission_id,
+    ).outerjoin(
+        SubmissionReview, SubmissionReview.submission_id == Submission.id,
+    ).filter(
+        Submission.student_id == student_id,
+        (SubmissionReview.status.is_(None) | (SubmissionReview.status != "pending")),
+    ).scalar() or 0
+    cached_error_count = db.query(
+        func.coalesce(func.sum(StudentLearningMemory.error_count), 0),
+    ).filter(
+        StudentLearningMemory.student_id == student_id,
+    ).scalar() or 0
+    if source_error_count != cached_error_count:
+        refresh_student_learning_memory(db, student_id, commit=True)
+    db.info[cache_key] = True
+
+
 def student_memory_to_text(db: Session, student_id: int, limit: int = 8) -> str:
-    refresh_student_learning_memory(db, student_id, commit=True)
+    ensure_student_learning_memory(db, student_id)
     rows = db.query(StudentLearningMemory).filter(
         StudentLearningMemory.student_id == student_id,
     ).order_by(

@@ -96,7 +96,10 @@ from ..schemas import (
     VerificationSubmitOut,
 )
 from ..services import variant_gen
-from ..services.learning_memory import refresh_student_learning_memory
+from ..services.learning_memory import (
+    ensure_student_learning_memory,
+    refresh_student_learning_memory,
+)
 from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services.streaming import ClosingStreamingResponse
@@ -2475,7 +2478,7 @@ def my_report_scores(db: Session = Depends(get_db), current: User = Depends(requ
 def my_learning_memory(
     db: Session = Depends(get_db), current: User = Depends(require_student),
 ):
-    refresh_student_learning_memory(db, current.id)
+    ensure_student_learning_memory(db, current.id)
     rows = db.query(StudentLearningMemory).filter(
         StudentLearningMemory.student_id == current.id,
     ).order_by(
