@@ -282,17 +282,6 @@
       </button>
     </div>
 
-    <!-- v0.13.9：空态——还没加任何题目时先做选择：小题是独立的一道题，
-         大题是一段共同题干下面挂几道小题 -->
-    <div v-if="!questions.length && !groups.length" class="card q-empty">
-      <h3 style="margin-bottom: 12px">添加题目</h3>
-      <div class="q-add-row">
-        <button type="button" class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
-        <button type="button" class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
-        <button type="button" class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
-      </div>
-    </div>
-
     <div v-for="(q, idx) in questions" :key="idx" class="card" :class="{ 'q-suspect': showResult(q) && q.check_status === 'suspect' }">
       <div class="q-head">
         <h3 style="margin-bottom: 0">第 {{ idx + 1 }} 题 · {{ subjectLabel }}</h3>
@@ -502,10 +491,10 @@
       <button type="button" class="btn small secondary" @click="distributeEvenly">一键均分</button>
     </div>
     <div class="toolbar publish-actions">
-      <button class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
-      <button class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
-      <button class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
-      <span class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
+      <button type="button" class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
+      <button type="button" class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
+      <button type="button" class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
+      <span v-if="questions.length || groups.length" class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
       <button class="btn" :disabled="submitting || checkingAll" @click="submit">
         {{ checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
@@ -1477,7 +1466,6 @@ onMounted(async () => {
 .weight-mini { font-size: 13px; color: var(--text-2); }
 .weight-mini b { color: var(--green); }
 .weight-mini.bad b { color: var(--red); }
-.q-empty .q-add-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .q-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
 .q-actions { display: flex; gap: 8px; align-items: center; }
 .mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
