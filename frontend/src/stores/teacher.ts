@@ -32,6 +32,7 @@ import type {
   TeacherErrorItem,
   TeacherErrorSummary,
   SubjectAgentCode,
+  SubjectKnowledgeDetail,
   SubjectKnowledgeList,
   SubjectKnowledgeImportResult,
   SubjectKnowledgeImportJob,
@@ -271,6 +272,10 @@ export const useTeacherStore = defineStore('teacher', {
     },
     async fetchSubjectKnowledge(subject: SubjectAgentCode): Promise<SubjectKnowledgeList> {
       const { data } = await api.get<SubjectKnowledgeList>(`/api/teacher/knowledge/${subject}`)
+      return data
+    },
+    async fetchSubjectKnowledgeDocument(subject: SubjectAgentCode, documentId: number): Promise<SubjectKnowledgeDetail> {
+      const { data } = await api.get<SubjectKnowledgeDetail>(`/api/teacher/knowledge/${subject}/${documentId}`)
       return data
     },
     async addSubjectKnowledge(

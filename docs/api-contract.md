@@ -1397,7 +1397,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.29 GET/POST/DELETE /api/teacher/knowledge/{subject}[/{chunk_id}] —— 学科 Agent 知识库
 
-权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET` 返回该学科资料，新增顶层 `vector_enabled`（是否配置 Milvus）及每条资料的 `passage_count`；`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；标题、正文不能仅含空白。`DELETE` 删除整条资料及关系库片段，先在短事务内锁定并校验资料，再提交本地删除；并发写入导致 SQLite 旧快照失效时返回 409，请求可重试。提交后按删除前捕获的确切片段 ID 清理 Milvus 索引；文档 ID 被新资料复用时，延迟到达的旧清理不会误删新资料向量。向量清理失败返回 `warnings`，残留向量不能引用已删除资料。
+权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET /knowledge/{subject}` 返回资料摘要（不含正文）、顶层 `vector_enabled`（是否配置 Milvus）及每条资料的 `passage_count`；`GET /knowledge/{subject}/{chunk_id}` 按需返回指定资料正文和摘要字段。`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；标题、正文不能仅含空白。`DELETE` 删除整条资料及关系库片段，先在短事务内锁定并校验资料，再提交本地删除；并发写入导致 SQLite 旧快照失效时返回 409，请求可重试。提交后按删除前捕获的确切片段 ID 清理 Milvus 索引；文档 ID 被新资料复用时，延迟到达的旧清理不会误删新资料向量。向量清理失败返回 `warnings`，残留向量不能引用已删除资料。
 
 新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、跨资料候选分散、模型重排及父块去重；BM25 也会匹配规范化的公式表达式，保留单字母变量及运算符关系。重排模型为 `qwen3.7-text-rerank`，默认超时 10 秒，不可用时回退本地重排并返回安全警告。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
 

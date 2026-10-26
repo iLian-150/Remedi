@@ -30,7 +30,7 @@
         <div v-else class="shelf-scene">
           <div class="books-row">
             <article v-for="item in items" :key="item.id" class="document-slot">
-              <button class="document-cover" :style="bookStyle(item)" :aria-label="`打开资料：${item.title}`" @click="activeDocument = item">
+              <button class="document-cover" :style="bookStyle(item)" :aria-label="`打开资料：${item.title}`" @click="openDocument(item)">
                 <span class="cover-top"><span class="cover-monogram">{{ subjectLabel.slice(0, 1) }}</span><span class="cover-kind">{{ documentFormat(item) }}</span></span>
                 <span class="cover-title">{{ item.title }}</span>
                 <span class="cover-rule"></span>
@@ -117,17 +117,22 @@
       </section>
     </div>
 
-    <div v-if="activeDocument" class="modal-mask" tabindex="-1" @keydown.esc="activeDocument = null" @click.self="activeDocument = null">
+    <div v-if="activeDocument" class="modal-mask" tabindex="-1" @keydown.esc="closeDocument" @click.self="closeDocument">
       <section class="document-dialog" role="dialog" aria-modal="true" :aria-label="activeDocument.title">
         <header class="document-dialog-head">
           <span class="preview-cover" :style="bookStyle(activeDocument)">{{ subjectLabel.slice(0, 1) }}</span>
           <div class="preview-title"><span class="dialog-eyebrow">{{ importedDocumentLabel(activeDocument) }}</span><h3>{{ activeDocument.title }}</h3><small>{{ activeDocument.source_name || '教师整理' }} · {{ activeDocument.passage_count }} 个检索片段</small></div>
-          <button class="close-dialog" type="button" aria-label="关闭" @click="activeDocument = null">×</button>
+          <button class="close-dialog" type="button" aria-label="关闭" @click="closeDocument">×</button>
         </header>
-        <div class="document-content">{{ activeDocument.content }}</div>
+        <div v-if="documentDetailLoading" class="document-content document-content-state" role="status">正在加载资料…</div>
+        <div v-else-if="documentDetailError" class="document-content document-content-state" role="alert">
+          <span>{{ documentDetailError }}</span>
+          <button type="button" class="document-retry" @click="openDocument(activeDocument)">重试</button>
+        </div>
+        <div v-else class="document-content">{{ activeDocumentContent }}</div>
         <footer class="dialog-actions">
           <button class="delete-button" type="button" :disabled="mutating" @click="askToRemove(activeDocument)">{{ deletingId === activeDocument.id ? '正在删除…' : '删除资料' }}</button>
-          <button class="save-button" type="button" @click="activeDocument = null">完成</button>
+          <button class="save-button" type="button" @click="closeDocument">完成</button>
         </footer>
       </section>
     </div>
@@ -204,6 +209,9 @@ const subjectLabel = computed(() => labels[subject.value] ?? '学科')
 const entryMode = ref<'text' | 'file'>('text')
 const uploadOpen = ref(false)
 const activeDocument = ref<SubjectKnowledgeItem | null>(null)
+const activeDocumentContent = ref('')
+const documentDetailLoading = ref(false)
+const documentDetailError = ref('')
 const deleteConfirmDocument = ref<SubjectKnowledgeItem | null>(null)
 const duplicateImportJob = ref<SubjectKnowledgeImportJob | null>(null)
 const deleteConfirmCancelButton = ref<HTMLButtonElement | null>(null)
@@ -231,6 +239,7 @@ const query = ref('')
 const searchResult = ref<SubjectKnowledgeSearchResult | null>(null)
 let generation = 0
 let loadSequence = 0
+let documentDetailSequence = 0
 
 const duplicateImportTitle = computed(() => duplicateImportJob.value?.status === 'completed'
   ? '资料已在知识库' : duplicateImportJob.value?.status === 'failed' ? '该资料已有失败任务' : '该资料已提交过')
@@ -315,6 +324,36 @@ async function load(expectedGeneration = generation) {
   } finally {
     if (expectedGeneration === generation && sequence === loadSequence) loading.value = false
   }
+}
+
+async function openDocument(item: SubjectKnowledgeItem | null) {
+  if (!item) return
+  const target = subject.value
+  if (!target) return
+  const sequence = ++documentDetailSequence
+  activeDocument.value = item
+  activeDocumentContent.value = ''
+  documentDetailError.value = ''
+  documentDetailLoading.value = true
+  try {
+    const detail = await teacher.fetchSubjectKnowledgeDocument(target, item.id)
+    if (sequence !== documentDetailSequence || activeDocument.value?.id !== item.id || subject.value !== target) return
+    activeDocumentContent.value = detail.content
+  } catch (cause) {
+    if (sequence === documentDetailSequence && activeDocument.value?.id === item.id) {
+      documentDetailError.value = errorMessage(cause, '资料读取失败，请重试。')
+    }
+  } finally {
+    if (sequence === documentDetailSequence) documentDetailLoading.value = false
+  }
+}
+
+function closeDocument() {
+  documentDetailSequence += 1
+  activeDocument.value = null
+  activeDocumentContent.value = ''
+  documentDetailLoading.value = false
+  documentDetailError.value = ''
 }
 
 async function save() {
@@ -461,7 +500,7 @@ async function remove(item: SubjectKnowledgeItem) {
     const result = await teacher.deleteSubjectKnowledge(target, item.id)
     if (current !== generation) return
     items.value = items.value.filter(existing => existing.id !== item.id)
-    activeDocument.value = null
+    closeDocument()
     notice.value = '资料已删除。'
     warnings.value = result.warnings ?? []
     searchResult.value = null
@@ -483,7 +522,7 @@ watch(subject, () => {
   items.value = []; vectorEnabled.value = false
   loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
-  uploadOpen.value = false; activeDocument.value = null; deleteConfirmDocument.value = null
+  uploadOpen.value = false; closeDocument(); deleteConfirmDocument.value = null
   duplicateImportJob.value = null; deleteProgressDone.value = false; deleteError.value = ''
   clearFeedback(); clearForm()
   void load()
@@ -623,6 +662,8 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .preview-title h3 { overflow-wrap: anywhere; font-size: 18px; }
 .preview-title small { display: block; margin-top: 5px; color: var(--text-3); font-size: 11px; }
 .document-content { max-height: 55vh; margin-top: 19px; padding: 16px; overflow: auto; border: 1px solid #EDF0F5; border-radius: 11px; background: #FBFCFE; color: var(--text-2); font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.document-content-state { display: flex; min-height: 190px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; white-space: normal; text-align: center; }
+.document-retry { padding: 5px 10px; border: 0; border-radius: 7px; background: var(--primary-50); color: var(--primary); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (max-width: 720px) {

@@ -842,9 +842,12 @@ export const ERROR_TYPES: ErrorType[] = ['计算失误', '概念混淆', '审题
 export interface SubjectKnowledgeItem {
   id: number
   title: string
-  content: string
   source_name: string | null
   passage_count: number
+}
+
+export interface SubjectKnowledgeDetail extends SubjectKnowledgeItem {
+  content: string
 }
 
 export interface SubjectKnowledgeList {

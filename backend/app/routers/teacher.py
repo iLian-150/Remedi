@@ -317,7 +317,12 @@ def list_subject_knowledge(
     _require_teacher_subject(db, current, subject)
     rows = db.query(SubjectKnowledgeChunk).filter(
         SubjectKnowledgeChunk.subject == subject,
-    ).order_by(SubjectKnowledgeChunk.created_at.desc(), SubjectKnowledgeChunk.id.desc()).all()
+    ).options(load_only(
+        SubjectKnowledgeChunk.id,
+        SubjectKnowledgeChunk.title,
+        SubjectKnowledgeChunk.source_name,
+        SubjectKnowledgeChunk.created_at,
+    )).order_by(SubjectKnowledgeChunk.created_at.desc(), SubjectKnowledgeChunk.id.desc()).all()
     from ..services.rag_milvus import configured
 
     counts = dict(db.query(SubjectKnowledgePassage.document_id, func.count(SubjectKnowledgePassage.id)).join(
@@ -325,11 +330,33 @@ def list_subject_knowledge(
     ).filter(SubjectKnowledgeChunk.subject == subject).group_by(SubjectKnowledgePassage.document_id).all())
     return {"subject": subject, "agent_name": SUBJECT_LABELS[subject], "total": len(rows),
             "vector_enabled": configured(), "items": [
-        {"id": row.id, "title": row.title, "content": row.content,
+        {"id": row.id, "title": row.title,
          "source_name": row.source_name, "created_at": row.created_at,
          "passage_count": counts.get(row.id, 0)}
         for row in rows
     ]}
+
+
+@router.get("/knowledge/{subject}/{chunk_id}", summary="读取知识库资料正文")
+def get_subject_knowledge_document(
+    subject: str, chunk_id: int,
+    db: Session = Depends(get_db), current: User = Depends(require_teacher),
+):
+    if subject not in SUBJECT_LABELS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学科 Agent 不存在。")
+    _require_teacher_subject(db, current, subject)
+    row = db.query(SubjectKnowledgeChunk).filter_by(id=chunk_id, subject=subject).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "资料不存在。")
+    passage_count = db.query(func.count(SubjectKnowledgePassage.id)).filter_by(document_id=row.id).scalar() or 0
+    return {
+        "id": row.id,
+        "title": row.title,
+        "content": row.content,
+        "source_name": row.source_name,
+        "created_at": row.created_at,
+        "passage_count": passage_count,
+    }
 
 
 @router.post("/knowledge/{subject}", summary="向指定学科 Agent 知识库添加资料")
