@@ -66,7 +66,6 @@
             </span>
           </div>
         </div>
-        <p class="hint" style="margin-top: 10px">点上方任意一块科目牌，就能进详情看知识点明细、错题时间线，还能做验证题修复知识点。</p>
       </div>
 
       <div class="card summary-card">
