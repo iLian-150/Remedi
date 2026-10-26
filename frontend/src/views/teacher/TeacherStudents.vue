@@ -10,8 +10,8 @@
       <div class="roster-head">
         <div><h3>班级名册</h3><p class="hint">当前任教学科：{{ subjectLabel }}</p></div>
         <div class="roster-create">
-          <input v-model="className" maxlength="64" placeholder="例如：七年级一班" @keydown.enter.prevent="createClass" />
-          <button class="btn small" :disabled="savingClass || !className.trim()" @click="createClass">{{ savingClass ? '保存中…' : '建立 / 关联班级' }}</button>
+          <input v-model="className" type="text" maxlength="64" placeholder="例如：七年级一班" @keydown.enter.prevent="createClass" />
+          <button type="button" class="btn" :disabled="savingClass || !className.trim()" @click="createClass">{{ savingClass ? '保存中…' : '建立 / 关联班级' }}</button>
         </div>
       </div>
       <div v-if="classrooms.length" class="class-chips">
@@ -24,9 +24,9 @@
       <div v-else class="empty small-empty">还没有班级。输入班级名称建立，其他学科老师可以关联同一个班级。</div>
       <div v-if="selectedClass" class="roster-body">
         <div class="roster-form">
-          <input v-model="studentName" maxlength="64" placeholder="学生姓名" />
-          <input v-model="studentNo" maxlength="32" placeholder="唯一学号" @keydown.enter.prevent="addStudent" />
-          <button class="btn secondary small" :disabled="savingStudent || !studentName.trim() || !studentNo.trim()" @click="addStudent">{{ savingStudent ? '保存中…' : '加入班级' }}</button>
+          <input v-model="studentName" type="text" maxlength="64" placeholder="学生姓名" />
+          <input v-model="studentNo" type="text" maxlength="32" placeholder="唯一学号" @keydown.enter.prevent="addStudent" />
+          <button type="button" class="btn secondary" :disabled="savingStudent || !studentName.trim() || !studentNo.trim()" @click="addStudent">{{ savingStudent ? '保存中…' : '加入班级' }}</button>
         </div>
         <div v-if="rosterError" class="error-msg">{{ rosterError }}</div>
       </div>
@@ -173,8 +173,8 @@ onMounted(async () => {
 .roster-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; }
 .roster-head h3 { margin: 0 0 3px; }
 .roster-head .hint { margin: 0; }
-.roster-create, .roster-form { display: flex; gap: 8px; flex-wrap: wrap; }
-.roster-create input { min-width: 210px; }
+.roster-create, .roster-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.roster-create input { width: min(252px, 100%); min-width: min(210px, 100%); }
 .class-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 .class-chip { padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); color: var(--text-2); border-radius: 10px; cursor: pointer; }
 .class-chip span { margin-left: 6px; color: var(--text-3); font-size: 12px; }
