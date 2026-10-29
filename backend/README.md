@@ -28,7 +28,11 @@ python3 -m venv .venv
 - 接口契约：`../docs/api-contract.md`（冻结版，前后端联调依据）
 - 表设计：`../docs/schema-design.md`
 
-服务器使用 Docker 部署，前端对外端口为 `5001`，后端对外端口为 `5000`，后端容器内部仍监听 `8000`。后端容器的 Python 虚拟环境位于 `/app/.venv`；本地依赖同样安装到 `.venv`，不要安装到宿主机全局 Python。服务器配置统一保存在 `/remedi/.env`，其中 `SEED_DEMO_DATA=false` 跳过启动时的演示数据初始化。完整部署步骤见 [Milvus 与 Remedi 部署说明](../docs/milvus-rag.md)。
+当前服务器前端由宝塔 Nginx 在 `5001` 提供 `/remedi/frontend/dist`，后端由宝塔 Python 项目在 `127.0.0.1:5000` 运行，Milvus 等依赖使用 Docker。后端依赖安装在该项目选定的 Python 虚拟环境中。
+
+宝塔后端项目的环境变量选择「从文件加载」，文件为 `/remedi/deploy/load_backend_model_env.sh`。该脚本从 `/remedi/.env` 读取 `LLM_*`、`DASHSCOPE_*`，不覆盖数据库和上传目录设置；修改配置后重启 Python 项目。`/remedi/.env` 权限保持 `600`，所有者为运行账户 `www`，密钥只保存在该文件中；不要复制密钥到面板字段、脚本或 Git。宝塔生成的项目环境文件只引用加载脚本。
+
+Docker 部署说明另见 [Milvus 与 Remedi 部署说明](../docs/milvus-rag.md)；后端容器内部监听 `8000`，虚拟环境位于 `/app/.venv`。`SEED_DEMO_DATA=false` 跳过容器启动时的演示数据初始化。
 
 ## 演示流程（curl）
 

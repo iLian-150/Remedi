@@ -6,6 +6,7 @@ sympy>=1.12
 requests>=2.31
 tzdata>=2024.1
 python-multipart>=0.0.9
+python-dotenv>=1.0.1,<2
 langgraph>=1.2
 langchain-core>=1.6
 langchain-openai>=1.6
