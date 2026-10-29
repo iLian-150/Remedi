@@ -10,7 +10,7 @@ from ..auth import (
 )
 from ..database import get_db
 from ..models import ClassroomMember, User
-from ..schemas import LoginIn, LoginOut, UserOut
+from ..api_schemas.base import LoginIn, LoginOut, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

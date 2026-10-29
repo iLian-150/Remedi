@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..schemas import HealthOut
+from ..api_schemas.base import HealthOut
 
 router = APIRouter(tags=["health"])
 

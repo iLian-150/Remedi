@@ -60,20 +60,24 @@ from ..models import (
     Verification,
     Workbook,
 )
-from ..schemas import (
-    AgentChatIn,
-    AgentHistoryItem,
-    AgentHistoryPageOut,
-    ChatSessionOut,
-    ChatSessionPageOut,
-    ClassRepairRateOut,
-    ErrorTypeCountOut,
-    ErrorCorrectIn,
-    KnowledgePointRankItem,
+from ..api_schemas.base import (
+    QuestionOut,
+    UserOut,
+)
+from ..api_schemas.student import (
     PhotoGroupTranscribeOut,
     PhotoTranscribeOut,
     ProfileOut,
-    QuestionOut,
+)
+from ..api_schemas.teacher import (
+    ClassRepairRateOut,
+    ClassroomCreateIn,
+    ClassroomOut,
+    ClassroomStudentCreateIn,
+    ClassroomStudentOut,
+    ErrorCorrectIn,
+    ErrorTypeCountOut,
+    KnowledgePointRankItem,
     RemindOut,
     ReviewApproveAllOut,
     ReviewApproveIn,
@@ -84,23 +88,26 @@ from ..schemas import (
     ReviewPendingOut,
     ReviewScoreOut,
     StudentBrief,
+    SubjectKnowledgeCreateIn,
+    SubjectKnowledgeSearchIn,
     TeacherAssignmentCreate,
     TeacherAssignmentOut,
     TeacherAssignmentQuestionOut,
     TeacherDashboardOut,
     TeacherErrorItem,
     TopQuestionItem,
-    UserOut,
     WorkbookExtractIn,
     WorkbookExtractOut,
     WorkbookOut,
-    ClassroomCreateIn,
-    ClassroomOut,
-    ClassroomStudentCreateIn,
-    ClassroomStudentOut,
-    SubjectKnowledgeCreateIn,
-    SubjectKnowledgeSearchIn,
 )
+from ..api_schemas.chat import (
+    AgentChatIn,
+    AgentHistoryItem,
+    AgentHistoryPageOut,
+    ChatSessionOut,
+    ChatSessionPageOut,
+)
+
 from ..services import deferral as deferral_svc
 from ..services import reviews as review_svc
 from ..services.streaming import ClosingStreamingResponse

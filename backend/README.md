@@ -99,7 +99,8 @@ backend/
 │   ├── config.py          # 环境变量配置
 │   ├── database.py        # engine / Session / 建表
 │   ├── models.py          # SQLAlchemy 数据模型
-│   ├── schemas.py         # pydantic 请求/响应模型
+│   ├── schemas.py         # 兼容导入入口
+│   ├── api_schemas/       # 按通用、学生、教师、会话和验证域拆分的 Pydantic 模型
 │   ├── auth.py            # mock 登录、Bearer 校验、角色守卫
 │   ├── services/
 │   │   ├── mathparse.py   # 白名单 AST 数学解析，不执行输入代码
@@ -116,6 +117,16 @@ backend/
 ├── requirements.txt
 └── README.md
 ```
+
+## 后端模块约定
+
+新增代码按以下边界放置；整理存量代码时保持 API 路径、请求/响应字段和错误语义不变：
+
+- `main.py` 负责应用装配；数据库初始化和进程级后台任务由 `lifespan.py` 管理。
+- `routers/` 负责 HTTP 参数、认证依赖、状态码和响应。业务规则优先放到 `services/`，避免路由间互相导入。
+- `api_schemas/` 按通用、学生、教师、会话和验证域维护 Pydantic 模型。`schemas.py` 仅保留旧导入路径的兼容转发。
+- `services/` 承载业务流程和外部服务调用；`models.py` 与 `database.py` 分别维护持久化模型和会话/建表。
+- 后台任务由 lifespan 启停，任务异常记录安全摘要；请求依赖的数据库会话由 `get_db` 管理，独立任务自行创建并关闭会话。
 
 ## 核心逻辑说明
 
