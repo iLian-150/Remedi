@@ -4,7 +4,7 @@
 
 技术栈：Python 3.11+ + FastAPI + SQLAlchemy + SQLite（表结构按 PostgreSQL 兼容设计）+ sympy + pydantic。
 
-知识库 PDF 导入使用 PyMuPDF（`pymupdf>=1.24.3`）。扫描版文档的文字识别还需要在后端运行主机安装 Tesseract OCR 和 `chi_sim`、`eng` 语言数据；没有 OCR 时，含可提取文字层的 PDF 仍可导入，扫描页会失败并保留可重试任务。
+知识库 PDF 导入使用 PyMuPDF 1.x（`pymupdf>=1.24.3,<2`）。扫描版文档的文字识别还需要在后端运行主机安装 Tesseract OCR 和 `chi_sim`、`eng` 语言数据；没有 OCR 时，含可提取文字层的 PDF 仍可导入，扫描页会失败并保留可重试任务。
 
 ## 快速开始
 
