@@ -19,14 +19,14 @@ def recognize_text(image_bytes: bytes) -> dict:
     """Tesseract TSV 同时返回文字与可信度；独立子进程有明确期限。"""
     try:
         completed = subprocess.run(
-            ["tesseract", "stdin", "stdout", "-l", settings.RAG_OCR_LANGUAGE,
+            [settings.RAG_OCR_EXECUTABLE, "stdin", "stdout", "-l", settings.RAG_OCR_LANGUAGE,
              "--psm", "3", "tsv"],
             input=image_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             timeout=settings.RAG_OCR_TIMEOUT_SECONDS, check=False,
             env={**os.environ, "OMP_THREAD_LIMIT": "1"},
         )
     except FileNotFoundError:
-        raise RuntimeError("专用 OCR 尚未安装，请重新构建后端镜像。") from None
+        raise RuntimeError("专用 OCR 尚未安装或路径无效，请检查后端 OCR 配置。") from None
     except subprocess.TimeoutExpired:
         raise RuntimeError("页面文字识别超时，可重试继续处理。") from None
     if completed.returncode:

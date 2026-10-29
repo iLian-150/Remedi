@@ -60,6 +60,7 @@ class Settings:
     KNOWLEDGE_IMPORT_DIR: str = os.getenv(
         "KNOWLEDGE_IMPORT_DIR", os.path.join(os.path.dirname(os.path.abspath(UPLOAD_DIR)), "knowledge-imports"),
     )
+    RAG_OCR_EXECUTABLE: str = os.getenv("RAG_OCR_EXECUTABLE", "tesseract").strip() or "tesseract"
     RAG_OCR_LANGUAGE: str = os.getenv("RAG_OCR_LANGUAGE", "chi_sim+eng")
     RAG_OCR_DPI: int = max(96, min(_get_int("RAG_OCR_DPI", 200), 300))
     RAG_OCR_WORKERS: int = max(1, min(_get_int("RAG_OCR_WORKERS", 2), 4))

@@ -38,6 +38,10 @@ python3 -m venv .venv
 
 Docker 部署说明另见 [Milvus 与 Remedi 部署说明](../docs/milvus-rag.md)；后端容器内部监听 `8000`，虚拟环境位于 `/app/.venv`。`SEED_DEMO_DATA=false` 跳过容器启动时的演示数据初始化。
 
+Ubuntu/Debian 原生部署可在仓库目录运行 `python3 deploy/install_native_ocr.py`。脚本使用服务器现有的可信 APT 索引下载 ARM64/AMD64 软件包，仅解包到 `/remedi/runtime`，不安装系统软件包，也不执行包内安装脚本。校验中英文语言包后原子切换 `runtime/ocr`，保留旧版本；包版本和 SHA256 记录在对应版本的 `manifest.json`。APT 索引无可用候选或软件包下载失败时会停止，不修改系统源或全局配置。
+
+安装后在服务器 `.env` 设置 `RAG_OCR_EXECUTABLE=/remedi/runtime/ocr/bin/tesseract` 并重启后端。共享库路径和语言数据目录只对 OCR 子进程生效；Docker 镜像继续使用默认命令 `tesseract`。该运行目录须在目标主机生成，不应复制到其他系统或提交 Git。
+
 ## 演示流程（curl）
 
 ```bash

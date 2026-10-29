@@ -368,6 +368,16 @@ class KnowledgeExtractionTests(unittest.TestCase):
 
 
 class TesseractProtocolTests(unittest.TestCase):
+    def test_native_executable_path_is_passed_as_one_argument(self):
+        completed = SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        path = "/remedi/runtime/ocr build/bin/tesseract"
+        with patch.object(ocr.settings, "RAG_OCR_EXECUTABLE", path), patch.object(
+            ocr.subprocess, "run", return_value=completed,
+        ) as run:
+            ocr.recognize_text(b"image fixture")
+        self.assertEqual(run.call_args.args[0][:3], [path, "stdin", "stdout"])
+        self.assertFalse(run.call_args.kwargs.get("shell", False))
+
     def test_tsv_reconstructs_chinese_lines_english_spaces_and_confidence(self):
         header = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
         rows = [
