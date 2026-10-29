@@ -41,7 +41,7 @@ class KnowledgeJobTests(unittest.TestCase):
             db.commit()
 
     @staticmethod
-    def extract(data, filename, *, progress=None, checkpoint_dir=None):
+    def extract(data, filename, *, progress=None, checkpoint_dir=None, fingerprint=None):
         progress({"stage": "extracting", "total_pages": 2, "completed_pages": 0})
         progress({"stage": "ocr", "total_pages": 2, "completed_pages": 1})
         progress({"stage": "ocr", "total_pages": 2, "completed_pages": 2})

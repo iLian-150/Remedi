@@ -11,6 +11,7 @@ import unicodedata
 from collections import Counter, OrderedDict, defaultdict
 from dataclasses import dataclass
 from types import SimpleNamespace
+from weakref import WeakKeyDictionary
 
 from sqlalchemy import event, func
 from sqlalchemy.orm import Session
@@ -18,6 +19,10 @@ from sqlalchemy.orm import Session
 from ..models import SubjectKnowledgeChunk, SubjectKnowledgePassage
 from . import bailian_rerank, rag_milvus
 from .rag_quality import formula_tokens, spread_by_document
+from .knowledge_index_status import (
+    SEARCH_VECTOR_WARNING as _VECTOR_WARNING,
+    refresh_completed_import_indexes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +40,6 @@ _STOP_TOKENS = {
 _SINGLE_CJK_STOP_TOKENS = frozenset(
     "的一了着过是在有和与及或而但被把让从到对为以将于向跟给就都也还又再很太最非每各某这那此彼其它我你他她们谁哪什么不题"
 )
-_VECTOR_WARNING = "向量检索尚未就绪，请检查向量模型和 Milvus 配置；当前使用 BM25，恢复后可重新建立向量索引。"
 _RERANK_WARNING = "百炼重排暂不可用，当前使用本地排序。"
 _WRITE_TRANSACTION = "_remedi_rag_write_transaction"
 _SESSION_WRITE_TRANSACTION = "_remedi_session_write_transaction"
@@ -43,6 +47,21 @@ _SEARCH_INDEX_CACHE_MAX_SUBJECTS = 2
 _SEARCH_INDEX_CACHE_MAX_CHARS = 2_000_000
 _SEARCH_INDEX_CACHE_LOCK = threading.Lock()
 _SEARCH_INDEX_CACHE = OrderedDict()
+_CACHE_WRITE_BIND = "_remedi_knowledge_cache_write_bind"
+_SEARCH_INDEX_GENERATIONS = WeakKeyDictionary()
+
+
+def _cache_bind(db: Session):
+    bind = db.get_bind(mapper=SubjectKnowledgeChunk)
+    return getattr(bind, "engine", bind)
+
+
+def _invalidate_search_indexes(bind) -> None:
+    with _SEARCH_INDEX_CACHE_LOCK:
+        _SEARCH_INDEX_GENERATIONS[bind] = _SEARCH_INDEX_GENERATIONS.get(bind, 0) + 1
+        for key in list(_SEARCH_INDEX_CACHE):
+            if key[0] is bind:
+                _SEARCH_INDEX_CACHE.pop(key, None)
 
 
 @dataclass(frozen=True)
@@ -63,6 +82,19 @@ def _remember_knowledge_write(db: Session, _context) -> None:
     # AUTOINCREMENT 的已回滚 ID 仍可被复用。记录写事务，禁止将未提交 ID 发给 Milvus。
     if any(isinstance(item, (SubjectKnowledgeChunk, SubjectKnowledgePassage)) for item in changed):
         db.info[_WRITE_TRANSACTION] = db.get_transaction()
+        bind = _cache_bind(db)
+        db.info[_CACHE_WRITE_BIND] = bind
+        _invalidate_search_indexes(bind)
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _invalidate_committed_knowledge(db: Session, transaction) -> None:
+    # Readers may repopulate the old committed state while a writer is flushing.
+    # Invalidate again after the outer commit/rollback, including savepoint use.
+    if transaction.parent is None:
+        bind = db.info.pop(_CACHE_WRITE_BIND, None)
+        if bind is not None:
+            _invalidate_search_indexes(bind)
 
 
 def _has_uncommitted_knowledge(db: Session) -> bool:
@@ -199,12 +231,14 @@ def reindex_subject(db: Session, subject: str) -> dict:
     if _has_uncommitted_session_writes(db):
         raise ValueError("请先提交或回滚当前 Session 的数据库修改，再重建学科索引。")
     documents = db.query(SubjectKnowledgeChunk).filter_by(subject=subject).order_by(SubjectKnowledgeChunk.id).all()
+    document_ids = [document.id for document in documents]
     records = []
     for document in documents:
         records.extend(_vector_records(document, _ensure_passages(db, document)))
     # 远程嵌入按批次执行，不能让整个过程占用 SQLite 唯一写事务。
     db.commit()
     vector_status, warnings = _sync_vectors(subject, records)
+    refresh_completed_import_indexes(db, subject, document_ids, vector_status, warnings)
     return {"documents": len(documents), "passage_count": len(records),
             "vector_status": vector_status, "warnings": warnings}
 
@@ -325,19 +359,26 @@ def _search_index(db: Session, subject: str) -> _SearchIndex:
     if _has_uncommitted_knowledge(db):
         return _build_search_index(_load_candidates(db, subject))
 
+    bind = _cache_bind(db)
+    cache_key = (bind, subject)
+    with _SEARCH_INDEX_CACHE_LOCK:
+        generation = _SEARCH_INDEX_GENERATIONS.get(bind, 0)
     version = _subject_index_version(db, subject)
     with _SEARCH_INDEX_CACHE_LOCK:
-        cached = _SEARCH_INDEX_CACHE.get(subject)
-        if cached is not None and cached[0] == version:
-            _SEARCH_INDEX_CACHE.move_to_end(subject)
+        cached = _SEARCH_INDEX_CACHE.get(cache_key)
+        if (cached is not None and cached[0] == version
+                and _SEARCH_INDEX_GENERATIONS.get(bind, 0) == generation):
+            _SEARCH_INDEX_CACHE.move_to_end(cache_key)
             return cached[1]
-        _SEARCH_INDEX_CACHE.pop(subject, None)
+        _SEARCH_INDEX_CACHE.pop(cache_key, None)
 
     index = _build_search_index(_load_candidates(db, subject))
     if index.text_char_count <= _SEARCH_INDEX_CACHE_MAX_CHARS:
         with _SEARCH_INDEX_CACHE_LOCK:
-            _SEARCH_INDEX_CACHE[subject] = (version, index)
-            _SEARCH_INDEX_CACHE.move_to_end(subject)
+            if _SEARCH_INDEX_GENERATIONS.get(bind, 0) != generation:
+                return index
+            _SEARCH_INDEX_CACHE[cache_key] = (version, index)
+            _SEARCH_INDEX_CACHE.move_to_end(cache_key)
             while len(_SEARCH_INDEX_CACHE) > _SEARCH_INDEX_CACHE_MAX_SUBJECTS:
                 _SEARCH_INDEX_CACHE.popitem(last=False)
     return index

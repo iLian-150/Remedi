@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from ..config import settings
 from ..database import SessionLocal
 from ..models import KnowledgeImportDismissal, KnowledgeImportJob, SubjectKnowledgeChunk
+from .knowledge_index_status import IMPORT_VECTOR_WARNING as _VECTOR_WARNING
 
 logger = logging.getLogger(__name__)
 TERMINAL_STATUSES = {"completed", "failed"}
@@ -21,7 +22,6 @@ _wake = threading.Event()
 _stop = threading.Event()
 _worker_lock = threading.Lock()
 _worker = None
-_VECTOR_WARNING = "资料已保存，向量索引暂未就绪，可使用关键词检索，稍后可重建索引。"
 _PROGRESS_MIN_INTERVAL_SECONDS = 1.0
 
 

@@ -47,6 +47,51 @@ class SubjectRagTests(unittest.TestCase):
         self.assertIn("柯西不等式", result["items"][0]["content"])
         self.assertEqual(self.db.query(SubjectKnowledgePassage).count(), 0, "历史资料的读请求不应隐式写库")
 
+    def test_cache_is_scoped_to_the_database_even_when_row_counts_and_ids_match(self):
+        self.document("圆的面积", "圆的面积取决于半径。", indexed=False)
+        self.assertTrue(subject_rag.search_knowledge(self.db, "math", "圆的面积")["items"])
+        other_engine = create_engine("sqlite:///:memory:")
+        self.addCleanup(other_engine.dispose)
+        Base.metadata.create_all(other_engine)
+        with Session(other_engine) as other:
+            other.add(SubjectKnowledgeChunk(subject="math", title="三角形", content="三角形的内角和。"))
+            other.commit()
+            self.assertEqual(subject_rag.search_knowledge(other, "math", "圆的面积")["items"], [])
+            self.assertTrue(subject_rag.search_knowledge(other, "math", "三角形的内角和")["items"])
+
+    def test_content_update_invalidates_cache_without_changing_counts_or_ids(self):
+        document = self.document("教学资料", "圆的面积取决于半径。", indexed=False)
+        self.assertTrue(subject_rag.search_knowledge(self.db, "math", "圆的面积")["items"])
+        document.content = "三角形的内角和。"
+        self.db.commit()
+        self.assertEqual(subject_rag.search_knowledge(self.db, "math", "圆的面积")["items"], [])
+        self.assertTrue(subject_rag.search_knowledge(self.db, "math", "三角形的内角和")["items"])
+
+    def test_outer_transaction_invalidates_after_nested_rollback(self):
+        document = self.document("教学资料", "圆的面积取决于半径。", indexed=False)
+        subject_rag.search_knowledge(self.db, "math", "圆的面积")
+        document.content = "三角形的内角和。"
+        self.db.flush()
+        nested = self.db.begin_nested()
+        nested.rollback()
+        self.db.commit()
+        self.assertTrue(subject_rag.search_knowledge(self.db, "math", "三角形的内角和")["items"])
+
+    def test_commit_during_index_build_cannot_reinsert_stale_cache(self):
+        document = self.document("教学资料", "圆的面积取决于半径。", indexed=False)
+        load = subject_rag._load_candidates
+
+        def load_then_commit(db, subject):
+            candidates = load(db, subject)
+            document.content = "三角形的内角和。"
+            db.commit()
+            return candidates
+
+        with patch.object(subject_rag, "_load_candidates", side_effect=load_then_commit):
+            subject_rag.search_knowledge(self.db, "math", "圆的面积")
+        self.assertTrue(subject_rag.search_knowledge(self.db, "math", "三角形的内角和")["items"])
+        self.assertEqual(subject_rag.search_knowledge(self.db, "math", "圆的面积")["items"], [])
+
     def test_no_single_character_or_unrelated_chinese_match(self):
         self.document("一次函数", "函数的图像是一条直线。")
         self.document("一次函数练习题", "一次函数的例题与练习题讲解。")
