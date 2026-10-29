@@ -30,7 +30,9 @@ python3 -m venv .venv
 
 当前服务器前端由宝塔 Nginx 在 `5001` 提供 `/remedi/frontend/dist`，后端由宝塔 Python 项目在 `127.0.0.1:5000` 运行，Milvus 等依赖使用 Docker。后端依赖安装在该项目选定的 Python 虚拟环境中。
 
-宝塔后端项目的环境变量选择「从文件加载」，文件为 `/remedi/deploy/load_backend_model_env.sh`。该脚本从 `/remedi/.env` 读取 `LLM_*`、`DASHSCOPE_*`，不覆盖数据库和上传目录设置；修改配置后重启 Python 项目。`/remedi/.env` 权限保持 `600`，所有者为运行账户 `www`，密钥只保存在该文件中；不要复制密钥到面板字段、脚本或 Git。宝塔生成的项目环境文件只引用加载脚本。
+宝塔后端项目的环境变量选择「从文件加载」，文件为 `/remedi/deploy/load_backend_model_env.sh`。该脚本从 `/remedi/.env` 读取 `LLM_*`、`DASHSCOPE_*`、`RAG_*`，不覆盖数据库和上传目录设置；修改配置后重启 Python 项目。`/remedi/.env` 权限保持 `600`，所有者为运行账户 `www`，密钥只保存在该文件中；不要复制密钥到面板字段、脚本或 Git。宝塔生成的项目环境文件只引用加载脚本。
+
+原生后端会把默认 Docker 地址 `http://milvus:19530` 转为本机映射地址 `http://127.0.0.1:19530`，不修改 `.env`，自定义 Milvus 地址保持原样。配置文件缺失或模型凭证不完整时，网站和健康检查仍可启动；需要模型的操作返回错误，向量检索按既有规则回退关键词检索。
 
 Docker 部署说明另见 [Milvus 与 Remedi 部署说明](../docs/milvus-rag.md)；后端容器内部监听 `8000`，虚拟环境位于 `/app/.venv`。`SEED_DEMO_DATA=false` 跳过容器启动时的演示数据初始化。
 

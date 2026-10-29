@@ -9,25 +9,24 @@ import sys
 try:
     from dotenv import dotenv_values
 
-    values = dotenv_values(sys.argv[1], interpolate=False)
+    with open(sys.argv[1], encoding="utf-8-sig") as source:
+        values = dotenv_values(stream=source, interpolate=False)
     selected = {
         key: value for key, value in values.items()
-        if re.fullmatch(r"(?:LLM|DASHSCOPE)_[A-Z0-9_]+", key) and value is not None
+        if re.fullmatch(r"(?:LLM|DASHSCOPE|RAG)_[A-Z0-9_]+", key) and value is not None
     }
-    required = (
-        "DASHSCOPE_API_KEY", "DASHSCOPE_BASE_URL",
-        "DASHSCOPE_MODEL", "DASHSCOPE_VISION_MODEL",
-    )
-    if any(not selected.get(key, "").strip() for key in required):
-        raise ValueError("incomplete model configuration")
+    # This loader is only used by the host backend. Preserve the Compose value
+    # on disk and custom remote endpoints, adapting only our Docker default.
+    if selected.get("RAG_MILVUS_URI", "").rstrip("/") == "http://milvus:19530":
+        selected["RAG_MILVUS_URI"] = "http://127.0.0.1:19530"
 except Exception as exc:
     # Never include exception text or configuration values in the startup log.
-    print(f"Remedi model environment could not be loaded ({type(exc).__name__})", file=sys.stderr)
-    sys.exit(1)
+    print(f"Remedi model environment could not be loaded ({type(exc).__name__}); continuing with process configuration", file=sys.stderr)
+    selected = {}
 
 for key, value in selected.items():
     print(f"export {key}={shlex.quote(value)}")
 PY
-)" || exit 1
+)" || _remedi_model_exports=""
 eval "$_remedi_model_exports"
 unset _remedi_model_exports
