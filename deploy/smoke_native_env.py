@@ -54,6 +54,14 @@ class NativeEnvironmentTests(unittest.TestCase):
         values, _ = self.load("RAG_MILVUS_URI=https://remote.example.invalid:19530\n")
         self.assertEqual(values["RAG_MILVUS_URI"], "https://remote.example.invalid:19530")
 
+    def test_native_database_can_use_an_independent_collection_prefix(self):
+        values, _ = self.load(
+            "RAG_MILVUS_COLLECTION=shared_prefix\n"
+            "RAG_NATIVE_MILVUS_COLLECTION=native_prefix\n"
+        )
+        self.assertEqual(values["RAG_MILVUS_COLLECTION"], "native_prefix")
+        self.assertNotIn("RAG_NATIVE_MILVUS_COLLECTION", values)
+
     def test_missing_configuration_keeps_startup_available(self):
         values, warning = self.load()
         self.assertEqual(values, {"DATABASE_URL": "preserved-database", "LLM_TIMEOUT_SECONDS": "17"})

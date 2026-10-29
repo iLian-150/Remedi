@@ -34,6 +34,8 @@ python3 -m venv .venv
 
 原生后端会把默认 Docker 地址 `http://milvus:19530` 转为本机映射地址 `http://127.0.0.1:19530`，不修改 `.env`，自定义 Milvus 地址保持原样。配置文件缺失或模型凭证不完整时，网站和健康检查仍可启动；需要模型的操作返回错误，向量检索按既有规则回退关键词检索。
 
+原生后端与旧 Docker 后端使用不同数据库时，在 `.env` 设置独立的 `RAG_NATIVE_MILVUS_COLLECTION` 前缀（例如 `remedi_subject_knowledge_qwen37_flash_native`）。加载脚本仅为原生进程覆盖集合前缀，保留 Docker 的 `RAG_MILVUS_COLLECTION`；每科仍使用 `前缀_学科`。新前缀应从当前数据库资料建立索引，不复用另一数据库的片段 ID，也不删除旧集合。
+
 Docker 部署说明另见 [Milvus 与 Remedi 部署说明](../docs/milvus-rag.md)；后端容器内部监听 `8000`，虚拟环境位于 `/app/.venv`。`SEED_DEMO_DATA=false` 跳过容器启动时的演示数据初始化。
 
 ## 演示流程（curl）

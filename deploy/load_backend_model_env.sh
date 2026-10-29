@@ -19,6 +19,9 @@ try:
     # on disk and custom remote endpoints, adapting only our Docker default.
     if selected.get("RAG_MILVUS_URI", "").rstrip("/") == "http://milvus:19530":
         selected["RAG_MILVUS_URI"] = "http://127.0.0.1:19530"
+    native_collection = selected.pop("RAG_NATIVE_MILVUS_COLLECTION", "")
+    if native_collection:
+        selected["RAG_MILVUS_COLLECTION"] = native_collection
 except Exception as exc:
     # Never include exception text or configuration values in the startup log.
     print(f"Remedi model environment could not be loaded ({type(exc).__name__}); continuing with process configuration", file=sys.stderr)
