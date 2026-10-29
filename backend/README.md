@@ -95,9 +95,10 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 backend/
 ├── app/
 │   ├── main.py            # FastAPI 入口、CORS、路由挂载
+│   ├── lifespan.py        # 数据库初始化与进程级后台任务
 │   ├── config.py          # 环境变量配置
 │   ├── database.py        # engine / Session / 建表
-│   ├── models.py          # SQLAlchemy 模型（8 张表）
+│   ├── models.py          # SQLAlchemy 数据模型
 │   ├── schemas.py         # pydantic 请求/响应模型
 │   ├── auth.py            # mock 登录、Bearer 校验、角色守卫
 │   ├── services/
