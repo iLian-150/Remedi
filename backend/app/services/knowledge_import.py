@@ -84,7 +84,12 @@ def _write_checkpoint(path, record):
 
 
 def _render(page, clip=None, *, visual=False):
-    import pymupdf
+    try:
+        import pymupdf
+    except ModuleNotFoundError as exc:
+        if exc.name != "pymupdf":
+            raise
+        import fitz as pymupdf
 
     rect = clip or page.rect
     scale = min(1280 / max(rect.width, rect.height), 2.0) if visual else settings.RAG_OCR_DPI / 72
@@ -104,7 +109,12 @@ def _sha256_file(path: Path) -> str:
 
 
 def _filter_regions(page, candidates):
-    import pymupdf
+    try:
+        import pymupdf
+    except ModuleNotFoundError as exc:
+        if exc.name != "pymupdf":
+            raise
+        import fitz as pymupdf
 
     rects = []
     area = page.rect.get_area() or 1
@@ -197,7 +207,12 @@ def _process_page(native_text, ocr_images, visual_images, context_image, cached,
 
 
 def extract_knowledge_pdf(data: bytes | os.PathLike[str] | str, *, progress=None, checkpoint_dir=None, fingerprint=None, force_visual=False) -> dict:
-    import pymupdf
+    try:
+        import pymupdf
+    except ModuleNotFoundError as exc:
+        if exc.name != "pymupdf":
+            raise
+        import fitz as pymupdf
 
     if isinstance(data, bytes) and not data:
         raise ValueError("PDF 不能为空。")
@@ -460,7 +475,12 @@ def _office_images(data: bytes | os.PathLike[str] | str, extension: str):
 
 
 def _extract_picture(data: bytes | os.PathLike[str] | str, *, progress=None, checkpoint_dir=None, fingerprint=None):
-    import pymupdf
+    try:
+        import pymupdf
+    except ModuleNotFoundError as exc:
+        if exc.name != "pymupdf":
+            raise
+        import fitz as pymupdf
 
     try:
         if isinstance(data, (str, os.PathLike)):
