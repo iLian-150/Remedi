@@ -620,36 +620,10 @@ export const useStudentStore = defineStore('student', {
       const reader = response.body?.getReader()
       if (!reader) throw new Error('浏览器无法读取图片讲解流。')
       const decoder = new TextDecoder()
-      const characters: string[] = []
-      let offset = 0
-      let typingTask: Promise<void> | null = null
       let buffer = ''
       let reply = ''
       let streamError = ''
       let streamedText = ''
-
-      const startTypewriter = () => {
-        if (typingTask || offset >= characters.length) return
-        typingTask = (async () => {
-          while (offset < characters.length && !signal?.aborted) {
-            onText(characters[offset++])
-            await waitForNextCharacter()
-          }
-        })().finally(() => {
-          typingTask = null
-          characters.splice(0, offset)
-          offset = 0
-          if (characters.length) startTypewriter()
-        })
-      }
-
-      const waitForTypewriter = async () => {
-        while (typingTask) await typingTask
-        if (characters.length) {
-          startTypewriter()
-          await waitForTypewriter()
-        }
-      }
 
       const consumeEvent = (block: string) => {
         let eventName = ''
@@ -669,8 +643,7 @@ export const useStudentStore = defineStore('student', {
           const text = typeof payload.text === 'string' ? payload.text : ''
           if (text) {
             streamedText += text
-            characters.push(...Array.from(text))
-            startTypewriter()
+            onText(text)
           }
         } else if (eventName === 'done') {
           reply = typeof payload.reply === 'string' ? payload.reply : ''
@@ -693,14 +666,11 @@ export const useStudentStore = defineStore('student', {
         }
         if (buffer.trim()) consumeEvent(buffer)
       } catch (error) {
-        await waitForTypewriter()
         throw error
       }
       if (reply.startsWith(streamedText) && reply.length > streamedText.length) {
-        characters.push(...Array.from(reply.slice(streamedText.length)))
-        startTypewriter()
+        onText(reply.slice(streamedText.length))
       }
-      await waitForTypewriter()
       throwIfAborted(signal)
       if (streamError) throw new Error(streamError)
       if (!reply) throw new Error('视觉模型没有正常结束图片讲解，请重试。')

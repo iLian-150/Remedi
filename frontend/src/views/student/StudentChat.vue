@@ -974,24 +974,43 @@ function markVisionReplyFailure(wait: ChatMsg, reason: unknown, isRetry = false)
   console.error(reason)
 }
 
-async function streamVisionReply(wait: ChatMsg, file: File, question: string): Promise<string> {
+function createFirstTextGate(): { promise: Promise<void>; release: () => void } {
+  let release!: () => void
+  const promise = new Promise<void>((resolve) => { release = () => resolve() })
+  return { promise, release }
+}
+
+async function streamVisionReply(
+  wait: ChatMsg,
+  file: File,
+  question: string,
+  onFirstText?: () => void
+): Promise<string> {
   let firstText = true
+  const revealFirstText = () => {
+    if (!firstText) return
+    firstText = false
+    wait.text = ''
+    wait.pending = false
+    onFirstText?.()
+  }
   const controller = createStreamAbortController()
-  wait.text = ''
   wait.pending = true
   wait.streaming = true
   try {
     const reply = await student.agentVisionChatStream(file, question, (text) => {
-      if (firstText) {
-        wait.text = ''
-        wait.pending = false
-        firstText = false
-      }
+      revealFirstText()
       wait.text += text
       scrollToBottom()
     }, controller.signal)
-    if (!wait.text) wait.text = reply
+    if (firstText && reply) {
+      revealFirstText()
+      wait.text = reply
+    }
     return reply
+  } catch (error) {
+    if (firstText) wait.text = ''
+    throw error
   } finally {
     streamAbortControllers.delete(controller)
     wait.pending = false
@@ -1017,10 +1036,16 @@ async function sendPhotoReview(file: File, prompt: string) {
     const retry: PendingPhotoRetry = { file, prompt, visionQuestion, questionId, sessionId, userImage, assistantSaved: false }
     pendingPhotoRetries.set(wait.id, retry)
 
-    // 原图讲解与作业诊断并发：讲解请求直接携带图片，诊断请求独立保存错题/审核记录。
-    const diagnosisTask = student.reviewPhoto(
+    // 先让讲解流拿到首字，再启动同一视觉模型上的作业诊断，减少首字等待时的资源竞争。
+    const firstVisionText = createFirstTextGate()
+    const visionTask = streamVisionReply(wait, file, visionQuestion, firstVisionText.release).catch((reason: unknown) => {
+      firstVisionText.release()
+      if (!isAbortError(reason)) markVisionReplyFailure(wait, reason)
+      throw reason
+    })
+    const diagnosisTask = firstVisionText.promise.then(() => student.reviewPhoto(
       file, questionId, '', sessionId, true, prompt
-    ).then((result) => {
+    )).then((result) => {
       // 批改与视觉讲解并发；批改一完成就更新错题/审核状态，不等待讲解流结束。
       applyPhotoReviewResult(wait, userImage, result)
       void student.loadSessions(true)
@@ -1029,10 +1054,6 @@ async function sendPhotoReview(file: File, prompt: string) {
       return result
     }).catch((reason: unknown) => {
       markPhotoReviewFailure(wait, reason)
-      throw reason
-    })
-    const visionTask = streamVisionReply(wait, file, visionQuestion).catch((reason: unknown) => {
-      if (!isAbortError(reason)) markVisionReplyFailure(wait, reason)
       throw reason
     })
     const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
@@ -1096,8 +1117,17 @@ async function retryExplanation(msg: ChatMsg) {
     chatSending.value = true
     msg.pending = true
     try {
+      const firstVisionText = createFirstTextGate()
+      const visionTask = msg.retryVision
+        ? streamVisionReply(msg, photoRetry.file, photoRetry.visionQuestion, firstVisionText.release).catch((reason: unknown) => {
+          firstVisionText.release()
+          if (!isAbortError(reason)) markVisionReplyFailure(msg, reason, true)
+          throw reason
+        })
+        : Promise.resolve(null)
+      if (!msg.retryVision) firstVisionText.release()
       const diagnosisTask = msg.retryDiagnosis
-        ? student.reviewPhoto(photoRetry.file, photoRetry.questionId, '', photoRetry.sessionId, false, photoRetry.prompt)
+        ? firstVisionText.promise.then(() => student.reviewPhoto(photoRetry.file, photoRetry.questionId, '', photoRetry.sessionId, false, photoRetry.prompt))
           .then((result) => {
             applyPhotoReviewResult(msg, photoRetry.userImage, result)
             void student.loadSessions(true)
@@ -1108,12 +1138,6 @@ async function retryExplanation(msg: ChatMsg) {
             markPhotoReviewFailure(msg, reason)
             throw reason
           })
-        : Promise.resolve(null)
-      const visionTask = msg.retryVision
-        ? streamVisionReply(msg, photoRetry.file, photoRetry.visionQuestion).catch((reason: unknown) => {
-          if (!isAbortError(reason)) markVisionReplyFailure(msg, reason, true)
-          throw reason
-        })
         : Promise.resolve(null)
       const [diagnosisResult, visionResult] = await Promise.allSettled([diagnosisTask, visionTask])
 
