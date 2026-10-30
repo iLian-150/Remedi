@@ -2,8 +2,7 @@
      主体是一块大黑板：木框 + 黑板绿板面，个人信息、学习数据、知识点掌握度
      全部用「粉笔字」写在板上（楷体字栈 + 粉笔晕染阴影，重点数字用粉笔黄/粉笔粉点缀，
      掌握度是粉笔横条 + 虚线刻度）；老师的建议是板下角的粉笔「老师寄语」。
-     板下方走校园化：已订正的错题做成「奖状」小卡（米色纸 + 红边 + 印章圆标）陈列成
-     奖状墙；错误轨迹改成课表式网格的「成长记录表」；问题类型分布保留图表卡。
+     板下方用课表式网格展示错误轨迹「成长记录表」，并保留问题类型分布图表卡。
      文案伦理：学生端用「需要加固的知识点」「已订正」「继续保持」，不出现贴标签术语；
      「已订正」口径 = 本机提交订正且判定正确；知识点「已修复」以学习报告为准。 -->
 <template>
@@ -88,29 +87,6 @@
         </div>
       </section>
 
-      <!-- ================= 奖状墙 ================= -->
-      <div class="card">
-        <h3><AppIcon name="sparkles" :size="17" /> 我的奖状墙</h3>
-        <div v-if="certificates.length" class="cert-grid">
-          <div v-for="e in visibleCertificates" :key="e.id" class="cert">
-            <p class="cert-head">奖 状</p>
-            <p class="cert-body">
-              <strong>{{ profile.student.name }}</strong> 同学<br />
-              已订正「{{ e.knowledge_point }}」的错题
-            </p>
-            <p class="cert-foot tnum">{{ fmtTime(e.created_at) }} 出错 · 已订正</p>
-            <span class="cert-seal">已订正</span>
-          </div>
-        </div>
-        <div v-else class="empty">暂无奖状。</div>
-        <button
-          v-if="visibleCertificates.length < certificates.length"
-          type="button"
-          class="btn small secondary profile-more"
-          @click="showMoreCertificates"
-        >继续显示奖状（{{ visibleCertificates.length }} / {{ certificates.length }}）</button>
-      </div>
-
       <!-- ================= 成长记录表（课表式网格） ================= -->
       <div class="card">
         <h3>成长记录表</h3>
@@ -176,7 +152,7 @@ const error = ref('')
 const fixedIds = ref<Set<number>>(new Set())
 type ProfileErrorRecord = StudentProfile['stubborn_errors'][number] | StudentProfile['recent_errors'][number]
 
-// 一次汇总档案页的总量、去重时间线、奖状与问题类型，避免模板分别重复扫描。
+// 一次汇总档案页的总量、去重时间线与问题类型，避免模板分别重复扫描。
 const profileSummary = computed(() => {
   let totalAttempts = 0
   let totalErrors = 0
@@ -214,12 +190,10 @@ const profileSummary = computed(() => {
     }
   }
 
-  const certificates: ProfileErrorRecord[] = []
   const typeCounts = new Map<string, number>()
   let reinforcingCount = 0
   for (const item of timeline) {
-    if (fixedIds.value.has(item.id)) certificates.push(item)
-    else reinforcingCount++
+    if (!fixedIds.value.has(item.id)) reinforcingCount++
     typeCounts.set(item.error_type, (typeCounts.get(item.error_type) ?? 0) + 1)
   }
 
@@ -227,7 +201,6 @@ const profileSummary = computed(() => {
     totalAttempts,
     totalErrors,
     timeline,
-    certificates,
     reinforcingCount,
     typeOptionData: [...typeCounts.entries()].map(([name, value]) => ({ name, value })),
   }
@@ -237,18 +210,9 @@ const totalErrors = computed(() => profileSummary.value.totalErrors)
 const timeline = computed(() => profileSummary.value.timeline)
 const reinforcingCount = computed(() => profileSummary.value.reinforcingCount)
 
-// 奖状墙：已订正的错题（轨迹 ∩ 本机已订正集）
-const certificates = computed(() => profileSummary.value.certificates)
-const CERTIFICATE_BATCH_SIZE = 24
 const TIMELINE_BATCH_SIZE = 50
-const visibleCertificateCount = ref(CERTIFICATE_BATCH_SIZE)
 const visibleTimelineCount = ref(TIMELINE_BATCH_SIZE)
-const visibleCertificates = computed(() => certificates.value.slice(0, visibleCertificateCount.value))
 const visibleTimeline = computed(() => timeline.value.slice(0, visibleTimelineCount.value))
-
-function showMoreCertificates() {
-  visibleCertificateCount.value += CERTIFICATE_BATCH_SIZE
-}
 
 function showMoreTimeline() {
   visibleTimelineCount.value += TIMELINE_BATCH_SIZE
@@ -420,41 +384,6 @@ onMounted(async () => {
 }
 @media (prefers-reduced-motion: reduce) {
   .chalk-fill { transition: none; }
-}
-
-/* ================= 奖状墙 ================= */
-.cert-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
-.profile-more { display: block; margin: 14px auto 0; }
-.cert {
-  position: relative;
-  background: linear-gradient(165deg, #FFFBEB, #FFF6DA);
-  border: 2px solid #DC2626;
-  outline: 1px solid rgba(220, 38, 38, 0.45);
-  outline-offset: -7px;
-  border-radius: 6px;
-  padding: 18px 18px 14px;
-  text-align: center;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-}
-.cert-head {
-  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', serif;
-  font-size: 21px; font-weight: 700; letter-spacing: 10px; text-indent: 10px;
-  color: #B91C1C;
-}
-.cert-body { margin-top: 9px; font-size: 14px; line-height: 1.8; color: #57534E; }
-.cert-body strong { color: #1F2937; }
-.cert-foot { margin-top: 9px; font-size: 12px; color: #A8A29E; }
-/* 印章感圆标 */
-.cert-seal {
-  position: absolute; right: 12px; bottom: 10px;
-  width: 46px; height: 46px; border-radius: 50%;
-  border: 2px solid rgba(220, 38, 38, 0.75);
-  color: rgba(220, 38, 38, 0.85);
-  font-size: 11px; font-weight: 700; letter-spacing: 1px;
-  display: flex; align-items: center; justify-content: center; text-align: center;
-  transform: rotate(-12deg);
-  background: rgba(255, 255, 255, 0.35);
 }
 
 /* ================= 成长记录表（课表式网格） ================= */
