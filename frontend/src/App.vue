@@ -8,8 +8,7 @@
      未读数读 student store；calendar=日历形 cal-fab，无角标），点它重新展开；
      右栏在所有页面初始收起；页面导航后也会收起，用户可通过场景专属入口手动展开。
      移动端沿用抽屉式交互。
-     v0.6.2：双端对话页时左侧栏主导航下方多一段会话区（SidebarSessions，ChatGPT 式：
-     新对话按钮 + 按今天/昨天/更早分组的会话列表）；移动端沿用抽屉不受影响。
+     v0.6.2：左侧栏主导航下方显示会话区（SidebarSessions：新对话按钮和带更新时间的历史列表）；移动端沿用抽屉不受影响。
      v0.8.2：全局侧栏成为双端唯一侧栏（学生对话页不再自带页内侧栏，统一走这里：
      会话区双端都挂 SidebarSessions、收起机制全角色一致）；未读数改由 student store 持有，
      进入学生任何页面（路由变化）时刷新一次。
@@ -73,9 +72,9 @@
         </router-link>
       </nav>
 
-      <!-- 会话区（v0.6.2；v0.8.2 起双端统一）：仅双端对话页出现；
+      <!-- 会话区（v0.6.2；v0.8.2 起双端统一）：对话页和学生学习页面持续显示；
            v0.9.0：桌面端侧栏收起成图标轨时由 style.css 隐藏（移动端抽屉不受影响） -->
-      <SidebarSessions v-if="isChatRoute" @navigate="sidebarOpen = false" />
+      <SidebarSessions v-if="showSidebarSessions" @navigate="onSidebarSessionNavigate" />
 
       <div class="sidebar-user">
         <span class="user-avatar">{{ avatarLetter }}</span>
@@ -190,7 +189,7 @@ onBeforeUnmount(() => {
   teacher.resetKnowledgeImport()
 })
 
-// ---------- 对话页路由判定（v0.6.2）：侧栏会话区仅在双端对话页出现 ----------
+// ---------- 对话与学生学习页面共享侧栏会话区 ----------
 const isChatRoute = computed(
   () => route.path === '/student/chat' || route.path === '/teacher/chat'
 )
@@ -250,6 +249,22 @@ const navItems = computed<NavItem[]>(() => {
       : it
   )
 })
+const showSidebarSessions = computed(() => {
+  if (isChatRoute.value) return true
+  if (auth.role !== 'student') return false
+  return navItems.value.slice(1).some((item) =>
+    [item.to, ...(item.activePaths ?? [])].some((path) =>
+      route.path === path || route.path.startsWith(`${path}/`)
+    )
+  )
+})
+
+function onSidebarSessionNavigate() {
+  sidebarOpen.value = false
+  const chatPath = auth.role === 'teacher' ? '/teacher/chat' : '/student/chat'
+  if (route.path !== chatPath) void router.push(chatPath)
+}
+
 const TEACHER_SUBJECT_LABELS: Record<string, string> = {
   chinese: '语文', math: '数学', english: '英语', politics: '道法', history: '历史',
   physics: '物理', chemistry: '化学', geography: '地理', biology: '生物'

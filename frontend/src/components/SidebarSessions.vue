@@ -1,6 +1,5 @@
-<!-- 左侧栏会话区（v0.6.2 新增，ChatGPT 网页版式）：仅在双端对话页路由下由 App.vue 挂载。
-     顶部整宽「新对话」按钮；下方会话列表按更新时间分「今天 / 昨天 / 更早」三组，
-     条目只显示标题（单行省略），当前会话高亮，悬停浮现垃圾桶（两段轻确认删除）。
+<!-- 左侧栏会话区（v0.6.2 新增，ChatGPT 网页版式）：由 App.vue 挂载于对话页和学生学习页。
+     顶部整宽「新对话」按钮；每条历史记录显示标题与更新时间，当前会话高亮，悬停浮现垃圾桶（两段轻确认删除）。
      数据与动作全部走 store 的会话状态层，与对话页共用同一份状态。 -->
 <template>
   <section class="sb-sessions">
@@ -20,29 +19,27 @@
           <span>{{ store.sessionsError }}</span>
           <button type="button" :disabled="store.sessionsLoading" @click="retrySessions">重试</button>
         </div>
-        <template v-for="g in groups" :key="g.key">
-          <div v-if="g.items.length" class="sb-group-title">{{ g.label }}</div>
-          <div
-            v-for="s in g.items"
-            :key="s.id"
-            class="sb-row"
-            :class="{ active: s.id === store.activeSessionId, confirming: confirmId === s.id }"
-          >
-            <template v-if="confirmId === s.id">
-              <span class="sb-confirm-text">确认删除？</span>
-              <button class="sb-confirm-yes" @click="onRemove(s.id)">删除</button>
-              <button class="sb-confirm-no" @click="confirmId = null">取消</button>
-            </template>
-            <template v-else>
-              <button class="sb-main" :title="s.title" @click="onSelect(s.id)">
-                <span class="sb-title">{{ s.title }}</span>
-              </button>
-              <button class="sb-trash" aria-label="删除这条对话" title="删除这条对话" @click="confirmId = s.id">
-                <AppIcon name="trash" :size="15" />
-              </button>
-            </template>
-          </div>
-        </template>
+        <div
+          v-for="s in store.sessions"
+          :key="s.id"
+          class="sb-row"
+          :class="{ active: s.id === store.activeSessionId, confirming: confirmId === s.id }"
+        >
+          <template v-if="confirmId === s.id">
+            <span class="sb-confirm-text">确认删除？</span>
+            <button class="sb-confirm-yes" @click="onRemove(s.id)">删除</button>
+            <button class="sb-confirm-no" @click="confirmId = null">取消</button>
+          </template>
+          <template v-else>
+            <button class="sb-main" :title="s.title" @click="onSelect(s.id)">
+              <span class="sb-title">{{ s.title }}</span>
+              <time class="sb-time" :datetime="s.updated_at">{{ formatSessionTime(s.updated_at) }}</time>
+            </button>
+            <button class="sb-trash" aria-label="删除这条对话" title="删除这条对话" @click="confirmId = s.id">
+              <AppIcon name="trash" :size="15" />
+            </button>
+          </template>
+        </div>
         <div v-if="store.sessionsPageError" class="sb-page-error" role="alert">
           {{ store.sessionsPageError }}
         </div>
@@ -64,7 +61,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
-import type { ChatSession } from '../api/types'
 import AppIcon from './icons/AppIcon.vue'
 
 const emit = defineEmits<{ (e: 'navigate'): void }>()
@@ -86,33 +82,18 @@ async function retrySessions() {
   await store.value.loadSessions(true)
 }
 
-type GroupKey = 'today' | 'yesterday' | 'earlier'
-function groupOf(iso: string): GroupKey {
-  const t = new Date(iso.replace(' ', 'T')).getTime()
-  if (Number.isNaN(t)) return 'earlier'
-  const d = new Date(t)
-  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
-  const days = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000)
-  if (days <= 0) return 'today'
-  if (days === 1) return 'yesterday'
-  return 'earlier'
-}
-
-const groups = computed<{ key: GroupKey; label: string; items: ChatSession[] }[]>(() => {
-  const itemsByGroup: Record<GroupKey, ChatSession[]> = {
-    today: [],
-    yesterday: [],
-    earlier: []
-  }
-  for (const session of store.value.sessions) {
-    itemsByGroup[groupOf(session.updated_at)].push(session)
-  }
-  return [
-    { key: 'today', label: '今天', items: itemsByGroup.today },
-    { key: 'yesterday', label: '昨天', items: itemsByGroup.yesterday },
-    { key: 'earlier', label: '更早', items: itemsByGroup.earlier }
-  ]
+const sessionDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 })
+function formatSessionTime(value: string): string {
+  const date = new Date(value.replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = Object.fromEntries(
+    sessionDateTimeFormatter.formatToParts(date).map((part) => [part.type, part.value]),
+  )
+  const year = date.getFullYear() === new Date().getFullYear() ? '' : `${parts.year}年`
+  return `${year}${Number(parts.month)}月${Number(parts.day)}日 ${parts.hour}:${parts.minute}`
+}
 
 async function onCreate() {
   if (creating.value) return
@@ -177,11 +158,6 @@ async function onRemove(id: number) {
 .sb-error span { min-width: 0; }
 .sb-error button { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--primary); font: inherit; cursor: pointer; }
 .sb-error button:disabled { opacity: 0.6; cursor: wait; }
-.sb-group-title {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: var(--text-3);
-  padding: 10px 10px 4px;
-}
-.sb-group-title:first-child { padding-top: 2px; }
 .sb-row {
   display: flex; align-items: center; gap: 4px;
   border-radius: 9px; padding: 2px 4px 2px 2px;
@@ -190,14 +166,16 @@ async function onRemove(id: number) {
 .sb-row.active { background: var(--primary-50); }
 .sb-row.confirming { background: var(--red-bg); padding: 6px 8px; }
 .sb-main {
-  flex: 1; min-width: 0; text-align: left; background: none; border: none; cursor: pointer;
+  display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px;
+  text-align: left; background: none; border: none; cursor: pointer;
   font-family: var(--font); color: var(--text);
   padding: 6px 8px; border-radius: 7px;
 }
 .sb-title {
-  display: block; font-size: 13.5px;
+  display: block; width: 100%; font-size: 13.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.sb-time { display: block; width: 100%; color: var(--text-3); font-size: 11px; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .sb-row.active .sb-title { color: var(--primary); font-weight: 600; }
 .sb-trash {
   flex-shrink: 0; background: transparent; border: none; cursor: pointer;
