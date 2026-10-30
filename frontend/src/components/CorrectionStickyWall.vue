@@ -5,32 +5,50 @@
      prefers-reduced-motion 时不播动画、点按直接 emit。 -->
 <template>
   <div class="wall">
-    <div v-if="notes.length" class="wall-grid">
-      <button
-        v-for="(n, i) in notes"
-        :key="n.errorId"
-        type="button"
-        class="note"
-        :class="[`note-c${i % 3}`, { fixed: n.isFixed, tearing: tearingId === n.errorId }]"
-        :style="{ '--rot': `${ROTATIONS[i % ROTATIONS.length]}deg` }"
-        :aria-label="n.isFixed ? `已订正：${n.stem}，查看诊断详情` : `撕下订正：${n.stem}`"
-        @click="onNoteClick(n)"
-      >
-        <span class="note-top">
-          <ErrorTypeBadge :type="n.errorType" />
-          <span v-if="n.reviewStatus === 'pending'" class="note-review">老师复核中</span>
-          <span v-if="n.isStubborn && !n.isFixed" class="note-stubborn">需要加固</span>
-        </span>
-        <span class="note-stem">{{ n.stem }}</span>
-        <span v-if="n.stepText" class="note-step">出错步骤：{{ n.stepText }}</span>
-        <span class="note-meta">{{ n.knowledgePoint }} · {{ n.assignmentTitle }}</span>
-        <span class="note-meta">{{ n.dateLabel }}</span>
-        <span class="note-foot">
-          <template v-if="n.isFixed"><AppIcon name="check" :size="13" /> 已订正 · 点一下看诊断详情</template>
-          <template v-else><AppIcon name="edit" :size="13" /> 点一下，撕下来订正</template>
-        </span>
-        <span v-if="n.isFixed" class="note-seal"><AppIcon name="check" :size="17" /></span>
-      </button>
+    <div v-if="groups.length" class="wall-groups">
+      <section v-for="(subject, subjectIndex) in groups" :key="subject.key" class="wall-subject">
+        <h3 class="wall-subject-title">{{ subject.label }}</h3>
+        <section
+          v-for="assignment in subject.assignments"
+          :key="assignment.id"
+          class="wall-assignment"
+        >
+          <header class="wall-assignment-header">
+            <h4 class="wall-assignment-title">{{ assignment.title }}</h4>
+            <span class="wall-assignment-count">{{ assignment.notes.length }} 题</span>
+          </header>
+          <div class="wall-grid">
+            <button
+              v-for="(n, i) in assignment.notes"
+              :key="n.errorId"
+              type="button"
+              class="note"
+              :class="[
+                `note-c${(subjectIndex + i) % 3}`,
+                { fixed: n.isFixed, tearing: tearingId === n.errorId },
+              ]"
+              :style="{ '--rot': `${ROTATIONS[(subjectIndex + i) % ROTATIONS.length]}deg` }"
+              :aria-label="n.isFixed ? `已订正：${n.stem}，查看诊断详情` : `撕下订正：${n.stem}`"
+              @click="onNoteClick(n)"
+            >
+              <span class="note-top">
+                <ErrorTypeBadge :type="n.errorType" />
+                <span v-if="n.reviewStatus === 'pending'" class="note-review">老师复核中</span>
+                <span v-if="n.isStubborn && !n.isFixed" class="note-stubborn">需要加固</span>
+              </span>
+              <span class="note-stem">{{ n.stem }}</span>
+              <span v-if="n.stepText" class="note-step">出错步骤：{{ n.stepText }}</span>
+              <span class="note-meta">{{ n.knowledgePoint }}</span>
+              <span class="note-meta">{{ n.dateLabel }}</span>
+              <span class="note-foot">
+                <template v-if="n.isFixed"><AppIcon name="check" :size="13" /> 已订正 · 点一下看诊断详情</template>
+                <template v-else><AppIcon name="edit" :size="13" /> 点一下，撕下来订正</template>
+              </span>
+              <span v-if="n.isFixed" class="note-seal"><AppIcon name="check" :size="17" /></span>
+            </button>
+          </div>
+        </section>
+      </section>
     </div>
     <div v-else class="wall-empty">
       <div class="note note-c0 note-hint">
@@ -44,19 +62,23 @@
       :disabled="loadingMore"
       @click="emit('show-more')"
     >
-      {{ loadingMore ? '正在加载…' : `继续显示错题（${notes.length} / ${totalCount}）` }}
+      {{ loadingMore ? '正在加载…' : `继续显示错题（${loadedCount} / ${totalCount}）` }}
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppIcon from './icons/AppIcon.vue'
 import ErrorTypeBadge from './ErrorTypeBadge.vue'
 
 export interface CorrectionNote {
   errorId: number
   submissionId: number
+  subject: string
+  subjectName: string
+  assignmentId: number
+  assignmentTitle: string
   /** 题干摘录（一眼认出这题） */
   stem: string
   /** 出错步骤（与题干相同或为空时传空串，贴面不重复显示） */
@@ -64,13 +86,32 @@ export interface CorrectionNote {
   knowledgePoint: string
   errorType: string
   reviewStatus?: 'pending' | 'approved'
-  assignmentTitle: string
   dateLabel: string
   isFixed: boolean
   isStubborn: boolean
 }
 
-defineProps<{ notes: CorrectionNote[]; totalCount: number; hasMore: boolean; loadingMore: boolean }>()
+export interface CorrectionSubjectGroup {
+  key: string
+  label: string
+  assignments: Array<{ id: number; title: string; notes: CorrectionNote[] }>
+}
+
+const props = defineProps<{
+  groups: CorrectionSubjectGroup[]
+  totalCount: number
+  hasMore: boolean
+  loadingMore: boolean
+}>()
+const loadedCount = computed(() =>
+  props.groups.reduce(
+    (total, subject) => total + subject.assignments.reduce(
+      (sum, assignment) => sum + assignment.notes.length,
+      0,
+    ),
+    0,
+  ),
+)
 const emit = defineEmits<{
   /** 待订正贴被撕下（动画播完）→ 父页进入该题修正工作区 */
   pick: [errorId: number]
@@ -117,6 +158,12 @@ function onNoteClick(n: CorrectionNote) {
   grid-template-columns: repeat(auto-fill, minmax(218px, 1fr));
   gap: 30px 22px;
 }
+.wall-subject + .wall-subject { margin-top: 30px; padding-top: 24px; border-top: 1px solid rgba(63, 58, 42, 0.16); }
+.wall-subject-title { margin: 0 0 18px; color: #3f3a2a; font-size: 18px; font-weight: 750; }
+.wall-assignment + .wall-assignment { margin-top: 26px; }
+.wall-assignment-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.wall-assignment-title { min-width: 0; margin: 0; color: rgba(63, 58, 42, 0.84); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.wall-assignment-count { flex: none; color: rgba(63, 58, 42, 0.64); font-size: 12px; }
 .wall-more {
   display: block;
   width: min(420px, 100%);

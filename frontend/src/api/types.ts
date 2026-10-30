@@ -216,6 +216,7 @@ export interface StudentCorrectionWallItem {
   id: number
   submission_id: number
   question_subject: string
+  assignment_id: number
   assignment_title: string
   question_stem: string
   review_status: 'pending' | 'approved'

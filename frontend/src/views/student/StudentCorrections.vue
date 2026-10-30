@@ -60,7 +60,7 @@
            已订正的贴点开跳诊断详情。空态时墙上只留一张提示贴。 -->
       <CorrectionStickyWall
         v-if="view === 'wall'"
-        :notes="wallNotes"
+        :groups="wallGroups"
         :total-count="totalMistakeCount"
         :has-more="hasMoreMistakes"
         :loading-more="loadingMoreMistakes"
@@ -182,7 +182,10 @@ import { sanitizeStudentCopy } from '../../utils/errorType'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import VerifyPanel from '../../components/VerifyPanel.vue'
-import CorrectionStickyWall, { type CorrectionNote } from '../../components/CorrectionStickyWall.vue'
+import CorrectionStickyWall, {
+  type CorrectionNote,
+  type CorrectionSubjectGroup,
+} from '../../components/CorrectionStickyWall.vue'
 
 const student = useStudentStore()
 const route = useRoute()
@@ -231,12 +234,15 @@ function toCorrectionNote(item: StudentCorrectionWallItem): CorrectionNote {
   return {
     errorId: item.id,
     submissionId: item.submission_id,
+    subject: item.question_subject || 'other',
+    subjectName: subjectName(item.question_subject),
+    assignmentId: item.assignment_id,
+    assignmentTitle: item.assignment_title,
     stem: item.question_stem || item.step_text || '',
     stepText: item.step_text && item.step_text !== item.question_stem ? item.step_text : '',
     knowledgePoint: item.knowledge_point,
     errorType: item.error_type,
     reviewStatus: item.review_status,
-    assignmentTitle: item.assignment_title,
     dateLabel: dateLabelOf(item),
     isFixed: item.corrected,
     isStubborn: item.is_stubborn
@@ -246,6 +252,34 @@ function toCorrectionNote(item: StudentCorrectionWallItem): CorrectionNote {
 /** 便利贴墙数据按分页增量维护，避免每次追加时重新转换全部已加载记录。 */
 const wallNotes = ref<CorrectionNote[]>([])
 const correctionNotesById = new Map<number, CorrectionNote>()
+const wallGroups = computed<CorrectionSubjectGroup[]>(() => {
+  const subjects = new Map<string, {
+    key: string
+    label: string
+    assignments: Map<number, { id: number; title: string; notes: CorrectionNote[] }>
+  }>()
+
+  for (const note of wallNotes.value) {
+    let subject = subjects.get(note.subject)
+    if (!subject) {
+      subject = { key: note.subject, label: note.subjectName, assignments: new Map() }
+      subjects.set(note.subject, subject)
+    }
+
+    let assignment = subject.assignments.get(note.assignmentId)
+    if (!assignment) {
+      assignment = { id: note.assignmentId, title: note.assignmentTitle, notes: [] }
+      subject.assignments.set(note.assignmentId, assignment)
+    }
+    assignment.notes.push(note)
+  }
+
+  return [...subjects.values()].map(subject => ({
+    key: subject.key,
+    label: subject.label,
+    assignments: [...subject.assignments.values()],
+  }))
+})
 
 /** 点待订正的贴（撕下动画播完）→ 进入该题修正工作区 */
 function onPickNote(errorId: number) {

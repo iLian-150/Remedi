@@ -183,6 +183,7 @@ class StudentCorrectionWallItemOut(BaseModel):
     id: int
     submission_id: int
     question_subject: str
+    assignment_id: int
     assignment_title: str
     question_stem: str
     review_status: str
