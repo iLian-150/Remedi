@@ -100,7 +100,7 @@ const MistakeStickyNotes = defineAsyncComponent(
   () => import('../../components/mistake-book/MistakeStickyNotes.vue'),
 )
 
-type NotebookView = 'notebook' | 'sticky' | 'mindmap' | 'network'
+type NotebookView = 'notebook' | 'sticky' | 'mindmap'
 interface MistakeCategory { key: string; label: string; itemCount: number; firstItem: StudentMistake | null; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
 interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; itemCount: number; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; priority: number }
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
@@ -147,7 +147,6 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
   { key: 'notebook', label: '卡片笔记', icon: 'book' },
   { key: 'sticky', label: '便利贴', icon: 'file' },
   { key: 'mindmap', label: '思维导图', icon: 'chart' },
-  { key: 'network', label: '关联图谱', icon: 'target' },
 ]
 const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
@@ -380,7 +379,7 @@ function setView(next: NotebookView) {
     closeAssistant()
     actionError.value = ''
   }
-  if (next !== 'mindmap' && next !== 'network') { activate(); return }
+  if (next !== 'mindmap') { activate(); return }
   void ensureSupplementalStyles().then(activate).catch(() => activate())
 }
 function openAssistant(mistake: StudentMistake) {
