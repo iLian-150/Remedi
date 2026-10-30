@@ -35,7 +35,6 @@
             <span v-if="mistake.review_status === 'pending'" class="badge badge-amber">老师复核中</span>
           </div>
           <div class="mistake-reference-line"><span>题目</span><p>{{ mistake.question_stem || '题目内容暂未记录' }}</p></div>
-          <a v-if="mistake.image_url" class="mistake-capture-image-link" :href="imageHref(mistake.image_url)" target="_blank" rel="noreferrer">查看上传原图 <AppIcon name="arrow-right" :size="12"/></a>
           <div v-if="mistake.step_text" class="mistake-reference-line is-error"><span>错误作答</span><p>{{ mistake.step_text }}</p></div>
           <div class="mistake-point-reason"><strong>{{ mistake.source_kind === 'student_saved' ? '复习提示' : '错因分析' }}</strong><p>{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</p></div>
           <!-- v0.13.10：正确答案与解题过程不直接给（用户口径）——先自己想，
@@ -150,11 +149,6 @@ function subjectName(value: string) {
   return labels[value] || value || '其他学科'
 }
 function safe(value: string) { return sanitizeStudentCopy(value) }
-function imageHref(value: string) {
-  const base = import.meta.env.VITE_API_BASE_URL || ''
-  return base ? `${base.replace(/\/+$/, '')}${value}` : value
-}
-
 async function sendQuestion() {
   const text = question.value.trim()
   if (!text || sending.value) return
@@ -207,7 +201,6 @@ async function sendQuestion() {
 .mistake-solution li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }
 .mistake-solution li > span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-50); font-size: 11px; font-weight: 700; }
 .mistake-solution li p { margin: 1px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-.mistake-capture-image-link { display: inline-flex; align-items: center; gap: 3px; margin: 6px 0 10px; color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
 .mistake-answer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 10px 0 2px; }
 .mistake-answer-reveal { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: 9px; background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
 .mistake-answer-reveal:hover { border-color: var(--primary); background: var(--primary-50); }
