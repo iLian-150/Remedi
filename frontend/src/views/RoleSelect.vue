@@ -31,8 +31,6 @@
       <!-- 右：登录卡 -->
       <form class="card login-card" :aria-busy="loading" @submit.prevent="login">
         <h2>欢迎回来</h2>
-        <p class="subtitle">教师选择任教学科；学生使用班级名册中的姓名和学号登录。</p>
-
         <div class="form-row">
           <label>我是</label>
           <div class="role-btns">
@@ -62,7 +60,6 @@
         <button type="submit" class="btn full" :disabled="loading">
           {{ loading ? '登录中…' : '一键进入演示' }}
         </button>
-        <p class="hint">测试版免密码。学生账号由任课老师录入班级名册；姓名可重复，学号必须唯一。</p>
       </form>
     </div>
   </div>
@@ -178,8 +175,7 @@ async function login() {
   padding: 42px 40px;
   display: flex; flex-direction: column; justify-content: center;
 }
-.login-card h2 { font-size: 24px; color: var(--text); margin-bottom: 4px; }
-.login-card .subtitle { margin-bottom: 26px; }
+.login-card h2 { font-size: 24px; color: var(--text); margin-bottom: 26px; }
 @media (max-width: 860px) {
   .login-page { padding: 18px 14px; align-items: flex-start; }
   .login-layout { grid-template-columns: 1fr; }
