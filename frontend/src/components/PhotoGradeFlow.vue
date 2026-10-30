@@ -145,8 +145,10 @@ const props = withDefaults(
     questionStem?: string
     /** v0.6.0：direct 模式——选完照片自动转写并立刻提交诊断，跳过转写确认步 */
     direct?: boolean
+    /** 作业答题模式：原图直接进入带原图留存的作业视觉诊断接口。 */
+    assignmentAnswer?: boolean
   }>(),
-  { direct: false }
+  { direct: false, assignmentAnswer: false }
 )
 const emit = defineEmits<{
   (e: 'graded', result: SubmissionResult): void
@@ -239,6 +241,16 @@ async function processFile(file: File) {
   phase.value = 'transcribing'
   busy.value = true
   try {
+    if (props.assignmentAnswer) {
+      const diagnosis = await student.diagnosePhotoAnswer(file, props.questionId)
+      questionText.value = diagnosis.recognized_question_text || props.questionStem || ''
+      steps.value = [...diagnosis.recognized_steps]
+      result.value = diagnosis
+      confirmed.value = true
+      phase.value = 'done'
+      emit('graded', diagnosis)
+      return
+    }
     const res = await student.reviewPhoto(file, props.questionId, props.questionStem || '')
     questionText.value = res.question_text
     steps.value = [...res.steps]

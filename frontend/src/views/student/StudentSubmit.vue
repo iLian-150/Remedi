@@ -134,6 +134,35 @@
                 @click="insertSymbol(s)"
               >{{ s.label }}</button>
             </div>
+            <div class="answer-mode-row">
+              <button
+                type="button"
+                class="btn secondary small inline-icon"
+                :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id]"
+                @click="pickPhoto(currentQ.id)"
+              >
+                <AppIcon name="image" :size="15" /> 上传手写图片
+              </button>
+              <button
+                type="button"
+                class="btn small inline-icon"
+                :class="handwritingOpen[currentQ.id] ? '' : 'secondary'"
+                :aria-expanded="!!handwritingOpen[currentQ.id]"
+                :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id]"
+                @click="toggleHandwriting(currentQ.id)"
+              >
+                <AppIcon name="edit" :size="15" />
+                {{ handwritingOpen[currentQ.id] ? '收起手写板' : '电子手写' }}
+              </button>
+            </div>
+            <HandwritingPad
+              v-if="handwritingOpen[currentQ.id]"
+              :key="currentQ.id"
+              :ref="(el) => setHandwritingRef(currentQ.id, el)"
+              :storage-key="handwritingDraftKey(currentQ.id)"
+              :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id]"
+              @submit="submitHandwriting(currentQ, $event)"
+            />
             <div class="editor-wrap">
               <div class="editor-gutter" aria-hidden="true">
                 <div class="editor-gutter-inner" :style="{ transform: `translateY(${-(gutterScroll[currentQ.id] ?? 0)}px)` }">
@@ -167,6 +196,25 @@
             </div>
             <div v-if="answerErrors[currentQ.id]" class="error-msg" style="margin-top: 10px">{{ answerErrors[currentQ.id] }}</div>
           </div>
+
+          <!-- 上传照片或手写板内容均走已有图片识别、诊断和原图留存流程。保留各题流程状态，切题后再回来仍可查看结果。 -->
+          <template v-for="q in mathQuestions" :key="`board-photo-flow-${q.id}`">
+            <div
+              v-if="mountedFlowQids.has(q.id)"
+              v-show="q.id === currentQ.id"
+              class="flow-slot has-content"
+            >
+              <PhotoGradeFlow
+                :ref="(el) => setFlowRef(q.id, el)"
+                :question-id="q.id"
+                :question-stem="q.stem"
+                direct
+                assignment-answer
+                @graded="onBoardPhotoGraded(q.id, $event)"
+                @active="onFlowActive(q.id, $event)"
+              />
+            </div>
+          </template>
 
           <button v-if="relatedByQid[currentQ.id]" type="button" class="related-mistake-entry" @click="openRelatedMistake(relatedByQid[currentQ.id]!)">
             回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
@@ -287,6 +335,7 @@ import { useStudentStore } from '../../stores/student'
 import type { Assignment, AssignmentDetail, FigureSpec, LatestQuestionSubmissionStatus, Question, RelatedMistake, SubmissionResult } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import FigureRenderer from '../../components/FigureRenderer.vue'
+import HandwritingPad from '../../components/HandwritingPad.vue'
 import PhotoGradeFlow from '../../components/PhotoGradeFlow.vue'
 import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
 
@@ -376,9 +425,9 @@ function openRelatedMistake(mistake: RelatedMistake) {
 const headSub = computed(() => {
   if (!currentDetail.value) return '先在上方选一份作业，再逐题完成作答；判断不确定的结果会送老师复核。'
   if (isOffline.value) return '选好题目，拍一张作答照片；系统会自动批改，判断不确定的结果会送老师复核。'
-  if (photoQuestions.value.length && mathQuestions.value.length) return '数学题在线写步骤，其他学科拍照提交；视觉模型直接批改，判断不确定的结果会送老师复核。'
+  if (photoQuestions.value.length && mathQuestions.value.length) return '数学题可输入步骤、上传手写图片或用手写板作答；其他学科可拍照提交，判断不确定的结果会送老师复核。'
   if (photoQuestions.value.length) return '拍一张作答照片提交；视觉模型会直接批改，判断不确定的结果会送老师复核。'
-  return '在线写下每道题的解题步骤提交；系统会自动批改，判断不确定的结果会送老师复核。'
+  return '可输入解题步骤、上传手写图片或使用手写板作答；系统会自动批改，判断不确定的结果会送老师复核。'
 })
 const listSub = computed(() =>
   isOffline.value
@@ -453,8 +502,26 @@ const answerErrors = ref<Record<number, string>>({})
 const submittedNotes = ref<Record<number, 'pending' | 'approved' | 'deferred'>>({})
 const gutterScroll = ref<Record<number, number>>({})
 const loadedDraftQids = new Set<number>()
+const handwritingOpen = ref<Record<number, boolean>>({})
+type HandwritingPadHandle = { clear: () => void }
+const handwritingRefs = new Map<number, HandwritingPadHandle>()
 
 const draftKey = (qid: number) => `remedi-answer-draft-${qid}`
+const handwritingDraftKey = (qid: number) => `remedi-handwriting-draft-${qid}`
+
+function setHandwritingRef(qid: number, el: unknown) {
+  if (el) handwritingRefs.set(qid, el as HandwritingPadHandle)
+  else handwritingRefs.delete(qid)
+}
+
+function clearHandwritingDraft(qid: number) {
+  handwritingRefs.get(qid)?.clear()
+  try { localStorage.removeItem(handwritingDraftKey(qid)) } catch { /* storage is optional */ }
+}
+
+function toggleHandwriting(qid: number) {
+  handwritingOpen.value[qid] = !handwritingOpen.value[qid]
+}
 
 function restoreDraft(qid: number) {
   if (loadedDraftQids.has(qid)) return
@@ -469,6 +536,27 @@ function onDraftInput(qid: number, e: Event) {
   // 草稿按题目存本机，交完清除（见 submitAnswer）
   if (text) localStorage.setItem(draftKey(qid), text)
   else localStorage.removeItem(draftKey(qid))
+}
+
+async function submitHandwriting(q: Question, file: File) {
+  if (submittingMap.value[q.id]) return
+  answerErrors.value[q.id] = ''
+  mountedFlowQids.value = new Set(mountedFlowQids.value).add(q.id)
+  await nextTick()
+  const flow = flowRefs.get(q.id)
+  if (!flow) {
+    answerErrors.value[q.id] = '手写板暂时无法提交，请重试。'
+    return
+  }
+  await flow.processFile(file)
+}
+
+function onBoardPhotoGraded(qid: number, result: SubmissionResult) {
+  clearDraft(qid)
+  clearHandwritingDraft(qid)
+  handwritingOpen.value[qid] = false
+  editorOpen.value[qid] = false
+  onGraded(qid, result)
 }
 
 function onEditorScroll(qid: number, e: Event) {
@@ -632,6 +720,8 @@ async function submitAnswer(q: Question) {
   try {
     const res = await student.submitMath({ question_id: q.id, steps })
     clearDraft(q.id)
+    clearHandwritingDraft(q.id)
+    handwritingOpen.value[q.id] = false
     editorOpen.value[q.id] = false
     submittedNotes.value[q.id] = res.status === 'deferred' || res.review_status === 'deferred'
       ? 'deferred'
@@ -706,6 +796,8 @@ async function selectAssignment(id: number) {
   collapsedQids.value = new Set()
   loadedDraftQids.clear()
   editorOpen.value = {}
+  handwritingOpen.value = {}
+  handwritingRefs.clear()
   submittedNotes.value = {}
   answerErrors.value = {}
   if (!id) return
@@ -965,6 +1057,7 @@ onMounted(async () => {
 .flow-slot.has-content :deep(.pgf) { margin-top: 12px; }
 /* 在线作答编辑器（v0.9.2）：左侧行号槽 + 文本域，行高严格对齐 */
 .answer-editor { margin: 12px 4px 2px; }
+.answer-mode-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .editor-wrap {
   display: flex;
   height: 208px;

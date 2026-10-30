@@ -308,6 +308,13 @@ export interface SubmissionResult {
   } | null
 }
 
+/** POST /api/student/photo-diagnose 的响应：诊断结果附带视觉模型识别到的步骤。 */
+export interface PhotoDiagnosisResult extends SubmissionResult {
+  recognized_question_text: string
+  recognized_steps: string[]
+  recognition_confidence: number
+}
+
 export interface SubmissionSummary {
   id: number
   question_id: number

@@ -23,6 +23,7 @@ import type {
   KnowledgePointErrorItem,
   NotificationList,
   PageResult,
+  PhotoDiagnosisResult,
   PhotoReviewResult,
   PhotoTranscribeResult,
   RelatedMistake,
@@ -376,6 +377,18 @@ export const useStudentStore = defineStore('student', {
     // 3.3 提交数学作业并诊断（诊断同步返回）
     async submitMath(payload: { question_id: number; steps: string[] }): Promise<SubmissionResult> {
       const { data } = await api.post<SubmissionResult>('/api/student/submissions', payload)
+      invalidateStudentAssignments(useAuthStore().user?.id)
+      invalidateStudentMistakes(useAuthStore().user?.id)
+      invalidateStudentReport(useAuthStore().user?.id)
+      return data
+    },
+    async diagnosePhotoAnswer(file: File, questionId: number): Promise<PhotoDiagnosisResult> {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('question_id', String(questionId))
+      const { data } = await api.post<PhotoDiagnosisResult>('/api/student/photo-diagnose', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
       invalidateStudentAssignments(useAuthStore().user?.id)
       invalidateStudentMistakes(useAuthStore().user?.id)
       invalidateStudentReport(useAuthStore().user?.id)
