@@ -687,6 +687,7 @@ class QuestionGroup(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False)
     stem = Column(Text, nullable=False, comment="大题共享题干（材料/背景）")
+    diagram_json = Column(Text, nullable=True, comment="可选的结构化教学图形 JSON")
     order_num = Column(Integer, nullable=False, default=0, comment="在作业题目序列中的位置（按首个小题排序）")
 
 

@@ -191,6 +191,8 @@
 
 错误：`404` 作业不存在。
 
+作业详情还包含 `groups`（大题共享材料）。每项有 `id` / `stem` / `order_num`，以及可选的 `diagram` 结构化图形；普通大题 `diagram` 为 `null`。学生端不返回标准答案。
+
 ### 3.3 POST /api/student/submissions —— 提交数学作业并诊断 ⭐核心接口
 
 权限：学生；题目必须属于公共/教师作业，或由当前学生自己生成。其他学生的私有题目按不存在处理。
@@ -1161,6 +1163,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 - 学生提交：数学线上题使用在线步骤板；其他学科或线下作业走拍照提交，服务端将原图直接交给视觉模型，不先做 OCR 转写。教师填写的参考答案和步骤仅作为模型批改上下文，不向学生返回。
 - `standard_steps` / `reference_answer`：选填，仅教师可见（学生端详情不返回标准答案，沿用 3.2 约定）。`standard_steps` 无独立存储列：当 `reference_answer` 为空时，它按行拼入 `standard_answer` 字段保存。
 - 校验：`questions` 至少 1 道；`title` / `prompt` / `knowledge_point` 非空，否则 `422`。
+- v0.13.379：可选 `groups[].diagram` 保存结构化图形，格式见 4.30。图形由教师端 AI 生成并预览，作业详情将其返回给学生端渲染；未提供图形时为 `null`。
 - v0.5.0 新增选填字段（不传 = 线上作业）：`mode`（`online | offline`，默认 `online`）、`workbook_id`、`page_range`、`deadline`（ISO 8601）。`mode=offline` 时把这四项写入新表 `assignment_ext`（题目仍走原 `questions` 结构，由教师拍照识别题目页产生）；`workbook_id` 必须指向本人经 4.15 上传的练习册，否则 `400`。响应同步新增 `mode` / `workbook_title` / `page_range` / `deadline` 四个字段。
 
 响应 `200`：
@@ -1410,6 +1413,37 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 向量模型使用 `qwen3.7-text-embedding-flash`，维度为 1024，新集合为 `remedi_subject_knowledge_qwen37_flash`；切换模型后重新索引，保留旧集合和业务数据。
 
 ---
+
+### 4.30 POST /api/teacher/diagrams/generate —— 按题目描述生成结构化图形
+
+权限：教师。接收大题材料和小题内容，判断是否需要辅助图形；需要时只返回白名单图元组成的 JSON，不生成位图、SVG 源码或 HTML。坐标图由前端 SVG 组件渲染，教师确认后随 4.7 发布。
+
+请求：`{"subject":"math","question_text":"抛物线 y=-x²+bx+c 经过 A(-1,0)、B(3,0)，与 y 轴交于 C。"}`。
+
+响应 `200`（无需图形时 `figure` 为 `null`）：
+
+```json
+{
+  "figure": {
+    "version": 1,
+    "kind": "coordinate",
+    "bounds": {"x_min": -2, "x_max": 4, "y_min": -2, "y_max": 5},
+    "axes": true,
+    "grid": true,
+    "x_label": "x",
+    "y_label": "y",
+    "elements": [
+      {"type": "quadratic", "a": -1, "b": 2, "c": 3, "x_min": -1, "x_max": 3, "label": "y=-x²+2x+3"},
+      {"type": "point", "x": -1, "y": 0, "label": "A"},
+      {"type": "point", "x": 3, "y": 0, "label": "B"},
+      {"type": "point", "x": 0, "y": 3, "label": "C"}
+    ]
+  },
+  "message": ""
+}
+```
+
+允许的图元为点、线段、直线、圆、折线、多边形、二次函数和文本标注；`color` 仅能取 `blue | red | green | amber | gray`。额外字段、超范围坐标和未知图元均会被拒绝。AI 判断不需要图形时返回 `{"figure":null,"message":"无需图形"}`；教师可编辑题目后重新生成。
 
 ## 5. /api/health —— 健康检查
 
@@ -1822,3 +1856,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.344 | 2026-10-24 | “我的资料”改为书架式文档陈列与弹窗管理，保留文字/PDF 导入、内容预览、删除、Agent 试查及索引重建。 |
 | v0.13.345 | 2026-10-24 | 学科 Agent RAG PDF 上传大小上限从 10MB 提高到 20MB，前后端校验与接口说明保持一致。 |
 | v0.13.346 | 2026-10-24 | RAG PDF 导入取消文件大小、页数和提取字数上限，标题与来源改由文件名生成；Nginx 仅对该导入接口取消请求体大小限制。 |
+| v0.13.379 | 2026-10-30 | 大题题干和小题可交由 AI 生成受限的结构化教学图形；教师端预览确认后随作业保存，学生端用 SVG 渲染。 |

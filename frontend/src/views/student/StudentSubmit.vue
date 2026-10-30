@@ -94,6 +94,7 @@
           <div v-if="groupStemOf(currentQ)" class="board-group-stem">
             <span class="board-group-tag">大题材料</span>
             <p>{{ groupStemOf(currentQ) }}</p>
+            <FigureRenderer v-if="groupDiagramOf(currentQ)" :figure="groupDiagramOf(currentQ)!" />
           </div>
           <p class="board-stem">{{ currentQ.stem }}</p>
 
@@ -210,6 +211,7 @@
           <div v-if="showGroupBanner(q, qi, photoQuestions)" class="group-stem-banner">
             <span class="board-group-tag">大题材料</span>
             <p>{{ groupStemOf(q) }}</p>
+            <FigureRenderer v-if="groupDiagramOf(q)" :figure="groupDiagramOf(q)!" />
           </div>
           <div :id="`q-block-${q.id}`" class="q-block">
           <div class="q-row">
@@ -282,8 +284,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { Assignment, AssignmentDetail, LatestQuestionSubmissionStatus, Question, RelatedMistake, SubmissionResult } from '../../api/types'
+import type { Assignment, AssignmentDetail, FigureSpec, LatestQuestionSubmissionStatus, Question, RelatedMistake, SubmissionResult } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import FigureRenderer from '../../components/FigureRenderer.vue'
 import PhotoGradeFlow from '../../components/PhotoGradeFlow.vue'
 import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
 
@@ -524,6 +527,9 @@ function noteKind(q: Question): 'pending' | 'approved' | 'deferred' | null {
 const groupById = computed(() => new Map((currentDetail.value?.groups ?? []).map((g) => [g.id, g])))
 function groupStemOf(q: Question): string | undefined {
   return q.group_id ? groupById.value.get(q.group_id)?.stem : undefined
+}
+function groupDiagramOf(q: Question): FigureSpec | undefined {
+  return q.group_id ? groupById.value.get(q.group_id)?.diagram ?? undefined : undefined
 }
 function showGroupBanner(q: Question, i: number, list: Question[] = mathQuestions.value): boolean {
   if (!q.group_id) return false

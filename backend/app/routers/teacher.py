@@ -1700,7 +1700,12 @@ def create_assignment(body: TeacherAssignmentCreate,
         db.add(AssignmentSetting(assignment_id=assignment.id, allow_revision=True))
     created_groups = []
     for gi, g in enumerate(body.groups, start=1):
-        grp = QuestionGroup(assignment_id=assignment.id, stem=g.stem, order_num=gi)
+        grp = QuestionGroup(
+            assignment_id=assignment.id,
+            stem=g.stem,
+            diagram_json=g.diagram.model_dump_json(exclude_none=True) if g.diagram else None,
+            order_num=gi,
+        )
         db.add(grp)
         created_groups.append((g.key, grp))
     if created_groups:

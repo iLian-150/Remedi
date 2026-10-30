@@ -651,7 +651,12 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
         question.id: group_id for question, group_id in question_rows
     }
     groups = (
-        db.query(QuestionGroup.id, QuestionGroup.stem, QuestionGroup.order_num)
+        db.query(
+            QuestionGroup.id,
+            QuestionGroup.stem,
+            QuestionGroup.order_num,
+            QuestionGroup.diagram_json,
+        )
         .filter(QuestionGroup.assignment_id == a.id)
         .order_by(QuestionGroup.order_num, QuestionGroup.id).all()
     )
@@ -665,8 +670,13 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
             for q in questions
         ],
         groups=[
-            {"id": group_id, "stem": stem, "order_num": order_num}
-            for group_id, stem, order_num in groups
+            {
+                "id": group_id,
+                "stem": stem,
+                "order_num": order_num,
+                "diagram": json.loads(diagram_json) if diagram_json else None,
+            }
+            for group_id, stem, order_num, diagram_json in groups
         ],
         mode=(ext.mode or "online") if ext else "online",
         workbook_title=(

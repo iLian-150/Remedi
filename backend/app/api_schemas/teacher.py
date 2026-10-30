@@ -5,6 +5,7 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from .base import QuestionOut, UserOut
+from .diagram import FigureSpec
 from .student import DiagnosisOut
 
 
@@ -74,6 +75,7 @@ class QuestionGroupIn(BaseModel):
     """大题入参（v0.13.1）：key 是发布请求内的临时标识，小题用 group_key 挂靠。"""
     key: str = Field(min_length=1, max_length=32)
     stem: str = Field(min_length=1, max_length=4000)            # 大题共享题干
+    diagram: Optional[FigureSpec] = None
 
 class TeacherAssignmentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=128)

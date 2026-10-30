@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .diagram import FigureSpec
+
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -47,6 +49,7 @@ class QuestionGroupOut(BaseModel):
     id: int
     stem: str
     order_num: int
+    diagram: Optional[FigureSpec] = None
 
 class AssignmentBrief(BaseModel):
     id: int

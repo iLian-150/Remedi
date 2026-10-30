@@ -376,15 +376,23 @@
       <div class="q-head">
         <h3 style="margin-bottom: 0">大题 {{ gi + 1 }} · {{ subjectLabel }}</h3>
         <div class="q-actions">
-          <button type="button" class="btn small secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto(g)">
+          <button type="button" class="btn small secondary inline-icon" :disabled="groupRecognizing || g.diagramBusy" @click="pickGroupPhoto(g)">
             <AppIcon name="camera" :size="15" /> {{ groupRecognizing && groupPhotoTarget === g ? '识别中…' : '拍照识别大题' }}
+          </button>
+          <button type="button" class="btn small secondary inline-icon" :disabled="g.diagramBusy || groupRecognizing || !groupFigurePrompt(g).trim()" @click="generateGroupFigure(g)">
+            <AppIcon name="sparkles" :size="14" /> {{ g.diagramBusy ? '正在生成…' : g.diagram ? '重新生成图形' : 'AI生成图形' }}
           </button>
           <button type="button" class="btn small danger" @click="groups.splice(gi, 1)">删除大题</button>
         </div>
       </div>
       <div class="form-row">
         <label>大题题干（共享材料，每道小题上方都会展示给学生）</label>
-          <textarea v-model="g.stem" rows="3" :placeholder="subject === 'math' ? '例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。' : '填写多道小题共用的题干材料或背景信息'"></textarea>
+        <textarea v-model="g.stem" rows="3" :placeholder="subject === 'math' ? '例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。' : '填写多道小题共用的题干材料或背景信息'" @input="clearGroupFigure(g)"></textarea>
+        <p v-if="g.diagramMessage" class="hint figure-message" role="status">{{ g.diagramMessage }}</p>
+        <div v-if="g.diagram" class="figure-preview">
+          <FigureRenderer :figure="g.diagram" />
+          <button type="button" class="btn ghost small" :disabled="g.diagramBusy" @click="removeGroupFigure(g)">移除图形</button>
+        </div>
       </div>
       <div v-for="(sub, si) in g.subs" :key="si" class="sub-block">
         <div class="q-head">
@@ -392,13 +400,13 @@
           <div class="q-actions">
             <!-- v0.13.11：小题卡不再单独拍照识别——识别入口在大题层级
                  （大题卡头的「拍照识别大题」一次拆出题干与全部小题） -->
-            <button type="button" class="btn small danger" :disabled="g.subs.length === 1" @click="g.subs.splice(si, 1)">删除小题</button>
+            <button type="button" class="btn small danger" :disabled="g.subs.length === 1" @click="removeGroupSub(g, si)">删除小题</button>
           </div>
         </div>
         <p v-if="sub.recognized" class="ok-msg" style="margin-bottom: 12px">已通过照片识别填入，请检查题干与标准步骤是否正确，可直接修改后再发布。</p>
         <div class="form-row">
           <label>小题题干</label>
-          <textarea v-model="sub.prompt" rows="2" placeholder="例如：求斜边的长"></textarea>
+          <textarea v-model="sub.prompt" rows="2" placeholder="例如：求斜边的长" @input="clearGroupFigure(g)"></textarea>
         </div>
         <!-- v0.13.2：与普通题同版式——知识点 / 分值占比 / 参考答案一行，步骤整行在下 -->
         <div class="grid-q-meta">
@@ -496,8 +504,8 @@
       <button type="button" class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
       <span v-if="questions.length || groups.length" class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
-      <button class="btn" :disabled="submitting || checkingAll" @click="submit">
-        {{ checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
+      <button class="btn" :disabled="submitting || checkingAll || anyDiagramBusy" @click="submit">
+        {{ anyDiagramBusy ? '图形生成中…' : checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
       </button>
     </div>
     </template>
@@ -509,9 +517,10 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
-import type { Classroom, QuestionSubject, SubjectAgentCode, TeacherAssignmentInput, Workbook } from '../../api/types'
+import type { Classroom, FigureSpec, QuestionSubject, SubjectAgentCode, TeacherAssignmentInput, Workbook } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import FigureRenderer from '../../components/FigureRenderer.vue'
 
 const teacher = useTeacherStore()
 const auth = useAuthStore()
@@ -594,11 +603,58 @@ const blankQuestion = (): QuestionForm => ({
 const questions = ref<QuestionForm[]>([])
 // v0.13.1：允许修改开关 + 大题/小题（大题 = 共享题干 + 若干小题，小题仍是普通题目）
 const allowRevision = ref(false)
-interface GroupForm { stem: string; subs: QuestionForm[] }
+interface GroupForm {
+  stem: string
+  subs: QuestionForm[]
+  diagram: FigureSpec | null
+  diagramBusy: boolean
+  diagramMessage: string
+}
 const groups = ref<GroupForm[]>([])
-const blankGroup = (): GroupForm => ({ stem: '', subs: [blankQuestion()] })
+const blankGroup = (): GroupForm => ({ stem: '', subs: [blankQuestion()], diagram: null, diagramBusy: false, diagramMessage: '' })
 function addGroup() {
   groups.value.push(blankGroup())
+}
+
+function groupFigurePrompt(g: GroupForm): string {
+  return [g.stem.trim(), ...g.subs.map((item) => item.prompt.trim())].filter(Boolean).join('\n')
+}
+const anyDiagramBusy = computed(() => groups.value.some((group) => group.diagramBusy))
+function clearGroupFigure(g: GroupForm) {
+  const hadFigure = !!g.diagram
+  g.diagram = null
+  g.diagramMessage = hadFigure ? '题目内容已修改，请重新生成图形。' : ''
+}
+function removeGroupFigure(g: GroupForm) {
+  g.diagram = null
+  g.diagramMessage = ''
+}
+function removeGroupSub(g: GroupForm, index: number) {
+  g.subs.splice(index, 1)
+  clearGroupFigure(g)
+}
+async function generateGroupFigure(g: GroupForm) {
+  const questionText = groupFigurePrompt(g)
+  if (!questionText) return
+  g.diagramBusy = true
+  g.diagramMessage = ''
+  try {
+    const { data } = await api.post<{ figure: FigureSpec | null; message: string }>(
+      '/api/teacher/diagrams/generate',
+      { subject: subject.value, question_text: questionText },
+    )
+    if (groupFigurePrompt(g) !== questionText) {
+      g.diagram = null
+      g.diagramMessage = '题目内容已修改，旧图形未使用。'
+      return
+    }
+    g.diagram = data.figure
+    g.diagramMessage = data.figure ? '' : (data.message || '题目中没有需要补充的图形。')
+  } catch (err: unknown) {
+    g.diagramMessage = '图形生成失败：' + errMsg(err, '请稍后重试。')
+  } finally {
+    g.diagramBusy = false
+  }
 }
 
 // ---------- v0.13.4：时间限制面板（自制日历 + 时分）/ 备注自适应高度 ----------
@@ -1146,10 +1202,12 @@ async function onGroupPhotoChange(e: Event) {
     })
     let g = groupPhotoTarget.value
     if (!g) {
-      g = { stem: '', subs: [] }
+      g = { ...blankGroup(), subs: [] }
       groups.value.push(g)
     }
     g.stem = res.stem ?? ''
+    g.diagram = null
+    g.diagramMessage = ''
     g.subs = subs.length ? subs : [blankQuestion()]
     distributeEvenly()
     const gi = groups.value.indexOf(g)
@@ -1210,7 +1268,7 @@ async function submit() {
     }
     entries.push({ q, label: `第 ${i + 1} 题`, groupKey: null })
   }
-  const groupPayload: { key: string; stem: string }[] = []
+  const groupPayload: { key: string; stem: string; diagram?: FigureSpec | null }[] = []
   for (let gi = 0; gi < groups.value.length; gi++) {
     const g = groups.value[gi]
     if (!g.stem.trim()) {
@@ -1222,7 +1280,7 @@ async function submit() {
       return
     }
     const key = `g${gi + 1}`
-    groupPayload.push({ key, stem: g.stem.trim() })
+    groupPayload.push({ key, stem: g.stem.trim(), diagram: g.diagram || undefined })
     for (let si = 0; si < g.subs.length; si++) {
       const sub = g.subs[si]
       if (!sub.prompt.trim() || !sub.knowledge_point.trim()) {
@@ -1565,6 +1623,8 @@ onMounted(async () => {
   accent-color: var(--primary); cursor: pointer;
 }
 .group-card { border-left: 3px solid var(--primary); }
+.figure-message { margin-top: 8px; }
+.figure-preview { display: flex; flex-direction: column; align-items: center; }
 .sub-block {
   border-top: 1px dashed var(--border);
   padding-top: 14px; margin-top: 14px;

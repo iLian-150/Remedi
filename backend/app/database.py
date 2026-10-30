@@ -59,6 +59,14 @@ def init_db():
                 "(SELECT COUNT(*) FROM chat_session_messages "
                 "WHERE chat_session_messages.session_id = chat_sessions.id)"
             ))
+        group_columns = {
+            column["name"]
+            for column in inspect(connection).get_columns("question_groups")
+        }
+        if "diagram_json" not in group_columns:
+            connection.execute(text(
+                "ALTER TABLE question_groups ADD COLUMN diagram_json TEXT"
+            ))
     # create_all 不会给已存在的表补建后来添加的索引；启动时显式幂等创建热查询表索引。
     for model in (
         models.User,

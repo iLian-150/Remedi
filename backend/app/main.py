@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .lifespan import lifespan
 from .routers import auth as auth_router
+from .routers import diagrams as diagrams_router
 from .routers import health as health_router
 from .routers import student as student_router
 from .routers import teacher as teacher_router
@@ -33,6 +34,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
+app.include_router(diagrams_router.router)
 app.include_router(health_router.router)
 app.include_router(student_router.router)
 app.include_router(teacher_router.router)
