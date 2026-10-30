@@ -513,7 +513,7 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                 "max_tokens": 4096,
                 "stream": True,
                 "messages": [
-                    {"role": "system", "content": "你是认真、耐心的中文学习辅导老师。直接依据图片回答，讲解准确、分步清楚。"},
+                    {"role": "system", "content": "你是认真、耐心的中文学习辅导老师。直接依据图片回答，讲解准确、分步清楚。直接输出 Markdown 正文，不要包在代码块里；需要分步时使用有序列表和三级及以下标题。公式使用可读的纯文本或 Unicode 符号，不要输出 LaTeX 命令、\\( \\)、\\[ \\] 或美元符号公式。"},
                     {
                         "role": "user",
                         "content": [
@@ -875,7 +875,7 @@ class CloudflareProvider(OpenAICompatibleVisionProvider):
         data_url = "data:{};base64,{}".format(
             content_type or "image/jpeg", base64.b64encode(image_bytes).decode("ascii"),
         )
-        yield self._vision_text(data_url, "你是认真、耐心的学习辅导老师。",
+        yield self._vision_text(data_url, "你是认真、耐心的学习辅导老师。直接输出 Markdown 正文，不要包在代码块里；需要分步时使用有序列表和三级及以下标题。公式使用可读的纯文本或 Unicode 符号，不要输出 LaTeX 命令或公式定界符。",
                                 "请直接观察原图并讲解题目。用户的问题：" + (question or "请讲解图片中的题目。"),
                                 settings.LLM_TIMEOUT_SECONDS)
 

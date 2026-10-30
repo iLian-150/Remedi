@@ -1332,11 +1332,15 @@ onMounted(async () => {
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
 .ai-message-text { display: flex; align-items: flex-start; gap: 8px; line-height: 1.65; }
-.ai-message-markdown { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.ai-message-markdown { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; white-space: normal; font-size: 14.5px; }
 .ai-message-markdown :deep(:first-child) { margin-top: 0; }
 .ai-message-markdown :deep(:last-child) { margin-bottom: 0; }
 .ai-message-markdown :deep(p) { margin: 0 0 0.4em; }
 .ai-message-markdown :deep(h1), .ai-message-markdown :deep(h2), .ai-message-markdown :deep(h3), .ai-message-markdown :deep(h4) { margin: 0.6em 0 0.25em; color: var(--text); line-height: 1.35; }
+.ai-message-markdown :deep(h1) { font-size: 1.18em; }
+.ai-message-markdown :deep(h2) { font-size: 1.13em; }
+.ai-message-markdown :deep(h3) { font-size: 1.08em; }
+.ai-message-markdown :deep(h4) { font-size: 1.03em; }
 .ai-message-markdown :deep(ul), .ai-message-markdown :deep(ol) { margin: 0.15em 0 0.4em; padding-left: 1.5em; }
 .ai-message-markdown :deep(li + li) { margin-top: 0.12em; }
 .ai-message-markdown :deep(li > p) { margin: 0; }
@@ -1345,6 +1349,8 @@ onMounted(async () => {
 .ai-message-markdown :deep(pre) { overflow-x: auto; margin: 0.45em 0; border-radius: 8px; background: var(--surface-2, #f5f7fa); padding: 10px 12px; }
 .ai-message-markdown :deep(code) { border-radius: 4px; background: var(--surface-2, #f5f7fa); padding: 0.08em 0.25em; font-size: 0.92em; }
 .ai-message-markdown :deep(pre code) { background: transparent; padding: 0; }
+.ai-message-markdown :deep(.markdown-math-inline) { font-family: "Cambria Math", "STIX Two Math", serif; white-space: nowrap; }
+.ai-message-markdown :deep(.markdown-math-display) { margin: 0.2em 0 0.45em; font-family: "Cambria Math", "STIX Two Math", serif; }
 .ai-message-markdown :deep(a) { color: var(--primary); text-decoration: underline; }
 .photo-mistake-sync { display: flex; align-items: flex-start; gap: 7px; margin-top: 10px; border-radius: 8px; background: var(--green-bg); color: var(--green); padding: 9px 11px; font-size: 12px; line-height: 1.5; }
 .photo-mistake-sync.is-pending { background: var(--amber-bg); color: #92400E; }
