@@ -72,7 +72,7 @@
         </router-link>
       </nav>
 
-      <!-- 会话区（v0.6.2；v0.8.2 起双端统一）：对话页和学生学习页面持续显示；
+      <!-- 会话区（v0.6.2；v0.8.2 起双端统一）：对话页和双端功能页面持续显示；
            v0.9.0：桌面端侧栏收起成图标轨时由 style.css 隐藏（移动端抽屉不受影响） -->
       <SidebarSessions v-if="showSidebarSessions" @navigate="onSidebarSessionNavigate" />
 
@@ -189,7 +189,7 @@ onBeforeUnmount(() => {
   teacher.resetKnowledgeImport()
 })
 
-// ---------- 对话与学生学习页面共享侧栏会话区 ----------
+// ---------- 对话与各角色功能页面共享侧栏会话区 ----------
 const isChatRoute = computed(
   () => route.path === '/student/chat' || route.path === '/teacher/chat'
 )
@@ -251,7 +251,6 @@ const navItems = computed<NavItem[]>(() => {
 })
 const showSidebarSessions = computed(() => {
   if (isChatRoute.value) return true
-  if (auth.role !== 'student') return false
   return navItems.value.slice(1).some((item) =>
     [item.to, ...(item.activePaths ?? [])].some((path) =>
       route.path === path || route.path.startsWith(`${path}/`)
