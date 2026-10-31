@@ -879,7 +879,8 @@ export const useStudentStore = defineStore('student', {
     ): Promise<AgentHistoryPage> {
       const { data } = await api.get<AgentHistoryPage>(
         `/api/student/agent/sessions/${sessionId}/messages/page`,
-        { params: cursor }
+        // 历史读取是轻量查询，及时失败后让界面提供重试，避免继承全局 3 分钟请求上限。
+        { params: cursor, timeout: 15_000 }
       )
       return data
     },

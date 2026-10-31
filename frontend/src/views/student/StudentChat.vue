@@ -21,7 +21,7 @@
     <div class="chat-body" :class="{ 'chat-body-welcome': isWelcomeScreen }" ref="bodyRef">
       <div class="chat-inner">
         <section v-if="historySwitchLoading" class="history-switch-state" role="status" aria-live="polite">
-          <ThinkingStatus />
+          <span class="history-loading-spinner" aria-hidden="true"></span>
           <span>正在加载这条对话…</span>
         </section>
         <section v-else-if="historySwitchError" class="history-switch-state history-switch-error" role="alert">
@@ -844,7 +844,10 @@ watch(
         restoreHistoryPage(page)
       } catch (e) {
         if (requestToken !== historyRequestToken) return
-        historySwitchError.value = '打开这条对话失败：' + (errDetail(e) || '请重试。')
+        const detail = errDetail(e)
+        historySwitchError.value = /timeout|超时/i.test(detail)
+          ? '加载超时，请检查网络后重试。'
+          : '打开这条对话失败：' + (detail || '请重试。')
         console.error(e)
       } finally {
         if (requestToken === historyRequestToken) historySwitchLoading.value = false
@@ -1404,7 +1407,10 @@ onMounted(async () => {
     if ('error' in historyResult) {
       if (student.sessionView.seq === initialViewSeq
         && initialSessionId != null) {
-        historySwitchError.value = '打开这条对话失败：' + (errDetail(historyResult.error) || '请重试。')
+        const detail = errDetail(historyResult.error)
+        historySwitchError.value = /timeout|超时/i.test(detail)
+          ? '加载超时，请检查网络后重试。'
+          : '打开这条对话失败：' + (detail || '请重试。')
       }
       console.error(historyResult.error)
     }
@@ -1459,6 +1465,8 @@ onMounted(async () => {
 .chat-content-shell { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
 .chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 24px 24px 168px; }
 .history-switch-state { display: flex; min-height: min(42vh, 320px); align-items: center; justify-content: center; gap: 12px; color: var(--text-2); font-size: 14px; }
+.history-loading-spinner { width: 16px; height: 16px; flex: 0 0 16px; border: 2px solid var(--blue-bg); border-top-color: var(--primary); border-radius: 50%; animation: history-loading-spin 0.8s linear infinite; }
+@keyframes history-loading-spin { to { transform: rotate(360deg); } }
 .history-switch-error { color: var(--red); }
 .history-switch-retry { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; background: var(--card); color: var(--primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .history-switch-retry:hover { background: var(--primary-50); }
@@ -1628,7 +1636,7 @@ onMounted(async () => {
 .chat-composer .chat-inner { max-width: 860px; }
 @media (prefers-reduced-motion: reduce) {
   .suggest-chip, .welcome-home { animation: none; transition: none; }
-  .composer-panel, .send-btn, .composer-photo-btn { transition: none; }
+  .composer-panel, .send-btn, .composer-photo-btn, .history-loading-spinner { transition: none; animation: none; }
   .send-btn:hover:not(:disabled) { transform: none; }
 }
 
