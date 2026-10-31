@@ -513,6 +513,12 @@
       <button type="button" class="btn small secondary" @click="distributeEvenly">一键均分</button>
     </div>
     <div class="toolbar publish-actions">
+      <div v-if="recognitionInProgress" class="recognition-progress-status" role="status" aria-live="polite">
+        <span>正在识别题目，请稍候</span>
+        <div class="recognition-progress-track" role="progressbar" aria-label="正在识别题目">
+          <span class="recognition-progress-indicator"></span>
+        </div>
+      </div>
       <button type="button" class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
       <button type="button" class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
       <button type="button" class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
@@ -1210,6 +1216,9 @@ async function onPhotoChange(e: Event) {
 const groupPhotoRef = ref<HTMLInputElement | null>(null)
 const groupPhotoTarget = ref<GroupForm | null>(null)
 const groupRecognizing = ref(false)
+const recognitionInProgress = computed(() =>
+  groupRecognizing.value || appendRecognizing.value || questions.value.some((question) => question.recognizing)
+)
 
 function pickGroupPhoto(g?: GroupForm) {
   if (g) {
@@ -1578,6 +1587,13 @@ onMounted(async () => {
 }
 .publish-actions .spacer { flex: 1; }
 .recognition-error { display: inline-flex; align-items: center; gap: 5px; max-width: 440px; color: var(--red); font-size: 12px; line-height: 1.4; }
+.recognition-progress-status { display: flex; flex: 1 0 100%; align-items: center; gap: 12px; color: var(--text-2); font-size: 12px; }
+.recognition-progress-track { width: min(280px, 42vw); height: 5px; overflow: hidden; border-radius: 999px; background: var(--primary-50); }
+.recognition-progress-indicator { display: block; width: 34%; height: 100%; border-radius: inherit; background: var(--primary); animation: recognition-progress-slide 1.35s ease-in-out infinite; }
+@keyframes recognition-progress-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(310%); }
+}
 .weight-mini { font-size: 13px; color: var(--text-2); }
 .weight-mini b { color: var(--green); }
 .weight-mini.bad b { color: var(--red); }
@@ -1717,5 +1733,6 @@ onMounted(async () => {
 .check-note.muted { color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) {
   .mode-card { transition: none; }
+  .recognition-progress-indicator { width: 100%; animation: none; }
 }
 </style>
