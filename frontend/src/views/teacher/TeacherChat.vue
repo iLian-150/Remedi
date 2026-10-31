@@ -36,9 +36,10 @@
                 { 'welcome-bubble': isWelcomeState && msg.side === 'ai' }
               ]"
             >
-              <span v-if="msg.pending" class="pending-status" role="status">
-                {{ msg.text }}<span class="pending-elapsed"> · {{ pendingElapsedSeconds }} 秒</span>
-              </span>
+              <div v-if="msg.pending" class="pending-status">
+                <ThinkingStatus />
+                <span class="pending-elapsed">· {{ pendingElapsedSeconds }} 秒</span>
+              </div>
               <template v-else>{{ msg.text }}</template>
             </div>
           </div>
@@ -101,6 +102,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
 import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem } from '../../api/types'
+import ThinkingStatus from '../../components/ThinkingStatus.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const auth = useAuthStore()
@@ -447,7 +449,7 @@ onMounted(async () => {
 }
 .send-circle:hover:not(:disabled) { transform: scale(1.07); box-shadow: 0 6px 16px rgba(29, 78, 216, 0.42); }
 .send-circle:disabled { opacity: 0.45; cursor: not-allowed; }
-.pending-status { color: var(--text-2); }
+.pending-status { display: inline-flex; align-items: center; gap: 8px; }
 .pending-elapsed { color: var(--text-3); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   .welcome-prompts button, .suggest-chip { transition: none; }

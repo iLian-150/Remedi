@@ -119,8 +119,8 @@
           <!-- AI 普通文本 -->
           <div v-if="msg.kind === 'text' && msg.side === 'ai'" class="bubble ai-bubble">
             <div class="ai-message-text">
-              <AppIcon v-if="msg.pending" name="spinner" :size="16" class="spin" />
-              <div
+              <ThinkingStatus v-if="msg.pending" />
+              <div v-else
                 class="ai-message-markdown"
                 v-html="renderAssistantMarkdown(msg)"
               ></div>
@@ -354,6 +354,7 @@ import { STEP_STATUS_TEXT } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { createMarkdownRenderer } from '../../utils/markdownRenderer'
 import BrandLogo from '../../components/BrandLogo.vue'
+import ThinkingStatus from '../../components/ThinkingStatus.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -1555,8 +1556,6 @@ onMounted(async () => {
 .send-btn:disabled { background: var(--gray-bg); color: var(--text-3); cursor: default; }
 .send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
 .chat-composer-welcome .chat-inner { max-width: 860px; }
-.spin { animation: chat-spin 1s linear infinite; }
-@keyframes chat-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .suggest-chip, .welcome-home { animation: none; transition: none; }
   .composer-panel, .send-btn, .composer-photo-btn { transition: none; }
