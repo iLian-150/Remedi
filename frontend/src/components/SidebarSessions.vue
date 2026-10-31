@@ -3,10 +3,13 @@
      数据与动作全部走 store 的会话状态层，与对话页共用同一份状态。 -->
 <template>
   <section class="sb-sessions">
-    <div class="sb-row sb-new-row" :class="{ active: store.activeSessionId == null }">
-      <button class="sb-new-main" type="button" aria-label="开始新对话" @click="onCreate">
-        <AppIcon name="compose" :size="17" />
-        <span>新对话</span>
+    <button class="sb-new-btn" type="button" aria-label="新对话" @click="onCreate">
+      <AppIcon name="compose" :size="17" /> 新对话
+    </button>
+
+    <div class="sb-row sb-draft-row" :class="{ active: store.activeSessionId == null }">
+      <button class="sb-main sb-draft-main" type="button" title="新对话" @click="onCreate">
+        <span class="sb-title">新对话</span>
       </button>
     </div>
 
@@ -127,6 +130,19 @@ async function onRemove(id: number) {
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
 }
+.sb-new-btn {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; margin-bottom: 8px; flex-shrink: 0;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
+}
+.sb-new-btn:hover { background: var(--bg); border-color: #C9D6F2; }
+.sb-new-btn .app-icon { color: var(--primary); }
+.sb-draft-row { flex-shrink: 0; margin-bottom: 4px; }
+.sb-draft-main { min-height: 36px; }
+.sb-draft-row.active { background: var(--primary-50); }
+.sb-draft-row.active .sb-title { color: var(--primary); font-weight: 600; }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
@@ -144,17 +160,6 @@ async function onRemove(id: number) {
   display: flex; align-items: center; gap: 4px;
   border-radius: 9px; padding: 2px 4px 2px 2px;
 }
-.sb-new-row { margin-bottom: 8px; border: 1px solid var(--border); background: var(--card); }
-.sb-new-main {
-  width: 100%; display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; border: 0; border-radius: 7px;
-  background: transparent; color: var(--text); font: 600 14px var(--font);
-  text-align: left; cursor: pointer;
-}
-.sb-new-main .app-icon { color: var(--primary); }
-.sb-new-row:hover { border-color: #C9D6F2; background: var(--bg); }
-.sb-new-row.active { border-color: #C9D6F2; background: var(--primary-50); }
-.sb-new-row.active .sb-new-main { color: var(--primary); }
 .sb-row:hover { background: var(--bg); }
 .sb-row.active { background: var(--primary-50); }
 .sb-row.confirming { background: var(--red-bg); padding: 6px 8px; }

@@ -880,7 +880,7 @@ export const useTeacherStore = defineStore('teacher', {
       this.activeSessionId = id
       this.sessionView = { id, fresh: false, seq: this.sessionView.seq + 1 }
     },
-    /** 侧栏删除会话：删的是当前会话时切到最新一条；若无历史则回到不可删除的新对话草稿。 */
+    /** 删除当前会话后切回固定的新对话草稿；其他历史记录继续保留。 */
     async removeSidebarSession(id: number) {
       const generation = this.sessionsGeneration
       const ownerId = useAuthStore().user?.id
@@ -890,10 +890,10 @@ export const useTeacherStore = defineStore('teacher', {
       const wasActive = id === this.activeSessionId
       this.sessions = this.sessions.filter((x) => x.id !== id)
       if (wasActive) {
-        this.activeSessionId = this.sessions[0]?.id ?? null
+        this.activeSessionId = null
         this.sessionView = {
-          id: this.activeSessionId,
-          fresh: this.activeSessionId == null,
+          id: null,
+          fresh: true,
           seq: this.sessionView.seq + 1
         }
       }
