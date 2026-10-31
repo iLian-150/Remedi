@@ -502,6 +502,9 @@
       <button type="button" class="btn secondary inline-icon" @click="addQuestion"><AppIcon name="plus" :size="15" /> 添加小题</button>
       <button type="button" class="btn secondary inline-icon" @click="addGroup"><AppIcon name="plus" :size="15" /> 添加大题</button>
       <button type="button" class="btn secondary inline-icon" :disabled="groupRecognizing" @click="pickGroupPhoto()"><AppIcon name="camera" :size="15" /> {{ groupRecognizing && !groupPhotoTarget ? '识别中…' : '拍照识别大题' }}</button>
+      <span v-if="recognitionError" class="recognition-error" role="alert">
+        <AppIcon name="alert" :size="14" /> {{ recognitionError }}
+      </span>
       <span v-if="questions.length || groups.length" class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
       <button class="btn" :disabled="submitting || checkingAll || anyDiagramBusy" @click="submit">
@@ -751,6 +754,7 @@ const allForms = computed(() => [...questions.value, ...groups.value.flatMap((g)
 const submitting = ref(false)
 const checkingAll = ref(false)  // 发布前批量验算进行中（v0.9.3）
 const error = ref('')
+const recognitionError = ref('')
 const ok = ref(false)
 
 // v0.13.11：红色警示是顶部悬浮 toast，出现 5 秒后自动消失；连续报错重新计时
@@ -763,6 +767,28 @@ watch(error, (v) => {
 function errMsg(e: unknown, fallback: string): string {
   const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
   return typeof d === 'string' ? d : fallback
+}
+
+function recognitionFailureMessage(e: unknown, fallback: string): string {
+  const cause = e as {
+    code?: string
+    message?: string
+    request?: unknown
+    response?: { status?: number; data?: { detail?: unknown } }
+  }
+  const detail = cause?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (cause?.code === 'ECONNABORTED' || cause?.code === 'ETIMEDOUT') {
+    return '识别请求超时，请检查网络后重试。'
+  }
+  if (cause?.code === 'ERR_NETWORK' || (!cause?.response && (cause?.request || cause?.message === 'Network Error'))) {
+    return '网络连接失败，识别未完成，请检查网络后重试。'
+  }
+  const status = cause?.response?.status
+  if (typeof status === 'number' && status >= 500) {
+    return '识别服务暂时不可用，请稍后重试。'
+  }
+  return fallback
 }
 
 function addQuestion() {
@@ -1058,6 +1084,7 @@ async function extractFromPdf() {
   if (!workbookId.value || !pageRange.value.trim() || extracting.value) return
   extracting.value = true
   extractNote.value = ''
+  recognitionError.value = ''
   error.value = ''
   try {
     const { data } = await api.post<{
@@ -1086,7 +1113,8 @@ async function extractFromPdf() {
       `已从第 ${data.pages.join('、')} 页识别出 ${data.questions.length} 道题，填到下方题目卡里了，分值已先自动均分，请逐题检查修改后再发布。` +
       (data.warnings.length ? `（${data.warnings.join(' ')}）` : '')
   } catch (err) {
-    error.value = '自动识别失败：' + errMsg(err, '请稍后重试，或用拍照补录。')
+    recognitionError.value = '自动识别失败：' + recognitionFailureMessage(err, '请稍后重试，或用拍照补录。')
+    error.value = recognitionError.value
     console.error(err)
   } finally {
     extracting.value = false
@@ -1118,6 +1146,7 @@ async function onPhotoChange(e: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+  recognitionError.value = ''
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     error.value = '题目照片格式不对，请上传 jpg / png / webp 格式的图片。'
     return
@@ -1149,7 +1178,8 @@ async function onPhotoChange(e: Event) {
     // v0.13.3：拍照追加的题先自动均分（单题拍照只改本题内容、题数不变，不重排分值）
     if (appendMode) distributeEvenly()
   } catch (err: unknown) {
-    error.value = '照片识别失败：' + errMsg(err, '请稍后重试。')
+    recognitionError.value = '照片识别失败：' + recognitionFailureMessage(err, '请稍后重试。')
+    error.value = recognitionError.value
     console.error(err)
   } finally {
     q.recognizing = false
@@ -1181,6 +1211,7 @@ async function onGroupPhotoChange(e: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+  recognitionError.value = ''
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     error.value = '大题照片格式不对，请上传 jpg / png / webp 格式的图片。'
     return
@@ -1215,7 +1246,8 @@ async function onGroupPhotoChange(e: Event) {
       if (sf.prompt.trim() && !sf.knowledge_point) void guessKp(sf, `大题 ${gi + 1} 小题（${si + 1}）`)
     })
   } catch (err: unknown) {
-    error.value = '大题识别失败：' + errMsg(err, '请换一张更清晰的照片重试。')
+    recognitionError.value = '大题识别失败：' + recognitionFailureMessage(err, '请换一张更清晰的照片重试。')
+    error.value = recognitionError.value
     console.error(err)
   } finally {
     groupRecognizing.value = false
@@ -1521,6 +1553,7 @@ onMounted(async () => {
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14); padding: 12px 14px; margin-bottom: 16px;
 }
 .publish-actions .spacer { flex: 1; }
+.recognition-error { display: inline-flex; align-items: center; gap: 5px; max-width: 440px; color: var(--red); font-size: 12px; line-height: 1.4; }
 .weight-mini { font-size: 13px; color: var(--text-2); }
 .weight-mini b { color: var(--green); }
 .weight-mini.bad b { color: var(--red); }
