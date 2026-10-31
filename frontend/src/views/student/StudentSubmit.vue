@@ -124,7 +124,7 @@
 
           <!-- 作答编辑器：一行一步 + 数学符号栏，草稿自动保存在本机 -->
           <div v-else class="answer-editor board-editor">
-            <div class="symbol-bar" role="group" aria-label="数学符号">
+            <div v-if="!handwritingOpen[currentQ.id]" class="symbol-bar" role="group" aria-label="数学符号">
               <button
                 v-for="s in SYMBOLS"
                 :key="s.label"
@@ -163,37 +163,39 @@
               :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id]"
               @submit="submitHandwriting(currentQ, $event)"
             />
-            <div class="editor-wrap">
-              <div class="editor-gutter" aria-hidden="true">
-                <div class="editor-gutter-inner" :style="{ transform: `translateY(${-(gutterScroll[currentQ.id] ?? 0)}px)` }">
-                  <span v-for="n in currentDraftMetrics.lineCount" :key="n" class="tnum">{{ n }}</span>
+            <template v-if="!handwritingOpen[currentQ.id]">
+              <div class="editor-wrap">
+                <div class="editor-gutter" aria-hidden="true">
+                  <div class="editor-gutter-inner" :style="{ transform: `translateY(${-(gutterScroll[currentQ.id] ?? 0)}px)` }">
+                    <span v-for="n in currentDraftMetrics.lineCount" :key="n" class="tnum">{{ n }}</span>
+                  </div>
                 </div>
+                <textarea
+                  ref="boardTextarea"
+                  :value="drafts[currentQ.id] ?? ''"
+                  class="answer-textarea"
+                  spellcheck="false"
+                  placeholder="每行写一步解题过程，最后一行写最终答案。例如：&#10;2x + 3 = 7&#10;2x = 4&#10;x = 2"
+                  @input="onDraftInput(currentQ.id, $event)"
+                  @scroll="onEditorScroll(currentQ.id, $event)"
+                />
               </div>
-              <textarea
-                ref="boardTextarea"
-                :value="drafts[currentQ.id] ?? ''"
-                class="answer-textarea"
-                spellcheck="false"
-                placeholder="每行写一步解题过程，最后一行写最终答案。例如：&#10;2x + 3 = 7&#10;2x = 4&#10;x = 2"
-                @input="onDraftInput(currentQ.id, $event)"
-                @scroll="onEditorScroll(currentQ.id, $event)"
-              />
-            </div>
-            <div class="editor-meta">
-              <span class="tnum">{{ currentDraftMetrics.stepCount }} / 20 步</span>
-              <span v-if="currentDraftMetrics.stepCount > 20" class="editor-warn">步骤有点多，最多 20 步，请把几步合并一下再提交。</span>
-              <span v-else-if="(drafts[currentQ.id] ?? '').trim()" class="editor-saved">草稿已自动保存在这台设备上</span>
-            </div>
-            <div class="toolbar" style="margin: 10px 0 0">
-              <button
-                class="btn"
-                :disabled="submittingMap[currentQ.id] || currentDraftMetrics.stepCount === 0 || currentDraftMetrics.stepCount > 20"
-                @click="submitAnswer(currentQ)"
-              >
-                {{ submittingMap[currentQ.id] ? '提交中…' : '提交作答' }}
-              </button>
-              <button class="btn secondary" :disabled="submittingMap[currentQ.id]" @click="clearDraft(currentQ.id)">清空重写</button>
-            </div>
+              <div class="editor-meta">
+                <span class="tnum">{{ currentDraftMetrics.stepCount }} / 20 步</span>
+                <span v-if="currentDraftMetrics.stepCount > 20" class="editor-warn">步骤有点多，最多 20 步，请把几步合并一下再提交。</span>
+                <span v-else-if="(drafts[currentQ.id] ?? '').trim()" class="editor-saved">草稿已自动保存在这台设备上</span>
+              </div>
+              <div class="toolbar" style="margin: 10px 0 0">
+                <button
+                  class="btn"
+                  :disabled="submittingMap[currentQ.id] || currentDraftMetrics.stepCount === 0 || currentDraftMetrics.stepCount > 20"
+                  @click="submitAnswer(currentQ)"
+                >
+                  {{ submittingMap[currentQ.id] ? '提交中…' : '提交作答' }}
+                </button>
+                <button class="btn secondary" :disabled="submittingMap[currentQ.id]" @click="clearDraft(currentQ.id)">清空重写</button>
+              </div>
+            </template>
             <div v-if="answerErrors[currentQ.id]" class="error-msg" style="margin-top: 10px">{{ answerErrors[currentQ.id] }}</div>
           </div>
 
