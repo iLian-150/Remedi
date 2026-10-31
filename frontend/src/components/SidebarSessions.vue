@@ -140,7 +140,7 @@ async function onRemove(id: number) {
 .sb-new-btn .app-icon { color: var(--primary); }
 .sb-draft-row { flex-shrink: 0; }
 .sb-draft-main { cursor: default; }
-.sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; display: flex; flex-direction: column; gap: 5px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
 .sb-load-more {
@@ -155,11 +155,12 @@ async function onRemove(id: number) {
 .sb-error button:disabled { opacity: 0.6; cursor: wait; }
 .sb-row {
   display: flex; align-items: center; gap: 4px;
-  border-radius: 9px; padding: 2px 4px 2px 2px;
+  border: 1px solid var(--border); border-radius: 9px; padding: 2px 4px 2px 2px;
+  background: var(--card); transition: background-color 0.16s ease, border-color 0.16s ease;
 }
-.sb-row:hover { background: var(--bg); }
-.sb-row.active { background: var(--primary-50); }
-.sb-row.confirming { background: var(--red-bg); padding: 6px 8px; }
+.sb-row:hover:not(.active):not(.confirming) { background: var(--bg); border-color: #C9D6F2; }
+.sb-row.active { background: var(--blue-bg); border-color: #BFDBFE; }
+.sb-row.confirming { background: var(--red-bg); border-color: #FECACA; padding: 6px 8px; }
 .sb-main {
   display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px;
   text-align: left; background: none; border: none; cursor: pointer;
