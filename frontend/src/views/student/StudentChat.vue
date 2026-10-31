@@ -20,7 +20,15 @@
     <!-- 消息流 / AI 首页 -->
     <div class="chat-body" :class="{ 'chat-body-welcome': isWelcomeScreen }" ref="bodyRef">
       <div class="chat-inner">
-        <section v-if="isWelcomeScreen" class="welcome-home">
+        <section v-if="historySwitchLoading" class="history-switch-state" role="status" aria-live="polite">
+          <ThinkingStatus />
+          <span>正在加载这条对话…</span>
+        </section>
+        <section v-else-if="historySwitchError" class="history-switch-state history-switch-error" role="alert">
+          <span>{{ historySwitchError }}</span>
+          <button type="button" class="history-switch-retry" @click="retrySelectedHistory">重试</button>
+        </section>
+        <section v-else-if="isWelcomeScreen" class="welcome-home">
           <h1>{{ auth.name || '同学' }}，今天想聊点什么？</h1>
 
           <div v-if="welcomeBriefing" class="welcome-briefing">
@@ -545,6 +553,8 @@ const historyHasMore = ref(false)
 const historyLoadingOlder = ref(false)
 const historyLoadError = ref('')
 const historyCursor = ref<AgentHistoryCursor | null>(null)
+const historySwitchLoading = ref(false)
+const historySwitchError = ref('')
 let scrollFrame: number | null = null
 const loadingInit = ref(true)
 const welcomeBriefing = computed(() => messages.value.find((msg) => msg.kind === 'briefing')?.briefing ?? null)
@@ -558,7 +568,12 @@ const briefingIsAllDone = computed(() => {
   return briefing ? briefingAllDone(briefing) : false
 })
 const isWelcomeScreen = computed(
-  () => !loadingInit.value && !messages.value.some((msg) => msg.side === 'user' || (msg.kind !== 'briefing' && msg.text.trim()))
+  () => !loadingInit.value
+    && !historySwitchLoading.value
+    && !historySwitchError.value
+    && student.sessionView.id == null
+    && student.activeSessionId == null
+    && !messages.value.some((msg) => msg.side === 'user' || (msg.kind !== 'briefing' && msg.text.trim()))
 )
 const hasConversation = computed(() => messages.value.some((message) => message.side === 'user'))
 
@@ -805,23 +820,44 @@ watch(
     historyCursor.value = null
     historyLoadError.value = ''
     historyLoadingOlder.value = false
-    messages.value = messages.value.filter((m) => m.kind === 'briefing')
-    if (!messages.value.length) await prependBriefing()
-    if (requestToken !== historyRequestToken) return
-    if (!view.fresh && viewId != null) {
+    historySwitchError.value = ''
+    historySwitchLoading.value = !view.fresh && viewId != null
+    if (view.fresh || viewId == null) {
+      messages.value = messages.value.filter((m) => m.kind === 'briefing')
+      if (!messages.value.length) await prependBriefing()
+      if (requestToken !== historyRequestToken) return
+      historySwitchLoading.value = false
+    } else {
       try {
         const page = await student.fetchSessionMessages(viewId)
         if (requestToken !== historyRequestToken) return
+        const selectedSession = student.sessions.find((session) => session.id === viewId)
+        if (selectedSession?.message_count && !page.items.length) {
+          historySwitchError.value = '这条对话没有加载到历史消息，请重试。'
+          return
+        }
+        if (!messages.value.some((message) => message.kind === 'briefing')) {
+          await prependBriefing()
+          if (requestToken !== historyRequestToken) return
+        }
+        messages.value = messages.value.filter((message) => message.kind === 'briefing')
         restoreHistoryPage(page)
       } catch (e) {
         if (requestToken !== historyRequestToken) return
-        pushMsg({ side: 'ai', kind: 'error', text: '打开这条对话失败：' + (errDetail(e) || '请稍后重试。') })
+        historySwitchError.value = '打开这条对话失败：' + (errDetail(e) || '请重试。')
         console.error(e)
+      } finally {
+        if (requestToken === historyRequestToken) historySwitchLoading.value = false
       }
     }
     scrollToBottom()
   }
 )
+
+function retrySelectedHistory() {
+  const sessionId = student.sessionView.id ?? student.activeSessionId
+  if (sessionId != null) student.selectSidebarSession(sessionId)
+}
 
 function findLastMessage(predicate: (message: ChatMsg) => boolean): ChatMsg | undefined {
   for (let index = messages.value.length - 1; index >= 0; index--) {
@@ -1279,17 +1315,23 @@ async function confirmTranscribe(msg: ChatMsg) {
 // ---------- 初始化 ----------
 onMounted(async () => {
   window.addEventListener('keydown', onImagePreviewKeydown)
+  // 先登记已处理的序号。若等初始化请求全部完成才对齐，期间的侧栏切换可能被误判为已处理。
+  const initialViewSeq = student.sessionView.seq
+  appliedViewSeq = initialViewSeq
   const sessionsPromise = student.loadSessions()
   let initialSessionId: number | null = null
   const historyPromise = sessionsPromise
     .then(async () => {
+      // sessions 加载期间若用户已切换会话，交给 sessionView watcher 处理，避免重复请求旧视图。
+      if (student.sessionView.seq !== initialViewSeq) return { history: null, skipped: true } as const
       initialSessionId = student.activeSessionId
-      return initialSessionId == null
+      const history = initialSessionId == null
         ? null
         : student.fetchSessionMessages(initialSessionId)
+      return { history: await history, skipped: false } as const
     })
     .then(
-      (history) => ({ history } as const),
+      (result) => result,
       (error) => ({ error } as const)
     )
   const briefingPromise = fetchBriefingOnce()
@@ -1344,21 +1386,29 @@ onMounted(async () => {
   initialBriefingRequest = null
   // 按上次选中的会话读取历史，避免刷新后跳到别的会话。
   const historyResult = await historyPromise
-  if ('history' in historyResult) {
+  if ('history' in historyResult && !historyResult.skipped) {
     try {
-      if (initialSessionId === student.activeSessionId) {
-        restoreHistoryPage(historyResult.history)
+      if (student.sessionView.seq === initialViewSeq
+        && initialSessionId === student.activeSessionId) {
+        const selectedSession = student.sessions.find((session) => session.id === initialSessionId)
+        if (selectedSession?.message_count && !historyResult.history?.items.length) {
+          historySwitchError.value = '这条对话没有加载到历史消息，请重试。'
+        } else {
+          restoreHistoryPage(historyResult.history)
+        }
       }
     } catch (e) {
       console.error(e)
     }
   } else {
-    console.error(historyResult.error)
+    if ('error' in historyResult) {
+      if (student.sessionView.seq === initialViewSeq
+        && initialSessionId != null) {
+        historySwitchError.value = '打开这条对话失败：' + (errDetail(historyResult.error) || '请重试。')
+      }
+      console.error(historyResult.error)
+    }
   }
-  // 当前会话定位（v0.6.2）：会话状态归 store 与侧栏共用，loadSessions 首次会自动定位
-  // 当前会话（最近更新的一条，与上面 fetchAgentHistory 返回当前会话的口径一致）；
-  // appliedViewSeq 对齐当前值，避免把挂载前侧栏的查看请求误当成新切换
-  appliedViewSeq = student.sessionView.seq
   loadingInit.value = false
   scrollToBottom()
 })
@@ -1408,6 +1458,10 @@ onMounted(async () => {
 
 .chat-content-shell { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
 .chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 24px 24px 168px; }
+.history-switch-state { display: flex; min-height: min(42vh, 320px); align-items: center; justify-content: center; gap: 12px; color: var(--text-2); font-size: 14px; }
+.history-switch-error { color: var(--red); }
+.history-switch-retry { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; background: var(--card); color: var(--primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.history-switch-retry:hover { background: var(--primary-50); }
 /* 底部留白给悬浮输入卡让位（v0.8.1）：最后的消息不被卡片遮住 */
 .chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 0 168px; background: var(--card); }
 .chat-body-welcome { flex: 0 0 auto; overflow: visible; padding: 0; }

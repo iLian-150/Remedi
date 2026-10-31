@@ -1114,9 +1114,7 @@ export const useStudentStore = defineStore('student', {
     },
     /** 侧栏点选某条会话：通知对话页加载该会话的消息 */
     selectSidebarSession(id: number) {
-      // activeSessionId 可能已因发送消息而指向新建会话，但当前页面仍处于草稿视图；
-      // 只有会话 ID 和实际视图都一致时才跳过，避免点击高亮历史记录时无响应。
-      if (id === this.activeSessionId && this.sessionView.id === id && !this.sessionView.fresh) return
+      // 即使点击的是当前高亮项，也重新触发加载：上一次加载可能失败，或被初始化竞态跳过。
       this.activeSessionId = id
       persistActiveSessionId(id)
       this.sessionView = { id, fresh: false, seq: this.sessionView.seq + 1 }
