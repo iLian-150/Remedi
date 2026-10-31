@@ -10,7 +10,7 @@
     <div class="chat-header">
       <div class="chat-inner">
         <div class="chat-title">
-          <span class="chat-title-mark"><AppIcon name="sparkles" :size="17" /></span>
+          <span class="chat-title-mark"><BrandLogo :size="24" /></span>
           <strong>Remedi 学习助手</strong>
         </div>
       </div>
@@ -353,6 +353,7 @@ import type {
 import { STEP_STATUS_TEXT } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { createMarkdownRenderer } from '../../utils/markdownRenderer'
+import BrandLogo from '../../components/BrandLogo.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -1349,7 +1350,7 @@ onMounted(async () => {
 <style scoped>
 .chat-layout { position: relative; display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--card); }
 .chat-inner { max-width: 1280px; width: 100%; margin: 0 auto; padding: 0 20px; }
-.chat-header { flex: 0 0 auto; border-bottom: 1px solid var(--border); padding: 10px 0; }
+.chat-header { flex: 0 0 auto; padding: 10px 0; }
 .chat-title { display: flex; align-items: center; gap: 10px; color: var(--text); }
 .chat-title-mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(29, 78, 216, 0.08); border-radius: 12px; background: linear-gradient(145deg, #eff5ff, #e8efff); color: var(--primary); }
 .chat-title > strong { font-size: 15px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; }
