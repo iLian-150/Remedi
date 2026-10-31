@@ -38,6 +38,10 @@ Remedi 当前部署方式：前端由宝塔 Nginx 提供静态文件（5001）�
 - **Nginx 站点配置**：先运行 `nginx -t`，成功后再通过宝塔重载 Nginx；不要覆盖其他站点配置。
 - **Milvus、etcd、MinIO 或其 Compose 配置**：只启动或重建受影响的本项目服务，并检查 `docker compose ps` 与对应日志。不要为前后端代码改动执行完整 `docker compose up -d --build`。
 
+### 作业发布交互
+
+- 作业标题、题干和至少一个接收班级是发布所需内容。每题的 `knowledge_point` 是选填，默认空字符串表示暂未归类；AI 知识点识别独立运行，识别仍在进行或失败都不能阻止教师发布已填写完整的作业。前端按钮状态、后端校验和 API 文档必须保持这一行为，不得把知识点识别完成作为发布前置条件。
+
 在 Windows PowerShell 中连接服务器：
 
 ```powershell

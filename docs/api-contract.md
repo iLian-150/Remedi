@@ -1,7 +1,7 @@
-# Remedi MVP 接口契约（API Contract）
+# Remedi 接口契约（API Contract）
 
-> 版本：v0.13.341（2026-10-23）
-> **契约冻结声明**：本文档是前后端联调的唯一依据。接口一旦写入本文档即视为冻结，任何 breaking 变更（改路径、改字段名、改必填性、改枚举值）必须先更新本文档并同步通知 frontend worker。新增非 breaking 字段允许，但必须在文档中标注。
+> 版本：v0.13.379（2026-10-30）
+> **契约维护规则**：本文档记录当前前后端接口行为，是联调依据。接口变更需同步更新本文档；破坏性变更还需明确记录迁移要求。新增非 breaking 字段也需在文档中标注。
 
 ## 1. 基础约定
 
@@ -1145,11 +1145,12 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
   "title": "第二周数学作业",
   "subject": "math",
   "description": "选填说明",
+  "class_ids": [1],
   "questions": [
     {
       "type": "math",
       "prompt": "解方程：3x-5=10",
-      "knowledge_point": "一元一次方程",
+      "knowledge_point": "",
       "standard_steps": ["3x-5=10", "3x=10+5", "3x=15", "x=5"],
       "reference_answer": "x=5"
     }
@@ -1162,7 +1163,8 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 - `questions[].type`：保留兼容的 `math | essay` 字段；新客户端仍发送该字段。新增选填 `questions[].subject` 支持 `math | english | english_exercise | physics | chemistry | biology | chinese | history | geography | politics | computer_science | art | music | pe | other`；缺省时按 `type` 映射 `math | essay` 到 `math | english`。`prompt` 落库为题干 `stem`；`order_num` 按数组顺序从 1 开始。响应新增每题实际 `subject`。
 - 学生提交：数学线上题使用在线步骤板；其他学科或线下作业走拍照提交，服务端将原图直接交给视觉模型，不先做 OCR 转写。教师填写的参考答案和步骤仅作为模型批改上下文，不向学生返回。
 - `standard_steps` / `reference_answer`：选填，仅教师可见（学生端详情不返回标准答案，沿用 3.2 约定）。`standard_steps` 无独立存储列：当 `reference_answer` 为空时，它按行拼入 `standard_answer` 字段保存。
-- 校验：`questions` 至少 1 道；`title` / `prompt` / `knowledge_point` 非空，否则 `422`。
+- 校验：`title`、每道题的 `prompt` 必填；`questions` 至少 1 道，否则 `422`。`class_ids` 必须至少选择一个当前教师可发布的班级，否则 `400`。
+- `knowledge_point`：选填；未填写时可省略或传空字符串。AI 知识点识别独立运行，识别尚未完成或失败时不阻止作业发布；字段为空表示尚未归类，教师可稍后补充。
 - v0.13.379：可选 `groups[].diagram` 保存结构化图形，格式见 4.30。图形由教师端 AI 生成并预览，作业详情将其返回给学生端渲染；未提供图形时为 `null`。
 - v0.5.0 新增选填字段（不传 = 线上作业）：`mode`（`online | offline`，默认 `online`）、`workbook_id`、`page_range`、`deadline`（ISO 8601）。`mode=offline` 时把这四项写入新表 `assignment_ext`（题目仍走原 `questions` 结构，由教师拍照识别题目页产生）；`workbook_id` 必须指向本人经 4.15 上传的练习册，否则 `400`。响应同步新增 `mode` / `workbook_title` / `page_range` / `deadline` 四个字段。
 
@@ -1456,7 +1458,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```json
 {
   "status": "ok",
-  "version": "0.13.341",
+  "version": "0.13.379",
   "provider": "bailian",
   "time": "2026-10-06T15:40:35"
 }
@@ -1856,4 +1858,4 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.344 | 2026-10-24 | “我的资料”改为书架式文档陈列与弹窗管理，保留文字/PDF 导入、内容预览、删除、Agent 试查及索引重建。 |
 | v0.13.345 | 2026-10-24 | 学科 Agent RAG PDF 上传大小上限从 10MB 提高到 20MB，前后端校验与接口说明保持一致。 |
 | v0.13.346 | 2026-10-24 | RAG PDF 导入取消文件大小、页数和提取字数上限，标题与来源改由文件名生成；Nginx 仅对该导入接口取消请求体大小限制。 |
-| v0.13.379 | 2026-10-30 | 大题题干和小题可交由 AI 生成受限的结构化教学图形；教师端预览确认后随作业保存，学生端用 SVG 渲染。 |
+| v0.13.379 | 2026-10-30 | 大题题干和小题可交由 AI 生成受限的结构化教学图形；教师端预览确认后随作业保存，学生端用 SVG 渲染。发布作业不等待 AI 知识点识别，空知识点可稍后补充。 |

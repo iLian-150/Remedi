@@ -1,50 +1,42 @@
-# Remedi 前端 MVP
+# Remedi 前端
 
-Vue 3 + TypeScript + Vite + Vue Router + Pinia + ECharts + axios。
+教师端和学生端共用的 Vue 3 + TypeScript 单页应用，使用 Vite、Vue Router、Pinia 和 Axios。页面、组件与样式须遵循[前端设计规范](../docs/frontend-design-guidelines.md)，接口以[当前 API 契约](../docs/api-contract.md)为准。
 
-界面实现须遵循 [前端设计与实现规范](../docs/frontend-design-guidelines.md)：优先复用现有依赖和共享组件，统一使用项目设计 token，避免重复依赖和不必要的辅助文案。
-
-## 本地启动
+## 本地开发
 
 ```bash
-cd ~/workspace/remedi/frontend
-npm install        # 已安装过可跳过
-npm run dev        # 默认 http://localhost:5173/
+cd frontend
+npm ci
+npm run dev
 ```
 
-后端需先启动（FastAPI，默认 `http://localhost:8000`）。开发时 `/api` 由 Vite 代理到后端。
+开发服务器默认运行在 `http://localhost:5173`。启动后端 FastAPI 服务，Vite 会将 `/api` 请求代理到后端。
 
-## 后端地址配置
+## 配置
 
-复制 `.env` 按需修改（环境变量以 `VITE_` 开头）：
+在 `frontend/.env` 中按需配置以下环境变量：
 
-| 变量 | 说明 | 默认 |
+| 变量 | 说明 | 默认值 |
 |---|---|---|
-| `VITE_API_BASE_URL` | API 基地址（留空则用相对路径 `/api`，走开发代理） | 空 |
-| `VITE_BACKEND_TARGET` | 开发时代理目标（后端地址），仅 `VITE_API_BASE_URL` 为空时生效 | `http://localhost:8000` |
+| `VITE_API_BASE_URL` | API 基地址；留空时使用相对路径 `/api` | 空 |
+| `VITE_BACKEND_TARGET` | Vite 开发代理的后端地址 | `http://localhost:8000` |
 
-生产部署示例：`VITE_API_BASE_URL=https://api.example.com`，此时不再走代理。
+不要把凭证或服务端密钥写入 `VITE_` 变量；这些变量会被打包到浏览器代码中。生产环境的 `/api` 路由由 Nginx 转发到 FastAPI，无需为前端单独暴露 API 密钥。
 
-## 目录结构（两端隔离，为拆分做准备）
+## 构建与生产部署
 
-```
-src/
-  views/student/   学生端页面：提交作业 / 批改结果 / 订正错题 / 错误档案
-  views/teacher/   教师端页面：班级看板 / 批改列表 / 诊断详情 / 学生列表 / 学生画像
-  stores/          auth.ts（登录态，Pinia+localStorage）/ student.ts / teacher.ts
-  api/             client.ts（axios 统一封装，自动带 Authorization）/ types.ts（契约类型）
-  components/      EChart.vue（ECharts 封装）
-  router/          路由 + 守卫（未登录回登录页，角色不匹配跳各自首页）
+```bash
+npm run build
 ```
 
-## 契约对齐说明
+产物输出到 `frontend/dist`。生产服务器由宝塔 Nginx 提供该目录中的静态文件，`/api` 转发到 `http://127.0.0.1:5000`。部署步骤见[生产部署指南](../DEPLOY.md)。
 
-严格按 `~/workspace/remedi/docs/api-contract.md` v0.1.0 实现。基于契约做的最小假设（详见汇报）：
+## 页面与代码
 
-1. 无密码登录：学生使用 `{username, role, student_no}` 校验班级名册；教师只选择 `subject`，按学科使用对应教师身份。
-2. 数学提交后诊断**同步返回**（契约 3.3），前端在提交页直接展示分步诊断，无独立轮询。
-3. 教师端批改列表按契约 4.1 错误记录列表实现（契约未提供教师端提交列表接口）。
-4. 教师端诊断详情的 `:id` 按 error_id 解释：契约未提供单条 error 查询接口，前端取错误列表（limit 100）按 id 匹配；完整作答步骤链契约未对教师端开放，详情页仅展示出错步骤本身。
-5. `/teacher/students`（学生列表）为契约 4.5 的导航页，任务路由清单未列出但进入学生画像必需。
+- `src/views/student/`：学生端作业、错题、订正、学习档案与 AI 助手页面。
+- `src/views/teacher/`：教师端总览、批改、学生、作业、资料与 AI 助手页面。
+- `src/api/`：API 客户端和前后端数据类型。
+- `src/stores/`：登录状态与页面数据状态。
+- `src/router/`：路由和角色访问控制。
 
-演示账号：教师「陈老师」、学生「林小夏」「陈默」。
+接口请求和响应、权限范围、异步任务行为及发布校验以 API 契约为准；不要依赖已过期的演示账号或旧接口假设。

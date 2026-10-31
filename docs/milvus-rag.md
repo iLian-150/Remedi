@@ -1,5 +1,7 @@
 # 学科 RAG 与 Milvus 部署
 
+> **生产架构**：宝塔 Nginx 在 `5001` 提供 `/remedi/frontend/dist`，宝塔 Python 项目在 `127.0.0.1:5000` 运行 FastAPI。Docker Compose 只运行 Milvus、etcd 和 MinIO；本文的容器命令仅用于这些向量服务，不构建或重启应用前后端。完整发布流程见 [DEPLOY.md](../DEPLOY.md)。
+
 学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合，再使用 `qwen3.7-text-rerank` 重排。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、百炼向量模型超时或索引暂不可用时，资料检索继续使用本地 BM25；模型重排失败时使用本地重排，并返回不含凭证或上游响应的安全警告。
 
 ## 持久化导入与 OCR
@@ -8,7 +10,7 @@
 
 原始资料与页级检查点位于 `/data/knowledge-imports`（宿主机 `/remedi/data/api/knowledge-imports`），不通过 `/api/uploads` 公网静态目录公开。文件按学科与 SHA256 去重，重复点击返回原任务，完成后重传不会重新 OCR。旧版没有文件摘要的历史资料保留，不按文件名猜测相同内容或删除。
 
-文字层使用 PyMuPDF 直接提取；扫描页、乱码页和混合页面中的图片文字使用容器内 Tesseract（`chi_sim+eng`）。复用 PyMuPDF 图片定位与矢量绘图聚类，只把相关图形区域交给 `qwen3-vl-plus`；无法分区的扫描页在出现图形指示时使用压缩页面补充图形语义，不逐字转写整页。图形语义单独标记，模型不得补造未标注的关系。专用 OCR 不保证复杂公式完全准确，低可信度页面保留核对警告和原件。
+文字层使用 PyMuPDF 直接提取；扫描页、乱码页和混合页面中的图片文字使用后端运行环境中的 Tesseract（`chi_sim+eng`）。复用 PyMuPDF 图片定位与矢量绘图聚类，只把相关图形区域交给 `qwen3-vl-plus`；无法分区的扫描页在出现图形指示时使用压缩页面补充图形语义，不逐字转写整页。图形语义单独标记，模型不得补造未标注的关系。专用 OCR 不保证复杂公式完全准确，低可信度页面保留核对警告和原件。
 
 OCR 与视觉网络请求最多同时执行 `RAG_OCR_WORKERS` 个页面（默认 2），PyMuPDF 渲染仅在导入线程执行。页面与区域完成后原子保存检查点；失败任务重试和进程重启复用已完成结果。任务进度来自后台成功页数和索引阶段。原文、片段、任务关联文档 ID 同一 SQL 事务提交后才同步 Milvus，向量故障返回待索引状态并继续提供 BM25。
 
@@ -16,7 +18,7 @@ OCR 与视觉网络请求最多同时执行 `RAG_OCR_WORKERS` 个页面（默认
 
 `RAG_MILVUS_COLLECTION` 现在是集合前缀。九科分别使用 `<前缀>_chinese`、`_math`、`_english`、`_politics`、`_history`、`_physics`、`_chemistry`、`_geography`、`_biology`，读写删除全部由后端固定学科映射选择集合，保留 `subject` 与当前向量模型过滤以及 SQL 片段归属校验。
 
-升级后在后端容器内调用 `subject_rag.migrate_subject_vectors(db, subject)`。该操作将旧共享集合中仍属于当前 SQL 文档的向量复制到对应集合，校验片段 ID、文档 ID、学科、向量模型和维度；不调用 OCR、不重新计算已有向量、不删除旧集合。检查返回的 `migrated`、`missing`、`vector_status`。若旧向量缺失，可针对该科重建索引，直接使用 SQL 中的片段，不重新 OCR。
+升级后由后端维护脚本或后端 Python 环境调用 `subject_rag.migrate_subject_vectors(db, subject)`。该操作将旧共享集合中仍属于当前 SQL 文档的向量复制到对应集合，校验片段 ID、文档 ID、学科、向量模型和维度；不调用 OCR、不重新计算已有向量、不删除旧集合。检查返回的 `migrated`、`missing`、`vector_status`。若旧向量缺失，可针对该科重建索引，直接使用 SQL 中的片段，不重新 OCR。
 
 ## 镜像与 ARM64
 
@@ -26,15 +28,11 @@ OCR 与视觉网络请求最多同时执行 `RAG_OCR_WORKERS` 个页面（默认
 
 ## 配置统一放在 .env
 
-部署目录为 `/remedi`。文字、视觉、向量化和重排统一通过阿里云百炼调用；配置放在服务器本地 `.env`，不要提交真实凭证。下面的 Key 为空示例，APIHost 中的工作空间与地域均需替换为控制台给出的实际值：
+部署目录为 `/remedi`。后端文字、视觉、向量化和重排统一通过阿里云百炼调用；配置放在服务器本地 `.env`，不要提交真实凭证。下面仅列出后端与向量服务相关配置，Key 为空示例，APIHost 中的工作空间与地域均需替换为控制台给出的实际值：
 
 ```dotenv
 COMPOSE_PROJECT_NAME=remedi
 COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml
-WEB_PORT=5001
-API_PORT=5000
-BUILD_NETWORK=host
-SEED_DEMO_DATA=false
 LLM_PROVIDER=bailian
 DASHSCOPE_API_KEY=
 DASHSCOPE_BASE_URL=https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
@@ -51,18 +49,11 @@ RAG_MINIO_ROOT_USER=remedi-rag
 RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 ```
 
-`COMPOSE_FILE` 的冒号分隔方式适用于 Linux 服务器。配置后，每次运行普通 `docker compose up -d --build` 都会合并 Milvus overlay。不要在后续发布时去掉该变量或仅指定基础文件，否则 API 容器会失去 Milvus 环境配置。所有凭证通过 `.env` 提供，无需另建包含秘密的 override。
+`COMPOSE_FILE` 的冒号分隔方式适用于 Linux 服务器。它用于合并基础 Compose 与 Milvus 服务配置；生产中只操作 Milvus、etcd、MinIO 等向量服务，不通过 Compose 启动前后端。修改后端模型配置后，在宝塔重启 Remedi Python 项目。所有凭证通过服务器 `.env` 提供，不需要把秘密复制到 Compose 文件。
 
-`BUILD_NETWORK=host` 使镜像构建阶段使用宿主机的网络与 DNS，适配本服务器构建桥接网络无法解析域名的情况；API、前端和向量服务运行时仍使用项目 Docker 内网。无需修改全局 Docker 配置或系统 DNS。
+实际 API Key 仅保存在服务器环境配置，不在文档展示。数据库健康检查不实例化模型，网站、后端和 BM25 资料检索可独立启动；模型调用失败不会生成模拟答案。
 
-`SEED_DEMO_DATA=false` 跳过启动时的演示数据生成及其模型请求，不删除已有数据。用户已经提供 API Key，实际值仅保存在服务器环境配置，不在文档展示。数据库健康检查不实例化模型，网站、后端和 BM25 资料检索可独立启动；模型调用失败不会生成模拟答案。
-
-`DASHSCOPE_BASE_URL` 必须使用百炼控制台工作空间的专属 APIHost，并附加 `/compatible-mode/v1`。北京地域示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；工作空间标识和地域须按实际账号确定，不使用通用 DashScope 地址替代。问答、向量化和重排的可用性需分别通过实际调用验证。修改 APIHost 时，仅更新 `/remedi/.env` 中对应的地址，保留已有密钥，再执行：
-
-```bash
-cd /remedi
-docker compose up -d --force-recreate api
-```
+`DASHSCOPE_BASE_URL` 必须使用百炼控制台工作空间的专属 APIHost，并附加 `/compatible-mode/v1`。北京地域示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；工作空间标识和地域须按实际账号确定，不使用通用 DashScope 地址替代。问答、向量化和重排的可用性需分别通过实际调用验证。修改 APIHost 时，仅更新 `/remedi/.env` 中对应的地址，保留已有密钥，然后在宝塔面板重启 Remedi Python 项目；无需重建 Milvus。
 
 模型连接验证通过后，在教师知识库点击“重建检索索引”，将已有资料同步到新集合 `remedi_subject_knowledge_qwen37_flash`。旧集合继续保留，不删除业务资料或历史向量。模型名称、向量库和 MinIO 参数已经预置，无需将真实令牌加入 Git 或镜像。
 
@@ -70,7 +61,7 @@ docker compose up -d --force-recreate api
 
 | 环境变量 | 默认值 / 用途 |
 | --- | --- |
-| `RAG_MILVUS_URI` | 应用默认空；overlay 默认 `http://milvus:19530` |
+| `RAG_MILVUS_URI` | 应用默认空；默认 `http://milvus:19530` 在宝塔原生后端中映射为 `http://127.0.0.1:19530` |
 | `RAG_MILVUS_TOKEN` | 空；外部实例启用鉴权时填写对应 token |
 | `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_qwen37_flash` |
 | `RAG_EMBEDDING_MODEL` | `qwen3.7-text-embedding-flash` |
@@ -99,51 +90,47 @@ cd /remedi
 docker compose config --quiet
 docker compose up -d milvus
 bash deploy/enable_project_network.sh
-docker compose up -d --build
-docker compose ps
+docker compose ps milvus milvus-etcd milvus-minio
 curl --fail http://127.0.0.1:9091/healthz
 ```
 
-overlay 将持久化目录全部绑定到 `/remedi/data`：
+只启动向量服务。持久化目录位于 `/remedi/data`：
 
-| 宿主机目录 | 容器目标 | 用途 |
+| 宿主机目录 | 用途 |
 | --- | --- | --- |
-| `/remedi/data/api` | API `/data` | 业务数据库与上传文件 |
-| `/remedi/data/etcd` | etcd `/etcd` | Milvus 元数据 |
-| `/remedi/data/minio` | MinIO `/minio_data` | 向量对象存储 |
-| `/remedi/data/milvus` | Milvus `/var/lib/milvus` | 向量服务数据 |
+| `/remedi/data/api` | 原生后端业务数据库与上传文件 |
+| `/remedi/data/etcd` | etcd 容器中的 Milvus 元数据 |
+| `/remedi/data/minio` | MinIO 容器中的向量对象存储 |
+| `/remedi/data/milvus` | Milvus 容器中的向量服务数据 |
 
-基础 Compose 中历史 `remedi-data` 命名卷定义保留，overlay 按相同目标 `/data` 覆盖 API 挂载；不要删除历史卷。已有业务数据迁移到此部署目录时，应先确认 `/remedi/data/api` 包含需要保留的数据，再启动 API。
+`/remedi/data/api` 由宿主机上的 Python 后端使用，不是 API 容器挂载点。不要删除历史 Compose 卷定义或清理这些数据目录。切换业务数据库或目录时，应先确认目标包含需要保留的数据。
 
 MinIO 镜像自带的 `/data` 默认卷也绑定到 `/remedi/data/minio`；服务实际使用 `/minio_data`，两处均在项目目录内，避免运行中容器额外创建匿名数据卷。
 
-Milvus 19530 和健康检查 9091 只绑定宿主机 `127.0.0.1`；etcd、MinIO 不发布宿主机端口。API 启动不依赖 Milvus 就绪，启动期间可使用 BM25。第一次建集合或加载超过超时后可重试。普通基础部署未启用 overlay 时不启动 Milvus；宿主机运行后端时可设置 `RAG_MILVUS_URI=http://127.0.0.1:19530`。
+Milvus 19530 和健康检查 9091 只绑定宿主机 `127.0.0.1`；etcd、MinIO 不发布宿主机端口。后端启动不依赖 Milvus 就绪，启动期间可使用 BM25。第一次建集合或加载超过超时后可重试。若后端连接不到 Compose 网络中的 Milvus，可设置 `RAG_MILVUS_URI=http://127.0.0.1:19530` 使用本机映射端口。
 
-前端访问 `http://129.153.206.96:5001`，后端访问 `http://129.153.206.96:5000`，接口文档位于后端 `/docs`。公网入站只需放行 TCP 5001、5000，SSH 运维沿用 22；无需开放 Milvus、etcd 或 MinIO 的公网端口。前端通过 Nginx 转发 `/api` 到 API 容器内 8000 端口。
+前端由宝塔 Nginx 在 `5001` 提供，Nginx 将 `/api` 代理到 `127.0.0.1:5000`。后端 Swagger 文档仅供运维诊断，地址为本机 `http://127.0.0.1:5000/docs`。Milvus、etcd 和 MinIO 不需要开放公网端口。
 
 ## 本地修改后的发布
 
-本地虚拟环境验证通过后，提交并普通 push 到 GitHub main，再拉取服务器代码：
+提交并普通 push 到 GitHub `main` 后，通过项目部署脚本在服务器 `/remedi` 拉取代码并核对提交：
 
 ```powershell
 git push origin main
 .\.venv\Scripts\python.exe deploy/pull_server.py
 ```
 
-仓库为私有仓库，脚本从本地 Git 凭证管理器读取凭证，经 SSH 标准输入仅供本次 `git pull --ff-only origin main` 使用；凭证不写入服务器文件、Git 配置或日志。脚本校验服务器没有已跟踪文件改动，并核对服务器提交与本地提交一致。
+仓库为私有仓库，脚本从本地 Git 凭证管理器读取凭证，经 SSH 标准输入仅供本次 `git pull --ff-only origin main` 使用；凭证不写入服务器文件、Git 配置或日志。脚本校验服务器没有已跟踪文件改动，并核对服务器提交与本地提交一致。仅文档改动无需构建或重启；前端、后端和 Milvus 变更的操作分别参照 [部署指南](../DEPLOY.md)。
 
-随后在服务器执行：
+仅当 Milvus、etcd、MinIO 或其 Compose 配置确有变更时，才按需更新这些容器。例如：
 
 ```bash
 cd /remedi
-docker compose up -d --build
-docker compose ps
-docker compose exec -T api python smoke_live_rag.py
+docker compose up -d milvus
+docker compose ps milvus milvus-etcd milvus-minio
 ```
 
-API 容器中的 `python` 来自 `/app/.venv`；无需向服务器宿主机的系统 Python 安装依赖。真实链路验收脚本会新增一条临时资料，检查向量入库、混合检索与权限后自动删除。
-
-本服务器曾出现 `FORWARD` 默认 DROP 且 Docker 跳转缺失的情况。`deploy/enable_project_network.sh` 只按 `remedi_default` 的 bridge 和 IPv4 网段添加幂等转发规则，允许项目出站、内部通信、已有连接返回及已发布的 HTTP 端口；不修改默认策略、NAT、其他项目规则或 `/etc` 文件。服务器重启或重建项目网络后，先运行 `docker compose up -d milvus`、该脚本，再启动完整项目。
+服务器重启或 Compose 网络重建后，如 Milvus 网络连通性受影响，可先运行 `docker compose up -d milvus`，再按需运行 `deploy/enable_project_network.sh`。该脚本只处理 Remedi 项目网络，不会启动或重建前后端应用。
 
 ## 将已有资料同步到 Milvus
 
@@ -179,10 +166,10 @@ Content-Type: application/json
 ```bash
 cd /remedi
 docker compose logs --tail=100 milvus milvus-etcd milvus-minio
-docker compose up -d --build
+docker compose up -d milvus
 ```
 
-常规更新保留 `.env` 的 `COMPOSE_FILE` 和整个 `data/`；不要使用 `down -v` 清理业务或索引数据。外部 Milvus 可直接配置 URI/token，首次 overlay 部署使用容器网络和 loopback 端口；若开启 Milvus 鉴权，同时配置服务端鉴权和 `RAG_MILVUS_TOKEN`。
+仅在向量服务停止或配置更新时才执行启动命令。常规更新保留 `.env` 的 `COMPOSE_FILE` 和整个 `data/`；不要使用 `down -v` 清理业务或索引数据。外部 Milvus 可直接配置 URI/token；若开启 Milvus 鉴权，同时配置服务端鉴权和 `RAG_MILVUS_TOKEN`。
 
 ## 本地契约验证
 

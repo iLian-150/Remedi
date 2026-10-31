@@ -1,7 +1,7 @@
-# Remedi MVP 数据表设计（Schema Design）
+# Remedi 数据表设计（Schema Design）
 
-> 版本：v0.1.0（2026-10-06），与 `api-contract.md` 同步冻结。
-> 数据库：MVP 用 **SQLite**，但表结构按 **PostgreSQL 兼容**设计——只使用标准列类型（INTEGER / VARCHAR / TEXT / DOUBLE PRECISION / BOOLEAN / TIMESTAMP），JSON 以 TEXT 存序列化字符串，不用任何 SQLite 专有语法/函数。迁移到 PostgreSQL 时只需：TEXT 型 JSON 列 → JSONB、`TIMESTAMP` → `TIMESTAMPTZ`（可选）、自增列改用 IDENTITY。
+> 本文档第 2 节保留 v0.1.0（2026-10-06）的初始字段设计，作为历史基线，不代表当前数据库的完整结构。当前模型以 `backend/app/models.py` 为准；当前接口与字段行为见 `docs/api-contract.md`。本文末尾列出当前 ORM 表名，后续新增模型请同步维护该清单。
+> 初始设计假设：**SQLite**，表结构按 **PostgreSQL 兼容**设计——只使用标准列类型（INTEGER / VARCHAR / TEXT / DOUBLE PRECISION / BOOLEAN / TIMESTAMP），JSON 以 TEXT 存序列化字符串，不用任何 SQLite 专有语法/函数。迁移到 PostgreSQL 时还需按实际 ORM 模型核对列类型、时间语义、外键和索引，不能只依据此初始基线直接迁移。
 
 ## 1. 类型映射约定
 
@@ -32,7 +32,7 @@
 | created_at | TIMESTAMP | 否 | now | 创建时间 |
 
 - 索引：`uq_users_student_no`（唯一）、`ix_users_role`。
-- 约束说明：`name + role` 组合在 mock 登录时用于查找用户（应用层保证，MVP 不建联合唯一索引）。
+- 约束说明：`name + role` 组合在当前登录流程中用于查找用户（应用层保证；初始设计未建联合唯一索引）。
 
 ### 2.2 assignments —— 作业
 
@@ -51,7 +51,7 @@
 | id | INTEGER PK 自增 | 否 | — | 主键 |
 | assignment_id | INTEGER FK → assignments.id | 否 | — | 所属作业 |
 | subject | VARCHAR(16) | 否 | — | `math` \| `english` |
-| knowledge_point | VARCHAR(64) | 否 | — | 知识点（如"一元一次方程"） |
+| knowledge_point | VARCHAR(64) | 否 | — | 知识点（如"一元一次方程"）；API 未提供时由应用保存空字符串，表示尚未归类，不阻止发布。AI 识别可在发布后独立完成 |
 | stem | TEXT | 否 | — | 题干 |
 | standard_answer | TEXT | 是 | NULL | 标准答案（不下发给学生端） |
 | order_num | INTEGER | 否 | 0 | 作业内排序 |
@@ -340,6 +340,7 @@ WHERE s.student_id = S
 | v0.13.13 | 2026-10-12 | 新增 `chat_session_message_mistake_links`，持久化助手回复与历史错题的关联；不改现有表和列。 |
 | v0.13.14 | 2026-10-12 | 新增 `submission_images`，关联学生作答原图与提交记录，供教师待审核作业卡展示。 |
 | v0.13.315 | 2026-10-22 | 新增 `subject_knowledge_passages`，保存学科教学资料父子片段和 PDF 页码；向量存入可重建的 Milvus 索引，不改变已有资料表。 |
+| v0.13.379 | 2026-10-30 | 补充当前 ORM 表清单；题目知识点允许空字符串，表示尚未识别或归类。 |
 
 ## 8. 学科 RAG 片段（v0.13.315）
 
@@ -354,3 +355,9 @@ WHERE s.student_id = S
 | page_number | Integer nullable | PDF 原始物理页号（从 1 开始）；手工文本为 null |
 
 Milvus 集合保存片段 `id`、`document_id`、`subject`、`embedding_model` 和 `vectors`，同时按学科和模型过滤，使用 COSINE 相似度。查询结果必须再通过关系库的学科和存活状态校验；向量属于派生索引，关系库是原文与页码的依据。本地事务提交后才进行远程向量同步，避免外部网络延迟占用 SQLite 写锁。
+
+## 9. 当前 ORM 表清单
+
+以下名称来自当前 `backend/app/models.py`。第 2 节的逐字段定义是早期设计基线；对于本文未详述的表和字段，请以 ORM 模型和当前 API 契约为准。
+
+`users`、`assignments`、`classrooms`、`teacher_subjects`、`classroom_teacher_subjects`、`classroom_members`、`assignment_classes`、`subject_knowledge_chunks`、`subject_knowledge_passages`、`knowledge_import_jobs`、`knowledge_import_dismissals`、`student_learning_memories`、`questions`、`submissions`、`steps`、`errors`、`corrections`、`essays`、`chat_messages`、`chat_sessions`、`chat_session_messages`、`chat_session_message_images`、`chat_session_message_mistake_links`、`notifications`、`verifications`、`student_mistake_category_reviews`、`student_mistake_archives`、`student_mistake_events`、`student_question_captures`、`submission_reviews`、`workbooks`、`assignment_ext`、`assignment_scoring`、`question_weights`、`submission_scores`、`submission_images`、`assignment_settings`、`question_groups`、`question_group_members`。
