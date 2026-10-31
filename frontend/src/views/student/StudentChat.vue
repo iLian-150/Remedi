@@ -1473,6 +1473,7 @@ onMounted(async () => {
 /* 底部留白给悬浮输入卡让位（v0.8.1）：最后的消息不被卡片遮住 */
 .chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 0 168px; background: var(--card); }
 .chat-body-welcome { flex: 0 0 auto; overflow: visible; padding: 0; }
+.chat-body > .chat-inner { max-width: 860px; }
 .welcome-mode .chat-body > .chat-inner { max-width: 820px; padding: 0; }
 .welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
 .welcome-home h1 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
