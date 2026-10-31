@@ -10,6 +10,7 @@
     <div class="sb-row sb-draft-row" :class="{ active: store.activeSessionId == null }">
       <button class="sb-main sb-draft-main" type="button" title="新对话" @click="onCreate">
         <span class="sb-title">新对话</span>
+        <time class="sb-time" :datetime="store.newChatStartedAt">{{ formatSessionTime(store.newChatStartedAt) }}</time>
       </button>
     </div>
 
@@ -134,9 +135,12 @@ async function onRemove(id: number) {
   padding: 9px 12px; margin-bottom: 8px; flex-shrink: 0;
   background: var(--primary); color: #fff;
   border: 1px solid var(--primary); border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(29, 78, 216, 0.16);
   font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
-.sb-new-btn:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+.sb-new-btn:hover { background: var(--primary-dark); border-color: var(--primary-dark); box-shadow: 0 3px 8px rgba(29, 78, 216, 0.22); transform: translateY(-1px); }
+.sb-new-btn:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 2px; }
 .sb-new-btn .app-icon { color: currentColor; }
 .sb-draft-row { flex-shrink: 0; }
 .sb-draft-main { min-height: 50px; cursor: default; }
@@ -191,6 +195,6 @@ async function onRemove(id: number) {
   border-radius: 7px; padding: 4px 9px; font-size: 12px; font-family: var(--font);
 }
 @media (prefers-reduced-motion: reduce) {
-  .sb-trash { transition: none; }
+  .sb-trash, .sb-new-btn { transition: none; }
 }
 </style>
