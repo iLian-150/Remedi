@@ -7,10 +7,10 @@
       <AppIcon name="compose" :size="17" /> 新建对话
     </button>
 
-    <div v-if="store.activeSessionId == null" class="sb-row sb-draft-row active">
-      <div class="sb-main sb-draft-main" aria-current="page">
+    <div class="sb-row sb-draft-row" :class="{ active: store.activeSessionId == null }">
+      <button class="sb-main sb-draft-main" type="button" title="新对话" @click="onCreate">
         <span class="sb-title">新对话</span>
-      </div>
+      </button>
     </div>
 
     <div class="sb-list">
@@ -132,14 +132,14 @@ async function onRemove(id: number) {
 .sb-new-btn {
   width: 100%; display: flex; align-items: center; gap: 8px;
   padding: 9px 12px; margin-bottom: 8px; flex-shrink: 0;
-  background: var(--card); color: var(--text);
-  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--primary); color: #fff;
+  border: 1px solid var(--primary); border-radius: 10px;
   font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
 }
-.sb-new-btn:hover { background: var(--bg); border-color: #C9D6F2; }
-.sb-new-btn .app-icon { color: var(--primary); }
+.sb-new-btn:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+.sb-new-btn .app-icon { color: currentColor; }
 .sb-draft-row { flex-shrink: 0; }
-.sb-draft-main { cursor: default; }
+.sb-draft-main { min-height: 50px; cursor: default; }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; display: flex; flex-direction: column; gap: 5px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
