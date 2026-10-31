@@ -11,7 +11,6 @@
         <h2>AI 助手</h2>
       </div>
 
-      <div v-if="toast" class="ok-msg">{{ toast }}</div>
       <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="tchat-panel">
@@ -126,7 +125,6 @@ let seq = 0
 const input = ref('')
 const sending = ref(false)
 const loadingInit = ref(true)
-const toast = ref('')
 const error = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
 const historyHasMore = ref(false)
@@ -187,13 +185,6 @@ function errDetail(e: unknown): string {
   const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
   if (typeof d === 'string') return d
   return e instanceof Error ? e.message : ''
-}
-
-function showToast(text: string) {
-  toast.value = text
-  setTimeout(() => {
-    if (toast.value === text) toast.value = ''
-  }, 2600)
 }
 
 async function sendText(raw: string) {
@@ -328,7 +319,6 @@ watch(
     messages.value = []
     if (view.fresh) {
       renderHistory(null)
-      showToast('已开始新对话')
     } else if (viewId != null) {
       try {
         const page = await teacher.fetchSessionMessages(viewId)
