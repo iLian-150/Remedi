@@ -878,7 +878,9 @@ export const useTeacherStore = defineStore('teacher', {
     },
     /** 侧栏点选某条会话：通知对话页加载该会话的消息 */
     selectSidebarSession(id: number) {
-      if (id === this.activeSessionId) return
+      // activeSessionId 可能已因发送消息而指向新建会话，但当前页面仍处于草稿视图；
+      // 只有会话 ID 和实际视图都一致时才跳过，避免点击高亮历史记录时无响应。
+      if (id === this.activeSessionId && this.sessionView.id === id && !this.sessionView.fresh) return
       this.activeSessionId = id
       this.sessionView = { id, fresh: false, seq: this.sessionView.seq + 1 }
     },
