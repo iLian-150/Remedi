@@ -155,7 +155,7 @@ export const useTeacherStore = defineStore('teacher', {
     knowledgeImportPollingError: '',
     knowledgeImportControllers: [] as AbortController[],
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
-     *  fresh=true 表示刚新建的空会话（页面切空白新会话态），id=null 表示无会话可看 */
+     *  fresh=true 且 id=null 表示固定的新对话草稿，发送首条消息时才创建真实会话。 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
       id: number | null
       fresh: boolean
@@ -817,7 +817,8 @@ export const useTeacherStore = defineStore('teacher', {
         this.sessionsPageError = ''
         this.sessionsLoaded = true
         const activeExists = this.sessions.some((session) => session.id === this.activeSessionId)
-        if (this.activeSessionId == null || !activeExists) {
+        const isNewChatDraft = this.sessionView.id == null && this.sessionView.fresh
+        if (!isNewChatDraft && (this.activeSessionId == null || !activeExists)) {
           this.activeSessionId = this.sessions[0]?.id ?? null
         }
       })
@@ -868,37 +869,10 @@ export const useTeacherStore = defineStore('teacher', {
     setActiveSession(id: number | null) {
       this.activeSessionId = id
     },
-    /** 侧栏点「新对话」：新建会话、置顶高亮，并通知对话页切到空白新会话态。
-     * v0.9.0 防重复：当前激活会话还是空会话（message_count=0）时不再新建，
-     * 直接切回它，避免连点攒出一串空会话（会话列表接口已返回 message_count）。 */
-    async startSidebarSession(): Promise<ChatSession> {
-      if (this.sessionCreatePromise) return this.sessionCreatePromise
-      const active = this.sessions.find((x) => x.id === this.activeSessionId)
-      if (active && active.message_count === 0) {
-        this.sessionView = { id: active.id, fresh: true, seq: this.sessionView.seq + 1 }
-        return active
-      }
-      const generation = this.sessionsGeneration
-      const ownerId = useAuthStore().user?.id
-      const task = (async () => {
-        const session = await this.newAgentSession()
-        if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) {
-          const error = new Error('登录状态已变化，请重新操作。')
-          error.name = 'AbortError'
-          throw error
-        }
-        this.sessionsMutationVersion += 1
-        this.sessions = [session, ...this.sessions.filter((x) => x.id !== session.id)]
-        this.activeSessionId = session.id
-        this.sessionView = { id: session.id, fresh: true, seq: this.sessionView.seq + 1 }
-        return session
-      })()
-      this.sessionCreatePromise = task
-      try {
-        return await task
-      } finally {
-        if (this.sessionCreatePromise === task) this.sessionCreatePromise = null
-      }
+    /** 固定的侧栏「新对话」入口：只切换到本地草稿，首次发送时再创建会话。 */
+    startSidebarSession() {
+      this.activeSessionId = null
+      this.sessionView = { id: null, fresh: true, seq: this.sessionView.seq + 1 }
     },
     /** 侧栏点选某条会话：通知对话页加载该会话的消息 */
     selectSidebarSession(id: number) {
@@ -906,7 +880,7 @@ export const useTeacherStore = defineStore('teacher', {
       this.activeSessionId = id
       this.sessionView = { id, fresh: false, seq: this.sessionView.seq + 1 }
     },
-    /** 侧栏删除会话：删的是当前会话时自动切到最新一条（都没有则空白态），并通知对话页 */
+    /** 侧栏删除会话：删的是当前会话时切到最新一条；若无历史则回到不可删除的新对话草稿。 */
     async removeSidebarSession(id: number) {
       const generation = this.sessionsGeneration
       const ownerId = useAuthStore().user?.id
@@ -919,7 +893,7 @@ export const useTeacherStore = defineStore('teacher', {
         this.activeSessionId = this.sessions[0]?.id ?? null
         this.sessionView = {
           id: this.activeSessionId,
-          fresh: false,
+          fresh: this.activeSessionId == null,
           seq: this.sessionView.seq + 1
         }
       }

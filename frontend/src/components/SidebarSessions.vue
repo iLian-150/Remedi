@@ -1,13 +1,15 @@
 <!-- 左侧栏会话区（v0.6.2 新增，ChatGPT 网页版式）：由 App.vue 挂载于对话页和学生学习页。
-     顶部整宽「新对话」按钮；每条历史记录显示标题与更新时间，当前会话高亮，悬停浮现垃圾桶（两段轻确认删除）。
+     固定保留不可删除的「新对话」入口；历史记录显示标题与更新时间，当前会话高亮，悬停浮现垃圾桶（两段轻确认删除）。
      数据与动作全部走 store 的会话状态层，与对话页共用同一份状态。 -->
 <template>
   <section class="sb-sessions">
-    <button class="sb-new-btn" :disabled="creating" @click="onCreate">
-      <AppIcon name="compose" :size="17" /> 新对话
-    </button>
-
     <div class="sb-list">
+      <div class="sb-row sb-new-row" :class="{ active: store.activeSessionId == null }">
+        <button class="sb-new-main" type="button" aria-label="开始新对话" @click="onCreate">
+          <AppIcon name="compose" :size="17" />
+          <span>新对话</span>
+        </button>
+      </div>
       <div v-if="store.sessionsLoading && !store.sessions.length" class="sb-hint">加载中…</div>
       <div v-else-if="store.sessionsError && !store.sessions.length" class="sb-hint sb-error" role="alert">
         <span>{{ store.sessionsError }}</span>
@@ -72,7 +74,6 @@ const store = computed(() =>
 )
 
 const confirmId = ref<number | null>(null)
-const creating = ref(false)
 
 onMounted(() => {
   store.value.loadSessions()
@@ -95,18 +96,10 @@ function formatSessionTime(value: string): string {
   return `${year}${Number(parts.month)}月${Number(parts.day)}日 ${parts.hour}:${parts.minute}`
 }
 
-async function onCreate() {
-  if (creating.value) return
-  creating.value = true
-  try {
-    await store.value.startSidebarSession()
-    confirmId.value = null
-    emit('navigate')
-  } catch (e) {
-    console.error(e)
-  } finally {
-    creating.value = false
-  }
+function onCreate() {
+  store.value.startSidebarSession()
+  confirmId.value = null
+  emit('navigate')
 }
 
 function onSelect(id: number) {
@@ -133,18 +126,6 @@ async function onRemove(id: number) {
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
 }
-.sb-new-btn {
-  width: 100%; display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px; margin-bottom: 10px; flex-shrink: 0;
-  background: var(--card); color: var(--text);
-  border: 1px solid var(--border); border-radius: 10px;
-  font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
-}
-.sb-new-btn:hover:not(:disabled) { background: var(--bg); border-color: #C9D6F2; }
-.sb-new-btn:active:not(:disabled) { transform: scale(0.99); }
-.sb-new-btn:disabled { opacity: 0.6; cursor: wait; }
-.sb-new-btn .app-icon { color: var(--primary); }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
@@ -162,6 +143,17 @@ async function onRemove(id: number) {
   display: flex; align-items: center; gap: 4px;
   border-radius: 9px; padding: 2px 4px 2px 2px;
 }
+.sb-new-row { margin-bottom: 8px; border: 1px solid var(--border); background: var(--card); }
+.sb-new-main {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text); font: 600 14px var(--font);
+  text-align: left; cursor: pointer;
+}
+.sb-new-main .app-icon { color: var(--primary); }
+.sb-new-row:hover { border-color: #C9D6F2; background: var(--bg); }
+.sb-new-row.active { border-color: #C9D6F2; background: var(--primary-50); }
+.sb-new-row.active .sb-new-main { color: var(--primary); }
 .sb-row:hover { background: var(--bg); }
 .sb-row.active { background: var(--primary-50); }
 .sb-row.confirming { background: var(--red-bg); padding: 6px 8px; }
@@ -195,6 +187,6 @@ async function onRemove(id: number) {
   border-radius: 7px; padding: 4px 9px; font-size: 12px; font-family: var(--font);
 }
 @media (prefers-reduced-motion: reduce) {
-  .sb-new-btn, .sb-trash { transition: none; }
+  .sb-trash { transition: none; }
 }
 </style>
