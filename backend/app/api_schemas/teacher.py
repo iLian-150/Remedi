@@ -63,7 +63,8 @@ class TeacherQuestionIn(BaseModel):
         pattern="^(math|english|english_exercise|physics|chemistry|biology|chinese|history|geography|politics|computer_science|art|music|pe|other)$",
     )
     prompt: str = Field(min_length=1, max_length=2000)          # 题干
-    knowledge_point: str = Field(min_length=1, max_length=64)
+    # 发布不等待异步知识点识别；空值表示尚未归类。
+    knowledge_point: str = Field(default="", max_length=64)
     standard_steps: Optional[List[str]] = Field(default=None, max_length=30)  # 标准解题步骤（参考）
     reference_answer: Optional[str] = Field(default=None, max_length=2000)    # 参考答案
     # 评分系统新增（只加可选字段）：该题分值占比 %（占作业总分的百分比）；不传 = 按题数均分

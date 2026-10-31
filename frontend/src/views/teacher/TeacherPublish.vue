@@ -315,7 +315,7 @@
            AI 验算贴参考答案右侧），验算提示整行显示，下面整行留给标准解题步骤 -->
       <div class="grid-q-meta">
         <div class="form-row">
-          <label>知识点</label>
+          <label>知识点（选填）</label>
           <div class="kp-row">
             <input v-model="q.knowledge_point" type="text" :placeholder="subject === 'math' ? '例如：一元一次方程' : `例如：${subjectLabel}核心知识点`" maxlength="64" />
             <button
@@ -425,7 +425,7 @@
         <!-- v0.13.2：与普通题同版式——知识点 / 分值占比 / 参考答案一行，步骤整行在下 -->
         <div class="grid-q-meta">
           <div class="form-row">
-            <label>知识点</label>
+            <label>知识点（选填）</label>
             <div class="kp-row">
             <input v-model="sub.knowledge_point" type="text" :placeholder="subject === 'math' ? '例如：勾股定理' : `例如：${subjectLabel}核心知识点`" maxlength="64" />
               <button
@@ -874,6 +874,10 @@ function stampOf(q: QuestionForm): string {
   return `${q.prompt.trim()}\n${q.knowledge_point.trim()}\n${q.reference_answer.trim()}`
 }
 
+function answerCheckStampOf(q: QuestionForm): string {
+  return `${q.prompt.trim()}\n${q.reference_answer.trim()}`
+}
+
 const inFlightAnswerChecks = new WeakMap<QuestionForm, { stamp: string; promise: Promise<void> }>()
 const ANSWER_CHECK_CONCURRENCY = 4
 let activeAnswerChecks = 0
@@ -1313,9 +1317,8 @@ async function submit() {
       return
     }
   }
-  // v0.13.9：题目完整性改严格口径——没加题目不能发；加了的卡片只要没填、
-  // 或只填了一半（缺题干或缺知识点）也不能发，必须填完或删掉（此前空白卡
-  // 会被静默跳过、照样发布）。待发布清单与页面渲染顺序一致（小题在前、
+  // 没加题目不能发；题干必须完整，知识点允许留空，避免等待 AI 知识点识别。
+  // 待发布清单与页面渲染顺序一致（小题在前、
   // 大题小题随后），后端按数组顺序落 order_num；label 供报错定位。
   if (!questions.value.length && !groups.value.length) {
     error.value = '还没有添加题目，请先点「添加小题」或「添加大题」。'
@@ -1325,8 +1328,8 @@ async function submit() {
   const entries: Entry[] = []
   for (let i = 0; i < questions.value.length; i++) {
     const q = questions.value[i]
-    if (!q.prompt.trim() || !q.knowledge_point.trim()) {
-      error.value = `第 ${i + 1} 题还没填完整（题干和知识点都要填），填完或删除这一题后再发布。`
+    if (!q.prompt.trim()) {
+      error.value = `第 ${i + 1} 题还没填写题干，填完或删除这一题后再发布。`
       return
     }
     entries.push({ q, label: `第 ${i + 1} 题`, groupKey: null })
@@ -1346,8 +1349,8 @@ async function submit() {
     groupPayload.push({ key, stem: g.stem.trim(), diagram: g.diagram || undefined })
     for (let si = 0; si < g.subs.length; si++) {
       const sub = g.subs[si]
-      if (!sub.prompt.trim() || !sub.knowledge_point.trim()) {
-        error.value = `大题 ${gi + 1} 的小题（${si + 1}）还没填完整（题干和知识点都要填），填完或删除后再发布。`
+      if (!sub.prompt.trim()) {
+        error.value = `大题 ${gi + 1} 的小题（${si + 1}）还没填写题干，填完或删除后再发布。`
         return
       }
       entries.push({ q: sub, label: `大题 ${gi + 1} 小题（${si + 1}）`, groupKey: key })
@@ -1370,7 +1373,8 @@ async function submit() {
   // suspect 只在题下留黄色标记并弹一次确认，教师确认后照常发布，绝不拦截
   const withAnswer = subject.value === 'math' ? valid.filter((q) => q.reference_answer.trim()) : []
   if (withAnswer.length) {
-    const checkedStamps = new Map(withAnswer.map((q) => [q, stampOf(q)]))
+    // 知识点识别是独立的异步辅助任务，识别结果到达不能让发布校验失效。
+    const checkedStamps = new Map(withAnswer.map((q) => [q, answerCheckStampOf(q)]))
     checkingAll.value = true
     try {
       await Promise.all(withAnswer.map((q) => runCheck(q)))
@@ -1379,8 +1383,8 @@ async function submit() {
     } finally {
       checkingAll.value = false
     }
-    if (withAnswer.some((q) => stampOf(q) !== checkedStamps.get(q))) {
-      error.value = '验算期间题干、知识点或参考答案有改动，请再次点击发布以检查最新内容。'
+    if (withAnswer.some((q) => answerCheckStampOf(q) !== checkedStamps.get(q))) {
+      error.value = '验算期间题干或参考答案有改动，请再次点击发布以检查最新内容。'
       return
     }
     const suspects = withAnswer.filter((q) => showResult(q) && q.check_status === 'suspect')
