@@ -59,7 +59,23 @@ a { text-decoration: none; color: inherit; }
 /* ---------- 页面容器 ---------- */
 /* v0.13.6：恒定预留滚动条槽位——内容列是居中定宽（.page max-width + margin auto），
    页面一长一短时滚动条出现/消失会让整列横向跳几像素（标题看着像变了位置），恒定预留后不再漂 */
-html { scrollbar-gutter: stable; }
+html {
+  scrollbar-gutter: stable;
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+html::-webkit-scrollbar { width: 8px; height: 8px; }
+html::-webkit-scrollbar-track { background: transparent; }
+html::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+html.scrollbar-visible { scrollbar-color: var(--text-3) transparent; }
+html.scrollbar-visible::-webkit-scrollbar-thumb { background-color: var(--text-3); }
+html::-webkit-scrollbar-thumb:hover { background-color: var(--text-2); }
 .page { max-width: 1120px; margin: 0 auto; padding: 24px; width: 100%; }
 .page-head { margin-bottom: 20px; }
 .page-head h2 { font-size: 22px; margin-bottom: 4px; }

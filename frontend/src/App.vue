@@ -174,6 +174,18 @@ const router = useRouter()
 const route = useRoute()
 const sidebarOpen = ref(false)
 
+let scrollbarIdleTimer: number | undefined
+function showScrollbarWhileScrolling() {
+  const root = document.documentElement
+  root.classList.add('scrollbar-visible')
+  if (scrollbarIdleTimer != null) window.clearTimeout(scrollbarIdleTimer)
+  scrollbarIdleTimer = window.setTimeout(() => {
+    root.classList.remove('scrollbar-visible')
+    scrollbarIdleTimer = undefined
+  }, 700)
+}
+document.addEventListener('scroll', showScrollbarWhileScrolling, { capture: true, passive: true })
+
 watch(
   () => [auth.token, auth.user?.id, auth.role],
   () => teacher.syncKnowledgeImportSession(),
@@ -184,6 +196,9 @@ const refreshImportJobs = () => { void teacher.refreshKnowledgeImportJobs() }
 window.addEventListener('online', refreshImportJobs)
 window.addEventListener('focus', refreshImportJobs)
 onBeforeUnmount(() => {
+  document.removeEventListener('scroll', showScrollbarWhileScrolling, true)
+  if (scrollbarIdleTimer != null) window.clearTimeout(scrollbarIdleTimer)
+  document.documentElement.classList.remove('scrollbar-visible')
   window.removeEventListener('online', refreshImportJobs)
   window.removeEventListener('focus', refreshImportJobs)
   teacher.resetKnowledgeImport()
