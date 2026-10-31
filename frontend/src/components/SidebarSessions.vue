@@ -1,17 +1,11 @@
 <!-- 左侧栏会话区（v0.6.2 新增，ChatGPT 网页版式）：由 App.vue 挂载于对话页和学生学习页。
-     固定保留不可删除的「新对话」入口；历史记录显示标题与更新时间，当前会话高亮，悬停浮现垃圾桶（两段轻确认删除）。
+     顶部「新对话」按钮同时表示当前草稿状态；历史记录显示标题与更新时间，悬停浮现垃圾桶（两段轻确认删除）。
      数据与动作全部走 store 的会话状态层，与对话页共用同一份状态。 -->
 <template>
   <section class="sb-sessions">
-    <button class="sb-new-btn" type="button" aria-label="新对话" @click="onCreate">
+    <button class="sb-new-btn" :class="{ active: store.activeSessionId == null }" type="button" aria-label="新对话" @click="onCreate">
       <AppIcon name="compose" :size="17" /> 新对话
     </button>
-
-    <div class="sb-row sb-draft-row" :class="{ active: store.activeSessionId == null }">
-      <button class="sb-main sb-draft-main" type="button" title="新对话" @click="onCreate">
-        <span class="sb-title">新对话</span>
-      </button>
-    </div>
 
     <div class="sb-list">
       <div v-if="store.sessionsLoading && !store.sessions.length" class="sb-hint">加载中…</div>
@@ -138,11 +132,8 @@ async function onRemove(id: number) {
   font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
 }
 .sb-new-btn:hover { background: var(--bg); border-color: #C9D6F2; }
+.sb-new-btn.active { background: var(--primary-50); border-color: #C9D6F2; color: var(--primary); }
 .sb-new-btn .app-icon { color: var(--primary); }
-.sb-draft-row { flex-shrink: 0; margin-bottom: 4px; }
-.sb-draft-main { min-height: 36px; }
-.sb-draft-row.active { background: var(--primary-50); }
-.sb-draft-row.active .sb-title { color: var(--primary); font-weight: 600; }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
