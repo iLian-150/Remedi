@@ -235,6 +235,8 @@ async function sendText(raw: string) {
     // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排
     teacher.loadSessions(true)
   } catch (e) {
+    // 后端会在生成回复前保存用户消息；即使模型失败或请求中断，也刷新侧栏会话。
+    void teacher.loadSessions(true)
     if (isAbortError(e)) return
     wait.text = '查询失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
