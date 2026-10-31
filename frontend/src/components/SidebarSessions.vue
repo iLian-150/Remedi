@@ -3,13 +3,14 @@
      数据与动作全部走 store 的会话状态层，与对话页共用同一份状态。 -->
 <template>
   <section class="sb-sessions">
+    <div class="sb-row sb-new-row" :class="{ active: store.activeSessionId == null }">
+      <button class="sb-new-main" type="button" aria-label="开始新对话" @click="onCreate">
+        <AppIcon name="compose" :size="17" />
+        <span>新对话</span>
+      </button>
+    </div>
+
     <div class="sb-list">
-      <div class="sb-row sb-new-row" :class="{ active: store.activeSessionId == null }">
-        <button class="sb-new-main" type="button" aria-label="开始新对话" @click="onCreate">
-          <AppIcon name="compose" :size="17" />
-          <span>新对话</span>
-        </button>
-      </div>
       <div v-if="store.sessionsLoading && !store.sessions.length" class="sb-hint">加载中…</div>
       <div v-else-if="store.sessionsError && !store.sessions.length" class="sb-hint sb-error" role="alert">
         <span>{{ store.sessionsError }}</span>
