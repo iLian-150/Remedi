@@ -1,11 +1,17 @@
 <!-- 左侧栏会话区（v0.6.2 新增，ChatGPT 网页版式）：由 App.vue 挂载于对话页和学生学习页。
-     顶部「新对话」按钮同时表示当前草稿状态；历史记录显示标题与更新时间，悬停浮现垃圾桶（两段轻确认删除）。
+     顶部按钮用于创建对话；当前空白草稿作为不可删除的会话项显示，历史记录悬停浮现垃圾桶（两段轻确认删除）。
      数据与动作全部走 store 的会话状态层，与对话页共用同一份状态。 -->
 <template>
   <section class="sb-sessions">
-    <button class="sb-new-btn" :class="{ active: store.activeSessionId == null }" type="button" aria-label="新对话" @click="onCreate">
-      <AppIcon name="compose" :size="17" /> 新对话
+    <button class="sb-new-btn" type="button" aria-label="新建对话" @click="onCreate">
+      <AppIcon name="compose" :size="17" /> 新建对话
     </button>
+
+    <div v-if="store.activeSessionId == null" class="sb-row sb-draft-row active">
+      <div class="sb-main sb-draft-main" aria-current="page">
+        <span class="sb-title">新对话</span>
+      </div>
+    </div>
 
     <div class="sb-list">
       <div v-if="store.sessionsLoading && !store.sessions.length" class="sb-hint">加载中…</div>
@@ -13,7 +19,6 @@
         <span>{{ store.sessionsError }}</span>
         <button type="button" :disabled="store.sessionsLoading" @click="retrySessions">重试</button>
       </div>
-      <div v-else-if="!store.sessions.length" class="sb-hint">还没有历史对话</div>
       <template v-else>
         <div v-if="store.sessionsError" class="sb-hint sb-error" role="alert">
           <span>{{ store.sessionsError }}</span>
@@ -132,8 +137,9 @@ async function onRemove(id: number) {
   font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
 }
 .sb-new-btn:hover { background: var(--bg); border-color: #C9D6F2; }
-.sb-new-btn.active { background: var(--primary-50); border-color: #C9D6F2; color: var(--primary); }
 .sb-new-btn .app-icon { color: var(--primary); }
+.sb-draft-row { flex-shrink: 0; }
+.sb-draft-main { cursor: default; }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
