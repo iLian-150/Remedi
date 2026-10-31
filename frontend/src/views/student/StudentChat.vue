@@ -1571,7 +1571,7 @@ onMounted(async () => {
 .send-btn:hover:not(:disabled) { transform: scale(1.07); }
 .send-btn:disabled { background: var(--gray-bg); color: var(--text-3); cursor: default; }
 .send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
-.chat-composer-welcome .chat-inner { max-width: 860px; }
+.chat-composer .chat-inner { max-width: 860px; }
 @media (prefers-reduced-motion: reduce) {
   .suggest-chip, .welcome-home { animation: none; transition: none; }
   .composer-panel, .send-btn, .composer-photo-btn { transition: none; }
