@@ -8,6 +8,8 @@ Remedi 当前部署方式：前端由宝塔 Nginx 提供静态文件（5001）�
 
 1. 每次开始处理仓库任务时，在编辑任何文件前检查 `git status --short --branch`，并确认是否已同步 GitHub 最新 `main`。在 `main` 分支执行 `git pull --ff-only origin main`；确认命令成功且本地提交与 `origin/main` 一致后，才开始修改。
 2. 若当前不在 `main`、工作区有未提交改动或本地与远端提交不一致，先检查差异并妥善保留现有修改。若 GitHub `main` 已有新提交，必须把远端改动安全合并/变基到本地、解决冲突并重新构建验证，再普通 push；不得因分叉直接放弃，也不得丢弃用户改动、重置服务器或强推远端。Windows 上 GitHub 连接失败时，检查系统代理并仅对本次 Git 命令临时使用；也可使用已连接且有写权限的 GitHub 通道完成同等的快进更新，不要擅自改写全局代理配置。
+
+   - Windows 代理排查细节：Git for Windows 不会自动继承当前用户的 WinINET 代理。若浏览器或 `api.github.com` 可访问、但 Git 直连 `github.com:443` 超时/重置，检查注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的 `ProxyEnable` 和 `ProxyServer`，确认代理端口可用后，用 `git -c http.proxy=http://<代理主机:端口> <命令>` 临时执行 `pull`、`push` 或 `ls-remote`。本机已验证过的代理为 `127.0.0.1:7890`，但每次仍应以当前系统代理配置为准；不要把代理写入全局或仓库 Git 配置。先用 `git -c http.proxy=... ls-remote origin refs/heads/main` 验证，再执行同步/推送。
 3. 修改前后都检查 `git status` 和 `git diff`，确认只包含本次相关改动，并保留用户已有的未提交修改。
 4. 用户要求每次代码或配置修改都重新部署相应部分：前端改动重新构建并发布前端；后端改动更新后端代码、按需安装依赖并重启宝塔 Python 项目；Milvus/etcd/MinIO 或 Compose 配置改动只重新部署受影响的 Docker 服务；Nginx 配置改动须测试配置并重载 Nginx。跨端改动要部署所有受影响部分。必须把本次改动推送到 GitHub 的 `main` 并确认远端提交号；若推送因远端更新被拒，先安全同步并适配远端改动后再普通 push，禁止强推。只有确认 push 成功后，才操作服务器 `/remedi` 执行 `git pull`，核对服务器提交号，再部署受影响组件。
 5. 每次提交的标题和正文（提交理由）统一使用简体中文，准确说明本次改动目的。
