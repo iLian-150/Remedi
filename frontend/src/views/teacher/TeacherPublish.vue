@@ -150,8 +150,19 @@
     <div class="card">
       <h3>基本信息</h3>
       <div class="form-row">
-        <label>作业标题</label>
-        <input v-model="title" type="text" :placeholder="mode === 'offline' ? `例如：练习册 P12-14 ${subjectLabel}练习` : `例如：第二周${subjectLabel}作业`" maxlength="128" />
+        <label for="assignment-title">作业标题 <span class="required-mark">必填</span></label>
+        <input
+          id="assignment-title"
+          ref="titleInputRef"
+          v-model="title"
+          type="text"
+          required
+          :aria-invalid="showRequiredHints && !title.trim() ? 'true' : undefined"
+          :aria-describedby="showRequiredHints && !title.trim() ? 'assignment-title-error' : undefined"
+          :placeholder="mode === 'offline' ? `例如：练习册 P12-14 ${subjectLabel}练习` : `例如：第二周${subjectLabel}作业`"
+          maxlength="128"
+        />
+        <p v-if="showRequiredHints && !title.trim()" id="assignment-title-error" class="field-required-error" role="alert">请填写作业标题。</p>
       </div>
       <!-- v0.13.4：学科 / 总分 / 时间限制并到同一行；时间限制点开是自制日历面板，
            「允许学生修改」收在面板里（见下方 time-panel）；作业说明是独立折叠按钮 -->
@@ -259,8 +270,8 @@
       </div>
     </div>
 
-    <div class="card">
-      <h3>接收班级</h3>
+    <div ref="classSectionRef" class="card" tabindex="-1" role="group" aria-labelledby="assignment-classes-heading" :aria-required="true" :aria-invalid="showRequiredHints && !selectedClassIds.length ? 'true' : undefined" :aria-describedby="showRequiredHints && !selectedClassIds.length ? 'assignment-classes-error' : undefined">
+      <h3 id="assignment-classes-heading">接收班级 <span class="required-mark">必选</span></h3>
       <p class="hint">只向所选班级发布；新建作业不会自动对其他班级学生开放。</p>
       <div v-if="classesForSubject.length" class="recipient-classes">
         <label v-for="room in classesForSubject" :key="room.id" class="recipient-class">
@@ -271,6 +282,9 @@
       <div v-else class="class-empty">
         还没有负责 {{ subjectLabel }} 的班级。<router-link to="/teacher/students">先到学生页建立班级</router-link>
       </div>
+      <p v-if="showRequiredHints && !selectedClassIds.length" id="assignment-classes-error" class="field-required-error" role="alert">
+        {{ classesForSubject.length ? '请选择至少一个接收班级。' : `当前没有可选班级，请先到学生页建立 ${subjectLabel} 班级。` }}
+      </p>
     </div>
 
     <!-- 线下模式：拍照上传题目页，一次识别成一道草稿题 -->
@@ -507,8 +521,8 @@
       </span>
       <span v-if="questions.length || groups.length" class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
-      <button class="btn" :disabled="submitting || checkingAll || anyDiagramBusy" @click="submit">
-        {{ anyDiagramBusy ? '图形生成中…' : checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
+      <button class="btn" :disabled="submitting || checkingAll" @click="submit">
+        {{ checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
       </button>
     </div>
     </template>
@@ -563,6 +577,7 @@ function backToChoose() {
   // 同上：不跳滚动位置
 }
 const title = ref('')
+const titleInputRef = ref<HTMLInputElement | null>(null)
 const description = ref('')   // 作业说明（v0.13.1）：两种模式共用，学生端交作业页顶部展示
 const SUBJECT_OPTIONS: { value: QuestionSubject; label: string }[] = [
   { value: 'math', label: '数学' },
@@ -589,6 +604,7 @@ const availableSubjectOptions = computed(() => SUBJECT_OPTIONS.filter(
 ))
 const classrooms = ref<Classroom[]>([])
 const selectedClassIds = ref<number[]>([])
+const classSectionRef = ref<HTMLElement | null>(null)
 const classesForSubject = computed(() => classrooms.value.filter(
   (room) => room.subjects.includes(subject.value as SubjectAgentCode),
 ))
@@ -622,7 +638,6 @@ function addGroup() {
 function groupFigurePrompt(g: GroupForm): string {
   return [g.stem.trim(), ...g.subs.map((item) => item.prompt.trim())].filter(Boolean).join('\n')
 }
-const anyDiagramBusy = computed(() => groups.value.some((group) => group.diagramBusy))
 function clearGroupFigure(g: GroupForm) {
   const hadFigure = !!g.diagram
   g.diagram = null
@@ -755,6 +770,7 @@ const submitting = ref(false)
 const checkingAll = ref(false)  // 发布前批量验算进行中（v0.9.3）
 const error = ref('')
 const recognitionError = ref('')
+const showRequiredHints = ref(false)
 const ok = ref(false)
 
 // v0.13.11：红色警示是顶部悬浮 toast，出现 5 秒后自动消失；连续报错重新计时
@@ -1257,12 +1273,18 @@ async function onGroupPhotoChange(e: Event) {
 
 async function submit() {
   error.value = ''
+  showRequiredHints.value = true
   if (!title.value.trim()) {
-    error.value = '请填写作业标题。'
+    titleInputRef.value?.focus()
+    titleInputRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     return
   }
   if (!selectedClassIds.value.length) {
-    error.value = `请选择接收班级；如果还没有班级，请先到学生页建立 ${subjectLabel.value} 班级。`
+    const target = classSectionRef.value?.querySelector<HTMLElement>('.recipient-class input[type="checkbox"]')
+      ?? classSectionRef.value?.querySelector<HTMLElement>('a')
+      ?? classSectionRef.value
+    target?.focus()
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     return
   }
   // 截止时间不能早于当前时间（日历已置灰过去的日期，时刻仍可能选到已过点，这里兜底再拦一次）
@@ -1545,6 +1567,8 @@ onMounted(async () => {
 }
 .publish-page select:disabled { background: #F1F4F9; color: var(--text-3); cursor: not-allowed; }
 .publish-page .score-input { width: 110px; }
+.required-mark { margin-left: 6px; color: var(--red); font-size: 12px; font-weight: 600; }
+.field-required-error { margin-top: 6px; color: var(--red); font-size: 12px; line-height: 1.4; }
 /* ---------- 底部吸底操作条 ---------- */
 .publish-actions {
   position: sticky; bottom: 14px; z-index: 5;
