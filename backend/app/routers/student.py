@@ -3365,6 +3365,15 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
 
+    # 恢复中断的回复时，问题已经保存在历史里；避免把同一条问题同时放进上下文两次。
+    if (
+        not body.persist_user_message
+        and rows
+        and rows[-1].role == "user"
+        and rows[-1].content == text
+    ):
+        rows = rows[:-1]
+
     history = [
         HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
         for row in rows

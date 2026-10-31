@@ -140,7 +140,7 @@
               回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
             </button>
             <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending || chatSending" @click="retryExplanation(msg)">
-              {{ msg.pending ? '正在重试…' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
+              {{ msg.pending ? '正在重试…' : msg.retryChat ? '重新生成回复' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
             </button>
             <div v-if="msg.captureId" class="photo-capture-action">
               <span v-if="msg.saved">已加入错题本</span>
@@ -154,7 +154,7 @@
           <div v-else-if="msg.kind === 'error'" class="bubble error-bubble">
             <AppIcon name="alert" :size="16" /> {{ msg.text }}
             <button v-if="msg.retryPrompt || msg.retryVision || msg.retryDiagnosis || msg.retrySave" class="btn small secondary retry-explanation" :disabled="msg.pending || chatSending" @click="retryExplanation(msg)">
-              {{ msg.pending ? '正在重试…' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
+              {{ msg.pending ? '正在重试…' : msg.retryChat ? '重新生成回复' : msg.retrySave && !msg.retryVision && !msg.retryDiagnosis ? '重试保存对话' : msg.retryVision && msg.retryDiagnosis ? '重试识别和讲解' : msg.retryDiagnosis ? '重试作业识别' : '重试讲解' }}
             </button>
             <div v-if="msg.captureId" class="photo-capture-action">
               <span v-if="msg.saved">已加入错题本</span>
@@ -385,6 +385,7 @@ interface ChatMsg {
   captureId: number | null
   retryPrompt?: string
   retrySafeToolsOnly?: boolean
+  retryChat?: boolean
   retryVision?: boolean
   retryDiagnosis?: boolean
   retrySave?: boolean
@@ -745,7 +746,19 @@ function updateHistoryPage(page: AgentHistoryPage | null) {
 
 function restoreHistoryPage(page: AgentHistoryPage | null) {
   updateHistoryPage(page)
-  page?.items.forEach(restoreHistoryMessage)
+  const items = page?.items ?? []
+  items.forEach(restoreHistoryMessage)
+  const lastMessage = items[items.length - 1]
+  if (lastMessage?.role === 'user' && !lastMessage.image_url && lastMessage.content.trim()) {
+    pushMsg({
+      side: 'ai',
+      kind: 'error',
+      text: '上一条消息还没有收到回复。',
+      retryPrompt: lastMessage.content,
+      retrySafeToolsOnly: false,
+      retryChat: true
+    }, false)
+  }
 }
 
 async function loadOlderHistory() {
@@ -904,6 +917,7 @@ async function streamAssistantReply(
     wait.relatedMistake = result.related_mistake ?? null
     wait.retryPrompt = undefined
     wait.retrySafeToolsOnly = undefined
+    wait.retryChat = undefined
     if (result.session_id) student.setActiveSession(result.session_id)
     suggestions.value = result.suggestions ?? []
     // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
@@ -1210,7 +1224,9 @@ async function retryExplanation(msg: ChatMsg) {
   } catch (err) {
     if (isAbortError(err)) return
     msg.kind = 'text'
-    msg.text = '批改记录已保存，但讲解仍未生成：' + (errDetail(err) || '请稍后重试。')
+    msg.text = msg.retryChat
+      ? '重新生成回复失败：' + (errDetail(err) || '请稍后重试。')
+      : '批改记录已保存，但讲解仍未生成：' + (errDetail(err) || '请稍后重试。')
     msg.retryPrompt = prompt
     msg.retrySafeToolsOnly = safeToolsOnly
     console.error(err)
