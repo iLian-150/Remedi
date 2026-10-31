@@ -356,15 +356,16 @@ table.table tr:hover td { background: #F8FAFF; }
 
 /* ---------- 右侧栏（v0.3.0 首版；v0.3.1 按页面分工：提醒 / 日历） ---------- */
 .app-rail {
-  width: 308px; flex-shrink: 0;
+  position: fixed; top: 0; right: 0; z-index: 200;
+  width: min(308px, 92vw); height: 100dvh;
   border-left: 1px solid var(--border); background: #FBFCFE;
-  height: 100vh; position: sticky; top: 0; overflow-y: auto;
+  overflow-y: auto;
   padding: 16px 14px 24px;
-  transition: width 0.35s ease, opacity 0.3s ease, padding 0.35s ease;
+  box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
+  transition: transform 0.35s ease, opacity 0.3s ease;
 }
 .app-rail.closed {
-  width: 0; padding-left: 0; padding-right: 0;
-  opacity: 0; overflow: hidden; border-left: none; pointer-events: none;
+  transform: translateX(105%); opacity: 0; pointer-events: none;
 }
 /* ---------- 悬浮层 z-index 梳理（v0.8.2；v0.9.0 更新） ----------
  *    6  对话页悬浮输入卡（.chat-composer，StudentChat scoped，属内容区内部层级，
@@ -414,18 +415,6 @@ table.table tr:hover td { background: #F8FAFF; }
 @keyframes badge-pop {
   0% { transform: scale(0.4); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
-}
-@media (max-width: 1200px) {
-  .app-rail {
-    position: fixed; right: 0; top: 0; z-index: 200;
-    width: 300px; height: 100dvh;
-    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
-    transition: transform 0.35s ease, opacity 0.3s ease;
-  }
-  .app-rail.closed {
-    width: 300px; padding: 16px 14px 24px;
-    transform: translateX(105%); opacity: 1;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .app-rail { transition: none; }
