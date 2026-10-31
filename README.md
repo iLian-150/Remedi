@@ -39,5 +39,6 @@ Vite 默认把 `/api` 请求代理到 `http://localhost:8000`。详见 [前端�
 - [接口契约](docs/api-contract.md)
 - [数据表设计与当前表清单](docs/schema-design.md)
 - [学科 RAG 与 Milvus](docs/milvus-rag.md)
+- [校园服务台业务流程](docs/campus-service-workflow.md)
 - [前端设计规范](docs/frontend-design-guidelines.md)
 - [v0.5 历史规格](docs/v0.5-spec.md)
