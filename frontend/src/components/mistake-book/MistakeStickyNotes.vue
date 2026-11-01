@@ -252,6 +252,8 @@ function toggleStudied(assignment: StickyAssignment) {
 </script>
 
 <style scoped>
+.mistake-sticky-notes:not(.is-split) { height: 100%; min-height: 0; }
+.mistake-sticky-notes:not(.is-split) .sticky-notes-inner { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-color: var(--border) transparent; scrollbar-width: thin; }
 .sticky-question-diagnosis { display: -webkit-box; max-height: 40px; margin-top: 7px; overflow: hidden; color: inherit; opacity: .72; font-size: 11px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .sticky-assignment-questions > article { min-width: 0; }
 .sticky-list-more { display: block; min-height: 36px; margin: -12px auto 21px; padding: 7px 14px; border: 1px solid rgba(31, 41, 55, .18); border-radius: 7px; color: var(--green); background: rgba(255, 255, 255, .68); cursor: pointer; font-size: 12px; font-weight: 600; }

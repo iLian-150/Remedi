@@ -614,8 +614,6 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistake-notebook { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: 1240px; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-color: var(--border) transparent; scrollbar-width: thin; padding: 68px 42px 18px; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
-.remedi-mistake-book .mistake-sticky-notes:not(.is-split) { height: 100%; min-height: 0; }
-.remedi-mistake-book .mistake-sticky-notes:not(.is-split) .sticky-notes-inner { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-color: var(--border) transparent; scrollbar-width: thin; }
 .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { padding: 75px 28px 22px; }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book .mistake-network-viewport { height: 100%; min-height: 0; }
