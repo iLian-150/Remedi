@@ -16,7 +16,7 @@
       <p v-if="loadError" class="notebook-action-error" role="alert">{{ loadError }}</p>
 
       <section v-if="view === 'notebook'" class="mistake-notebook" :class="{ 'is-split': Boolean(selectedMistake), 'is-reversed': assistantOnLeft, 'is-assistant-fullscreen': assistantFullscreen }" aria-label="按作业复习错题本" :aria-busy="loading">
-        <div class="mistake-notebook-content">
+        <div class="mistake-notebook-content scrollbar-on-scroll">
           <header class="notebook-header">
             <div class="notebook-eyebrow"><AppIcon name="book" :size="17"/><span>温故 · 知新</span></div>
             <h1>我的错题本<span>。</span></h1>
@@ -612,7 +612,7 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .remedi-mistake-book .mistake-board-toolbar { position: absolute; z-index: 10; top: 16px; right: 18px; }
 .remedi-mistake-book .mistake-notebook { height: 100%; min-height: 0; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: 1240px; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-color: var(--border) transparent; scrollbar-width: thin; padding: 68px 42px 18px; }
+.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: 1240px; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; padding: 68px 42px 18px; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
 .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { padding: 75px 28px 22px; }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
