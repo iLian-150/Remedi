@@ -44,7 +44,6 @@
         <span class="brand-badge"><BrandLogo :size="25" /></span>
         <div class="brand-text">
           <div class="brand-name">Remedi</div>
-          <div class="brand-sub">{{ auth.role === 'teacher' ? '教师端 · 班级诊断' : '智能作业诊断' }}</div>
         </div>
         <button
           class="icon-btn sidebar-collapse-btn"
