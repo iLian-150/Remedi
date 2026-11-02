@@ -252,7 +252,7 @@ const TEACHER_NAV: NavItem[] = [
   { to: '/teacher/dashboard', icon: 'chart', label: '总览', activePaths: ['/teacher/dashboard', '/teacher/suggestions'] },
   { to: '/teacher/submissions', icon: 'file', label: 'AI 批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },
   { to: '/teacher/students', icon: 'users', label: '学生' },
-  { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments', '/teacher/assignments/new'] },
+  { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments'] },
   { to: '/teacher/materials', icon: 'file', label: '我的资料' }
 ]
 

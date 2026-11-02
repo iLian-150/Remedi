@@ -6,17 +6,13 @@
      契约：POST /api/teacher/assignments（4.7，v0.5.0 加 mode/workbook_id/page_range/deadline）、
            练习册知识库 4.15~4.17、拍照识别 4.9。数学线上作答用公式板，其他学科通过视觉模型拍照批改。 -->
 <template>
-  <div class="page publish-page">
+  <div class="page publish-page" :class="{ 'is-embedded': embedded }">
     <!-- v0.13.4：页头两级共用同一结构——选完发布方式后，「重新选择 + 模式徽章」只出现在
          标题右侧同一行，不再多出一行把整页往下顶，「发布作业」标题位置纹丝不动 -->
-    <div class="page-head publish-head">
-      <div class="ph-main">
+    <div v-if="!embedded || step === 'form'" class="page-head publish-head">
+      <div v-if="!embedded" class="ph-main">
         <h2>发布作业</h2>
         <p class="page-sub">先选一种发布方式，再填写内容发布；发布后学生端立即可见，返回重选不会清空已填内容。</p>
-        <nav class="workflow-tabs" aria-label="作业工作区">
-          <router-link to="/teacher/assignments" class="workflow-tab">作业管理</router-link>
-          <router-link to="/teacher/assignments/new" class="workflow-tab">发布作业</router-link>
-        </nav>
       </div>
       <div v-if="step === 'form'" class="ph-actions">
         <button type="button" class="btn ghost inline-icon back-btn" @click="backToChoose">
@@ -34,7 +30,7 @@
         <span>{{ error }}</span>
       </div>
     </transition>
-    <div v-if="ok" class="ok-msg">发布成功，正在跳转到作业列表…</div>
+    <div v-if="ok && !embedded" class="ok-msg">发布成功，正在跳转到作业列表…</div>
 
     <!-- 第一级：选择发布方式（v0.12.0 两级化：点卡进入第二级表单，不再同页堆叠） -->
     <template v-if="step === 'choose'">
@@ -540,10 +536,13 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
-import type { Classroom, FigureSpec, QuestionSubject, SubjectAgentCode, TeacherAssignmentInput, Workbook } from '../../api/types'
+import type { Classroom, FigureSpec, QuestionSubject, SubjectAgentCode, TeacherAssignment, TeacherAssignmentInput, Workbook } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import FigureRenderer from '../../components/FigureRenderer.vue'
+
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+const emit = defineEmits<{ published: [assignment: TeacherAssignment] }>()
 
 const teacher = useTeacherStore()
 const auth = useAuthStore()
@@ -1438,9 +1437,10 @@ async function submit() {
   }
   submitting.value = true
   try {
-    await teacher.createAssignment(payload)
+    const assignment = await teacher.createAssignment(payload)
     ok.value = true
-    setTimeout(() => router.push('/teacher/assignments'), 600)
+    if (props.embedded) emit('published', assignment)
+    else setTimeout(() => router.push('/teacher/assignments'), 600)
   } catch (e: unknown) {
     error.value = '发布失败：' + errMsg(e, '请稍后重试。')
     console.error(e)
@@ -1488,6 +1488,8 @@ onMounted(async () => {
 .toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translate(-50%, -8px); }
 .choose-hint { text-align: left; color: var(--text-3); font-size: 13px; margin-top: 16px; }
 .page-head.publish-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.publish-page.is-embedded { max-width: none; width: 100%; margin: 0; padding: 18px 0 0; }
+.publish-page.is-embedded .page-head { margin-bottom: 14px; }
 .recipient-classes { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .recipient-class { display: inline-flex; align-items: center; gap: 9px; padding: 10px 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); cursor: pointer; }
 .recipient-class input { accent-color: var(--primary); }

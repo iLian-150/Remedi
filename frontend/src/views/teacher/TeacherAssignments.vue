@@ -5,23 +5,37 @@
      v0.3.0 新增删除已发布作业（二次确认，后端级联删除学生提交数据）。 -->
 <template>
   <div class="page">
-    <div class="page-head" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap">
-      <div>
-        <h2>作业管理</h2>
-        <p class="page-sub">已发布的作业与每道题的提交情况。</p>
-        <nav class="workflow-tabs" aria-label="作业工作区">
-          <router-link to="/teacher/assignments" class="workflow-tab">作业管理</router-link>
-          <router-link to="/teacher/assignments/new" class="workflow-tab">发布作业</router-link>
-        </nav>
+    <div class="page-head"><h2>作业</h2></div>
+
+    <section class="card publish-launch">
+      <div class="publish-launch-head">
+        <h3>发布作业</h3>
+        <button class="btn small inline-icon" :aria-expanded="publishOpen" @click="togglePublish">
+          <AppIcon :name="publishOpen ? 'chevron-down' : 'plus'" :size="15" />
+          {{ publishOpen ? '收起' : '开始发布' }}
+        </button>
       </div>
-    </div>
+      <component
+        :is="EmbeddedPublish"
+        v-if="publishReady"
+        v-show="publishOpen"
+        :embedded="true"
+        @published="onPublished"
+      />
+    </section>
+
+    <section class="assignment-management">
+      <div class="management-heading">
+        <h3>作业管理</h3>
+        <span>最新发布在前</span>
+      </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="toast" class="ok-msg">{{ toast }}</div>
     <div v-if="loading" class="loading">作业加载中…</div>
 
     <template v-if="!loading">
-      <p class="rail-note"><AppIcon name="calendar" :size="15" /> 作业日历在右侧栏，点选任意一天即可只看当天发布的作业。</p>
+      <p class="rail-note"><AppIcon name="calendar" :size="15" /> 可用右侧日历筛选发布日期。</p>
 
       <!-- 日期筛选状态栏（右侧栏日历选中某天时出现） -->
       <div v-if="dateFilter" class="filter-bar">
@@ -77,9 +91,11 @@
       </div>
 
       <div v-if="!assignments.length && !dateFilter" class="card">
-        <div class="empty">还没有发布过作业，点右上角「发布新作业」开始布置吧。</div>
+        <div class="empty">还没有发布过作业，可在上方发布新作业。</div>
       </div>
     </template>
+
+    </section>
 
     <!-- 删除二次确认 -->
     <div v-if="pendingDelete" class="modal-mask" @click.self="pendingDelete = null">
@@ -100,12 +116,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignment } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
+const route = useRoute()
+const router = useRouter()
+const EmbeddedPublish = defineAsyncComponent(() => import('./TeacherPublish.vue'))
+const publishOpen = ref(route.query.publish === '1')
+const publishReady = ref(publishOpen.value)
 const assignments = ref<TeacherAssignment[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -113,6 +135,33 @@ const toast = ref('')
 const pendingDelete = ref<TeacherAssignment | null>(null)
 const deleting = ref(false)
 const deleteError = ref('')
+
+function togglePublish() {
+  publishOpen.value = !publishOpen.value
+  if (publishOpen.value) {
+    publishReady.value = true
+    void router.replace({ path: '/teacher/assignments', query: { publish: '1' } })
+  } else {
+    void router.replace({ path: '/teacher/assignments', query: {} })
+  }
+}
+
+async function onPublished() {
+  publishOpen.value = false
+  publishReady.value = false
+  toast.value = '作业已发布。'
+  void router.replace({ path: '/teacher/assignments', query: {} })
+  if (dateFilter.value) teacher.setAssignmentDateFilter('')
+  try {
+    await reload()
+    window.dispatchEvent(new CustomEvent('assignments-changed', {
+      detail: { assignments: assignments.value }
+    }))
+  } catch (e) {
+    console.error(e)
+  }
+  setTimeout(() => (toast.value = ''), 4000)
+}
 
 function subjectLabel(subject: string): string {
   const labels: Record<string, string> = {
@@ -147,13 +196,19 @@ function fmtTime(t: string): string {
 
 let assignmentLoadGeneration = 0
 
+function sortByPublishedTime(list: TeacherAssignment[]) {
+  return [...list].sort((a, b) =>
+    b.created_at.localeCompare(a.created_at) || b.id - a.id
+  )
+}
+
 async function reload() {
   const generation = ++assignmentLoadGeneration
   loading.value = true
   error.value = ''
   try {
     const list = await teacher.fetchTeacherAssignments(dateFilter.value || undefined)
-    if (generation === assignmentLoadGeneration) assignments.value = list
+    if (generation === assignmentLoadGeneration) assignments.value = sortByPublishedTime(list)
   } catch (e) {
     if (generation === assignmentLoadGeneration) {
       error.value = '作业列表加载失败，请确认后端已启动。'
@@ -215,7 +270,7 @@ async function confirmDelete() {
 async function onAssignmentsChanged(event: Event) {
   const updated = (event as CustomEvent<{ assignments?: TeacherAssignment[] }>).detail?.assignments
   if (Array.isArray(updated)) {
-    assignments.value = updated
+    assignments.value = sortByPublishedTime(updated)
     return
   }
   try {
@@ -239,6 +294,13 @@ onUnmounted(() => window.removeEventListener('assignments-changed', onAssignment
   background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
   padding: 10px 14px; margin-bottom: 16px;
 }
+.publish-launch { padding: 16px 20px; }
+.publish-launch-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.publish-launch-head h3 { margin: 0; }
+.assignment-management { margin-top: 24px; }
+.management-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.management-heading h3 { font-size: 18px; }
+.management-heading span { color: var(--text-3); font-size: 13px; }
 .card-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .filter-bar {

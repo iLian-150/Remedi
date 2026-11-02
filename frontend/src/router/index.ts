@@ -31,7 +31,10 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/students/:id', component: () => import('../views/teacher/TeacherStudentPortrait.vue'), meta: { role: 'teacher', title: '学生画像' } },
   { path: '/teacher/suggestions', component: () => import('../views/teacher/TeacherSuggestions.vue'), meta: { role: 'teacher', title: '教学建议' } },
   { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' } },
-  { path: '/teacher/assignments/new', component: () => import('../views/teacher/TeacherPublish.vue'), meta: { role: 'teacher', title: '发布作业' } },
+  { path: '/teacher/assignments/new', redirect: (to) => ({
+    path: '/teacher/assignments',
+    query: { ...to.query, publish: '1' },
+  }) },
   { path: '/teacher/chat', component: () => import('../views/teacher/TeacherChat.vue'), meta: { role: 'teacher', title: 'AI 助手' } },
   // 我的资料：管理当前任教学科 Agent 使用的外挂知识库文档。
   { path: '/teacher/materials', component: () => import('../views/teacher/TeacherKnowledge.vue'), meta: { role: 'teacher', title: '我的资料' } },

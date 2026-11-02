@@ -2013,7 +2013,7 @@ def list_teacher_assignments(
             Assignment.created_at >= day_start,
             Assignment.created_at < day_start + timedelta(days=1),
         )
-    assignments = query.order_by(Assignment.id).all()
+    assignments = query.order_by(Assignment.created_at.desc(), Assignment.id.desc()).all()
     visible_class_pairs = {
         (assignment_id, classroom_id)
         for assignment_id, classroom_id in _scoped_teacher_assignment_class_pairs(
