@@ -4,6 +4,7 @@
      v0.6.0 新增 direct 模式（交作业页用）：选完照片自动转写并立刻提交诊断，
      不再出现转写确认这一步，直接出诊断卡；诊断卡上保留补救——展示识别到的
      步骤原文，并可展开原编辑器修改后重新提交。对话页仍用默认确认模式。
+     作业模式只暂存照片并通知父级，不在单题提交时调用批改；整份作业齐全后由后台统一批改。
      v0.9.2：点按直达图库——组件内不再有「先展开面板再点一次选图」的中间层：
      父级按钮点击时调 openPicker()（defineExpose）当下就打开系统图库/文件选择；
      未选图取消则组件保持 idle 且不渲染任何可见内容；「再拍一张/重新选图」同理直达。
@@ -15,7 +16,10 @@
     <img v-if="previewUrl" :src="previewUrl" alt="作答照片" class="pgf-preview" />
 
     <p v-if="phase === 'transcribing' || (direct && phase === 'submitting')" class="pgf-status">
-      <AppIcon name="spinner" :size="15" class="spin" /> {{ direct ? '正在识别并批改…' : '正在识别照片里的解题步骤…' }}
+      <AppIcon name="spinner" :size="15" class="spin" /> {{ assignmentAnswer ? '正在保存作答照片…' : direct ? '正在识别并批改…' : '正在识别照片里的解题步骤…' }}
+    </p>
+    <p v-if="phase === 'staged'" class="pgf-status">
+      <AppIcon name="check" :size="15" /> 作答已添加，提交整份作业后统一批改。
     </p>
     <div v-if="errorText" class="error-msg" style="margin-top: 10px">{{ errorText }}</div>
 
@@ -145,20 +149,21 @@ const props = withDefaults(
     questionStem?: string
     /** v0.6.0：direct 模式——选完照片自动转写并立刻提交诊断，跳过转写确认步 */
     direct?: boolean
-    /** 作业答题模式：原图直接进入带原图留存的作业视觉诊断接口。 */
+    /** 作业答题模式：只把原图交给父级保存，整份作业完成前不批改。 */
     assignmentAnswer?: boolean
   }>(),
   { direct: false, assignmentAnswer: false }
 )
 const emit = defineEmits<{
   (e: 'graded', result: SubmissionResult): void
+  (e: 'answered', file: File): void
   /** v0.9.2：流程是否已离开 idle（父级据此切换按钮文案与收起控制） */
   (e: 'active', active: boolean): void
 }>()
 
 const student = useStudentStore()
 
-type Phase = 'idle' | 'transcribing' | 'transcribed' | 'submitting' | 'done' | 'answered'
+type Phase = 'idle' | 'transcribing' | 'transcribed' | 'submitting' | 'done' | 'answered' | 'staged'
 const phase = ref<Phase>('idle')
 const busy = ref(false)
 const fileRef = ref<HTMLInputElement | null>(null)
@@ -242,13 +247,9 @@ async function processFile(file: File) {
   busy.value = true
   try {
     if (props.assignmentAnswer) {
-      const diagnosis = await student.diagnosePhotoAnswer(file, props.questionId)
-      questionText.value = diagnosis.recognized_question_text || props.questionStem || ''
-      steps.value = [...diagnosis.recognized_steps]
-      result.value = diagnosis
-      confirmed.value = true
-      phase.value = 'done'
-      emit('graded', diagnosis)
+      questionText.value = props.questionStem || ''
+      phase.value = 'staged'
+      emit('answered', file)
       return
     }
     const res = await student.reviewPhoto(file, props.questionId, props.questionStem || '')

@@ -143,7 +143,8 @@ def compute_ai_score(db: Session, submission: Submission,
 
 
 def persist_ai_score(db: Session, submission: Submission,
-                     steps: Optional[List[Step]] = None) -> SubmissionScore:
+                     steps: Optional[List[Step]] = None, *,
+                     commit: bool = True) -> SubmissionScore:
     """批改落库的共用路径调用：把 AI 初评分写入 submission_scores（幂等 upsert，
     重复批改同一提交时只更新 ai_score，不动已落定的 final_score）。"""
     info = compute_ai_score(db, submission, steps)
@@ -157,12 +158,13 @@ def persist_ai_score(db: Session, submission: Submission,
     else:
         row.ai_score = info["ai_score"]
         row.updated_at = datetime.now()
-    expire_on_commit = db.expire_on_commit
-    db.expire_on_commit = False
-    try:
-        db.commit()
-    finally:
-        db.expire_on_commit = expire_on_commit
+    if commit:
+        expire_on_commit = db.expire_on_commit
+        db.expire_on_commit = False
+        try:
+            db.commit()
+        finally:
+            db.expire_on_commit = expire_on_commit
     return row
 
 

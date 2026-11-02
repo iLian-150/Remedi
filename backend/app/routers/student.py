@@ -6,6 +6,7 @@ import re
 import secrets
 from bisect import bisect_left
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from time import perf_counter
 from typing import Dict, List, Optional
 
@@ -17,11 +18,14 @@ from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_student
 from ..config import settings
+from ..services import assignment_grading as assignment_grading_svc
 from ..database import get_db
 from ..models import (
     Assignment,
     AssignmentClass,
     AssignmentExt,
+    AssignmentGradingAnswer,
+    AssignmentGradingJob,
     AssignmentSetting,
     ClassroomMember,
     ChatMessage,
@@ -142,6 +146,27 @@ from ..services.stats import (
 
 router = APIRouter(prefix="/api/student", tags=["student"])
 logger = logging.getLogger(__name__)
+
+
+def _assignment_grading_job_out(db: Session, job: Optional[AssignmentGradingJob],
+                                assignment_id: int) -> dict:
+    questions = db.query(Question.id).filter(
+        Question.assignment_id == assignment_id,
+    ).order_by(Question.order_num, Question.id).all()
+    question_ids = [row[0] for row in questions]
+    if job is None:
+        return {
+            "status": "none", "progress": 0, "total_questions": len(question_ids),
+            "answered_question_ids": [], "error": None,
+        }
+    answered_ids = [row[0] for row in db.query(
+        AssignmentGradingAnswer.question_id,
+    ).filter(AssignmentGradingAnswer.job_id == job.id).all()]
+    return {
+        "status": job.status, "progress": job.progress,
+        "total_questions": len(question_ids),
+        "answered_question_ids": answered_ids, "error": job.error,
+    }
 
 
 def _student_accessible_question(db: Session, student: User, question_id: int) -> Question:
@@ -686,6 +711,148 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
         deadline=ext.deadline if ext else None,
         allow_revision=bool(setting.allow_revision) if setting else False,
     )
+
+
+@router.get("/assignments/{assignment_id}/grading-status",
+            summary="查看整份作业的作答与批改状态")
+def assignment_grading_status(assignment_id: int, db: Session = Depends(get_db),
+                              current: User = Depends(require_student)):
+    assignment = db.query(Assignment).filter(
+        Assignment.id == assignment_id,
+    ).filter(_student_assignment_scope(db, current)).first()
+    if assignment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    job = db.query(AssignmentGradingJob).filter_by(
+        assignment_id=assignment_id, student_id=current.id,
+    ).order_by(AssignmentGradingJob.id.desc()).first()
+    return _assignment_grading_job_out(db, job, assignment_id)
+
+
+@router.put("/assignments/{assignment_id}/answers/{question_id}",
+           summary="保存整份作业中的一道作答（暂不批改）")
+async def stage_assignment_answer(
+    assignment_id: int,
+    question_id: int,
+    answer_text: str = Form(default=""),
+    file: Optional[UploadFile] = File(default=None),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    question = _student_accessible_question(db, current, question_id)
+    if question.assignment_id != assignment_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "题目不存在")
+    clean_text = (answer_text or "").strip()
+    if len(clean_text) > 20000:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "作答内容不能超过 20000 个字符")
+    if file is None and not clean_text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先填写作答或上传作答照片")
+    if clean_text and len([line for line in clean_text.splitlines() if line.strip()]) > 20:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "作答步骤最多 20 行")
+    deferred_svc.assert_can_submit(db, current, question)
+
+    image_data = None
+    image_extension = None
+    image_name = None
+    if file is not None:
+        if file.content_type not in _PHOTO_TYPES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的作答照片")
+        image_data = await file.read(_PHOTO_MAX_BYTES + 1)
+        if not image_data:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "作答照片内容为空")
+        if len(image_data) > _PHOTO_MAX_BYTES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "作答照片不能超过 10MB")
+        image_extension = _PHOTO_TYPES[file.content_type]
+        image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "作答照片"
+
+    job = db.query(AssignmentGradingJob).filter_by(
+        assignment_id=assignment_id, student_id=current.id,
+    ).order_by(AssignmentGradingJob.id.desc()).first()
+    if job is not None and job.status in {"queued", "processing"}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "整份作业已经提交，正在批改中")
+    if job is None or job.status == "completed":
+        job = AssignmentGradingJob(
+            assignment_id=assignment_id, student_id=current.id,
+            status="draft", total_questions=db.query(Question.id).filter(
+                Question.assignment_id == assignment_id,
+            ).count(),
+        )
+        db.add(job)
+        db.flush()
+
+    staged = db.query(AssignmentGradingAnswer).filter_by(
+        job_id=job.id, question_id=question_id,
+    ).first()
+    previous_image = staged.image_path if staged is not None else None
+    new_image_path = None
+    try:
+        if image_data is not None:
+            os.makedirs(settings.ASSIGNMENT_DRAFT_DIR, exist_ok=True)
+            new_image_path = os.path.join(
+                str(job.id), f"{question_id}_{secrets.token_hex(12)}{image_extension}",
+            )
+            target = os.path.join(settings.ASSIGNMENT_DRAFT_DIR, new_image_path)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            await run_in_threadpool(_write_uploaded_file, target, image_data)
+        if staged is None:
+            staged = AssignmentGradingAnswer(job_id=job.id, question_id=question_id)
+            db.add(staged)
+        staged.answer_text = clean_text or None
+        staged.image_path = new_image_path
+        staged.image_name = image_name
+        staged.updated_at = datetime.now()
+        job.error = None
+        job.updated_at = datetime.now()
+        db.commit()
+    except Exception:
+        db.rollback()
+        if new_image_path:
+            try:
+                (Path(settings.ASSIGNMENT_DRAFT_DIR) / new_image_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    if previous_image and previous_image != new_image_path:
+        assignment_grading_svc.remove_draft_image(previous_image)
+    return _assignment_grading_job_out(db, job, assignment_id)
+
+
+@router.post("/assignments/{assignment_id}/submit", summary="提交整份作业并在后台批改")
+def submit_assignment_for_grading(assignment_id: int, db: Session = Depends(get_db),
+                                  current: User = Depends(require_student)):
+    assignment = db.query(Assignment).filter(
+        Assignment.id == assignment_id,
+    ).filter(_student_assignment_scope(db, current)).first()
+    if assignment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业不存在")
+    questions = db.query(Question).filter(
+        Question.assignment_id == assignment_id,
+    ).order_by(Question.order_num, Question.id).all()
+    if not questions:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这份作业没有可提交的题目")
+    job = db.query(AssignmentGradingJob).filter_by(
+        assignment_id=assignment_id, student_id=current.id,
+    ).order_by(AssignmentGradingJob.id.desc()).first()
+    if job is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先完成全部题目")
+    if job.status in {"queued", "processing", "completed"}:
+        return _assignment_grading_job_out(db, job, assignment_id)
+    answer_rows = db.query(AssignmentGradingAnswer).filter_by(job_id=job.id).all()
+    answers = {row.question_id: row for row in answer_rows}
+    missing = [question for question in questions if question.id not in answers or not (
+        (answers[question.id].answer_text or "").strip() or answers[question.id].image_path
+    )]
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先完成全部题目后再提交批改")
+    for question in questions:
+        deferred_svc.assert_can_submit(db, current, question)
+    job.status = "queued"
+    job.progress = 0
+    job.total_questions = len(questions)
+    job.error = None
+    job.updated_at = datetime.now()
+    db.commit()
+    assignment_grading_svc.enqueue(job.id)
+    return _assignment_grading_job_out(db, job, assignment_id)
 
 
 @router.get("/assignments/{assignment_id}/related-mistakes", summary="批量查看作业题目的历史同类错题")

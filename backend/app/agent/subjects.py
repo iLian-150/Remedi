@@ -25,7 +25,8 @@ SUBJECT_ALIASES = {
     "道德与法治": "politics", "政治": "politics", "历史": "history", "物理": "physics",
     "化学": "chemistry", "地理": "geography", "生物": "biology",
     "chinese": "chinese", "math": "math", "mathematics": "math", "maths": "math",
-    "english": "english", "politics": "politics", "history": "history",
+    "english": "english", "english_exercise": "english", "英语练习": "english",
+    "politics": "politics", "history": "history",
     "physics": "physics", "chemistry": "chemistry", "geography": "geography",
     "biology": "biology",
 }

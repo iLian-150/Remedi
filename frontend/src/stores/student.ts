@@ -12,6 +12,7 @@ import type {
   AgentHistoryPage,
   Assignment,
   AssignmentDetail,
+  AssignmentGradingStatus,
   ChatAssignmentContext,
   ChatSession,
   ChatSessionCursor,
@@ -365,6 +366,33 @@ export const useStudentStore = defineStore('student', {
     // 3.2 作业详情（含题目，不含标准答案）
     async fetchAssignmentDetail(id: number): Promise<AssignmentDetail> {
       const { data } = await api.get<AssignmentDetail>(`/api/student/assignments/${id}`)
+      return data
+    },
+    async fetchAssignmentGradingStatus(id: number): Promise<AssignmentGradingStatus> {
+      const { data } = await api.get<AssignmentGradingStatus>(
+        `/api/student/assignments/${id}/grading-status`
+      )
+      return data
+    },
+    async stageAssignmentAnswer(
+      assignmentId: number,
+      questionId: number,
+      payload: { answerText?: string; file?: File }
+    ): Promise<AssignmentGradingStatus> {
+      const form = new FormData()
+      if (payload.answerText) form.append('answer_text', payload.answerText)
+      if (payload.file) form.append('file', payload.file)
+      const { data } = await api.put<AssignmentGradingStatus>(
+        `/api/student/assignments/${assignmentId}/answers/${questionId}`,
+        form,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      return data
+    },
+    async submitAssignmentForGrading(id: number): Promise<AssignmentGradingStatus> {
+      const { data } = await api.post<AssignmentGradingStatus>(
+        `/api/student/assignments/${id}/submit`
+      )
       return data
     },
     async fetchRelatedMistakesForAssignment(

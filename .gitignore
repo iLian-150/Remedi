@@ -11,6 +11,7 @@ __pycache__/
 data/
 /runtime/
 backend/knowledge-imports/
+backend/assignment-answer-drafts/
 
 # Node
 node_modules/

@@ -56,6 +56,11 @@ class Settings:
         "UPLOAD_DIR",
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"),
     )
+    # 未提交的作业答案应保存在公开上传静态目录之外。
+    ASSIGNMENT_DRAFT_DIR: str = os.getenv(
+        "ASSIGNMENT_DRAFT_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(UPLOAD_DIR)), "assignment-answer-drafts"),
+    )
     # 知识库原件与检查点不放在公开的 /api/uploads 静态目录。
     KNOWLEDGE_IMPORT_DIR: str = os.getenv(
         "KNOWLEDGE_IMPORT_DIR", os.path.join(os.path.dirname(os.path.abspath(UPLOAD_DIR)), "knowledge-imports"),
@@ -79,7 +84,7 @@ class Settings:
         os.getenv("APP_TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai"
     )
 
-    APP_VERSION: str = "0.13.384"
+    APP_VERSION: str = "0.13.385"
 
 
 settings = Settings()

@@ -122,6 +122,14 @@ export interface AssignmentDetail extends Assignment {
   groups?: { id: number; stem: string; order_num: number; diagram?: FigureSpec | null }[]
 }
 
+export interface AssignmentGradingStatus {
+  status: 'none' | 'draft' | 'queued' | 'processing' | 'completed' | 'failed'
+  progress: number
+  total_questions: number
+  answered_question_ids: number[]
+  error: string | null
+}
+
 // ---------- 数学提交与诊断 ----------
 export type StepStatus = 'stem' | 'ok' | 'error' | 'unparseable' | 'skipped'
 

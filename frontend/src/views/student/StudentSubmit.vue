@@ -71,7 +71,7 @@
         <p v-if="currentDetail.mode === 'offline'" class="kp" style="margin-top: 4px">
           <template v-if="currentDetail.workbook_title">{{ currentDetail.workbook_title }}</template>
           <template v-if="currentDetail.page_range"> · {{ currentDetail.page_range }}</template>
-          —— 在练习册上做完后，逐题拍照提交就可以啦。
+          —— 练习册完成后逐题上传作答照片。
         </p>
       </div>
 
@@ -83,11 +83,14 @@
           <div class="board-head">
             <span class="board-progress tnum">第 {{ currentIdx + 1 }} / {{ mathQuestions.length }} 题</span>
             <span class="board-status">
-              <span v-if="noteKind(currentQ) === 'deferred'" class="badge badge-amber">已提交 · 截止后统一批改</span>
+              <span v-if="gradingJobStatus === 'queued'" class="badge badge-amber">待批改</span>
+              <span v-else-if="gradingJobStatus === 'processing'" class="badge badge-blue">批改中</span>
+              <span v-else-if="noteKind(currentQ) === 'deferred'" class="badge badge-amber">待统一批改</span>
               <span v-else-if="pendingQids.has(currentQ.id)" class="badge badge-amber">待老师审核</span>
               <span v-else-if="doneQids.has(currentQ.id)" class="badge badge-green">已完成</span>
+              <span v-else-if="answeredQids.has(currentQ.id)" class="badge badge-amber">已作答</span>
               <span v-else class="badge badge-gray">未完成</span>
-              <span v-if="scoreByQid[currentQ.id]" class="badge badge-green tnum">得分 {{ fmtScore(scoreByQid[currentQ.id].score) }} / {{ fmtScore(scoreByQid[currentQ.id].max) }} 分</span>
+              <span v-if="gradingJobStatus === 'completed' && scoreByQid[currentQ.id]" class="badge badge-green tnum">得分 {{ fmtScore(scoreByQid[currentQ.id].score) }} / {{ fmtScore(scoreByQid[currentQ.id].max) }} 分</span>
             </span>
           </div>
           <!-- 大题共享材料（v0.13.1）：本题属于大题时，题干上方先给材料 -->
@@ -101,8 +104,23 @@
           <!-- 本题已提交且没重开编辑器：显示状态卡。
                v0.13.1 起提交后锁定，不能直接再交；老师开了「允许修改」时，
                改题入口统一在页面底部的「修改作业」区 -->
-          <template v-if="noteKind(currentQ) && !editorOpen[currentQ.id]">
-            <div v-if="noteKind(currentQ) === 'deferred'" class="review-pending-box board-note">
+          <template v-if="(noteKind(currentQ) || answeredQids.has(currentQ.id) || gradingJobStatus === 'queued' || gradingJobStatus === 'processing') && !editorOpen[currentQ.id]">
+            <div v-if="gradingJobStatus === 'queued' || gradingJobStatus === 'processing'" class="review-pending-box board-note">
+              <span class="review-pending-icon"><AppIcon :name="gradingJobStatus === 'processing' ? 'spinner' : 'history'" :size="17" /></span>
+              <div>
+                <p class="review-pending-title">{{ gradingJobStatus === 'processing' ? '整份作业批改中' : '整份作业待批改' }}</p>
+                <p class="review-pending-sub">已完成 {{ gradingJobProgress }} / {{ gradingJobTotal }} 题。批改结果生成后会显示在这里。</p>
+              </div>
+            </div>
+            <div v-else-if="answeredQids.has(currentQ.id) && gradingJobStatus !== 'completed'" class="review-pending-box board-note">
+              <span class="review-pending-icon"><AppIcon name="check" :size="17" /></span>
+              <div>
+                <p class="review-pending-title">本题作答已保存</p>
+                <p class="review-pending-sub">{{ allAnswersStaged ? '全部题目已完成，正在提交整份作业并开始后台批改。' : '完成剩余题目后，系统会统一提交并在后台批改。' }}</p>
+              </div>
+              <button class="btn small secondary" :disabled="batchLocked" @click="editorOpen[currentQ.id] = true">修改答案</button>
+            </div>
+            <div v-else-if="noteKind(currentQ) === 'deferred'" class="review-pending-box board-note">
               <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
               <div>
                 <p class="review-pending-title">已提交，截止后统一批改</p>
@@ -138,7 +156,7 @@
               <button
                 type="button"
                 class="btn secondary small inline-icon"
-                :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id]"
+                :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id] || batchLocked"
                 @click="pickPhoto(currentQ.id)"
               >
                 <AppIcon name="image" :size="15" /> 上传手写图片
@@ -148,7 +166,7 @@
                 class="btn small inline-icon"
                 :class="handwritingOpen[currentQ.id] ? '' : 'secondary'"
                 :aria-expanded="!!handwritingOpen[currentQ.id]"
-                :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id]"
+                :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id] || batchLocked"
                 @click="toggleHandwriting(currentQ.id)"
               >
                 <AppIcon name="edit" :size="15" />
@@ -160,7 +178,7 @@
               :key="currentQ.id"
               :ref="(el) => setHandwritingRef(currentQ.id, el)"
               :storage-key="handwritingDraftKey(currentQ.id)"
-              :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id]"
+              :disabled="submittingMap[currentQ.id] || flowActive[currentQ.id] || batchLocked"
               @submit="submitHandwriting(currentQ, $event)"
             />
             <template v-if="!handwritingOpen[currentQ.id]">
@@ -174,6 +192,7 @@
                   ref="boardTextarea"
                   :value="drafts[currentQ.id] ?? ''"
                   class="answer-textarea"
+                  :disabled="batchLocked"
                   spellcheck="false"
                   placeholder="每行写一步解题过程，最后一行写最终答案。例如：&#10;2x + 3 = 7&#10;2x = 4&#10;x = 2"
                   @input="onDraftInput(currentQ.id, $event)"
@@ -188,12 +207,12 @@
               <div class="toolbar" style="margin: 10px 0 0">
                 <button
                   class="btn"
-                  :disabled="submittingMap[currentQ.id] || currentDraftMetrics.stepCount === 0 || currentDraftMetrics.stepCount > 20"
+                  :disabled="submittingMap[currentQ.id] || batchLocked || currentDraftMetrics.stepCount === 0 || currentDraftMetrics.stepCount > 20"
                   @click="submitAnswer(currentQ)"
                 >
-                  {{ submittingMap[currentQ.id] ? '提交中…' : '提交作答' }}
+                  {{ submittingMap[currentQ.id] ? '保存中…' : '保存本题答案' }}
                 </button>
-                <button class="btn secondary" :disabled="submittingMap[currentQ.id]" @click="clearDraft(currentQ.id)">清空重写</button>
+                <button class="btn secondary" :disabled="submittingMap[currentQ.id] || batchLocked" @click="clearDraft(currentQ.id)">清空重写</button>
               </div>
             </template>
             <div v-if="answerErrors[currentQ.id]" class="error-msg" style="margin-top: 10px">{{ answerErrors[currentQ.id] }}</div>
@@ -212,7 +231,7 @@
                 :question-stem="q.stem"
                 direct
                 assignment-answer
-                @graded="onBoardPhotoGraded(q.id, $event)"
+                @answered="onPhotoAnswered(q.id, $event)"
                 @active="onFlowActive(q.id, $event)"
               />
             </div>
@@ -255,7 +274,6 @@
       <!-- 线下题目列表（v0.13.1 精简）：题干放大，只留状态与得分，不再挂知识点小字 -->
       <div v-if="photoQuestions.length" class="card">
         <h3>{{ isOffline ? '题目列表' : mathQuestions.length ? '其他学科拍照提交' : '题目列表' }}</h3>
-        <p class="card-sub">{{ listSub }}</p>
         <template v-for="(q, qi) in photoQuestions" :key="q.id">
           <!-- 大题共享材料（v0.13.1）：一组小题上方只展示一次 -->
           <div v-if="showGroupBanner(q, qi, photoQuestions)" class="group-stem-banner">
@@ -269,7 +287,10 @@
             <div class="q-main">
               <p class="q-stem">{{ q.stem }}</p>
               <p class="q-meta">
-                <span v-if="noteKind(q) === 'deferred'" class="badge badge-amber">已提交 · 截止后统一批改</span>
+                <span v-if="gradingJobStatus === 'queued'" class="badge badge-amber">待批改</span>
+                <span v-else-if="gradingJobStatus === 'processing'" class="badge badge-blue">批改中</span>
+                <span v-else-if="answeredQids.has(q.id) && gradingJobStatus !== 'completed'" class="badge badge-amber">已作答</span>
+                <span v-else-if="noteKind(q) === 'deferred'" class="badge badge-amber">已提交 · 截止后统一批改</span>
                 <span v-else-if="pendingQids.has(q.id)" class="badge badge-amber">待老师审核</span>
                 <span v-else-if="doneQids.has(q.id)" class="badge badge-green">已完成</span>
                 <span v-else class="badge badge-gray">未完成</span>
@@ -278,9 +299,9 @@
             </div>
             <!-- 点按直达图库（v0.9.2）；v0.13.1：已提交的题锁定不再给按钮，
                  要改走页面底部「修改作业」（老师开启允许修改时才有） -->
-            <button v-if="!noteKind(q)" class="btn inline-icon" @click="pickPhoto(q.id)">
+            <button v-if="!noteKind(q) && !batchLocked" class="btn inline-icon" @click="pickPhoto(q.id)">
               <AppIcon name="camera" :size="16" />
-              拍照批改
+              {{ answeredQids.has(q.id) ? '重新上传作答' : '上传作答照片' }}
             </button>
             <button v-if="flowActive[q.id]" class="btn secondary small" @click="toggleCollapse(q.id)">
               {{ collapsedQids.has(q.id) ? '展开结果' : '收起' }}
@@ -294,15 +315,38 @@
               :question-id="q.id"
               :question-stem="q.stem"
               direct
-              @graded="onGraded(q.id, $event)"
+              assignment-answer
+              @answered="onPhotoAnswered(q.id, $event)"
               @active="onFlowActive(q.id, $event)"
             />
           </div>
+          <div v-if="answerErrors[q.id]" class="error-msg" style="margin-top: 8px">{{ answerErrors[q.id] }}</div>
           <button v-if="relatedByQid[q.id]" type="button" class="related-mistake-entry" @click="openRelatedMistake(relatedByQid[q.id]!)">
             回看以前错过的同类题 <AppIcon name="chevron-right" :size="14" />
           </button>
           </div>
         </template>
+      </div>
+
+      <div v-if="questions.length" class="card assignment-grading-card">
+        <h3>整份作业批改</h3>
+        <div class="grading-progress-row">
+          <span>已完成 {{ answeredCount }} / {{ questions.length }} 题</span>
+          <span v-if="gradingJobStatus === 'queued'" class="badge badge-amber">待批改</span>
+          <span v-else-if="gradingJobStatus === 'processing'" class="badge badge-blue">批改中 {{ gradingJobProgress }} / {{ gradingJobTotal }}</span>
+          <span v-else-if="gradingJobStatus === 'completed'" class="badge badge-green">批改完成</span>
+        </div>
+        <div v-if="gradingJobStatus === 'queued' || gradingJobStatus === 'processing'" class="grading-progress-track">
+          <div class="grading-progress-fill" :style="{ width: `${gradingJobTotal ? Math.round(gradingJobProgress / gradingJobTotal * 100) : 0}%` }"></div>
+        </div>
+        <p v-if="gradingJobStatus === 'failed'" class="error-msg">批改暂时失败，作答已保留。可以点击下方按钮重新批改。</p>
+        <p v-else-if="gradingJobStatus === 'none' || gradingJobStatus === 'draft'" class="grading-wait-hint">
+          {{ allAnswersStaged ? '全部题目已完成，正在提交整份作业并开始后台批改。' : '全部题目完成后会自动开始批改。' }}
+        </p>
+        <button
+          v-if="allAnswersStaged && gradingJobStatus === 'failed'"
+          type="button" class="btn" :disabled="batchSubmitting" @click="queueWholeAssignment"
+        >{{ batchSubmitting ? '提交中…' : '重新批改整份作业' }}</button>
       </div>
 
       <!-- 修改作业（v0.13.1）：老师勾选「允许修改」后出现在页面最后面——
@@ -334,7 +378,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { Assignment, AssignmentDetail, FigureSpec, LatestQuestionSubmissionStatus, Question, RelatedMistake, SubmissionResult } from '../../api/types'
+import type { Assignment, AssignmentDetail, AssignmentGradingStatus, FigureSpec, LatestQuestionSubmissionStatus, Question, RelatedMistake } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import FigureRenderer from '../../components/FigureRenderer.vue'
 import HandwritingPad from '../../components/HandwritingPad.vue'
@@ -361,6 +405,7 @@ const switchableAssignments = computed(() =>
 // v0.13.10：自制下拉面板的开合与选中（点面板外或按 Esc 收起）
 const switchOpen = ref(false)
 const switchWrapRef = ref<HTMLElement | null>(null)
+let gradingPollHandle: number | null = null
 const switchLabel = computed(() => {
   const cur = currentAssignment.value
   if (!cur) return '请选择一份作业…'
@@ -385,12 +430,21 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onDocKey)
+  if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
 })
 const currentDetail = shallowRef<AssignmentDetail | null>(null) // 整体替换的只读作业详情，避免代理内部大题目列表
 const questions = shallowRef<Question[]>([]) // 接口题目只整体替换，避免逐题建立深层响应式代理
 const doneQids = ref<Set<number>>(new Set())
 const pendingQids = ref<Set<number>>(new Set()) // v0.9.0：最新一次提交在等老师审核的题目
 const deferredQids = ref<Set<number>>(new Set()) // v0.13.1：已提交、在等截止后统一批改的题目
+const answeredQids = ref<Set<number>>(new Set())
+const gradingJobStatus = ref<AssignmentGradingStatus['status']>('none')
+const gradingJobProgress = ref(0)
+const gradingJobTotal = ref(0)
+const batchSubmitting = ref(false)
+const batchLocked = computed(() => gradingJobStatus.value === 'queued' || gradingJobStatus.value === 'processing')
+const answeredCount = computed(() => questions.value.filter((q) => answeredQids.value.has(q.id)).length)
+const allAnswersStaged = computed(() => questions.value.length > 0 && answeredCount.value === questions.value.length)
 const scoreByQid = ref<Record<number, { score: number; max: number }>>({}) // 评分系统：已通过题目的得分 chip
 const relatedByQid = ref<Record<number, RelatedMistake>>({})
 const selectedRelatedMistake = ref<RelatedMistake | null>(null)
@@ -425,22 +479,12 @@ function openRelatedMistake(mistake: RelatedMistake) {
 }
 
 const headSub = computed(() => {
-  if (!currentDetail.value) return '先在上方选一份作业，再逐题完成作答；判断不确定的结果会送老师复核。'
-  if (isOffline.value) return '选好题目，拍一张作答照片；系统会自动批改，判断不确定的结果会送老师复核。'
-  if (photoQuestions.value.length && mathQuestions.value.length) return '数学题可输入步骤、上传手写图片或用手写板作答；其他学科可拍照提交，判断不确定的结果会送老师复核。'
-  if (photoQuestions.value.length) return '拍一张作答照片提交；视觉模型会直接批改，判断不确定的结果会送老师复核。'
-  return '可输入解题步骤、上传手写图片或使用手写板作答；系统会自动批改，判断不确定的结果会送老师复核。'
+  if (!currentDetail.value) return '选择作业后逐题作答，全部完成后统一批改。'
+  if (isOffline.value) return '逐题拍照保存，全部完成后统一批改。'
+  if (photoQuestions.value.length && mathQuestions.value.length) return '数学题可输入步骤、上传手写图片或使用手写板；其他学科拍照作答，全部完成后统一批改。'
+  if (photoQuestions.value.length) return '逐题拍照保存，全部完成后统一批改。'
+  return '输入步骤、上传手写图片或使用手写板作答，全部完成后统一批改。'
 })
-const listSub = computed(() =>
-  isOffline.value
-    ? '点任意一题的「拍照批改」会直接打开图库，选好照片就在本题这里出结果，不用跳页面。'
-    : photoQuestions.value.length && mathQuestions.value.length
-      ? '其他学科的题目点「拍照批改」并拍下作答过程；数学题请在上方做题板在线作答。'
-      : photoQuestions.value.length
-        ? '点任意一题的「拍照批改」并拍下作答过程，视觉模型直接分析原图，不经过 OCR 转写。'
-        : '点任意一题的「在线作答」，在本题这里把解题步骤一行一步写下来提交，不用跳页面。'
-)
-
 /* ---------- 线下拍照流：点按直达图库（v0.9.2） ---------- */
 type FlowHandle = { openPicker: () => void; processFile: (file: File) => Promise<void> }
 const flowRefs = new Map<number, FlowHandle | null>()
@@ -490,6 +534,96 @@ function onFlowActive(qid: number, active: boolean) {
   flowActive.value[qid] = active
 }
 
+function applyGradingStatus(status: AssignmentGradingStatus) {
+  gradingJobStatus.value = status.status
+  gradingJobProgress.value = status.progress
+  gradingJobTotal.value = status.total_questions
+  answeredQids.value = new Set(status.answered_question_ids)
+}
+
+async function refreshLatestQuestionStatuses(questionIds: number[]) {
+  const statuses = await student.fetchLatestQuestionSubmissionStatuses().catch(() => [])
+  for (const qid of questionIds) {
+    doneQids.value.delete(qid)
+    pendingQids.value.delete(qid)
+    deferredQids.value.delete(qid)
+    delete scoreByQid.value[qid]
+  }
+  statuses.filter((item) => questionIds.includes(item.question_id)).forEach((item) => {
+    if (item.status === 'deferred') deferredQids.value.add(item.question_id)
+    else if ((item.review_status ?? 'approved') === 'pending') pendingQids.value.add(item.question_id)
+    else doneQids.value.add(item.question_id)
+    if (item.score != null && item.max_score != null) {
+      scoreByQid.value[item.question_id] = { score: item.score, max: item.max_score }
+    }
+  })
+}
+
+async function refreshGradingStatus(id: number) {
+  try {
+    const status = await student.fetchAssignmentGradingStatus(id)
+    if (id !== Number(assignmentId.value)) return
+    applyGradingStatus(status)
+    if (status.status === 'queued' || status.status === 'processing') return
+    if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
+    gradingPollHandle = null
+    if (status.status === 'completed') {
+      await refreshLatestQuestionStatuses(questions.value.map((q) => q.id))
+      assignments.value = await student.fetchAssignments().catch(() => assignments.value)
+    }
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+function startGradingPolling(id: number) {
+  if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
+  gradingPollHandle = window.setInterval(() => { void refreshGradingStatus(id) }, 2500)
+}
+
+async function queueWholeAssignment() {
+  const id = Number(assignmentId.value)
+  if (!id || batchSubmitting.value || batchLocked.value || !allAnswersStaged.value) return
+  batchSubmitting.value = true
+  error.value = ''
+  try {
+    const status = await student.submitAssignmentForGrading(id)
+    applyGradingStatus(status)
+    if (status.status === 'queued' || status.status === 'processing') startGradingPolling(id)
+  } catch (e) {
+    error.value = `提交整份作业失败：${errDetail(e) || '请稍后重试。'}`
+    console.error(e)
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
+async function saveStagedAnswer(qid: number, payload: { answerText?: string; file?: File }) {
+  const id = Number(assignmentId.value)
+  if (!id || submittingMap.value[qid] || batchLocked.value) return
+  submittingMap.value[qid] = true
+  answerErrors.value[qid] = ''
+  try {
+    const status = await student.stageAssignmentAnswer(id, qid, payload)
+    applyGradingStatus(status)
+    editorOpen.value[qid] = false
+    handwritingOpen.value[qid] = false
+    if (payload.file) clearHandwritingDraft(qid)
+    if (status.status === 'draft' && status.answered_question_ids.length === status.total_questions) {
+      await queueWholeAssignment()
+    }
+  } catch (e) {
+    answerErrors.value[qid] = `保存作答失败：${errDetail(e) || '请稍后重试。'}`
+    console.error(e)
+  } finally {
+    submittingMap.value[qid] = false
+  }
+}
+
+function onPhotoAnswered(qid: number, file: File) {
+  void saveStagedAnswer(qid, { file })
+}
+
 function toggleCollapse(qid: number) {
   if (collapsedQids.value.has(qid)) collapsedQids.value.delete(qid)
   else collapsedQids.value.add(qid)
@@ -501,7 +635,6 @@ const drafts = ref<Record<number, string>>({})
 const editorOpen = ref<Record<number, boolean>>({})
 const submittingMap = ref<Record<number, boolean>>({})
 const answerErrors = ref<Record<number, string>>({})
-const submittedNotes = ref<Record<number, 'pending' | 'approved' | 'deferred'>>({})
 const gutterScroll = ref<Record<number, number>>({})
 const loadedDraftQids = new Set<number>()
 const handwritingOpen = ref<Record<number, boolean>>({})
@@ -553,14 +686,6 @@ async function submitHandwriting(q: Question, file: File) {
   await flow.processFile(file)
 }
 
-function onBoardPhotoGraded(qid: number, result: SubmissionResult) {
-  clearDraft(qid)
-  clearHandwritingDraft(qid)
-  handwritingOpen.value[qid] = false
-  editorOpen.value[qid] = false
-  onGraded(qid, result)
-}
-
 function onEditorScroll(qid: number, e: Event) {
   gutterScroll.value[qid] = (e.target as HTMLTextAreaElement).scrollTop
 }
@@ -569,15 +694,6 @@ function clearDraft(qid: number) {
   drafts.value[qid] = ''
   localStorage.removeItem(draftKey(qid))
   answerErrors.value[qid] = ''
-}
-
-function toggleEditor(qid: number) {
-  const opening = !editorOpen.value[qid]
-  editorOpen.value[qid] = opening
-  if (opening) {
-    // 重新作答时收起上次提交的状态卡，避免与编辑器同时出现
-    delete submittedNotes.value[qid]
-  }
 }
 
 /* ---------- 线上做题板（v0.13.1）：一题一屏 + 符号栏 + 答题卡 ---------- */
@@ -606,7 +722,6 @@ const currentDraftMetrics = computed(() => {
 
 /** 本题的提交状态卡类型：本次会话刚提交的优先，其次历史提交状态；null = 还没提交过 */
 function noteKind(q: Question): 'pending' | 'approved' | 'deferred' | null {
-  if (submittedNotes.value[q.id]) return submittedNotes.value[q.id]
   if (deferredQids.value.has(q.id)) return 'deferred'
   if (pendingQids.value.has(q.id)) return 'pending'
   if (doneQids.value.has(q.id)) return 'approved'
@@ -642,8 +757,7 @@ function reviseQuestion(q: Question) {
   }
   const idx = mathQuestions.value.findIndex((x) => x.id === q.id)
   if (idx >= 0) gotoQuestion(idx)
-  // 强制重开编辑器（清掉状态卡），改完重新提交即成为最新版本
-  delete submittedNotes.value[q.id]
+  // 强制重开编辑器，改完后重新保存答案。
   editorOpen.value[q.id] = true
 }
 
@@ -654,7 +768,7 @@ function gotoQuestion(i: number) {
   const q = mathQuestions.value[idx]
   if (q) restoreDraft(q.id)
   // 还没提交过的题直接展开编辑器；已提交的先看状态卡（可再交一次）
-  if (q && !noteKind(q)) editorOpen.value[q.id] = true
+  if (q && !noteKind(q) && !answeredQids.value.has(q.id) && !batchLocked.value) editorOpen.value[q.id] = true
 }
 
 /** 符号栏：只放后端解析器认得的符号（× ÷ · ² ³ 归一化在 mathparse，
@@ -717,24 +831,7 @@ async function submitAnswer(q: Question) {
     answerErrors.value[q.id] = `步骤最多 ${MAX_STEPS} 步，请把几步合并一下再提交。`
     return
   }
-  answerErrors.value[q.id] = ''
-  submittingMap.value[q.id] = true
-  try {
-    const res = await student.submitMath({ question_id: q.id, steps })
-    clearDraft(q.id)
-    clearHandwritingDraft(q.id)
-    handwritingOpen.value[q.id] = false
-    editorOpen.value[q.id] = false
-    submittedNotes.value[q.id] = res.status === 'deferred' || res.review_status === 'deferred'
-      ? 'deferred'
-      : res.status === 'pending_review' || res.review_status === 'pending' ? 'pending' : 'approved'
-    onGraded(q.id, res)
-  } catch (e) {
-    answerErrors.value[q.id] = '提交失败：' + (errDetail(e) || '请稍后重试。')
-    console.error(e)
-  } finally {
-    submittingMap.value[q.id] = false
-  }
+  await saveStagedAnswer(q.id, { answerText: steps.join('\n') })
 }
 
 /* ---------- 作业装载与状态 ---------- */
@@ -755,6 +852,18 @@ async function loadQuestions(id: number, loadToken: number) {
     if (mistake) related[Number(questionId)] = mistake
   })
   relatedByQid.value = related
+  const gradingStatus = await student.fetchAssignmentGradingStatus(id).catch(() => null)
+  if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return detail
+  if (gradingStatus) {
+    applyGradingStatus(gradingStatus)
+    if (gradingStatus.status === 'queued' || gradingStatus.status === 'processing') {
+      startGradingPolling(id)
+    } else if (gradingStatus.status === 'completed') {
+      await refreshLatestQuestionStatuses(detail.questions.map((q) => q.id))
+    } else if (gradingStatus.status === 'draft' && gradingStatus.answered_question_ids.length === gradingStatus.total_questions) {
+      await queueWholeAssignment()
+    }
+  }
   // 在线作业只在题目首次进入做题板时读取本机草稿，避免逐题同步访问存储。
   if (detail.mode !== 'offline') {
     // 做题板初始定位：优先地址栏 ?q=<题目 id>（AI 简报「去完成」跳入时带），
@@ -781,13 +890,19 @@ async function loadQuestions(id: number, loadToken: number) {
     currentIdx.value = idx >= 0 ? idx : 0
     const q = qs[currentIdx.value]
     if (q) restoreDraft(q.id)
-    if (q && !noteKind(q)) editorOpen.value[q.id] = true
+    if (q && !noteKind(q) && !answeredQids.value.has(q.id) && !batchLocked.value) editorOpen.value[q.id] = true
   }
   return detail
 }
 
 async function selectAssignment(id: number) {
   const loadToken = ++assignmentLoadToken
+  if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
+  gradingPollHandle = null
+  answeredQids.value = new Set()
+  gradingJobStatus.value = 'none'
+  gradingJobProgress.value = 0
+  gradingJobTotal.value = 0
   error.value = ''
   questions.value = []
   relatedByQid.value = {}
@@ -800,7 +915,6 @@ async function selectAssignment(id: number) {
   editorOpen.value = {}
   handwritingOpen.value = {}
   handwritingRefs.clear()
-  submittedNotes.value = {}
   answerErrors.value = {}
   if (!id) return
   try {
@@ -818,35 +932,6 @@ async function onAssignmentChange() {
   // 地址栏同步当前作业，刷新/分享链接都落回这份作业
   router.replace({ query: id ? { assignment_id: id } : {} })
   await selectAssignment(id)
-}
-
-/** 批改完成：只有整份作业总分低于 60 分才进入教师审核。 */
-function onGraded(qid: number, result: SubmissionResult) {
-  if (result.status === 'deferred' || result.review_status === 'deferred') {
-    // v0.13.1：延迟批改——只落库不诊断，进「已提交待统一批改」集
-    deferredQids.value.add(qid)
-    pendingQids.value.delete(qid)
-    doneQids.value.delete(qid)
-    delete scoreByQid.value[qid]
-    return
-  }
-  if (result.status === 'pending_review' || result.review_status === 'pending') {
-    pendingQids.value.add(qid)
-    doneQids.value.delete(qid)
-    deferredQids.value.delete(qid)
-    if (result.score) {
-      scoreByQid.value[qid] = { score: result.score.score, max: result.score.max_score }
-    } else {
-      delete scoreByQid.value[qid]
-    }
-  } else {
-    doneQids.value.add(qid)
-    pendingQids.value.delete(qid)
-    deferredQids.value.delete(qid)
-    if (result.score) {
-      scoreByQid.value[qid] = { score: result.score.score, max: result.score.max_score }
-    }
-  }
 }
 
 onMounted(async () => {
@@ -961,6 +1046,11 @@ onMounted(async () => {
 .assign-info { background: var(--primary-50); border-color: #DBEAFE; box-shadow: none; }
 .assign-info .kp { color: var(--text-2); font-size: 13px; margin-top: 4px; }
 .assign-info .deadline-line { color: #B45309; font-weight: 600; }
+.assignment-grading-card { margin-top: 16px; }
+.grading-progress-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 8px; color: var(--text-2); font-size: 14px; }
+.grading-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #E8EDF5; margin: 8px 0 12px; }
+.grading-progress-fill { height: 100%; border-radius: inherit; background: var(--primary); transition: width .25s ease; }
+.grading-wait-hint { margin: 10px 0; color: var(--text-2); font-size: 13px; }
 .q-block { border-bottom: 1px solid #F1F3F6; padding-bottom: 12px; }
 .q-block:last-child { border-bottom: none; padding-bottom: 0; }
 .q-row {

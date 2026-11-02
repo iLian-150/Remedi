@@ -656,6 +656,43 @@ class SubmissionImage(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class AssignmentGradingJob(Base):
+    """One whole-assignment grading run, queued after every answer is submitted."""
+    __tablename__ = "assignment_grading_jobs"
+    __table_args__ = (
+        Index("ix_assignment_grading_student_assignment", "student_id", "assignment_id", "id"),
+        Index("ix_assignment_grading_status_created", "status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(16), nullable=False, default="draft",
+                    comment="draft | queued | processing | completed | failed")
+    progress = Column(Integer, nullable=False, default=0)
+    total_questions = Column(Integer, nullable=False, default=0)
+    error = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+class AssignmentGradingAnswer(Base):
+    """Private staged answer for an assignment grading job."""
+    __tablename__ = "assignment_grading_answers"
+    __table_args__ = (
+        Index("uq_assignment_grading_job_question", "job_id", "question_id", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(Integer, ForeignKey("assignment_grading_jobs.id"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
+    answer_text = Column(Text, nullable=True)
+    image_path = Column(String(512), nullable=True, comment="相对 ASSIGNMENT_DRAFT_DIR 的私有路径")
+    image_name = Column(String(255), nullable=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 # ---------------------------------------------------------------- v0.13.1：提交规则 + 大题/小题
 
 class AssignmentSetting(Base):
