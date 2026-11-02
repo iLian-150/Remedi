@@ -98,45 +98,18 @@
           <div v-if="loadingInit" class="loading">正在加载对话…</div>
         </div>
 
-        <!-- 输入区（v0.6.2 改悬浮卡：毛玻璃卡悬浮在面板底部，消息从卡下滚过；
-             输入框无边框融入卡内，发送是卡内右侧主色圆形钮） -->
-        <div class="tchat-composer">
-          <div class="composer-panel">
-            <div v-if="selectedImage && selectedImageUrl" class="composer-image-preview">
-              <button class="composer-image-open" type="button" aria-label="放大待发送图片" @click="openImagePreview(selectedImageUrl, selectedImage.name || '待发送图片')">
-                <img :src="selectedImageUrl" :alt="selectedImage.name || '待发送图片'" />
-              </button>
-              <button class="composer-image-remove" type="button" aria-label="移除图片" title="移除图片" :disabled="sending" @click="clearSelectedImage">
-                <AppIcon name="x" :size="15" />
-              </button>
-            </div>
-            <textarea
-              v-model="input"
-              class="tchat-input"
-              rows="1"
-              aria-label="输入问题"
-              placeholder="输入问题…"
-              :disabled="sending"
-              @keydown.enter.exact.prevent="sendComposer"
-            ></textarea>
-            <div class="composer-bottom-row">
-              <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
-              <button class="composer-photo-btn" type="button" aria-label="上传图片" title="上传图片" :disabled="sending" @click="fileRef?.click()">
-                <AppIcon name="camera" :size="18" />
-              </button>
-              <button
-                class="send-circle"
-                type="button"
-                :aria-label="selectedImage ? '发送图片' : '发送'"
-                :title="selectedImage ? '发送图片' : '发送'"
-                :disabled="sending || (!input.trim() && !selectedImage)"
-                @click="sendComposer"
-              >
-                <AppIcon name="send" :size="17" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <ChatComposer
+          v-model="input"
+          :selected-image="selectedImage"
+          :selected-image-url="selectedImageUrl"
+          :sending="sending"
+          :photo-disabled="sending"
+          :welcome="isWelcomeState"
+          @send="sendComposer"
+          @image-selected="onComposerImageSelected"
+          @clear-image="clearSelectedImage"
+          @preview-image="openImagePreview"
+        />
       </div>
       <div v-if="imagePreview" class="image-lightbox" role="dialog" aria-modal="true" aria-label="图片预览" @click.self="closeImagePreview">
         <button class="image-lightbox-close" type="button" aria-label="关闭图片预览" title="关闭" @click="closeImagePreview">
@@ -155,6 +128,7 @@ import { useTeacherStore } from '../../stores/teacher'
 import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem, TeacherAssignment, TeacherAssignmentDraftSeed } from '../../api/types'
 import ThinkingStatus from '../../components/ThinkingStatus.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import ChatComposer from '../../components/ChatComposer.vue'
 
 const TeacherPublish = defineAsyncComponent(() => import('./TeacherPublish.vue'))
 
@@ -183,7 +157,6 @@ interface Msg {
 const messages = ref<Msg[]>([])
 let seq = 0
 const input = ref('')
-const fileRef = ref<HTMLInputElement | null>(null)
 const selectedImage = shallowRef<File | null>(null)
 const selectedImageUrl = ref('')
 const imagePreview = ref<{ url: string; alt: string } | null>(null)
@@ -270,11 +243,7 @@ function onImagePreviewKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && imagePreview.value) closeImagePreview()
 }
 
-function onFileChange(event: Event) {
-  const picker = event.target as HTMLInputElement
-  const file = picker.files?.[0]
-  picker.value = ''
-  if (!file) return
+function onComposerImageSelected(file: File) {
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     error.value = '图片格式不支持，请上传 jpg、png 或 webp 图片。'
     return
@@ -726,45 +695,6 @@ onMounted(async () => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 输入卡采用学生端的多行文本、图片预览和拍照上传布局。 */
-.tchat-composer {
-  position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 5;
-}
-.composer-panel {
-  display: flex; flex-direction: column; width: 100%; padding: 12px 16px 10px;
-  border: 1px solid var(--border); border-radius: 22px; background: var(--card);
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
-  transition: box-shadow 0.25s ease, border-color 0.25s ease;
-}
-.composer-panel:focus-within {
-  border-color: #B9CFF7;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 0 0 3px rgba(29, 78, 216, 0.14);
-}
-.composer-image-preview { position: relative; width: fit-content; max-width: min(132px, 100%); margin: 0 8px 8px; }
-.composer-image-open { display: block; max-width: 100%; max-height: 92px; padding: 3px; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: zoom-in; }
-.composer-image-open img { display: block; width: auto; height: auto; max-width: 122px; max-height: 84px; object-fit: contain; border-radius: 8px; }
-.composer-image-remove { position: absolute; top: 8px; right: 8px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: rgba(255,255,255,.96); color: var(--text-2); box-shadow: 0 2px 8px rgba(15,23,42,.16); cursor: pointer; }
-.composer-image-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
-.composer-image-remove:disabled { opacity: .55; cursor: not-allowed; }
-.tchat-input {
-  display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none;
-  overflow-y: auto; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none;
-  background: transparent; font: inherit; font-size: 15px; line-height: 1.65;
-}
-.tchat-input:focus { border: none; box-shadow: none; outline: none; }
-.composer-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; }
-.composer-photo-btn { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--text-2); cursor: pointer; transition: background .16s ease,border-color .16s ease,color .16s ease,transform .2s ease; }
-.composer-photo-btn:hover:not(:disabled) { border-color: rgba(29,78,216,.35); background: var(--primary-50); color: var(--primary); }
-.composer-photo-btn:disabled { opacity: .55; cursor: not-allowed; }
-.send-circle {
-  width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: var(--primary); border: 1px solid var(--primary); color: #fff;
-  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.35); cursor: pointer; font-family: var(--font);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
-}
-.send-circle:hover:not(:disabled) { transform: scale(1.07); box-shadow: 0 6px 16px rgba(29, 78, 216, 0.42); }
-.send-circle:disabled { opacity: 0.45; cursor: not-allowed; }
 .image-lightbox { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(15,23,42,.82); cursor: zoom-out; }
 .image-lightbox > img { display: block; max-width: min(92vw,1200px); max-height: 90vh; object-fit: contain; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.4); cursor: default; }
 .image-lightbox-close { position: absolute; top: max(16px,env(safe-area-inset-top)); right: max(16px,env(safe-area-inset-right)); display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(255,255,255,.3); border-radius: 50%; background: rgba(255,255,255,.95); color: #1f2937; cursor: pointer; }
@@ -774,8 +704,6 @@ onMounted(async () => {
 @media (prefers-reduced-motion: reduce) {
   .welcome-prompts button, .suggest-chip { transition: none; }
   .suggest-chip { animation: none; }
-  .composer-panel, .composer-photo-btn, .send-circle { transition: none; }
-  .send-circle:hover:not(:disabled) { transform: none; }
 }
 @media (max-width: 960px) {
   .tchat-shell { height: calc(100dvh - 52px); padding: 14px 14px 16px; }
@@ -783,8 +711,6 @@ onMounted(async () => {
   .msg-content { max-width: 88%; }
   .msg-content.has-workflow { width: calc(100% - 40px); max-width: none; }
   .suggest-row { margin-left: 0; }
-  .tchat-composer { left: 10px; right: 10px; bottom: 10px; }
-  .composer-panel { padding: 10px 11px; }
   .tchat-body { padding-bottom: 112px; }
   .tchat-body-image-composer { padding-bottom: 220px; }
 }

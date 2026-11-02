@@ -294,41 +294,19 @@
 
     <!-- 输入区（v0.3.0：文本聊天接学习助手 Agent + 拍照批改并存；
          v0.8.1 恢复 v0.6.2 悬浮毛玻璃卡：悬浮在消息区底部，消息从卡下滚过） -->
-    <div class="chat-composer" :class="{ 'chat-composer-welcome': isWelcomeScreen }">
-      <div class="chat-inner">
-        <div class="composer-panel">
-          <div v-if="selectedImage && selectedImageUrl" class="composer-image-preview">
-            <button class="composer-image-open" type="button" aria-label="放大待发送图片" @click="openImagePreview(selectedImageUrl, selectedImage.name || '待发送图片')">
-              <img :src="selectedImageUrl" :alt="selectedImage.name || '待发送图片'" />
-            </button>
-            <button class="composer-image-remove" type="button" aria-label="移除图片" title="移除图片" :disabled="chatSending" @click="clearSelectedImage">
-              <AppIcon name="x" :size="15" />
-            </button>
-          </div>
-          <textarea
-            v-model="chatInput"
-            class="chat-text-input"
-            rows="1"
-            aria-label="输入内容"
-            placeholder="输入内容…"
-            :disabled="chatSending"
-            @keydown.enter.exact.prevent="sendChat()"
-          ></textarea>
-          <div class="composer-bottom-row">
-            <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
-            <div class="composer-tools">
-              <button class="composer-photo-btn" type="button" aria-label="上传题目图片" title="上传题目图片" :disabled="busy" @click="fileRef?.click()">
-                <AppIcon name="camera" :size="18" />
-              </button>
-              <span v-if="selectedQuestion" class="composer-context"><AppIcon name="clipboard" :size="13" /> {{ selectedQuestion.stem }}</span>
-            </div>
-            <button class="btn send-btn" type="button" :aria-label="selectedImage ? '发送图片' : '发送'" :title="selectedImage ? '发送图片' : '发送'" :disabled="chatSending || (!chatInput.trim() && !selectedImage)" @click="sendChat()">
-              <AppIcon name="send" :size="17" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ChatComposer
+      v-model="chatInput"
+      :selected-image="selectedImage"
+      :selected-image-url="selectedImageUrl"
+      :sending="chatSending"
+      :photo-disabled="busy"
+      :context-text="selectedQuestion?.stem"
+      :welcome="isWelcomeScreen"
+      @send="sendChat()"
+      @image-selected="onComposerImageSelected"
+      @clear-image="clearSelectedImage"
+      @preview-image="openImagePreview"
+    />
     </div>
     <div v-if="imagePreview" class="image-lightbox" role="dialog" aria-modal="true" aria-label="图片预览" @click.self="closeImagePreview">
       <button class="image-lightbox-close" type="button" aria-label="关闭图片预览" title="关闭" @click="closeImagePreview">
@@ -364,6 +342,7 @@ import { createMarkdownRenderer } from '../../utils/markdownRenderer'
 import BrandLogo from '../../components/BrandLogo.vue'
 import ThinkingStatus from '../../components/ThinkingStatus.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import ChatComposer from '../../components/ChatComposer.vue'
 import type { IconName } from '../../components/icons/paths'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
@@ -538,7 +517,6 @@ function questionStem(qid: number): string {
 }
 
 // ---------- 输入区 ----------
-const fileRef = ref<HTMLInputElement | null>(null)
 const selectedImage = ref<File | null>(null)
 const selectedImageUrl = ref('')
 const imagePreview = ref<{ url: string; alt: string } | null>(null)
@@ -969,11 +947,7 @@ async function streamAssistantReply(
 }
 
 // ---------- 拍照批改 ----------
-async function onFileChange(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
+function onComposerImageSelected(file: File) {
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     pushMsg({ side: 'ai', kind: 'error', text: '这张图片格式不对，请上传 jpg / png / webp 格式的作业照片。' })
     return
@@ -1596,49 +1570,12 @@ onMounted(async () => {
 }
 .followup-box p { padding-top: 3px; }
 
-/* 悬浮输入卡（v0.6.2 版式，v0.8.1 恢复）：毛玻璃卡悬浮在内容区底部，滚动内容从卡下透过去；
-   输入框无边框融入卡内，拍照=白底描边圆钮、发送=主色实心圆钮，聚焦时整卡带主色光晕 */
-.chat-composer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; background: transparent; padding: 10px 0 14px; }
-.chat-composer-welcome { background: transparent; }
-.composer-panel {
-  border: 1px solid rgba(211, 221, 235, 0.95); border-radius: 20px;
-  background: rgba(255, 255, 255, 0.94);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  backdrop-filter: blur(14px) saturate(1.4);
-  padding: 13px 15px 11px;
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.11), 0 2px 8px rgba(15, 23, 42, 0.045);
-  transition: border-color 0.18s ease, box-shadow 0.25s ease;
-}
-.composer-panel:focus-within {
-  border-color: rgba(29, 78, 216, 0.35);
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06), 0 0 0 3px rgba(29, 78, 216, 0.14);
-}
-.composer-image-preview { position: relative; width: fit-content; max-width: min(132px, 100%); margin: 0 8px 8px; }
-.composer-image-open { display: block; max-width: 100%; max-height: 92px; padding: 3px; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: zoom-in; }
-.composer-image-open img { display: block; width: auto; height: auto; max-width: 122px; max-height: 84px; object-fit: contain; border-radius: 8px; }
-.composer-image-remove { position: absolute; top: 8px; right: 8px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: rgba(255, 255, 255, 0.96); color: var(--text-2); box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16); cursor: pointer; }
-.composer-image-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
-.composer-image-remove:disabled { opacity: 0.55; cursor: not-allowed; }
 .image-lightbox { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(15, 23, 42, 0.82); cursor: zoom-out; }
 .image-lightbox > img { display: block; max-width: min(92vw, 1200px); max-height: 90vh; object-fit: contain; border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4); cursor: default; }
 .image-lightbox-close { position: absolute; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50%; background: rgba(255, 255, 255, 0.95); color: #1f2937; cursor: pointer; }
-.chat-text-input { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none; font: inherit; font-size: 15px; line-height: 1.65; }
-.chat-text-input:focus { border: 0; outline: 0; box-shadow: none; }
-.composer-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; }
-.composer-tools { display: flex; min-width: 0; align-items: center; gap: 9px; }
-.composer-photo-btn { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--text-2); padding: 0; cursor: pointer; transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.2s ease; }
-.composer-photo-btn:hover:not(:disabled) { border-color: rgba(29, 78, 216, 0.35); background: var(--primary-50); color: var(--primary); }
-.composer-photo-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.composer-context { display: inline-flex; min-width: 0; align-items: center; gap: 5px; overflow: hidden; color: var(--text-3); font-size: 11.5px; white-space: nowrap; text-overflow: ellipsis; }
-.send-btn { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; padding: 0; border-radius: 50%; flex-shrink: 0; transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease; }
-.send-btn:hover:not(:disabled) { transform: scale(1.07); }
-.send-btn:disabled { background: var(--gray-bg); color: var(--text-3); cursor: default; }
-.send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
-.chat-composer .chat-inner { max-width: 860px; }
 @media (prefers-reduced-motion: reduce) {
   .suggest-chip, .welcome-home { animation: none; transition: none; }
-  .composer-panel, .send-btn, .composer-photo-btn, .history-loading-spinner { transition: none; animation: none; }
-  .send-btn:hover:not(:disabled) { transform: none; }
+  .history-loading-spinner { transition: none; animation: none; }
 }
 
 @media (max-width: 960px) {
@@ -1647,7 +1584,6 @@ onMounted(async () => {
   .user-image img { max-width: 190px; max-height: 125px; }
   .bubble { max-width: 88%; }
   .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 150px; }
-  .composer-panel { padding: 10px 11px; }
 }
 
 @media (max-width: 620px) {
@@ -1656,8 +1592,5 @@ onMounted(async () => {
   .chat-title-mark { width: 32px; height: 32px; }
   .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
   .welcome-briefing { margin-top: 17px; padding: 12px; }
-  .composer-bottom-row { gap: 6px; }
-  .composer-tools { gap: 5px; }
-  .composer-context { max-width: 38vw; }
 }
 </style>
