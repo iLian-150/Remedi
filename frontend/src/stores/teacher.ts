@@ -695,6 +695,86 @@ export const useTeacherStore = defineStore('teacher', {
       if (!result) throw new Error('教师助手的流式回复没有正常结束，请重试。')
       return result
     },
+    async agentVisionChatStream(
+      file: File,
+      question: string,
+      sessionId: number | null | undefined,
+      onText: (text: string) => void,
+      signal?: AbortSignal
+    ): Promise<AgentChatResult> {
+      const auth = useAuthStore()
+      const form = new FormData()
+      form.append('file', file)
+      form.append('question', question)
+      if (sessionId != null) form.append('session_id', String(sessionId))
+      const response = await fetch(api.getUri({ url: '/api/teacher/agent/chat/vision/stream' }), {
+        method: 'POST',
+        headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+        body: form,
+        signal
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: unknown } | null
+        if (response.status === 401) {
+          auth.logout()
+          if (window.location.pathname !== '/') window.location.href = '/'
+        }
+        const detail = typeof payload?.detail === 'string' ? payload.detail : ''
+        throw new Error(detail || `图片讲解请求失败（HTTP ${response.status}）`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('浏览器无法读取图片讲解流。')
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let result: AgentChatResult | null = null
+      let streamError = ''
+      const consumeEvent = (block: string) => {
+        let eventName = ''
+        const dataLines: string[] = []
+        for (const line of block.split('\n')) {
+          if (!line || line.startsWith(':')) continue
+          const separator = line.indexOf(':')
+          const field = separator < 0 ? line : line.slice(0, separator)
+          let value = separator < 0 ? '' : line.slice(separator + 1)
+          if (value.startsWith(' ')) value = value.slice(1)
+          if (field === 'event') eventName = value
+          else if (field === 'data') dataLines.push(value)
+        }
+        if (!dataLines.length) return
+        const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
+        if (eventName === 'token') {
+          const text = typeof payload.text === 'string' ? payload.text : ''
+          if (text) onText(text)
+        } else if (eventName === 'done') {
+          result = payload as unknown as AgentChatResult
+        } else if (eventName === 'error') {
+          streamError = typeof payload.detail === 'string' ? payload.detail : '图片讲解中断，请稍后重试。'
+        }
+      }
+
+      while (true) {
+        const { value, done } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        let boundary = buffer.indexOf('\n\n')
+        while (boundary >= 0) {
+          consumeEvent(buffer.slice(0, boundary))
+          buffer = buffer.slice(boundary + 2)
+          boundary = buffer.indexOf('\n\n')
+        }
+        if (done) break
+      }
+      if (buffer.trim()) consumeEvent(buffer)
+      if (signal?.aborted) {
+        const error = new Error('请求已取消')
+        error.name = 'AbortError'
+        throw error
+      }
+      if (streamError) throw new Error(streamError)
+      if (!result) throw new Error('图片讲解没有正常结束，请重试。')
+      return result
+    },
     // 4.13 教师对话历史（v0.5.0；v0.6.0 起返回当前会话最近 50 条）
     async fetchAgentHistory(): Promise<AgentHistoryItem[]> {
       const { data } = await api.get<AgentHistoryItem[]>('/api/teacher/agent/history')

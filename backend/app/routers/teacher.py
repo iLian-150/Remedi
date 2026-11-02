@@ -2453,10 +2453,7 @@ def teacher_agent_session_messages(session_id: int, db: Session = Depends(get_db
     session = cs.get_own_session_or_migrate(db, current, session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
-    return [
-        {"role": m.role, "content": m.content, "created_at": m.created_at}
-        for m in cs.session_messages(db, session)
-    ]
+    return cs.history_items(db, current, session)
 
 
 @router.get("/agent/sessions/{session_id}/messages/page",
@@ -2489,11 +2486,7 @@ def teacher_agent_session_message_page(
         before_id,
     )
     return {
-        "items": [
-            {"role": message.role, "content": message.content,
-             "created_at": message.created_at}
-            for message in page
-        ],
+        "items": cs.history_items(db, current, session, messages=page),
         "has_more": has_more,
         "before_created_at": cursor_created_at,
         "before_id": cursor_id,
@@ -2584,6 +2577,99 @@ def teacher_agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
     )
 
 
+@router.post("/agent/chat/vision/stream", summary="教师助手图片流式讲解")
+async def teacher_agent_vision_chat_stream(
+    file: UploadFile = File(...),
+    question: str = Form(default=""),
+    session_id: Optional[int] = Form(default=None),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    """将教师上传的图片直接交给视觉模型，并保存在当前教师会话。"""
+    if file.content_type not in _PHOTO_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持 jpg / png / webp 格式的图片")
+    image_bytes = await file.read(_PHOTO_MAX_BYTES + 1)
+    if not image_bytes:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片内容为空，请重新上传")
+    if len(image_bytes) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片大小不能超过 10MB")
+    text = question.strip()
+    if len(text) > _AGENT_MSG_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "问题有点长，单条最多 2000 字")
+
+    from ..services import chat_sessions as cs
+
+    session, _ = cs.resolve_chat_session_history(
+        db, current, session_id, _AGENT_HISTORY_WINDOW
+    )
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
+
+    image_id = "{}_{}{}".format(
+        datetime.now().strftime("%Y%m%d%H%M%S"),
+        secrets.token_hex(8),
+        _PHOTO_TYPES[file.content_type],
+    )
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    chat_user_text = text or "请分析这张图片。"
+    try:
+        await run_in_threadpool(
+            _write_uploaded_file, os.path.join(settings.UPLOAD_DIR, image_id), image_bytes
+        )
+        user_message = cs.append_message(db, session, "user", chat_user_text)
+        image_name = os.path.basename((file.filename or "").replace("\\", "/")) or "上传图片"
+        cs.attach_image(db, user_message, image_id, image_name)
+    except Exception:
+        delete_unreferenced_uploads(db, {image_id}, reason="教师图片对话上传失败后")
+        raise
+
+    def event(name: str, payload: dict) -> str:
+        return f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    def stream_events():
+        yield ": connected\n\n"
+        image_stream = None
+        reply_parts = []
+        try:
+            image_stream = get_provider().stream_image_answer(
+                image_bytes, file.content_type or "image/jpeg", text
+            )
+            for chunk in image_stream:
+                if chunk:
+                    reply_parts.append(chunk)
+                    yield event("token", {"text": chunk})
+            reply = "".join(reply_parts).strip()
+            if not reply:
+                raise ValueError("视觉模型没有返回讲解内容")
+            cs.append_message(db, session, "assistant", reply)
+            yield event("done", {
+                "reply": reply,
+                "suggestions": [],
+                "session_id": session.id,
+            })
+        except Exception as exc:
+            logger.error(
+                "教师图片视觉讲解流中断（session_id=%s, error_type=%s）",
+                session.id,
+                type(exc).__name__,
+            )
+            yield event("error", {"detail": "视觉模型暂时无法完成图片讲解，请稍后重试。"})
+        finally:
+            close = getattr(image_stream, "close", None)
+            if close is not None:
+                close()
+
+    return ClosingStreamingResponse(
+        stream_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/agent/history", response_model=List[AgentHistoryItem], summary="教师对话历史")
 def teacher_agent_history(db: Session = Depends(get_db), current: User = Depends(require_teacher)):
     """兼容旧用法：返回「当前会话」最近 50 条消息（v0.6.0 起按会话隔离）。"""
@@ -2592,10 +2678,7 @@ def teacher_agent_history(db: Session = Depends(get_db), current: User = Depends
     session = cs.current_session_or_migrate(db, current)
     if session is None:
         return []
-    return [
-        AgentHistoryItem(role=m.role, content=m.content, created_at=m.created_at)
-        for m in cs.session_messages(db, session, limit=_AGENT_HISTORY_RETURN)
-    ]
+    return cs.history_items(db, current, session, limit=_AGENT_HISTORY_RETURN)
 
 
 @router.post("/agent/new-session", response_model=ChatSessionOut, summary="开始新对话（v0.6.0 改为新建会话）")

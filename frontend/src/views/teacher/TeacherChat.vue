@@ -14,7 +14,7 @@
       <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="tchat-panel">
-        <div class="tchat-body" :class="{ 'tchat-body-welcome': isWelcomeState }" ref="bodyRef">
+        <div class="tchat-body" :class="{ 'tchat-body-welcome': isWelcomeState, 'tchat-body-image-composer': selectedImage }" ref="bodyRef">
           <div v-if="historyHasMore || historyLoadingOlder || historyLoadError" class="history-pager">
             <button
               v-if="historyHasMore"
@@ -40,7 +40,18 @@
                 <ThinkingStatus />
                 <span class="pending-elapsed">· {{ pendingElapsedSeconds }} 秒</span>
               </div>
-              <template v-else>{{ msg.text }}</template>
+              <template v-else>
+                <button
+                  v-if="msg.imageUrl"
+                  class="message-image"
+                  type="button"
+                  :aria-label="`放大${msg.imageName || '上传图片'}`"
+                  @click="openImagePreview(msg.imageUrl, msg.imageName || '上传图片')"
+                >
+                  <img :src="msg.imageUrl" :alt="msg.imageName || '上传图片'" />
+                </button>
+                <div v-if="msg.text">{{ msg.text }}</div>
+              </template>
             </div>
           </div>
 
@@ -74,31 +85,55 @@
         <!-- 输入区（v0.6.2 改悬浮卡：毛玻璃卡悬浮在面板底部，消息从卡下滚过；
              输入框无边框融入卡内，发送是卡内右侧主色圆形钮） -->
         <div class="tchat-composer">
-          <input
-            v-model="input"
-            class="tchat-input"
-            type="text"
-            aria-label="输入问题"
-            placeholder="输入问题…"
-            :disabled="sending"
-            @keyup.enter="sendText(input)"
-          />
-          <button
-            class="send-circle"
-            title="发送"
-            :disabled="sending || !input.trim()"
-            @click="sendText(input)"
-          >
-            <AppIcon name="send" :size="17" />
-          </button>
+          <div class="composer-panel">
+            <div v-if="selectedImage && selectedImageUrl" class="composer-image-preview">
+              <button class="composer-image-open" type="button" aria-label="放大待发送图片" @click="openImagePreview(selectedImageUrl, selectedImage.name || '待发送图片')">
+                <img :src="selectedImageUrl" :alt="selectedImage.name || '待发送图片'" />
+              </button>
+              <button class="composer-image-remove" type="button" aria-label="移除图片" title="移除图片" :disabled="sending" @click="clearSelectedImage">
+                <AppIcon name="x" :size="15" />
+              </button>
+            </div>
+            <textarea
+              v-model="input"
+              class="tchat-input"
+              rows="1"
+              aria-label="输入问题"
+              placeholder="输入问题…"
+              :disabled="sending"
+              @keydown.enter.exact.prevent="sendComposer"
+            ></textarea>
+            <div class="composer-bottom-row">
+              <input ref="fileRef" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onFileChange" />
+              <button class="composer-photo-btn" type="button" aria-label="上传图片" title="上传图片" :disabled="sending" @click="fileRef?.click()">
+                <AppIcon name="camera" :size="18" />
+              </button>
+              <button
+                class="send-circle"
+                type="button"
+                :aria-label="selectedImage ? '发送图片' : '发送'"
+                :title="selectedImage ? '发送图片' : '发送'"
+                :disabled="sending || (!input.trim() && !selectedImage)"
+                @click="sendComposer"
+              >
+                <AppIcon name="send" :size="17" />
+              </button>
+            </div>
+          </div>
         </div>
+      </div>
+      <div v-if="imagePreview" class="image-lightbox" role="dialog" aria-modal="true" aria-label="图片预览" @click.self="closeImagePreview">
+        <button class="image-lightbox-close" type="button" aria-label="关闭图片预览" title="关闭" @click="closeImagePreview">
+          <AppIcon name="x" :size="21" />
+        </button>
+        <img :src="imagePreview.url" :alt="imagePreview.alt" />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
 import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem } from '../../api/types'
@@ -120,11 +155,18 @@ interface Msg {
   side: 'ai' | 'user'
   text: string
   pending: boolean
+  imageUrl?: string
+  imageName?: string
 }
 
 const messages = ref<Msg[]>([])
 let seq = 0
 const input = ref('')
+const fileRef = ref<HTMLInputElement | null>(null)
+const selectedImage = shallowRef<File | null>(null)
+const selectedImageUrl = ref('')
+const imagePreview = ref<{ url: string; alt: string } | null>(null)
+const imageObjectUrls = new Set<string>()
 const sending = ref(false)
 const loadingInit = ref(true)
 const error = ref('')
@@ -165,15 +207,65 @@ const WELCOME = () => {
   return `${subject ? `${subject}老师` : '老师'}你好，今天想先了解哪项班级情况？`
 }
 
-function createMsg(side: 'ai' | 'user', text: string, pending = false): Msg {
-  return { id: ++seq, side, text, pending }
+function createMsg(side: 'ai' | 'user', text: string, pending = false, imageUrl?: string, imageName?: string): Msg {
+  return { id: ++seq, side, text, pending, imageUrl, imageName }
 }
 
-function pushMsg(side: 'ai' | 'user', text: string, pending = false, shouldScroll = true): Msg {
-  const m = createMsg(side, text, pending)
+function pushMsg(
+  side: 'ai' | 'user', text: string, pending = false, shouldScroll = true,
+  imageUrl?: string, imageName?: string
+): Msg {
+  const m = createMsg(side, text, pending, imageUrl, imageName)
   messages.value.push(m)
   if (shouldScroll) scrollToBottom()
   return m
+}
+
+function createImageUrl(file: File): string {
+  const url = URL.createObjectURL(file)
+  imageObjectUrls.add(url)
+  return url
+}
+
+function clearSelectedImage() {
+  if (selectedImageUrl.value) {
+    if (imagePreview.value?.url === selectedImageUrl.value) closeImagePreview()
+    URL.revokeObjectURL(selectedImageUrl.value)
+    imageObjectUrls.delete(selectedImageUrl.value)
+  }
+  selectedImage.value = null
+  selectedImageUrl.value = ''
+}
+
+function openImagePreview(url: string, alt: string) {
+  if (url) imagePreview.value = { url, alt }
+}
+
+function closeImagePreview() {
+  imagePreview.value = null
+}
+
+function onImagePreviewKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && imagePreview.value) closeImagePreview()
+}
+
+function onFileChange(event: Event) {
+  const picker = event.target as HTMLInputElement
+  const file = picker.files?.[0]
+  picker.value = ''
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    error.value = '图片格式不支持，请上传 jpg、png 或 webp 图片。'
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    error.value = '图片不能超过 10MB，请压缩后再上传。'
+    return
+  }
+  error.value = ''
+  clearSelectedImage()
+  selectedImage.value = file
+  selectedImageUrl.value = createImageUrl(file)
 }
 
 function scrollToBottom() {
@@ -242,13 +334,89 @@ async function sendText(raw: string) {
   }
 }
 
+function sendComposer() {
+  if (selectedImage.value) {
+    void sendImage(selectedImage.value, input.value.trim())
+    return
+  }
+  void sendText(input.value)
+}
+
+async function sendImage(file: File, question: string) {
+  if (sending.value) return
+  if (question.length > 2000) {
+    error.value = '这条消息有点太长了（最多 2000 字），请拆成两条发送。'
+    return
+  }
+  const imageUrl = selectedImageUrl.value
+  const questionForModel = question || '请分析这张图片。'
+  selectedImage.value = null
+  selectedImageUrl.value = ''
+  input.value = ''
+  error.value = ''
+  suggestions.value = []
+  pushMsg('user', questionForModel, false, true, imageUrl, file.name)
+  const wait = pushMsg('ai', '正在分析图片', true)
+  pendingElapsedSeconds.value = 0
+  const pendingStartedAt = Date.now()
+  stopPendingTimer()
+  pendingTimer = window.setInterval(() => {
+    pendingElapsedSeconds.value = Math.floor((Date.now() - pendingStartedAt) / 1000)
+  }, 1000)
+  const controller = new AbortController()
+  activeStreamController = controller
+  sending.value = true
+  let receivedText = false
+  try {
+    let sessionId = teacher.activeSessionId
+    if (sessionId == null && teacher.sessionView.fresh) {
+      const session = await teacher.createSession()
+      sessionId = session.id
+      teacher.setActiveSession(session.id)
+    }
+    const result = await teacher.agentVisionChatStream(
+      file, questionForModel, sessionId,
+      (text) => {
+        if (!receivedText) {
+          wait.text = ''
+          receivedText = true
+        }
+        wait.text += text
+        wait.pending = false
+        scrollToBottom()
+      },
+      controller.signal
+    )
+    if (result.session_id) teacher.setActiveSession(result.session_id)
+    suggestions.value = result.suggestions ?? []
+    void teacher.loadSessions(true)
+  } catch (e) {
+    if (isAbortError(e)) return
+    wait.text = '图片分析失败：' + (errDetail(e) || '请稍后重试。')
+    console.error(e)
+    void teacher.loadSessions(true)
+  } finally {
+    stopPendingTimer()
+    if (activeStreamController === controller) activeStreamController = null
+    wait.pending = false
+    sending.value = false
+    scrollToBottom()
+  }
+}
+
 onUnmounted(() => {
   stopPendingTimer()
   activeStreamController?.abort()
+  window.removeEventListener('keydown', onImagePreviewKeydown)
+  imageObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+  imageObjectUrls.clear()
 })
 
 function restoreHistoryMessage(row: AgentHistoryItem, shouldScroll = false) {
-  pushMsg(row.role === 'user' ? 'user' : 'ai', row.content, false, shouldScroll)
+  pushMsg(
+    row.role === 'user' ? 'user' : 'ai', row.content, false, shouldScroll,
+    row.image_url ?? undefined, row.image_name ?? undefined
+  )
 }
 
 function updateHistoryPage(page: AgentHistoryPage | null) {
@@ -286,7 +454,8 @@ async function loadOlderHistory() {
     const previousHeight = body?.scrollHeight ?? 0
     const previousTop = body?.scrollTop ?? 0
     const olderMessages = page.items.map((item) => createMsg(
-      item.role === 'user' ? 'user' : 'ai', item.content
+      item.role === 'user' ? 'user' : 'ai', item.content, false,
+      item.image_url ?? undefined, item.image_name ?? undefined
     ))
     messages.value.unshift(...olderMessages)
     updateHistoryPage(page)
@@ -314,6 +483,9 @@ watch(
     const viewId = view.id
     suggestions.value = []
     error.value = ''
+    clearSelectedImage()
+    closeImagePreview()
+    input.value = ''
     historyHasMore.value = false
     historyCursor.value = null
     historyLoadError.value = ''
@@ -340,6 +512,7 @@ watch(
 )
 
 onMounted(async () => {
+  window.addEventListener('keydown', onImagePreviewKeydown)
   let initialViewSeq: number | null = null
   let initialSessionId: number | null = null
   try {
@@ -396,6 +569,8 @@ onMounted(async () => {
 .bubble { border-radius: 14px; padding: 11px 16px; font-size: 14.5px; max-width: 78%; white-space: pre-wrap; word-break: break-word; }
 .ai-bubble { background: transparent; border: 0; display: inline-flex; align-items: flex-start; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
+.message-image { display: block; max-width: min(280px, 66vw); margin: 0 0 6px; padding: 0; overflow: hidden; border: 0; border-radius: 10px; background: transparent; cursor: zoom-in; }
+.message-image img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; }
 .tchat-body-welcome .msg-row { justify-content: center; width: 100%; margin-bottom: 12px; }
 .tchat-body-welcome .msg-avatar { display: none; }
 .welcome-bubble { max-width: 100%; padding: 4px 8px; color: var(--text); font-size: 24px; font-weight: 650; line-height: 1.4; text-align: center; }
@@ -422,24 +597,36 @@ onMounted(async () => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 悬浮输入卡（v0.6.2）：毛玻璃卡悬浮在面板底部，滚动内容从卡下透过去；
-   输入框无边框融入卡内，发送是卡内右侧主色圆形钮，聚焦时卡带主色光晕 */
+/* 输入卡采用学生端的多行文本、图片预览和拍照上传布局。 */
 .tchat-composer {
   position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 5;
-  display: flex; gap: 8px; align-items: center;
-  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08); padding: 8px 10px;
+}
+.composer-panel {
+  display: flex; flex-direction: column; width: 100%; padding: 12px 16px 10px;
+  border: 1px solid var(--border); border-radius: 22px; background: var(--card);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
   transition: box-shadow 0.25s ease, border-color 0.25s ease;
 }
-.tchat-composer:focus-within {
+.composer-panel:focus-within {
   border-color: #B9CFF7;
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 0 0 3px rgba(29, 78, 216, 0.14);
 }
+.composer-image-preview { position: relative; width: fit-content; max-width: min(132px, 100%); margin: 0 8px 8px; }
+.composer-image-open { display: block; max-width: 100%; max-height: 92px; padding: 3px; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: zoom-in; }
+.composer-image-open img { display: block; width: auto; height: auto; max-width: 122px; max-height: 84px; object-fit: contain; border-radius: 8px; }
+.composer-image-remove { position: absolute; top: 8px; right: 8px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: rgba(255,255,255,.96); color: var(--text-2); box-shadow: 0 2px 8px rgba(15,23,42,.16); cursor: pointer; }
+.composer-image-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.composer-image-remove:disabled { opacity: .55; cursor: not-allowed; }
 .tchat-input {
-  flex: 1; min-width: 0; padding: 10px 6px; font-size: 15px;
-  border: none; background: transparent; box-shadow: none;
+  display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none;
+  overflow-y: auto; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none;
+  background: transparent; font: inherit; font-size: 15px; line-height: 1.65;
 }
 .tchat-input:focus { border: none; box-shadow: none; outline: none; }
+.composer-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; }
+.composer-photo-btn { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--text-2); cursor: pointer; transition: background .16s ease,border-color .16s ease,color .16s ease,transform .2s ease; }
+.composer-photo-btn:hover:not(:disabled) { border-color: rgba(29,78,216,.35); background: var(--primary-50); color: var(--primary); }
+.composer-photo-btn:disabled { opacity: .55; cursor: not-allowed; }
 .send-circle {
   width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
@@ -449,19 +636,25 @@ onMounted(async () => {
 }
 .send-circle:hover:not(:disabled) { transform: scale(1.07); box-shadow: 0 6px 16px rgba(29, 78, 216, 0.42); }
 .send-circle:disabled { opacity: 0.45; cursor: not-allowed; }
+.image-lightbox { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(15,23,42,.82); cursor: zoom-out; }
+.image-lightbox > img { display: block; max-width: min(92vw,1200px); max-height: 90vh; object-fit: contain; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.4); cursor: default; }
+.image-lightbox-close { position: absolute; top: max(16px,env(safe-area-inset-top)); right: max(16px,env(safe-area-inset-right)); display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(255,255,255,.3); border-radius: 50%; background: rgba(255,255,255,.95); color: #1f2937; cursor: pointer; }
 .pending-status { display: inline-flex; align-items: center; gap: 8px; }
 .pending-elapsed { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.tchat-body-image-composer { padding-bottom: 228px; }
 @media (prefers-reduced-motion: reduce) {
   .welcome-prompts button, .suggest-chip { transition: none; }
   .suggest-chip { animation: none; }
-  .tchat-composer, .send-circle { transition: none; }
+  .composer-panel, .composer-photo-btn, .send-circle { transition: none; }
   .send-circle:hover:not(:disabled) { transform: none; }
 }
 @media (max-width: 960px) {
   .tchat-shell { height: calc(100dvh - 52px); padding: 14px 14px 16px; }
   .bubble { max-width: 88%; }
   .suggest-row { margin-left: 0; }
-  .tchat-composer { left: 10px; right: 10px; bottom: 10px; border-radius: 18px; }
+  .tchat-composer { left: 10px; right: 10px; bottom: 10px; }
+  .composer-panel { padding: 10px 11px; }
   .tchat-body { padding-bottom: 112px; }
+  .tchat-body-image-composer { padding-bottom: 220px; }
 }
 </style>
