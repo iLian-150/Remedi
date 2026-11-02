@@ -90,7 +90,7 @@
       </div>
     </aside>
 
-    <main class="shell-main">
+    <main class="shell-main" :class="{ 'is-chat-route': isChatRoute }">
       <!-- 登录成功切换到应用外壳时，路由仍可能短暂停留在公开登录页；不要把登录表单渲染进已登录布局。 -->
       <router-view v-if="!route.meta.public" />
       <div v-else class="shell-route-loading" role="status" aria-live="polite">
