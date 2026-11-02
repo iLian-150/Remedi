@@ -584,7 +584,8 @@ export const useTeacherStore = defineStore('teacher', {
       message: string,
       sessionId: number | null | undefined,
       onCharacter: (character: string) => void,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      attachment?: { name: string; text: string }
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const response = await fetch(api.getUri({ url: '/api/teacher/agent/chat/stream' }), {
@@ -593,7 +594,12 @@ export const useTeacherStore = defineStore('teacher', {
           'Content-Type': 'application/json',
           ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {})
         },
-        body: JSON.stringify({ message, session_id: sessionId ?? undefined }),
+        body: JSON.stringify({
+          message,
+          session_id: sessionId ?? undefined,
+          attachment_name: attachment?.name,
+          attachment_text: attachment?.text
+        }),
         signal
       })
 
@@ -688,6 +694,14 @@ export const useTeacherStore = defineStore('teacher', {
       }
       if (!result) throw new Error('教师助手的流式回复没有正常结束，请重试。')
       return result
+    },
+    async extractChatAttachment(file: File): Promise<{ name: string; text: string }> {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post<{ name: string; text: string }>(
+        '/api/chat/attachments/extract', form, { timeout: 300_000 }
+      )
+      return data
     },
     async agentVisionChatStream(
       file: File,

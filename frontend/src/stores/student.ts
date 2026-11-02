@@ -690,6 +690,14 @@ export const useStudentStore = defineStore('student', {
       if (!reply) throw new Error('视觉模型没有正常结束图片讲解，请重试。')
       return reply
     },
+    async extractChatAttachment(file: File): Promise<{ name: string; text: string }> {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post<{ name: string; text: string }>(
+        '/api/chat/attachments/extract', form, { timeout: 300_000 }
+      )
+      return data
+    },
     async appendAgentAssistantMessage(
       sessionId: number,
       content: string,
@@ -734,7 +742,8 @@ export const useStudentStore = defineStore('student', {
       safeToolsOnly = false,
       relatedMistakeErrorId?: number | null,
       signal?: AbortSignal,
-      subject?: string
+      subject?: string,
+      attachment?: { name: string; text: string }
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const response = await fetch(api.getUri({ url: '/api/student/agent/chat/stream' }), {
@@ -749,7 +758,9 @@ export const useStudentStore = defineStore('student', {
           persist_user_message: persistUserMessage,
           safe_tools_only: safeToolsOnly,
           related_mistake_error_id: relatedMistakeErrorId ?? undefined,
-          subject
+          subject,
+          attachment_name: attachment?.name,
+          attachment_text: attachment?.text
         }),
         signal
       })

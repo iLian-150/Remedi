@@ -3358,6 +3358,8 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息不能为空")
     if len(text) > _AGENT_MSG_MAX:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "消息有点长，单条最多 2000 字，请分开发送")
+    if (body.attachment_name is None) != (body.attachment_text is None):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "附件信息不完整，请重新上传文件。")
 
     session, rows = cs.resolve_chat_session_history(
         db, current, body.session_id, _AGENT_HISTORY_WINDOW
@@ -3366,21 +3368,30 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "对话不存在")
 
     # 恢复中断的回复时，问题已经保存在历史里；避免把同一条问题同时放进上下文两次。
+    attachment_name = body.attachment_name
+    attachment_text = body.attachment_text
     if (
         not body.persist_user_message
         and rows
         and rows[-1].role == "user"
-        and rows[-1].content == text
+        and cs.unpack_message_content(rows[-1].content)[0] == text
     ):
+        _, stored_attachment_name, stored_attachment_text = cs.unpack_message_content(rows[-1].content)
+        attachment_name = attachment_name or stored_attachment_name
+        attachment_text = attachment_text or stored_attachment_text
         rows = rows[:-1]
 
     history = [
-        HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
+        HumanMessage(content=cs.model_message_content(row.content)) if row.role == "user" else AIMessage(content=row.content)
         for row in rows
     ]
     if body.persist_user_message:
         # 先提交用户消息；浏览器刷新或流中断时，至少保留本轮提问。
-        cs.append_message(db, session, "user", text)
+        cs.append_message(db, session, "user", text, attachment_name, attachment_text)
+
+    current_prompt = cs.model_message_content(
+        cs.pack_message_content(text, attachment_name, attachment_text)
+    )
 
     preloaded_related_mistake = None
     if body.safe_tools_only and body.related_mistake_error_id is not None:
@@ -3431,7 +3442,7 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
     def stream_events():
         yield ": connected\n\n"
         reply_stream = agent_reply_stream(
-            db, current, history, text,
+            db, current, history, current_prompt,
             safe_tools_only=body.safe_tools_only, subject=body.subject,
         )
         try:

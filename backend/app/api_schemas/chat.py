@@ -18,6 +18,8 @@ class AgentChatIn(BaseModel):
         default=None,
         pattern="^(chinese|math|english|politics|history|physics|chemistry|geography|biology)$",
     )
+    attachment_name: Optional[str] = Field(default=None, max_length=255)
+    attachment_text: Optional[str] = Field(default=None, max_length=40064)
 
 class AgentAssistantMessageIn(BaseModel):
     """保存直接视觉问答生成的助手回复；用户图片消息已由拍照接口保存。"""
@@ -31,6 +33,7 @@ class AgentHistoryItem(BaseModel):
     related_mistake: Optional[RelatedMistakeOut] = None
     image_url: Optional[str] = None
     image_name: Optional[str] = None
+    attachment_name: Optional[str] = None
 
 class AgentHistoryPageOut(BaseModel):
     items: List[AgentHistoryItem]

@@ -14,7 +14,7 @@
       <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="tchat-panel">
-        <div class="tchat-body" :class="{ 'tchat-body-welcome': isWelcomeState, 'tchat-body-image-composer': selectedImage }" ref="bodyRef">
+        <div class="tchat-body" :class="{ 'tchat-body-welcome': isWelcomeState, 'tchat-body-image-composer': selectedFile }" ref="bodyRef">
           <div v-if="historyHasMore || historyLoadingOlder || historyLoadError" class="history-pager">
             <button
               v-if="historyHasMore"
@@ -51,6 +51,9 @@
                   >
                     <img :src="msg.imageUrl" :alt="msg.imageName || '上传图片'" />
                   </button>
+                  <span v-else-if="msg.imageName" class="chat-attachment-name">
+                    <AppIcon name="file" :size="16" /> {{ msg.imageName }}
+                  </span>
                   <div v-if="msg.text">{{ msg.text }}</div>
                 </template>
               </div>
@@ -100,14 +103,14 @@
 
         <ChatComposer
           v-model="input"
-          :selected-image="selectedImage"
-          :selected-image-url="selectedImageUrl"
+          :selected-file="selectedFile"
+          :selected-file-url="selectedFileUrl"
           :sending="sending"
-          :photo-disabled="sending"
+          :upload-disabled="sending"
           :welcome="isWelcomeState"
           @send="sendComposer"
-          @image-selected="onComposerImageSelected"
-          @clear-image="clearSelectedImage"
+          @file-selected="onComposerFileSelected"
+          @clear-file="clearSelectedFile"
           @preview-image="openImagePreview"
         />
       </div>
@@ -157,8 +160,8 @@ interface Msg {
 const messages = ref<Msg[]>([])
 let seq = 0
 const input = ref('')
-const selectedImage = shallowRef<File | null>(null)
-const selectedImageUrl = ref('')
+const selectedFile = shallowRef<File | null>(null)
+const selectedFileUrl = ref('')
 const imagePreview = ref<{ url: string; alt: string } | null>(null)
 const imageObjectUrls = new Set<string>()
 const sending = ref(false)
@@ -221,14 +224,14 @@ function createImageUrl(file: File): string {
   return url
 }
 
-function clearSelectedImage() {
-  if (selectedImageUrl.value) {
-    if (imagePreview.value?.url === selectedImageUrl.value) closeImagePreview()
-    URL.revokeObjectURL(selectedImageUrl.value)
-    imageObjectUrls.delete(selectedImageUrl.value)
+function clearSelectedFile() {
+  if (selectedFileUrl.value) {
+    if (imagePreview.value?.url === selectedFileUrl.value) closeImagePreview()
+    URL.revokeObjectURL(selectedFileUrl.value)
+    imageObjectUrls.delete(selectedFileUrl.value)
   }
-  selectedImage.value = null
-  selectedImageUrl.value = ''
+  selectedFile.value = null
+  selectedFileUrl.value = ''
 }
 
 function openImagePreview(url: string, alt: string) {
@@ -243,19 +246,21 @@ function onImagePreviewKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && imagePreview.value) closeImagePreview()
 }
 
-function onComposerImageSelected(file: File) {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+function onComposerFileSelected(file: File) {
+  const isImage = file.type.startsWith('image/')
+  const maxBytes = isImage ? 10 * 1024 * 1024 : 100 * 1024 * 1024
+  if (file.size > maxBytes) {
+    error.value = isImage ? '图片不能超过 10MB，请压缩后再上传。' : '文件不能超过 100MB，请选择较小的文件。'
+    return
+  }
+  if (isImage && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     error.value = '图片格式不支持，请上传 jpg、png 或 webp 图片。'
     return
   }
-  if (file.size > 10 * 1024 * 1024) {
-    error.value = '图片不能超过 10MB，请压缩后再上传。'
-    return
-  }
   error.value = ''
-  clearSelectedImage()
-  selectedImage.value = file
-  selectedImageUrl.value = createImageUrl(file)
+  clearSelectedFile()
+  selectedFile.value = file
+  selectedFileUrl.value = isImage ? createImageUrl(file) : ''
 }
 
 function scrollToBottom() {
@@ -338,9 +343,10 @@ function onWorkflowPublished(message: Msg, assignment: TeacherAssignment) {
   scrollToBottom()
 }
 
-async function sendText(raw: string) {
-  const text = raw.trim()
-  if (!text || sending.value) return
+async function sendText(raw: string, attachmentFile?: File) {
+  const enteredText = raw.trim()
+  if ((!enteredText && !attachmentFile) || sending.value) return
+  const text = enteredText || (attachmentFile ? '请阅读并分析这个文件。' : '')
   if (text.length > 2000) {
     error.value = '这条消息有点太长了（最多 2000 字），拆成两条发吧。'
     return
@@ -349,8 +355,8 @@ async function sendText(raw: string) {
   error.value = ''
   input.value = ''
   suggestions.value = []
-  pushMsg('user', text)
-  const wait = pushMsg('ai', '正在查询班级数据', true)
+  pushMsg('user', text, false, true, undefined, attachmentFile?.name)
+  const wait = pushMsg('ai', attachmentFile ? '正在读取文件并查询班级数据' : '正在查询班级数据', true)
   if (publishIntent) {
     wait.workflowDraft = assignmentDraftFromText(text)
     scrollToBottom()
@@ -366,6 +372,9 @@ async function sendText(raw: string) {
   sending.value = true
   try {
     wait.text = ''
+    const extractedAttachment = attachmentFile
+      ? await teacher.extractChatAttachment(attachmentFile)
+      : undefined
     let receivedCharacter = false
     const res = await teacher.agentChatStream(text, teacher.activeSessionId, (character) => {
       if (!receivedCharacter) {
@@ -376,7 +385,7 @@ async function sendText(raw: string) {
       }
       wait.text += character
       scrollToBottom()
-    }, controller.signal)
+    }, controller.signal, extractedAttachment)
     if (res.session_id) teacher.setActiveSession(res.session_id)
     suggestions.value = res.suggestions ?? []
     // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排
@@ -397,8 +406,14 @@ async function sendText(raw: string) {
 }
 
 function sendComposer() {
-  if (selectedImage.value) {
-    void sendImage(selectedImage.value, input.value.trim())
+  if (selectedFile.value?.type.startsWith('image/')) {
+    void sendImage(selectedFile.value, input.value.trim())
+    return
+  }
+  if (selectedFile.value) {
+    const file = selectedFile.value
+    clearSelectedFile()
+    void sendText(input.value, file)
     return
   }
   void sendText(input.value)
@@ -410,11 +425,11 @@ async function sendImage(file: File, question: string) {
     error.value = '这条消息有点太长了（最多 2000 字），请拆成两条发送。'
     return
   }
-  const imageUrl = selectedImageUrl.value
+  const imageUrl = selectedFileUrl.value
   const publishIntent = isAssignmentPublishIntent(question)
   const questionForModel = question || '请分析这张图片。'
-  selectedImage.value = null
-  selectedImageUrl.value = ''
+  selectedFile.value = null
+  selectedFileUrl.value = ''
   input.value = ''
   error.value = ''
   suggestions.value = []
@@ -484,7 +499,7 @@ onUnmounted(() => {
 function historyMessages(rows: AgentHistoryItem[]): Msg[] {
   const restored = rows.map((row) => createMsg(
     row.role === 'user' ? 'user' : 'ai', row.content, false,
-    row.image_url ?? undefined, row.image_name ?? undefined
+    row.image_url ?? undefined, row.image_name ?? row.attachment_name ?? undefined
   ))
   for (let index = 1; index < rows.length; index += 1) {
     const user = rows[index - 1]
@@ -572,7 +587,7 @@ watch(
     const viewId = view.id
     suggestions.value = []
     error.value = ''
-    clearSelectedImage()
+    clearSelectedFile()
     closeImagePreview()
     input.value = ''
     historyHasMore.value = false
@@ -662,6 +677,7 @@ onMounted(async () => {
 .bubble { border-radius: 14px; padding: 11px 16px; font-size: 14.5px; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
 .ai-bubble { background: transparent; border: 0; display: inline-flex; align-items: flex-start; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
+.chat-attachment-name { display: inline-flex; max-width: 100%; align-items: center; gap: 6px; margin-top: 5px; overflow-wrap: anywhere; font-size: 12px; opacity: 0.9; }
 .chat-workflow { width: 100%; min-width: 0; margin-top: 8px; padding: 4px 14px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); box-shadow: var(--shadow); }
 .chat-workflow-success { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); font-size: 13.5px; }
 .chat-workflow-success > span, .chat-workflow-success > a { display: inline-flex; align-items: center; gap: 7px; }

@@ -2,22 +2,37 @@
   <div class="chat-composer" :class="{ 'chat-composer-welcome': welcome }">
     <div class="chat-inner">
       <div class="composer-panel">
-        <div v-if="selectedImage && selectedImageUrl" class="composer-image-preview">
+        <div v-if="selectedFile && selectedFile.type.startsWith('image/') && selectedFileUrl" class="composer-image-preview">
           <button
             class="composer-image-open"
             type="button"
             aria-label="放大待发送图片"
-            @click="emit('preview-image', selectedImageUrl, selectedImage.name || '待发送图片')"
+            @click="emit('preview-image', selectedFileUrl, selectedFile.name || '待发送图片')"
           >
-            <img :src="selectedImageUrl" :alt="selectedImage.name || '待发送图片'" />
+            <img :src="selectedFileUrl" :alt="selectedFile.name || '待发送图片'" />
           </button>
           <button
             class="composer-image-remove"
             type="button"
             aria-label="移除图片"
             title="移除图片"
-            :disabled="sending"
-            @click="emit('clear-image')"
+            :disabled="sending || uploadDisabled"
+            @click="emit('clear-file')"
+          >
+            <AppIcon name="x" :size="15" />
+          </button>
+        </div>
+        <div v-else-if="selectedFile" class="composer-file-preview">
+          <AppIcon name="file" :size="18" />
+          <span class="composer-file-name" :title="selectedFile.name">{{ selectedFile.name }}</span>
+          <span class="composer-file-size">{{ formatFileSize(selectedFile.size) }}</span>
+          <button
+            class="composer-file-remove"
+            type="button"
+            aria-label="移除文件"
+            title="移除文件"
+            :disabled="sending || uploadDisabled"
+            @click="emit('clear-file')"
           >
             <AppIcon name="x" :size="15" />
           </button>
@@ -36,7 +51,7 @@
           <input
             ref="fileRef"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.yaml,.yml,image/jpeg,image/png,image/webp"
             hidden
             @change="onFileChange"
           />
@@ -44,12 +59,12 @@
             <button
               class="composer-photo-btn"
               type="button"
-              aria-label="上传题目图片"
-              title="上传题目图片"
-              :disabled="photoDisabled"
+              aria-label="上传文件"
+              title="上传文件"
+              :disabled="uploadDisabled"
               @click="fileRef?.click()"
             >
-              <AppIcon name="camera" :size="18" />
+              <AppIcon name="file" :size="18" />
             </button>
             <span v-if="contextText" class="composer-context">
               <AppIcon name="clipboard" :size="13" /> {{ contextText }}
@@ -58,9 +73,9 @@
           <button
             class="btn send-btn"
             type="button"
-            :aria-label="selectedImage ? '发送图片' : '发送'"
-            :title="selectedImage ? '发送图片' : '发送'"
-            :disabled="sending || (!modelValue.trim() && !selectedImage)"
+            :aria-label="selectedFile ? '发送文件' : '发送'"
+            :title="selectedFile ? '发送文件' : '发送'"
+            :disabled="sending || (!modelValue.trim() && !selectedFile)"
             @click="emit('send')"
           >
             <AppIcon name="send" :size="17" />
@@ -77,10 +92,10 @@ import AppIcon from './icons/AppIcon.vue'
 
 defineProps<{
   modelValue: string
-  selectedImage: File | null
-  selectedImageUrl: string
+  selectedFile: File | null
+  selectedFileUrl: string
   sending: boolean
-  photoDisabled: boolean
+  uploadDisabled: boolean
   contextText?: string
   welcome?: boolean
 }>()
@@ -88,8 +103,8 @@ defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   send: []
-  'image-selected': [file: File]
-  'clear-image': []
+  'file-selected': [file: File]
+  'clear-file': []
   'preview-image': [url: string, alt: string]
 }>()
 
@@ -103,7 +118,12 @@ function onFileChange(event: Event) {
   const picker = event.target as HTMLInputElement
   const file = picker.files?.[0]
   picker.value = ''
-  if (file) emit('image-selected', file)
+  if (file) emit('file-selected', file)
+}
+
+function formatFileSize(size: number): string {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${(size / 1024 / 1024).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`
 }
 </script>
 
@@ -131,6 +151,12 @@ function onFileChange(event: Event) {
 .composer-image-remove { position: absolute; top: 8px; right: 8px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 50%; background: rgba(255, 255, 255, 0.96); color: var(--text-2); box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16); cursor: pointer; }
 .composer-image-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
 .composer-image-remove:disabled { opacity: 0.55; cursor: not-allowed; }
+.composer-file-preview { display: flex; min-width: 0; align-items: center; gap: 9px; margin: 0 8px 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--gray-bg); color: var(--text-2); }
+.composer-file-name { overflow: hidden; color: var(--text-1); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.composer-file-size { flex-shrink: 0; color: var(--text-3); font-size: 11px; }
+.composer-file-remove { display: inline-flex; width: 26px; height: 26px; flex-shrink: 0; align-items: center; justify-content: center; margin-left: auto; border: 1px solid var(--border); border-radius: 50%; background: #fff; color: var(--text-2); cursor: pointer; }
+.composer-file-remove:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.composer-file-remove:disabled { opacity: 0.55; cursor: not-allowed; }
 .chat-text-input { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 150px; resize: none; padding: 7px 8px; border: 0; border-radius: 10px; outline: 0; box-shadow: none; font: inherit; font-size: 15px; line-height: 1.65; }
 .chat-text-input:focus { border: 0; outline: 0; box-shadow: none; }
 .composer-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; }

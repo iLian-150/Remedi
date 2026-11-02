@@ -271,6 +271,10 @@
               </button>
             </div>
           </div>
+          <div v-else-if="msg.side === 'user' && msg.kind === 'file'" class="bubble user-bubble">
+            <div v-if="msg.text">{{ msg.text }}</div>
+            <span class="chat-attachment-name"><AppIcon name="file" :size="16" /> {{ msg.fileName }}</span>
+          </div>
           <div v-else-if="msg.side === 'user'" class="bubble user-bubble">{{ msg.text }}</div>
         </div>
 
@@ -296,15 +300,15 @@
          v0.8.1 恢复 v0.6.2 悬浮毛玻璃卡：悬浮在消息区底部，消息从卡下滚过） -->
     <ChatComposer
       v-model="chatInput"
-      :selected-image="selectedImage"
-      :selected-image-url="selectedImageUrl"
+      :selected-file="selectedFile"
+      :selected-file-url="selectedFileUrl"
       :sending="chatSending"
-      :photo-disabled="busy"
+      :upload-disabled="busy"
       :context-text="selectedQuestion?.stem"
       :welcome="isWelcomeScreen"
       @send="sendChat()"
-      @image-selected="onComposerImageSelected"
-      @clear-image="clearSelectedImage"
+      @file-selected="onComposerFileSelected"
+      @clear-file="clearSelectedFile"
       @preview-image="openImagePreview"
     />
     </div>
@@ -356,7 +360,7 @@ const router = useRouter()
 interface ChatMsg {
   id: number
   side: 'ai' | 'user'
-  kind: 'briefing' | 'text' | 'image' | 'transcribe' | 'diagnosis' | 'error'
+  kind: 'briefing' | 'text' | 'image' | 'file' | 'transcribe' | 'diagnosis' | 'error'
   text: string
   url: string
   fileName?: string
@@ -517,8 +521,8 @@ function questionStem(qid: number): string {
 }
 
 // ---------- 输入区 ----------
-const selectedImage = ref<File | null>(null)
-const selectedImageUrl = ref('')
+const selectedFile = ref<File | null>(null)
+const selectedFileUrl = ref('')
 const imagePreview = ref<{ url: string; alt: string } | null>(null)
 const selectedRelatedMistake = ref<RelatedMistake | null>(null)
 
@@ -648,13 +652,13 @@ function createImageUrl(file: File): string {
   return url
 }
 
-function clearSelectedImage() {
-  if (selectedImageUrl.value) {
-    URL.revokeObjectURL(selectedImageUrl.value)
-    imageObjectUrls.delete(selectedImageUrl.value)
+function clearSelectedFile() {
+  if (selectedFileUrl.value) {
+    URL.revokeObjectURL(selectedFileUrl.value)
+    imageObjectUrls.delete(selectedFileUrl.value)
   }
-  selectedImage.value = null
-  selectedImageUrl.value = ''
+  selectedFile.value = null
+  selectedFileUrl.value = ''
 }
 
 function openImagePreview(url: string, alt: string) {
@@ -703,6 +707,14 @@ let appliedViewSeq = 0
 let historyRequestToken = 0
 
 function historyMessage(h: AgentHistoryItem): Partial<ChatMsg> {
+  if (h.role === 'user' && h.attachment_name) {
+    return {
+      side: 'user',
+      kind: 'file',
+      text: h.content,
+      fileName: h.attachment_name
+    }
+  }
   if (h.role === 'user' && h.image_url) {
     const text = h.content
       .replace(/^上传了一张作业照片。?\s*/, '')
@@ -792,7 +804,7 @@ watch(
     const requestToken = ++historyRequestToken
     const view = student.sessionView
     const viewId = view.id
-    clearSelectedImage()
+    clearSelectedFile()
     suggestions.value = []
     historyHasMore.value = false
     historyCursor.value = null
@@ -850,28 +862,32 @@ function findLastMessage(predicate: (message: ChatMsg) => boolean): ChatMsg | un
 
 async function sendChat(raw?: string) {
   const text = (typeof raw === 'string' ? raw : chatInput.value).trim()
-  const image = selectedImage.value
-  if ((!text && !image) || chatSending.value) return
+  const file = selectedFile.value
+  if ((!text && !file) || chatSending.value) return
   if (text.length > 2000) {
     pushMsg({ side: 'ai', kind: 'error', text: '这条消息有点太长了（最多 2000 字），拆成两条发给我吧。' })
     return
   }
-  if (image) {
+  if (file?.type.startsWith('image/')) {
     chatInput.value = ''
-    clearSelectedImage()
+    clearSelectedFile()
     suggestions.value = []
-    await sendPhotoReview(image, text)
+    await sendPhotoReview(file, text)
     return
   }
+  const attachment = file ? { name: file.name, file } : undefined
+  if (file) clearSelectedFile()
   chatInput.value = ''
   suggestions.value = []
   const previousQuestion = findLastMessage((item) => item.side === 'user' && item.kind === 'text')?.text ?? ''
-  pushMsg({ side: 'user', kind: 'text', text })
-  const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在思考…', pending: true })
+  const prompt = text || (attachment ? '请阅读并分析这个文件。' : '')
+  pushMsg({ side: 'user', kind: attachment ? 'file' : 'text', text: prompt, fileName: attachment?.name })
+  const wait = pushMsg({ side: 'ai', kind: 'text', text: attachment ? '正在读取文件并思考…' : '正在思考…', pending: true })
   chatSending.value = true
   try {
     await student.ensureActiveChatSession()
-    const saveIntent = /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(text) && /错题本|错题/.test(text)
+    const extractedAttachment = attachment ? await student.extractChatAttachment(attachment.file) : undefined
+    const saveIntent = !attachment && /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(text) && /错题本|错题/.test(text)
     const refersToPrevious = /刚才|上一题|前面那题|之前那题/.test(text)
     const cleanedQuestion = text.replace(/[，,。 ]*(?:顺便)?(?:请)?(?:把)?(?:这道题|这题)?(?:加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏)(?:错题本|错题)(?:里|中)?[。！!]?/g, '').trim()
     const containsQuestion = /[=+\-×÷?？]/.test(cleanedQuestion) || cleanedQuestion.length > 10
@@ -894,7 +910,7 @@ async function sendChat(raw?: string) {
         if (refersToPrevious || !containsQuestion) return
       }
     }
-    await streamAssistantReply(wait, text)
+    await streamAssistantReply(wait, prompt, true, false, undefined, extractedAttachment)
   } catch (e) {
     if (isAbortError(e)) return
     wait.kind = 'error'
@@ -912,7 +928,8 @@ async function streamAssistantReply(
   prompt: string,
   persistUserMessage = true,
   safeToolsOnly = false,
-  relatedMistakeErrorId?: number | null
+  relatedMistakeErrorId?: number | null,
+  attachment?: { name: string; text: string }
 ) {
   let firstText = true
   const controller = createStreamAbortController()
@@ -928,7 +945,7 @@ async function streamAssistantReply(
       }
       wait.text += text
       scrollToBottom()
-    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId, controller.signal)
+    }, persistUserMessage, safeToolsOnly, relatedMistakeErrorId, controller.signal, undefined, attachment)
     wait.pending = false
     if (!wait.text) wait.text = result.reply
     wait.relatedMistake = result.related_mistake ?? null
@@ -947,18 +964,20 @@ async function streamAssistantReply(
 }
 
 // ---------- 拍照批改 ----------
-function onComposerImageSelected(file: File) {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    pushMsg({ side: 'ai', kind: 'error', text: '这张图片格式不对，请上传 jpg / png / webp 格式的作业照片。' })
+function onComposerFileSelected(file: File) {
+  const isImage = file.type.startsWith('image/')
+  const maxBytes = isImage ? 10 * 1024 * 1024 : 100 * 1024 * 1024
+  if (file.size > maxBytes) {
+    pushMsg({ side: 'ai', kind: 'error', text: isImage ? '图片不能超过 10MB，请压缩后再试。' : '文件不能超过 100MB，请选择较小的文件。' })
     return
   }
-  if (file.size > 10 * 1024 * 1024) {
-    pushMsg({ side: 'ai', kind: 'error', text: '图片太大了（超过 10MB），请压缩后再试。' })
+  if (isImage && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    pushMsg({ side: 'ai', kind: 'error', text: '图片格式不支持，请上传 jpg、png 或 webp 图片。' })
     return
   }
-  clearSelectedImage()
-  selectedImage.value = file
-  selectedImageUrl.value = createImageUrl(file)
+  clearSelectedFile()
+  selectedFile.value = file
+  selectedFileUrl.value = isImage ? createImageUrl(file) : ''
 }
 
 function applyPhotoReviewResult(wait: ChatMsg, userImage: ChatMsg, res: PhotoReviewResult) {
@@ -1508,6 +1527,7 @@ onMounted(async () => {
 .ai-bubble { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; }
 .error-bubble { background: var(--red-bg); color: #991B1B; display: inline-flex; align-items: center; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
+.chat-attachment-name { display: inline-flex; max-width: 100%; align-items: center; gap: 6px; margin-top: 5px; overflow-wrap: anywhere; font-size: 12px; opacity: 0.9; }
 .user-image-card { display: grid; width: fit-content; max-width: min(210px, 72vw); gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 16px 16px 4px 16px; background: #F3F4F0; }
 .user-image-prompt { margin: 0 2px 2px; color: var(--text); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .user-image-trigger { display: flex; width: fit-content; max-width: 100%; justify-content: center; margin: 0 auto; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: zoom-in; }

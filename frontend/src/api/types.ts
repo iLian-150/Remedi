@@ -616,6 +616,7 @@ export interface AgentHistoryItem {
   related_mistake?: RelatedMistake | null
   image_url?: string | null
   image_name?: string | null
+  attachment_name?: string | null
 }
 
 export interface AgentHistoryCursor {
