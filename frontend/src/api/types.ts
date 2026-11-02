@@ -700,6 +700,11 @@ export interface TeacherAssignmentInput {
   class_ids: number[]
 }
 
+export interface TeacherAssignmentDraftSeed {
+  title?: string
+  questions: Array<{ prompt: string; standard_steps?: string[] }>
+}
+
 // ---------- v0.5.0 新增：教师 AI 助手 / 练习册知识库 ----------
 // 契约见 docs/api-contract.md v0.5.0 第 4.12~4.18 节
 

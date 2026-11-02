@@ -700,12 +700,14 @@ export const useTeacherStore = defineStore('teacher', {
       question: string,
       sessionId: number | null | undefined,
       onText: (text: string) => void,
+      analysisPrompt?: string,
       signal?: AbortSignal
     ): Promise<AgentChatResult> {
       const auth = useAuthStore()
       const form = new FormData()
       form.append('file', file)
       form.append('question', question)
+      if (analysisPrompt) form.append('analysis_prompt', analysisPrompt)
       if (sessionId != null) form.append('session_id', String(sessionId))
       const response = await fetch(api.getUri({ url: '/api/teacher/agent/chat/vision/stream' }), {
         method: 'POST',
@@ -774,6 +776,12 @@ export const useTeacherStore = defineStore('teacher', {
       if (streamError) throw new Error(streamError)
       if (!result) throw new Error('图片讲解没有正常结束，请重试。')
       return result
+    },
+    async recordAssignmentPublishedEvent(sessionId: number, assignmentId: number): Promise<void> {
+      await api.post('/api/teacher/agent/workflow-events/assignment-published', {
+        session_id: sessionId,
+        assignment_id: assignmentId
+      })
     },
     // 4.13 教师对话历史（v0.5.0；v0.6.0 起返回当前会话最近 50 条）
     async fetchAgentHistory(): Promise<AgentHistoryItem[]> {

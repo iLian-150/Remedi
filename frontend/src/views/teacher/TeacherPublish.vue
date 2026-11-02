@@ -6,10 +6,14 @@
      契约：POST /api/teacher/assignments（4.7，v0.5.0 加 mode/workbook_id/page_range/deadline）、
            练习册知识库 4.15~4.17、拍照识别 4.9。数学线上作答用公式板，其他学科通过视觉模型拍照批改。 -->
 <template>
-  <div class="page publish-page" :class="{ 'is-embedded': embedded }">
+  <div class="page publish-page" :class="{ 'is-embedded': embedded, 'is-chat-workflow': chatWorkflow }">
+    <div v-if="chatWorkflow" class="chat-workflow-head">
+      <span><AppIcon name="sparkles" :size="16" /> 发布作业草稿</span>
+      <button type="button" class="btn small secondary" @click="emit('cancel')">收起</button>
+    </div>
     <!-- v0.13.4：页头两级共用同一结构——选完发布方式后，「重新选择 + 模式徽章」只出现在
          标题右侧同一行，不再多出一行把整页往下顶，「发布作业」标题位置纹丝不动 -->
-    <div v-if="!embedded || step === 'form'" class="page-head publish-head">
+    <div v-if="(!embedded || step === 'form') && !chatWorkflow" class="page-head publish-head">
       <div v-if="!embedded" class="ph-main">
         <h2>发布作业</h2>
         <p class="page-sub">先选一种发布方式，再填写内容发布；发布后学生端立即可见，返回重选不会清空已填内容。</p>
@@ -536,13 +540,17 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
-import type { Classroom, FigureSpec, QuestionSubject, SubjectAgentCode, TeacherAssignment, TeacherAssignmentInput, Workbook } from '../../api/types'
+import type { Classroom, FigureSpec, QuestionSubject, SubjectAgentCode, TeacherAssignment, TeacherAssignmentDraftSeed, TeacherAssignmentInput, Workbook } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import FigureRenderer from '../../components/FigureRenderer.vue'
 
-const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
-const emit = defineEmits<{ published: [assignment: TeacherAssignment] }>()
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+  chatWorkflow?: boolean
+  initialDraft?: TeacherAssignmentDraftSeed
+}>(), { embedded: false, chatWorkflow: false })
+const emit = defineEmits<{ published: [assignment: TeacherAssignment]; cancel: [] }>()
 
 const teacher = useTeacherStore()
 const auth = useAuthStore()
@@ -568,7 +576,7 @@ interface QuestionForm {
 const mode = ref<'online' | 'offline'>('online')
 // 两级导航（v0.12.0）：choose = 选发布方式；form = 填发布表单。两级同组件，
 // 返回上一级不清空已填内容；选方式时把 mode 写进 query，刷新/书架深链直达表单级。
-const step = ref<'choose' | 'form'>('choose')
+const step = ref<'choose' | 'form'>(props.chatWorkflow ? 'form' : 'choose')
 
 function chooseMode(m: 'online' | 'offline') {
   mode.value = m
@@ -581,7 +589,7 @@ function backToChoose() {
   step.value = 'choose'
   // 同上：不跳滚动位置
 }
-const title = ref('')
+const title = ref(props.initialDraft?.title ?? '')
 const titleInputRef = ref<HTMLInputElement | null>(null)
 const description = ref('')   // 作业说明（v0.13.1）：两种模式共用，学生端交作业页顶部展示
 const SUBJECT_OPTIONS: { value: QuestionSubject; label: string }[] = [
@@ -624,7 +632,12 @@ const blankQuestion = (): QuestionForm => ({
 })
 // v0.13.9：进表单时一道题都不给——老师先选「添加小题」或「添加大题」，
 // 避免一进来就摆一道空题、还得先删
-const questions = ref<QuestionForm[]>([])
+const questions = ref<QuestionForm[]>(props.initialDraft?.questions.map((draft) => ({
+  ...blankQuestion(),
+  prompt: draft.prompt,
+  standard_steps_text: draft.standard_steps?.join('\n') ?? '',
+  recognized: true,
+})) ?? [])
 // v0.13.1：允许修改开关 + 大题/小题（大题 = 共享题干 + 若干小题，小题仍是普通题目）
 const allowRevision = ref(false)
 interface GroupForm {
@@ -1456,7 +1469,7 @@ onMounted(async () => {
   ])
   // 带 mode 的链接直达第二级表单（v0.12.0）：书架跳入 ?mode=offline&workbook_id=<id>、
   // 第一级选方式时写入的 ?mode= 刷新后都停在表单级
-  if (route.query.mode === 'offline' || route.query.mode === 'online') {
+  if (!props.chatWorkflow && (route.query.mode === 'offline' || route.query.mode === 'online')) {
     mode.value = route.query.mode
     step.value = 'form'
     const wid = Number(route.query.workbook_id)
@@ -1474,6 +1487,9 @@ onMounted(async () => {
    点卡进入表单时内容突然变宽并整体左移，看起来像错位。两级统一为同一内容列宽。 */
 .choose-grid { max-width: none; margin: 0; }
 .choose-grid .mode-card { padding: 26px 24px; gap: 8px; }
+.chat-workflow-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; color: var(--text); font-size: 14px; font-weight: 650; }
+.chat-workflow-head > span { display: inline-flex; align-items: center; gap: 8px; }
+.publish-page.is-chat-workflow { padding-top: 14px; }
 .mode-enter { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13.5px; font-weight: 700; color: var(--primary); }
 /* v0.13.11：红色警示悬浮 toast（固定在视口顶部居中，盖在内容之上，不占位） */
 .error-toast {

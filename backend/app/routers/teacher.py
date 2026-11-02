@@ -2581,6 +2581,7 @@ def teacher_agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
 async def teacher_agent_vision_chat_stream(
     file: UploadFile = File(...),
     question: str = Form(default=""),
+    analysis_prompt: str = Form(default=""),
     session_id: Optional[int] = Form(default=None),
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
@@ -2596,6 +2597,9 @@ async def teacher_agent_vision_chat_stream(
     text = question.strip()
     if len(text) > _AGENT_MSG_MAX:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "问题有点长，单条最多 2000 字")
+    vision_prompt = analysis_prompt.strip()
+    if len(vision_prompt) > 4000:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片分析指令过长")
 
     from ..services import chat_sessions as cs
 
@@ -2632,7 +2636,7 @@ async def teacher_agent_vision_chat_stream(
         reply_parts = []
         try:
             image_stream = get_provider().stream_image_answer(
-                image_bytes, file.content_type or "image/jpeg", text
+                image_bytes, file.content_type or "image/jpeg", vision_prompt or text
             )
             for chunk in image_stream:
                 if chunk:
@@ -2668,6 +2672,38 @@ async def teacher_agent_vision_chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+class AgentAssignmentPublishedEventIn(BaseModel):
+    session_id: int = Field(ge=1)
+    assignment_id: int = Field(ge=1)
+
+
+@router.post("/agent/workflow-events/assignment-published", summary="保存对话中作业发布结果")
+def teacher_agent_assignment_published_event(
+    body: AgentAssignmentPublishedEventIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    from ..services import chat_sessions as cs
+
+    session = cs.get_own_session_or_migrate(db, current, body.session_id)
+    assignment = db.query(Assignment).filter(
+        Assignment.id == body.assignment_id,
+        Assignment.created_by == current.id,
+    ).first()
+    if session is None or assignment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "对话或作业不存在")
+
+    content = f"作业发布成功：#{assignment.id}《{assignment.title}》"
+    exists = db.query(ChatSessionMessage.id).filter(
+        ChatSessionMessage.session_id == session.id,
+        ChatSessionMessage.role == "assistant",
+        ChatSessionMessage.content == content,
+    ).first()
+    if not exists:
+        cs.append_message(db, session, "assistant", content)
+    return {"saved": True}
 
 
 @router.get("/agent/history", response_model=List[AgentHistoryItem], summary="教师对话历史")

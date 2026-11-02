@@ -27,31 +27,47 @@
             </button>
             <span v-if="historyLoadError" class="history-pager-error">{{ historyLoadError }}</span>
           </div>
-          <div v-for="msg in messages" :key="msg.id" class="msg-row" :class="msg.side">
+          <div v-for="msg in messages" :key="msg.id" class="msg-row" :class="[msg.side, { 'workflow-event-hidden': msg.workflowEventHidden }]">
             <div v-if="msg.side === 'ai'" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
-            <div
-              class="bubble"
-              :class="[
-                msg.side === 'ai' ? 'ai-bubble' : 'user-bubble',
-                { 'welcome-bubble': isWelcomeState && msg.side === 'ai' }
-              ]"
-            >
-              <div v-if="msg.pending" class="pending-status">
-                <ThinkingStatus />
-                <span class="pending-elapsed">· {{ pendingElapsedSeconds }} 秒</span>
+            <div class="msg-content" :class="{ 'has-workflow': msg.workflowDraft || msg.workflowPublished }">
+              <div
+                class="bubble"
+                :class="[
+                  msg.side === 'ai' ? 'ai-bubble' : 'user-bubble',
+                  { 'welcome-bubble': isWelcomeState && msg.side === 'ai' }
+                ]"
+              >
+                <div v-if="msg.pending" class="pending-status">
+                  <ThinkingStatus />
+                  <span class="pending-elapsed">· {{ pendingElapsedSeconds }} 秒</span>
+                </div>
+                <template v-else>
+                  <button
+                    v-if="msg.imageUrl"
+                    class="message-image"
+                    type="button"
+                    :aria-label="`放大${msg.imageName || '上传图片'}`"
+                    @click="openImagePreview(msg.imageUrl, msg.imageName || '上传图片')"
+                  >
+                    <img :src="msg.imageUrl" :alt="msg.imageName || '上传图片'" />
+                  </button>
+                  <div v-if="msg.text">{{ msg.text }}</div>
+                </template>
               </div>
-              <template v-else>
-                <button
-                  v-if="msg.imageUrl"
-                  class="message-image"
-                  type="button"
-                  :aria-label="`放大${msg.imageName || '上传图片'}`"
-                  @click="openImagePreview(msg.imageUrl, msg.imageName || '上传图片')"
-                >
-                  <img :src="msg.imageUrl" :alt="msg.imageName || '上传图片'" />
-                </button>
-                <div v-if="msg.text">{{ msg.text }}</div>
-              </template>
+              <div v-if="msg.workflowDraft" class="chat-workflow">
+                <TeacherPublish
+                  :key="msg.id"
+                  embedded
+                  chat-workflow
+                  :initial-draft="msg.workflowDraft"
+                  @published="onWorkflowPublished(msg, $event)"
+                  @cancel="msg.workflowDraft = undefined"
+                />
+              </div>
+              <div v-else-if="msg.workflowPublished" class="chat-workflow-success">
+                <span><AppIcon name="check" :size="16" /> 已发布《{{ msg.workflowPublished }}》</span>
+                <router-link to="/teacher/assignments">作业管理 <AppIcon name="arrow-right" :size="14" /></router-link>
+              </div>
             </div>
           </div>
 
@@ -133,12 +149,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
-import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem } from '../../api/types'
+import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem, TeacherAssignment, TeacherAssignmentDraftSeed } from '../../api/types'
 import ThinkingStatus from '../../components/ThinkingStatus.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
+
+const TeacherPublish = defineAsyncComponent(() => import('./TeacherPublish.vue'))
 
 const auth = useAuthStore()
 const teacher = useTeacherStore()
@@ -157,6 +175,9 @@ interface Msg {
   pending: boolean
   imageUrl?: string
   imageName?: string
+  workflowDraft?: TeacherAssignmentDraftSeed
+  workflowPublished?: string
+  workflowEventHidden?: boolean
 }
 
 const messages = ref<Msg[]>([])
@@ -281,6 +302,73 @@ function errDetail(e: unknown): string {
   return e instanceof Error ? e.message : ''
 }
 
+function isAssignmentPublishIntent(text: string): boolean {
+  if (/(?:什么时候|何时|是否|有没有|已经|已发布|发布了吗|怎么查看|查询|统计)/u.test(text)) return false
+  return /(?:发布|布置|创建|新建|安排|生成).{0,10}(?:作业|练习|题目|习题)|(?:作业|练习|题目|习题).{0,8}(?:发布|布置|创建|生成)|(?:出|生成).{0,5}(?:一|几|多|若干|\d+)?\s*(?:道|套|份)?\s*(?:题|题目|练习|作业)/u.test(text)
+}
+
+function splitDraftQuestions(source: string): string[] {
+  const text = source.replace(/\r/g, '').trim()
+  if (!text) return []
+  const lines = text.split('\n')
+  const result: string[] = []
+  let current = ''
+  const numberedLine = /^\s*(?:第\s*\d+\s*[题问]|\d+\s*[.、．)）:]|[（(]\d+[）)])\s*/u
+  for (const line of lines) {
+    if (numberedLine.test(line) && current.trim()) {
+      result.push(current.trim())
+      current = line.trim()
+    } else {
+      current = current ? `${current}\n${line}` : line
+    }
+  }
+  if (current.trim()) result.push(current.trim())
+  return result
+}
+
+function assignmentDraftFromText(request: string, recognizedText?: string): TeacherAssignmentDraftSeed {
+  const titleMatch = request.match(/(?:作业标题|标题)\s*[:：]\s*([^\n]+)/u)
+  const requestWithoutTitle = titleMatch ? request.replace(titleMatch[0], '') : request
+  let questionText = recognizedText?.trim() ?? ''
+  if (questionText) {
+    const recognitionLabel = questionText.match(/(?:识别结果|识别内容|图片中的题目(?:如下)?|题目如下)\s*[:：]?\s*/u)
+    if (recognitionLabel?.index != null) questionText = questionText.slice(recognitionLabel.index + recognitionLabel[0].length).trim()
+    if (/(?:识别失败|暂时无法完成|图片分析失败)/u.test(questionText)) questionText = ''
+  } else {
+    const markedQuestion = requestWithoutTitle.match(/(?:作业内容|题目内容|题目|题干)\s*(?:如下|是)?\s*[:：]\s*([\s\S]+)/u)
+    questionText = markedQuestion?.[1] ?? requestWithoutTitle.replace(
+      /^(?:(?:请|帮我|我想|我要|需要)\s*)?(?:发布|布置|创建|新建|安排|生成|出题|出)\s*(?:(?:一份|一个|一套|几道|若干|\d+\s*道)\s*)?(?:新的?)?\s*(?:作业|练习|题目|习题)?\s*[:：,，。；;\s]*/u,
+      ''
+    )
+  }
+  return {
+    title: titleMatch?.[1]?.trim(),
+    questions: splitDraftQuestions(questionText).map((prompt) => ({ prompt }))
+  }
+}
+
+function imageAssignmentAnalysisPrompt(request: string): string {
+  return [
+    '教师准备把这张图片里的题目发布成作业。请准确识别并逐题转写题干，保留题号、公式、选项、图表文字和小问，不要解题或给答案。',
+    '只输出识别出的题目文本；如果有多题，请按原题号分段。如果局部无法辨认，请在对应位置标注“[不清晰]”。',
+    request ? `教师补充：${request}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function onWorkflowPublished(message: Msg, assignment: TeacherAssignment) {
+  message.workflowDraft = undefined
+  message.workflowPublished = assignment.title
+  const sessionId = teacher.activeSessionId
+  if (sessionId != null) {
+    void teacher.recordAssignmentPublishedEvent(sessionId, assignment.id)
+      .catch((cause) => console.error('保存作业发布会话事件失败', cause))
+      .finally(() => teacher.loadSessions(true))
+  } else {
+    void teacher.loadSessions(true)
+  }
+  scrollToBottom()
+}
+
 async function sendText(raw: string) {
   const text = raw.trim()
   if (!text || sending.value) return
@@ -288,11 +376,16 @@ async function sendText(raw: string) {
     error.value = '这条消息有点太长了（最多 2000 字），拆成两条发吧。'
     return
   }
+  const publishIntent = isAssignmentPublishIntent(text)
   error.value = ''
   input.value = ''
   suggestions.value = []
   pushMsg('user', text)
   const wait = pushMsg('ai', '正在查询班级数据', true)
+  if (publishIntent) {
+    wait.workflowDraft = assignmentDraftFromText(text)
+    scrollToBottom()
+  }
   pendingElapsedSeconds.value = 0
   const pendingStartedAt = Date.now()
   stopPendingTimer()
@@ -349,6 +442,7 @@ async function sendImage(file: File, question: string) {
     return
   }
   const imageUrl = selectedImageUrl.value
+  const publishIntent = isAssignmentPublishIntent(question)
   const questionForModel = question || '请分析这张图片。'
   selectedImage.value = null
   selectedImageUrl.value = ''
@@ -385,6 +479,7 @@ async function sendImage(file: File, question: string) {
         wait.pending = false
         scrollToBottom()
       },
+      publishIntent ? imageAssignmentAnalysisPrompt(question) : undefined,
       controller.signal
     )
     if (result.session_id) teacher.setActiveSession(result.session_id)
@@ -396,6 +491,11 @@ async function sendImage(file: File, question: string) {
     console.error(e)
     void teacher.loadSessions(true)
   } finally {
+    if (publishIntent) {
+      wait.workflowDraft = assignmentDraftFromText(question, wait.text)
+      await nextTick()
+      scrollToBottom()
+    }
     stopPendingTimer()
     if (activeStreamController === controller) activeStreamController = null
     wait.pending = false
@@ -412,11 +512,34 @@ onUnmounted(() => {
   imageObjectUrls.clear()
 })
 
-function restoreHistoryMessage(row: AgentHistoryItem, shouldScroll = false) {
-  pushMsg(
-    row.role === 'user' ? 'user' : 'ai', row.content, false, shouldScroll,
+function historyMessages(rows: AgentHistoryItem[]): Msg[] {
+  const restored = rows.map((row) => createMsg(
+    row.role === 'user' ? 'user' : 'ai', row.content, false,
     row.image_url ?? undefined, row.image_name ?? undefined
-  )
+  ))
+  for (let index = 1; index < rows.length; index += 1) {
+    const user = rows[index - 1]
+    const reply = rows[index]
+    if (user.role !== 'user' || reply.role !== 'assistant' || !isAssignmentPublishIntent(user.content)) continue
+    restored[index].workflowDraft = assignmentDraftFromText(
+      user.content,
+      user.image_url ? reply.content : undefined
+    )
+  }
+  for (let index = 0; index < rows.length; index += 1) {
+    const event = rows[index]
+    if (event.role !== 'assistant') continue
+    const published = event.content.match(/^作业发布成功：#\d+《([\s\S]*)》$/u)
+    if (!published) continue
+    const workflow = restored.slice(0, index).reverse().find((message) => message.workflowDraft)
+    if (workflow) {
+      workflow.workflowDraft = undefined
+      workflow.workflowPublished = published[1]
+      restored[index].workflowEventHidden = true
+      restored[index].text = ''
+    }
+  }
+  return restored
 }
 
 function updateHistoryPage(page: AgentHistoryPage | null) {
@@ -433,7 +556,7 @@ function renderHistory(page: AgentHistoryPage | null) {
   messages.value = []
   updateHistoryPage(page)
   if (page?.items.length) {
-    page.items.forEach((item) => restoreHistoryMessage(item))
+    messages.value = historyMessages(page.items)
   } else {
     pushMsg('ai', WELCOME(), false, false)
   }
@@ -453,10 +576,7 @@ async function loadOlderHistory() {
     const body = bodyRef.value
     const previousHeight = body?.scrollHeight ?? 0
     const previousTop = body?.scrollTop ?? 0
-    const olderMessages = page.items.map((item) => createMsg(
-      item.role === 'user' ? 'user' : 'ai', item.content, false,
-      item.image_url ?? undefined, item.image_name ?? undefined
-    ))
+    const olderMessages = historyMessages(page.items)
     messages.value.unshift(...olderMessages)
     updateHistoryPage(page)
     await nextTick()
@@ -560,15 +680,24 @@ onMounted(async () => {
 .history-pager-button:disabled { opacity: 0.55; cursor: wait; }
 .history-pager-error { color: var(--red); font-size: 12px; }
 .msg-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
+.workflow-event-hidden { display: none; }
 .msg-row.user { flex-direction: row-reverse; }
+.msg-content { display: flex; flex: 0 1 auto; min-width: 0; max-width: 78%; flex-direction: column; }
+.msg-content.has-workflow { width: calc(100% - 40px); max-width: none; flex: 1; }
+.msg-row.user .msg-content { align-items: flex-end; }
 .msg-avatar {
   width: 30px; height: 30px; border-radius: 50%;
   background: var(--primary-50); color: var(--primary);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
 }
-.bubble { border-radius: 14px; padding: 11px 16px; font-size: 14.5px; max-width: 78%; white-space: pre-wrap; word-break: break-word; }
+.bubble { border-radius: 14px; padding: 11px 16px; font-size: 14.5px; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
 .ai-bubble { background: transparent; border: 0; display: inline-flex; align-items: flex-start; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
+.chat-workflow { width: 100%; min-width: 0; margin-top: 8px; padding: 4px 14px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); box-shadow: var(--shadow); }
+.chat-workflow-success { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); font-size: 13.5px; }
+.chat-workflow-success > span, .chat-workflow-success > a { display: inline-flex; align-items: center; gap: 7px; }
+.chat-workflow-success > span { color: var(--green); font-weight: 650; }
+.chat-workflow-success > a { color: var(--primary); font-weight: 600; }
 .message-image { display: block; max-width: min(280px, 66vw); margin: 0 0 6px; padding: 0; overflow: hidden; border: 0; border-radius: 10px; background: transparent; cursor: zoom-in; }
 .message-image img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; }
 .tchat-body-welcome .msg-row { justify-content: center; width: 100%; margin-bottom: 12px; }
@@ -651,6 +780,8 @@ onMounted(async () => {
 @media (max-width: 960px) {
   .tchat-shell { height: calc(100dvh - 52px); padding: 14px 14px 16px; }
   .bubble { max-width: 88%; }
+  .msg-content { max-width: 88%; }
+  .msg-content.has-workflow { width: calc(100% - 40px); max-width: none; }
   .suggest-row { margin-left: 0; }
   .tchat-composer { left: 10px; right: 10px; bottom: 10px; }
   .composer-panel { padding: 10px 11px; }
