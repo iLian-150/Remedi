@@ -96,8 +96,10 @@
           <!-- 大题共享材料（v0.13.1）：本题属于大题时，题干上方先给材料 -->
           <div v-if="groupStemOf(currentQ)" class="board-group-stem">
             <span class="board-group-tag">大题材料</span>
-            <p>{{ groupStemOf(currentQ) }}</p>
-            <FigureRenderer v-if="groupDiagramOf(currentQ)" :figure="groupDiagramOf(currentQ)!" />
+            <div class="group-stem-content" :class="{ 'has-diagram': groupDiagramOf(currentQ) }">
+              <p>{{ groupStemOf(currentQ) }}</p>
+              <FigureRenderer v-if="groupDiagramOf(currentQ)" :figure="groupDiagramOf(currentQ)!" />
+            </div>
           </div>
           <p class="board-stem">{{ currentQ.stem }}</p>
 
@@ -278,8 +280,10 @@
           <!-- 大题共享材料（v0.13.1）：一组小题上方只展示一次 -->
           <div v-if="showGroupBanner(q, qi, photoQuestions)" class="group-stem-banner">
             <span class="board-group-tag">大题材料</span>
-            <p>{{ groupStemOf(q) }}</p>
-            <FigureRenderer v-if="groupDiagramOf(q)" :figure="groupDiagramOf(q)!" />
+            <div class="group-stem-content" :class="{ 'has-diagram': groupDiagramOf(q) }">
+              <p>{{ groupStemOf(q) }}</p>
+              <FigureRenderer v-if="groupDiagramOf(q)" :figure="groupDiagramOf(q)!" />
+            </div>
           </div>
           <div :id="`q-block-${q.id}`" class="q-block">
           <div class="q-row">
@@ -1085,12 +1089,22 @@ onMounted(async () => {
   padding: 11px 14px; margin-top: 12px;
   font-size: 14.5px; line-height: 1.7; color: var(--text);
 }
-.board-group-stem p, .group-stem-banner p { margin-top: 4px; }
+.group-stem-content {
+  display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 12px;
+  margin-top: 4px;
+}
+.group-stem-content.has-diagram { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 18px; }
+.group-stem-content p { min-width: 0; }
+.group-stem-content :deep(.question-figure) { width: 100%; max-width: none; margin: 0; }
 .board-group-tag {
   display: inline-block; font-size: 11.5px; font-weight: 700; color: var(--primary);
   letter-spacing: 0.04em;
 }
 .group-stem-banner { margin: 14px 0 2px; }
+@media (max-width: 760px) {
+  .group-stem-content.has-diagram { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .group-stem-content.has-diagram :deep(.question-figure) { max-width: 480px; margin: 0 auto; }
+}
 /* 修改作业区（v0.13.1） */
 .revise-card { margin-top: 16px; }
 .revise-row {
