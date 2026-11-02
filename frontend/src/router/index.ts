@@ -23,9 +23,9 @@ const routes: RouteRecordRaw[] = [
 
   // 教师端（诊断详情 :id 为 error_id，契约 4.1 未提供单条查询，用列表定位）
   { path: '/teacher/dashboard', component: () => import('../views/teacher/TeacherDashboard.vue'), meta: { role: 'teacher', title: '班级总览' } },
-  { path: '/teacher/submissions', component: () => import('../views/teacher/TeacherSubmissions.vue'), meta: { role: 'teacher', title: '批改纠错' } },
-  // 待审核（v0.9.0）：AI 批改先过教师审核才发给学生；?submission_id= 可直达某份
-  { path: '/teacher/reviews', component: () => import('../views/teacher/TeacherReviews.vue'), meta: { role: 'teacher', title: '待审核' } },
+  { path: '/teacher/submissions', component: () => import('../views/teacher/TeacherAIGradings.vue'), meta: { role: 'teacher', title: 'AI 批改' } },
+  // 旧入口继续兼容，统一回到 AI 批改列表并保留提交深链。
+  { path: '/teacher/reviews', redirect: (to) => ({ path: '/teacher/submissions', query: to.query }) },
   { path: '/teacher/submissions/:id', component: () => import('../views/teacher/TeacherSubmissionDetail.vue'), meta: { role: 'teacher', title: '诊断详情' } },
   { path: '/teacher/students', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生列表' } },
   { path: '/teacher/students/:id', component: () => import('../views/teacher/TeacherStudentPortrait.vue'), meta: { role: 'teacher', title: '学生画像' } },

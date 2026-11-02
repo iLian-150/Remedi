@@ -287,6 +287,49 @@ class ReviewDetailOut(BaseModel):
     # 过程可疑识别（只加字段）：答案对、过程存疑的确定性信号，供教师审核参考
     process_check: Optional[ProcessCheckOut] = None
 
+class TeacherAIGradingItem(BaseModel):
+    submission_id: int
+    student: UserOut
+    assignment_id: Optional[int] = None
+    assignment_title: str = ""
+    question_id: int
+    question_stem: str
+    subject: str
+    knowledge_point: str
+    submitted_at: datetime
+    review_status: str
+    error_count: int = 0
+    correct_steps: int = 0
+    total_steps: int = 0
+    assignment_correct_steps: int = 0
+    assignment_total_steps: int = 0
+    question_max: float = 0
+    ai_score: Optional[float] = None
+    final_score: Optional[float] = None
+    teacher_regraded: bool = False
+    assignment_ai_score: float = 0
+    assignment_score: float = 0
+    assignment_max_score: float = 0
+    assignment_percent: Optional[float] = None
+    assignment_complete: bool = False
+    is_low_score: bool = False
+    image_url: Optional[str] = None
+    image_name: Optional[str] = None
+
+class TeacherAIGradingPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List[TeacherAIGradingItem]
+
+class TeacherAIRegradeIn(BaseModel):
+    final_score: float = Field(ge=0, allow_inf_nan=False)
+
+class TeacherAIRegradeOut(BaseModel):
+    submission_id: int
+    review_status: str
+    final_score: float
+
 class ReviewApproveIn(BaseModel):
     """审核通过入参（评分系统新增，整个 body 可选）：带 final_score = 老师改分后通过。"""
     final_score: Optional[float] = Field(default=None, ge=0)
@@ -332,6 +375,10 @@ __all__ = [
     'ProcessCheckSignalOut',
     'ProcessCheckOut',
     'ReviewDetailOut',
+    'TeacherAIGradingItem',
+    'TeacherAIGradingPage',
+    'TeacherAIRegradeIn',
+    'TeacherAIRegradeOut',
     'ReviewApproveIn',
     'ReviewApproveOut',
     'ReviewApproveAllOut',

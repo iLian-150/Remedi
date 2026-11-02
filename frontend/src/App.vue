@@ -250,20 +250,13 @@ const TEACHER_NAV: NavItem[] = [
   // v0.6.0：AI 助手排第一位（教师登录默认落点仍为总览，不变）
   { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
   { to: '/teacher/dashboard', icon: 'chart', label: '总览', activePaths: ['/teacher/dashboard', '/teacher/suggestions'] },
-  { to: '/teacher/submissions', icon: 'file', label: '批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },
+  { to: '/teacher/submissions', icon: 'file', label: 'AI 批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },
   { to: '/teacher/students', icon: 'users', label: '学生' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments', '/teacher/assignments/new'] },
   { to: '/teacher/materials', icon: 'file', label: '我的资料' }
 ]
 
-const navItems = computed<NavItem[]>(() => {
-  if (auth.role !== 'teacher') return STUDENT_NAV
-  return TEACHER_NAV.map((it) =>
-    it.to === '/teacher/submissions' && teacher.pendingReviewCount > 0
-      ? { ...it, badge: teacher.pendingReviewCount }
-      : it
-  )
-})
+const navItems = computed<NavItem[]>(() => auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV)
 const showSidebarSessions = computed(() => {
   if (isChatRoute.value) return true
   return navItems.value.slice(1).some((item) =>
@@ -339,9 +332,6 @@ watch(
     const previousMode = railModeForPath(previousPath ?? '', auth.role, Boolean(auth.token))
     const enteringNotesRail = mode === 'notes' && previousMode !== 'notes'
     if (auth.role === 'student' && !enteringNotesRail) void student.refreshUnread()
-    if (auth.role === 'teacher' && route.path !== '/teacher/reviews') {
-      void teacher.refreshPendingReviewCount()
-    }
   },
   { immediate: true }
 )

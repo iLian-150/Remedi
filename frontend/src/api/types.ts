@@ -451,6 +451,43 @@ export interface ReviewPendingItem {
   image_name?: string | null
 }
 
+export interface TeacherAIGradingItem {
+  submission_id: number
+  student: { id: number; name: string; student_no: string | null }
+  assignment_id: number | null
+  assignment_title: string
+  question_id: number
+  question_stem: string
+  subject: string
+  knowledge_point: string
+  submitted_at: string
+  review_status: 'pending' | 'approved'
+  error_count: number
+  correct_steps: number
+  total_steps: number
+  assignment_correct_steps: number
+  assignment_total_steps: number
+  question_max: number
+  ai_score: number | null
+  final_score: number | null
+  teacher_regraded: boolean
+  assignment_ai_score: number
+  assignment_score: number
+  assignment_max_score: number
+  assignment_percent: number | null
+  assignment_complete: boolean
+  is_low_score: boolean
+  image_url: string | null
+  image_name: string | null
+}
+
+export interface TeacherAIGradingPage {
+  total: number
+  limit: number
+  offset: number
+  items: TeacherAIGradingItem[]
+}
+
 // 评分系统：审核详情里的评分信息（满分/AI 分/最终分/步骤对了几步）
 export interface ReviewScore {
   question_max: number

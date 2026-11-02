@@ -94,6 +94,10 @@ from ..api_schemas.teacher import (
     TeacherAssignmentOut,
     TeacherAssignmentQuestionOut,
     TeacherDashboardOut,
+    TeacherAIGradingItem,
+    TeacherAIGradingPage,
+    TeacherAIRegradeIn,
+    TeacherAIRegradeOut,
     TeacherErrorItem,
     TopQuestionItem,
     WorkbookExtractIn,
@@ -967,6 +971,242 @@ def _review_pending_item(
         image_url=image_url,
         image_name=image_name,
     )
+
+
+@router.get("/ai-gradings", response_model=TeacherAIGradingPage,
+            summary="教师 AI 批改结果列表")
+def teacher_ai_gradings(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    keyword: Optional[str] = Query(default=None, max_length=120),
+    submission_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    """统一列出教师有权查看的 AI 批改提交，按提交时间倒序分页。"""
+    query = (
+        db.query(Submission)
+        .join(Question, Question.id == Submission.question_id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .join(User, User.id == Submission.student_id)
+        .options(
+            joinedload(Submission.student).load_only(
+                User.id, User.name, User.student_no, User.role, User.created_at,
+            ),
+            joinedload(Submission.question)
+            .load_only(
+                Question.id, Question.assignment_id, Question.subject,
+                Question.knowledge_point, Question.stem, Question.order_num,
+            )
+            .joinedload(Question.assignment)
+            .load_only(Assignment.id, Assignment.title),
+        )
+        .filter(
+            Submission.status == "graded",
+            Submission.id.in_(_teacher_submission_ids(db, current)),
+        )
+    )
+    search = (keyword or "").strip()
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(or_(
+            User.name.ilike(pattern),
+            User.student_no.ilike(pattern),
+            Assignment.title.ilike(pattern),
+            Question.stem.ilike(pattern),
+            Question.knowledge_point.ilike(pattern),
+        ))
+    if submission_id is not None:
+        query = query.filter(Submission.id == submission_id)
+
+    total = query.order_by(None).count()
+    submissions = query.order_by(
+        Submission.submitted_at.desc(), Submission.id.desc(),
+    ).offset(offset).limit(limit).all()
+    if not submissions:
+        return {"total": total, "limit": limit, "offset": offset, "items": []}
+
+    submission_ids = [item.id for item in submissions]
+    step_rows = db.query(
+        Step.submission_id,
+        func.sum(case((Step.status == "ok", 1), else_=0)),
+        func.count(Step.id),
+    ).filter(
+        Step.submission_id.in_(submission_ids),
+        Step.seq >= 1,
+        Step.status.in_(("ok", "error", "unparseable")),
+    ).group_by(Step.submission_id).all()
+    step_counts = {
+        submission_id: (int(correct or 0), int(count or 0))
+        for submission_id, correct, count in step_rows
+    }
+    error_counts = dict(db.query(
+        Error.submission_id, func.count(Error.id),
+    ).filter(Error.submission_id.in_(submission_ids)).group_by(Error.submission_id).all())
+    images_by_submission = {
+        image.submission_id: image
+        for image in db.query(SubmissionImage).filter(
+            SubmissionImage.submission_id.in_(submission_ids),
+        ).all()
+    }
+    legacy_images = _legacy_review_images(db, submissions, images_by_submission)
+    assignment_accuracy = review_svc.assignment_accuracy_contexts(db, submissions)
+    assignment_scores = review_svc.assignment_score_contexts(db, submissions)
+
+    score_submissions = {item.id: item for item in submissions}
+    for context in assignment_scores.values():
+        for item in context["latest_submissions"]:
+            score_submissions[item.id] = item
+    score_values = scoring_svc.visible_scores(db, list(score_submissions.values()))
+    score_rows = {
+        row.submission_id: row
+        for row in db.query(SubmissionScore).filter(
+            SubmissionScore.submission_id.in_(score_submissions),
+        ).all()
+    }
+    review_statuses = review_svc.review_status_map(db, submission_ids)
+
+    assignment_totals = {}
+    for key, context in assignment_scores.items():
+        latest = context["latest_submissions"]
+        ai_total = sum(
+            float(score_rows[item.id].ai_score)
+            for item in latest if item.id in score_rows
+        )
+        visible_total = sum(
+            float(score_values[item.id]["score"])
+            for item in latest if item.id in score_values
+        )
+        max_total = float(context["max_score"])
+        raw_percent = ai_total / max_total * 100 if max_total > 0 else None
+        percent = round(raw_percent, 1) if raw_percent is not None else None
+        assignment_totals[key] = {
+            "ai_score": round(ai_total, 1),
+            "score": round(visible_total, 1),
+            "max_score": round(max_total, 1),
+            "percent": percent,
+            "complete": bool(context["complete"]),
+            "is_low_score": bool(
+                context["complete"] and raw_percent is not None and raw_percent < 60
+            ),
+        }
+
+    items = []
+    for submission in submissions:
+        question = submission.question
+        assignment = question.assignment if question else None
+        key = (submission.student_id, question.assignment_id) if question else None
+        score_row = score_rows.get(submission.id)
+        score_info = score_values.get(submission.id, {})
+        ai_score = float(score_row.ai_score) if score_row else None
+        final_score = (
+            float(score_row.final_score)
+            if score_row and score_row.final_score is not None else None
+        )
+        acc_context = assignment_accuracy.get(key) if key else None
+        assignment_totals_for_item = assignment_totals.get(key, {}) if key else {}
+        image = images_by_submission.get(submission.id) or legacy_images.get(submission.id)
+        items.append(TeacherAIGradingItem(
+            submission_id=submission.id,
+            student=UserOut.model_validate(submission.student),
+            assignment_id=assignment.id if assignment else None,
+            assignment_title=assignment.title if assignment else "",
+            question_id=question.id if question else 0,
+            question_stem=question.stem if question else "",
+            subject=question.subject if question else "",
+            knowledge_point=question.knowledge_point if question else "",
+            submitted_at=submission.submitted_at,
+            review_status=review_statuses.get(submission.id, review_svc.APPROVED),
+            error_count=int(error_counts.get(submission.id, 0)),
+            correct_steps=step_counts.get(submission.id, (0, 0))[0],
+            total_steps=step_counts.get(submission.id, (0, 0))[1],
+            assignment_correct_steps=acc_context[1] if acc_context else 0,
+            assignment_total_steps=acc_context[2] if acc_context else 0,
+            question_max=float(score_info.get("max_score", 0)),
+            ai_score=ai_score,
+            final_score=final_score,
+            teacher_regraded=bool(
+                score_row is not None and score_row.updated_by is not None
+            ),
+            assignment_ai_score=assignment_totals_for_item.get("ai_score", 0),
+            assignment_score=assignment_totals_for_item.get("score", 0),
+            assignment_max_score=assignment_totals_for_item.get("max_score", 0),
+            assignment_percent=assignment_totals_for_item.get("percent"),
+            assignment_complete=assignment_totals_for_item.get("complete", False),
+            is_low_score=assignment_totals_for_item.get("is_low_score", False),
+            image_url=f"/api/uploads/{image.file_path}" if image else None,
+            image_name=image.file_name if image else None,
+        ))
+    return {"total": total, "limit": limit, "offset": offset, "items": items}
+
+
+@router.post("/ai-gradings/{submission_id}/regrade",
+             response_model=TeacherAIRegradeOut,
+             summary="教师二次批改 AI 成绩")
+def teacher_ai_regrade(
+    submission_id: int,
+    body: TeacherAIRegradeIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    submission = db.query(Submission).options(
+        joinedload(Submission.question)
+        .load_only(Question.id, Question.assignment_id)
+        .joinedload(Question.assignment)
+        .load_only(Assignment.id, Assignment.title),
+    ).filter(Submission.id == submission_id).first()
+    if submission is None or submission.question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "提交记录不存在")
+    _require_teacher_submission(db, current, submission_id)
+    if submission.status != "graded":
+        raise HTTPException(status.HTTP_409_CONFLICT, "这份提交尚未完成 AI 批改")
+
+    max_score = scoring_svc.question_max_score(db, submission.question)
+    if body.final_score > max_score:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"分数不能超过本题满分 {max_score:g}",
+        )
+    score_row = scoring_svc.finalize_on_approve(
+        db, submission, current, final_score=body.final_score, commit=False,
+    )
+    now = datetime.now()
+    review = db.get(SubmissionReview, submission_id)
+    if review is None:
+        review = SubmissionReview(
+            submission_id=submission_id,
+            status=review_svc.APPROVED,
+            reviewed_by=current.id,
+            reviewed_at=now,
+        )
+        db.add(review)
+    else:
+        review.status = review_svc.APPROVED
+        review.reviewed_by = current.id
+        review.reviewed_at = now
+
+    assignment = submission.question.assignment
+    assignment_title = assignment.title if assignment else "作业"
+    db.add(Notification(
+        user_id=submission.student_id,
+        type="teacher_correction",
+        content=(
+            f"{current.name}完成了你《{assignment_title}》的二次批改，"
+            f"当前得分为 {float(score_row.final_score):g}/{max_score:g} 分。"
+        ),
+        related_submission_id=submission_id,
+    ))
+    from ..services.learning_memory import refresh_student_learning_memory
+    refresh_student_learning_memory(
+        db, submission.student_id, subject=submission.question.subject,
+        knowledge_point=submission.question.knowledge_point, commit=False,
+    )
+    db.commit()
+    return {
+        "submission_id": submission_id,
+        "review_status": review_svc.APPROVED,
+        "final_score": float(score_row.final_score),
+    }
 
 
 @router.get("/reviews/pending/count", response_model=ReviewPendingCountOut,

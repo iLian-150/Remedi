@@ -29,6 +29,7 @@ import type {
   TeacherAssignment,
   TeachingSuggestion,
   TeacherAssignmentInput,
+  TeacherAIGradingPage,
   TeacherErrorItem,
   TeacherErrorSummary,
   SubjectAgentCode,
@@ -990,6 +991,20 @@ export const useTeacherStore = defineStore('teacher', {
     async fetchReviewDetail(submissionId: number): Promise<ReviewDetail> {
       const { data } = await api.get<ReviewDetail>(`/api/teacher/reviews/${submissionId}`)
       return data
+    },
+    async fetchAIGradings(params: {
+      limit: number
+      offset: number
+      keyword?: string
+      submission_id?: number
+    }): Promise<TeacherAIGradingPage> {
+      const { data } = await api.get<TeacherAIGradingPage>('/api/teacher/ai-gradings', { params })
+      return data
+    },
+    async regradeAIGrading(submissionId: number, finalScore: number): Promise<void> {
+      await api.post(`/api/teacher/ai-gradings/${submissionId}/regrade`, {
+        final_score: finalScore
+      })
     },
     // 4.25 审核通过（v0.9.0）：通过后学生收到提醒并能看到诊断；本地队列同步移除
     // 评分系统：可带 finalScore（老师改分），不带则后端用 AI 初评分落定最终分
