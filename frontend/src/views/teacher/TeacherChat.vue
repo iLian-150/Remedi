@@ -12,6 +12,9 @@
       </div>
 
       <div v-if="error" class="error-msg">{{ error }}</div>
+      <div v-if="knowledgeImportNotice" class="ok-msg" role="status">
+        <AppIcon name="check" :size="15" /> {{ knowledgeImportNotice }}
+      </div>
 
       <div class="tchat-panel">
         <div class="tchat-body" :class="{ 'tchat-body-welcome': isWelcomeState, 'tchat-body-image-composer': selectedFile }" ref="bodyRef">
@@ -128,7 +131,7 @@
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useTeacherStore } from '../../stores/teacher'
-import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem, TeacherAssignment, TeacherAssignmentDraftSeed } from '../../api/types'
+import type { AgentHistoryCursor, AgentHistoryPage, AgentHistoryItem, SubjectAgentCode, TeacherAssignment, TeacherAssignmentDraftSeed } from '../../api/types'
 import ThinkingStatus from '../../components/ThinkingStatus.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import ChatComposer from '../../components/ChatComposer.vue'
@@ -167,6 +170,7 @@ const imageObjectUrls = new Set<string>()
 const sending = ref(false)
 const loadingInit = ref(true)
 const error = ref('')
+const knowledgeImportNotice = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
 const historyHasMore = ref(false)
 const historyLoadingOlder = ref(false)
@@ -258,6 +262,7 @@ function onComposerFileSelected(file: File) {
     return
   }
   error.value = ''
+  knowledgeImportNotice.value = ''
   clearSelectedFile()
   selectedFile.value = file
   selectedFileUrl.value = isImage ? createImageUrl(file) : ''
@@ -412,11 +417,33 @@ function sendComposer() {
   }
   if (selectedFile.value) {
     const file = selectedFile.value
+    const subject = auth.activeSubject
+    if (!Object.prototype.hasOwnProperty.call(SUBJECT_LABELS, subject)) {
+      error.value = '当前未选择任教学科，无法确定资料要导入的知识库。'
+      return
+    }
     clearSelectedFile()
-    void sendText(input.value, file)
+    void importKnowledgeDocument(file, subject as SubjectAgentCode)
     return
   }
   void sendText(input.value)
+}
+
+async function importKnowledgeDocument(file: File, subject: SubjectAgentCode) {
+  error.value = ''
+  knowledgeImportNotice.value = ''
+  sending.value = true
+  try {
+    const job = await teacher.importSubjectKnowledgeDocument(subject, file)
+    if (job.duplicate && job.status === 'completed') {
+      knowledgeImportNotice.value = `这份资料已在${SUBJECT_LABELS[subject]}知识库中。`
+    }
+  } catch (cause) {
+    // 上传和后台任务进度由应用外壳的全局导入提示持续展示。
+    error.value = errDetail(cause) || '资料导入失败，请稍后重试。'
+  } finally {
+    sending.value = false
+  }
 }
 
 async function sendImage(file: File, question: string) {

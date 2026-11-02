@@ -18,6 +18,7 @@ from .knowledge_index_status import IMPORT_VECTOR_WARNING as _VECTOR_WARNING
 
 logger = logging.getLogger(__name__)
 TERMINAL_STATUSES = {"completed", "failed"}
+MAX_KNOWLEDGE_IMPORT_BYTES = 100 * 1024 * 1024
 _wake = threading.Event()
 _stop = threading.Event()
 _worker_lock = threading.Lock()
@@ -73,6 +74,8 @@ def enqueue_import(stream, filename: str, subject: str, teacher_id: int) -> dict
         with temporary.open("xb") as target:
             while block := stream.read(1024 * 1024):
                 size += len(block)
+                if size > MAX_KNOWLEDGE_IMPORT_BYTES:
+                    raise ValueError("文件不能超过 100MB。")
                 digest.update(block)
                 target.write(block)
         if not size:

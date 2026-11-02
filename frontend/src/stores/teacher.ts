@@ -53,6 +53,7 @@ export interface ErrorFilter {
 }
 
 const inFlightAssignmentRequests = new Map<string, Promise<TeacherAssignment[]>>()
+const MAX_KNOWLEDGE_IMPORT_BYTES = 100 * 1024 * 1024
 
 export type KnowledgeImportStatus = 'uploading' | 'processing' | 'success' | 'error' | 'waiting'
 
@@ -95,6 +96,7 @@ function importRequestError(cause: unknown, fallback: string): string {
   if (axios.isAxiosError(cause) && typeof cause.response?.data?.detail === 'string') {
     return cause.response.data.detail
   }
+  if (cause instanceof Error && cause.message) return cause.message
   return fallback
 }
 
@@ -300,6 +302,9 @@ export const useTeacherStore = defineStore('teacher', {
       const form = new FormData()
       form.append('file', file)
       try {
+        if (file.size > MAX_KNOWLEDGE_IMPORT_BYTES) {
+          throw new Error('文件不能超过 100MB。')
+        }
         const { data } = await api.post<SubjectKnowledgeImportJob>(
           `/api/teacher/knowledge/${subject}/import`, form, {
             timeout: 3_600_000,
