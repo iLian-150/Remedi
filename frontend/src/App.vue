@@ -249,7 +249,7 @@ const STUDENT_NAV: NavItem[] = [
 const TEACHER_NAV: NavItem[] = [
   // v0.6.0：AI 助手排第一位（教师登录默认落点仍为总览，不变）
   { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
-  { to: '/teacher/dashboard', icon: 'chart', label: '总览', activePaths: ['/teacher/dashboard', '/teacher/suggestions'] },
+  { to: '/teacher/dashboard', icon: 'chart', label: '总览' },
   { to: '/teacher/submissions', icon: 'file', label: 'AI 批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },
   { to: '/teacher/students', icon: 'users', label: '学生' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments'] },

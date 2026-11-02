@@ -27,7 +27,6 @@ import type {
   StudentSummary,
   TeacherDashboardSummary,
   TeacherAssignment,
-  TeachingSuggestion,
   TeacherAssignmentInput,
   TeacherAIGradingPage,
   TeacherErrorItem,
@@ -238,11 +237,6 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.get<TeacherDashboardSummary>('/api/teacher/dashboard', {
         params: { n, ...(includeSuggestions ? { include_suggestions: true } : {}) }
       })
-      return data
-    },
-    // 教学建议：规则模板生成的建议卡（重讲/预警/分组辅导/巩固练习）
-    async fetchSuggestions(): Promise<TeachingSuggestion[]> {
-      const { data } = await api.get<TeachingSuggestion[]>('/api/teacher/suggestions')
       return data
     },
     // 4.5 学生列表

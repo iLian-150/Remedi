@@ -29,7 +29,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/submissions/:id', component: () => import('../views/teacher/TeacherSubmissionDetail.vue'), meta: { role: 'teacher', title: '诊断详情' } },
   { path: '/teacher/students', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生列表' } },
   { path: '/teacher/students/:id', component: () => import('../views/teacher/TeacherStudentPortrait.vue'), meta: { role: 'teacher', title: '学生画像' } },
-  { path: '/teacher/suggestions', component: () => import('../views/teacher/TeacherSuggestions.vue'), meta: { role: 'teacher', title: '教学建议' } },
+  { path: '/teacher/suggestions', redirect: '/teacher/dashboard' },
   { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' } },
   { path: '/teacher/assignments/new', redirect: (to) => ({
     path: '/teacher/assignments',
