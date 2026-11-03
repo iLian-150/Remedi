@@ -8,23 +8,11 @@
     <div class="page-head"><h2>作业</h2></div>
 
     <section class="card publish-launch">
-      <div class="publish-launch-head">
-        <h3>发布作业</h3>
-        <button class="btn small inline-icon" :aria-expanded="publishOpen" @click="togglePublish">
-          <AppIcon :name="publishOpen ? 'chevron-down' : 'plus'" :size="15" />
-          {{ publishOpen ? '收起' : '开始发布' }}
-        </button>
-      </div>
-      <component
-        :is="EmbeddedPublish"
-        v-if="publishReady"
-        v-show="publishOpen"
-        :embedded="true"
-        @published="onPublished"
-      />
+      <h3>发布作业</h3>
+      <PublishModeCards @choose="openPublish" />
     </section>
 
-    <section v-show="!publishOpen" class="assignment-management">
+    <section class="assignment-management">
       <div class="management-heading">
         <h3>作业管理</h3>
         <span>最新发布在前</span>
@@ -128,20 +116,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignment } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
+import PublishModeCards from '../../components/PublishModeCards.vue'
 import api from '../../api/client'
 
 const teacher = useTeacherStore()
-const route = useRoute()
 const router = useRouter()
-const EmbeddedPublish = defineAsyncComponent(() => import('./TeacherPublish.vue'))
-const publishOpen = ref(route.query.publish === '1')
-const publishReady = ref(publishOpen.value)
 const assignments = ref<TeacherAssignment[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -170,32 +155,8 @@ function openAssignment(id: number) {
   void router.push(`/teacher/assignments/${id}`)
 }
 
-function togglePublish() {
-  publishOpen.value = !publishOpen.value
-  if (publishOpen.value) {
-    publishReady.value = true
-    void router.replace({ path: '/teacher/assignments', query: { publish: '1' } })
-  } else {
-    void router.replace({ path: '/teacher/assignments', query: {} })
-  }
-}
-
-async function onPublished() {
-  publishOpen.value = false
-  publishReady.value = false
-  toast.value = '作业已发布。'
-  void refreshFigureJobs()
-  void router.replace({ path: '/teacher/assignments', query: {} })
-  if (dateFilter.value) teacher.setAssignmentDateFilter('')
-  try {
-    await reload()
-    window.dispatchEvent(new CustomEvent('assignments-changed', {
-      detail: { assignments: assignments.value }
-    }))
-  } catch (e) {
-    console.error(e)
-  }
-  setTimeout(() => (toast.value = ''), 4000)
+function openPublish(mode: 'online' | 'offline') {
+  void router.push({ path: '/teacher/assignments/new', query: { mode } })
 }
 
 function subjectLabel(subject: string): string {
@@ -337,9 +298,8 @@ onUnmounted(() => {
   background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
   padding: 10px 14px; margin-bottom: 16px;
 }
-.publish-launch { padding: 16px 20px; }
-.publish-launch-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.publish-launch-head h3 { margin: 0; }
+.publish-launch { padding: 20px; }
+.publish-launch h3 { margin: 0 0 16px; }
 .assignment-management { margin-top: 24px; }
 .management-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .management-heading h3 { font-size: 18px; }

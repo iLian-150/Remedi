@@ -15,8 +15,8 @@
          标题右侧同一行，不再多出一行把整页往下顶，「发布作业」标题位置纹丝不动 -->
     <div v-if="(!embedded || step === 'form') && !chatWorkflow" class="page-head publish-head">
       <div v-if="!embedded" class="ph-main">
+        <router-link to="/teacher/assignments" class="btn secondary small inline-icon"><AppIcon name="chevron-left" :size="15" /> 返回作业管理</router-link>
         <h2>发布作业</h2>
-        <p class="page-sub">先选一种发布方式，再填写内容发布；发布后学生端立即可见，返回重选不会清空已填内容。</p>
       </div>
       <div v-if="step === 'form'" class="ph-actions">
         <button type="button" class="btn ghost inline-icon back-btn" @click="backToChoose">
@@ -37,23 +37,7 @@
     <div v-if="ok && !embedded" class="ok-msg">发布成功，正在跳转到作业列表…</div>
 
     <!-- 第一级：选择发布方式（v0.12.0 两级化：点卡进入第二级表单，不再同页堆叠） -->
-    <template v-if="step === 'choose'">
-      <div class="mode-grid choose-grid">
-        <button type="button" class="mode-card" @click="chooseMode('online')">
-          <span class="mode-icon"><AppIcon name="edit" :size="22" /></span>
-          <span class="mode-name">线上作业</span>
-          <span class="mode-desc">在这里逐题录入（或拍照识别）题目，学生在系统里在线作答、逐步批改。</span>
-          <span class="mode-enter">进入发布 <AppIcon name="arrow-right" :size="15" /></span>
-        </button>
-        <button type="button" class="mode-card" @click="chooseMode('offline')">
-          <span class="mode-icon"><AppIcon name="book" :size="22" /></span>
-          <span class="mode-name">线下作业 · 练习册</span>
-          <span class="mode-desc">作业来自纸质练习册：选一本练习册、写清页码，拍下题目页识别成题，学生照着练习册做、拍照提交。</span>
-          <span class="mode-enter">进入发布 <AppIcon name="arrow-right" :size="15" /></span>
-        </button>
-      </div>
-      <p class="choose-hint">可发布多学科作业。数学线上作业支持公式板作答，其他学科和线下作业通过拍照提交并由视觉模型直接批改。</p>
-    </template>
+    <PublishModeCards v-if="step === 'choose'" @choose="chooseMode" />
 
     <!-- 第二级：发布表单 -->
     <template v-if="step === 'form'">
@@ -543,7 +527,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
 import type { Classroom, FigureSpec, QuestionSubject, SubjectAgentCode, TeacherAssignment, TeacherAssignmentDraftSeed, TeacherAssignmentInput, Workbook } from '../../api/types'
@@ -551,6 +535,7 @@ import { useAuthStore } from '../../stores/auth'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import FigureRenderer from '../../components/FigureRenderer.vue'
 import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
+import PublishModeCards from '../../components/PublishModeCards.vue'
 import { formatRecognizedMath } from '../../utils/recognizedMath'
 
 const props = withDefaults(defineProps<{
@@ -581,10 +566,11 @@ interface QuestionForm {
   check_stamp: string
 }
 
-const mode = ref<'online' | 'offline'>('online')
+const requestedMode = !props.chatWorkflow && (route.query.mode === 'online' || route.query.mode === 'offline') ? route.query.mode : null
+const mode = ref<'online' | 'offline'>(requestedMode ?? 'online')
 // 两级导航（v0.12.0）：choose = 选发布方式；form = 填发布表单。两级同组件，
 // 返回上一级不清空已填内容；选方式时把 mode 写进 query，刷新/书架深链直达表单级。
-const step = ref<'choose' | 'form'>(props.chatWorkflow ? 'form' : 'choose')
+const step = ref<'choose' | 'form'>(props.chatWorkflow || requestedMode ? 'form' : 'choose')
 
 function chooseMode(m: 'online' | 'offline') {
   mode.value = m
@@ -595,7 +581,7 @@ function chooseMode(m: 'online' | 'offline') {
 
 function backToChoose() {
   step.value = 'choose'
-  // 同上：不跳滚动位置
+  void router.replace({ query: { ...route.query, mode: undefined } })
 }
 const title = ref(props.initialDraft?.title ?? '')
 const titleInputRef = ref<HTMLInputElement | null>(null)
@@ -1487,7 +1473,11 @@ async function submit() {
     const assignment = await teacher.createAssignment(payload)
     ok.value = true
     if (props.embedded) emit('published', assignment)
-    else setTimeout(() => router.push('/teacher/assignments'), 600)
+    else {
+      teacher.setAssignmentDateFilter('')
+      window.dispatchEvent(new CustomEvent('assignments-changed'))
+      setTimeout(() => router.push('/teacher/assignments'), 600)
+    }
   } catch (e: unknown) {
     error.value = '发布失败：' + errMsg(e, '请稍后重试。')
     console.error(e)
@@ -1495,6 +1485,13 @@ async function submit() {
     submitting.value = false
   }
 }
+
+onBeforeRouteLeave(() => {
+  if (props.embedded || ok.value) return
+  const hasQuestionContent = (q: QuestionForm) => !!(q.prompt.trim() || q.knowledge_point.trim() || q.standard_steps_text.trim() || q.reference_answer.trim())
+  const hasDraft = !!(title.value.trim() || description.value.trim() || pageRange.value.trim() || deadline.value || workbookId.value || allowRevision.value || totalScore.value !== 100 || selectedClassIds.value.length || questions.value.some(hasQuestionContent) || groups.value.some((group) => group.stem.trim() || group.subs.some(hasQuestionContent)))
+  if (hasDraft && !window.confirm('作业内容尚未发布，确定离开吗？')) return false
+})
 
 onMounted(async () => {
   await Promise.all([
@@ -1521,12 +1518,9 @@ onMounted(async () => {
 /* ---------- 两级导航（v0.12.0） ---------- */
 /* v0.13.1 修复「选模式后错位」：此前选择级是 880px 居中窄列、表单级是整幅宽，
    点卡进入表单时内容突然变宽并整体左移，看起来像错位。两级统一为同一内容列宽。 */
-.choose-grid { max-width: none; margin: 0; }
-.choose-grid .mode-card { padding: 26px 24px; gap: 8px; }
 .chat-workflow-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; color: var(--text); font-size: 14px; font-weight: 650; }
 .chat-workflow-head > span { display: inline-flex; align-items: center; gap: 8px; }
 .publish-page.is-chat-workflow { padding-top: 14px; }
-.mode-enter { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13.5px; font-weight: 700; color: var(--primary); }
 /* v0.13.11：红色警示悬浮 toast（固定在视口顶部居中，盖在内容之上，不占位） */
 .error-toast {
   position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
@@ -1538,7 +1532,8 @@ onMounted(async () => {
 .error-toast svg { flex-shrink: 0; }
 .toast-fade-enter-active, .toast-fade-leave-active { transition: opacity .25s ease, transform .25s ease; }
 .toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translate(-50%, -8px); }
-.choose-hint { text-align: left; color: var(--text-3); font-size: 13px; margin-top: 16px; }
+.ph-main { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.ph-main h2 { margin: 0; }
 .page-head.publish-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .publish-page.is-embedded { max-width: none; width: 100%; margin: 0; padding: 18px 0 0; }
 .publish-page.is-embedded .page-head { margin-bottom: 14px; }
@@ -1657,23 +1652,6 @@ onMounted(async () => {
 .weight-mini.bad b { color: var(--red); }
 .q-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
 .q-actions { display: flex; gap: 8px; align-items: center; }
-.mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.mode-card {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-  text-align: left; cursor: pointer; font-family: var(--font); color: var(--text);
-  background: #fff; border: 2px solid #E4E9F2; border-radius: 14px; padding: 18px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-}
-.mode-card:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
-.mode-card.active { border-color: var(--primary); background: var(--primary-50); }
-.mode-icon {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: var(--primary-50); color: var(--primary);
-  display: flex; align-items: center; justify-content: center;
-}
-.mode-card.active .mode-icon { background: var(--primary); color: #fff; }
-.mode-name { font-size: 16px; font-weight: 700; }
-.mode-desc { font-size: 13px; color: var(--text-2); line-height: 1.55; }
 /* ---------- v0.13.3：选书按钮与页码同行 / 书架选书面板 ---------- */
 .wb-pick-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .wb-pick-row .form-row { margin-bottom: 0; }
@@ -1781,8 +1759,6 @@ onMounted(async () => {
 .publish-page .card {
   animation: publish-pane-in .32s ease both;
 }
-.mode-grid .mode-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
-.mode-grid .mode-card:hover { transform: translateY(-3px); }
 .publish-actions { animation: publish-pane-in .32s ease both; }
 .check-note { display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; line-height: 1.5; margin-top: 7px; }
 .check-note .check-ic { flex: none; display: inline-flex; margin-top: 1px; }
@@ -1791,7 +1767,6 @@ onMounted(async () => {
 .check-note.warn { color: #92400E; }
 .check-note.muted { color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) {
-  .mode-card { transition: none; }
   .recognition-progress-indicator { width: 100%; animation: none; }
 }
 </style>

@@ -1912,3 +1912,8 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ### 教师编辑已发布作业
 
 `GET /api/teacher/assignments/{assignment_id}/edit` 和 `PUT /api/teacher/assignments/{assignment_id}` 仅允许拥有该作业且具有全部题目学科权限的教师使用。可修改标题、说明、接收班级、截止时间、提交设置、现有题目及大题材料、参考答案和分值；题目编号与既有记录保留。存在学生作答或批改任务后，仅允许修改标题和说明；保存时检查版本并再次检查作答状态。修改大题题干或小题题干时，已有图形自动重新生成。
+
+
+### 教师作业发布入口
+
+作业管理页直接展示线上作业与线下练习册两个发布入口；选择后进入独立的 `/teacher/assignments/new?mode=online|offline` 发布页。练习册链接仍可通过 `workbook_id` 预选练习册，历史 `publish=1&mode=...` 链接跳转到对应发布页。

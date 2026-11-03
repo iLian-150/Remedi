@@ -30,11 +30,12 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/students', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生列表' } },
   { path: '/teacher/students/:id', component: () => import('../views/teacher/TeacherStudentPortrait.vue'), meta: { role: 'teacher', title: '学生画像' } },
   { path: '/teacher/suggestions', redirect: '/teacher/dashboard' },
-  { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' } },
-  { path: '/teacher/assignments/new', redirect: (to) => ({
-    path: '/teacher/assignments',
-    query: { ...to.query, publish: '1' },
-  }) },
+  { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' },
+    beforeEnter: (to) => to.query.publish === '1' && (to.query.mode === 'online' || to.query.mode === 'offline')
+      ? { path: '/teacher/assignments/new', query: { ...to.query, publish: undefined } }
+      : true,
+  },
+  { path: '/teacher/assignments/new', component: () => import('../views/teacher/TeacherPublish.vue'), meta: { role: 'teacher', title: '发布作业' } },
   { path: '/teacher/assignments/:id/edit', component: () => import('../views/teacher/TeacherAssignmentEdit.vue'), meta: { role: 'teacher', title: '编辑作业' } },
   { path: '/teacher/assignments/:id', component: () => import('../views/teacher/TeacherAssignmentDetail.vue'), meta: { role: 'teacher', title: '作业题目' } },
   { path: '/teacher/chat', component: () => import('../views/teacher/TeacherChat.vue'), meta: { role: 'teacher', title: 'AI 助手' } },
