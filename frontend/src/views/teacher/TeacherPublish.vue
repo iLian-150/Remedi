@@ -551,6 +551,7 @@ import { useAuthStore } from '../../stores/auth'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import FigureRenderer from '../../components/FigureRenderer.vue'
 import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
+import { formatRecognizedMath } from '../../utils/recognizedMath'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -641,8 +642,8 @@ const blankQuestion = (): QuestionForm => ({
 // 避免一进来就摆一道空题、还得先删
 const questions = ref<QuestionForm[]>(props.initialDraft?.questions.map((draft) => ({
   ...blankQuestion(),
-  prompt: draft.prompt,
-  standard_steps_text: draft.standard_steps?.join('\n') ?? '',
+  prompt: formatRecognizedMath(draft.prompt),
+  standard_steps_text: formatRecognizedMath(draft.standard_steps?.join('\n') ?? ''),
   recognized: true,
 })) ?? [])
 // v0.13.1：允许修改开关 + 大题/小题（大题 = 共享题干 + 若干小题，小题仍是普通题目）
@@ -1243,8 +1244,8 @@ async function onPhotoChange(e: Event) {
   error.value = ''
   try {
     const res = await teacher.recognizePhoto(file)
-    if (res.question_text) q.prompt = res.question_text
-    if (res.steps?.length) q.standard_steps_text = res.steps.join('\n')
+    if (res.question_text) q.prompt = formatRecognizedMath(res.question_text)
+    if (res.steps?.length) q.standard_steps_text = formatRecognizedMath(res.steps.join('\n'))
     q.recognized = true
     // v0.13.3：拍照追加的题先自动均分（单题拍照只改本题内容、题数不变，不重排分值）
     if (appendMode) distributeEvenly()
@@ -1300,8 +1301,8 @@ async function onGroupPhotoChange(e: Event) {
     const res = await teacher.recognizeGroupPhoto(file)
     const subs = (res.sub_questions ?? []).map((s) => {
       const sf = blankQuestion()
-      sf.prompt = s.question_text ?? ''
-      sf.standard_steps_text = (s.steps ?? []).join('\n')
+      sf.prompt = formatRecognizedMath(s.question_text ?? '')
+      sf.standard_steps_text = formatRecognizedMath((s.steps ?? []).join('\n'))
       sf.recognized = true
       return sf
     })
@@ -1310,7 +1311,7 @@ async function onGroupPhotoChange(e: Event) {
       g = { ...blankGroup(), subs: [] }
       groups.value.push(g)
     }
-    g.stem = res.stem ?? ''
+    g.stem = formatRecognizedMath(res.stem ?? '')
     g.diagram = null
     g.diagramMessage = ''
     g.subs = subs.length ? subs : [blankQuestion()]
