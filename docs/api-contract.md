@@ -195,13 +195,14 @@
 
 ### 整份作业答题与后台批改（v0.13.385）
 
-作业答题页不再逐题调用同步批改接口。学生逐题保存文本或照片作答；所有题目都保存后，前端提交整份作业。作答草稿和批改任务保存在服务端，离开页面或刷新不会取消任务。
+作业答题页不再逐题调用同步批改接口。学生逐题保存文本或照片作答；所有题目都保存后，学生点击「提交作业」提交整份作业。作答草稿和批改任务保存在服务端，离开页面或刷新不会取消任务。
 
 - `PUT /api/student/assignments/{assignment_id}/answers/{question_id}`：`multipart/form-data`，`answer_text` 和 `file` 至少提供一个。照片仅支持 jpg / png / webp、≤10MB；文本最多 20 行、20000 字。此接口只保存答案，不触发批改。未完成作业的照片保存在公开静态上传目录之外。
 - `POST /api/student/assignments/{assignment_id}/submit`：只有整份作业的所有题目都有答案时才接受并排入后台批改。重复请求在排队、处理中或已完成时幂等返回当前状态。
 - `GET /api/student/assignments/{assignment_id}/grading-status`：读取最近一次整份作业批改状态。
+- `GET /api/student/assignments/{assignment_id}/answers/{question_id}/image`：读取当前学生已保存的作答图片，用于刷新或切题后的预览；需要学生身份认证，且只可读取本人的图片。
 
-状态响应：`{"status":"none|draft|queued|processing|completed|failed","progress":1,"total_questions":5,"answered_question_ids":[1],"error":null}`。`error` 仅返回可操作的通用失败提示，不包含知识库资料或模型提示词。前端显示待批改、批改中及完成状态，并轮询后台进度。
+状态响应：`{"status":"none|draft|queued|processing|completed|failed","progress":1,"total_questions":5,"answered_question_ids":[1],"image_question_ids":[1],"error":null}`。`image_question_ids` 标识仍可预览的图片草稿；批改完成后草稿图片会清理。`error` 仅返回可操作的通用失败提示，不包含知识库资料或模型提示词。前端显示待批改、批改中及完成状态，并轮询后台进度。
 
 后台先按题目识别知识点，再按学科汇总题干与识别结果检索对应知识库，最后把检索上下文注入该学科批改 Agent 的系统提示词。知识点判断和知识库内容只用于内部批改，不下发到学生界面或状态接口。处理整份作业的模型判断成功后才一次性创建各题提交记录；任务失败时保留学生答案，供重试。老师配置了截止后统一批改的作业仍等到截止时间后进入批改队列。
 

@@ -127,6 +127,7 @@ export interface AssignmentGradingStatus {
   progress: number
   total_questions: number
   answered_question_ids: number[]
+  image_question_ids?: number[]
   error: string | null
 }
 

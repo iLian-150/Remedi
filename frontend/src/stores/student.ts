@@ -374,6 +374,13 @@ export const useStudentStore = defineStore('student', {
       )
       return data
     },
+    async fetchStagedAnswerImage(assignmentId: number, questionId: number): Promise<Blob> {
+      const { data } = await api.get<Blob>(
+        `/api/student/assignments/${assignmentId}/answers/${questionId}/image`,
+        { responseType: 'blob' }
+      )
+      return data
+    },
     async stageAssignmentAnswer(
       assignmentId: number,
       questionId: number,

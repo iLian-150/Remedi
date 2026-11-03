@@ -158,15 +158,17 @@ def _assignment_grading_job_out(db: Session, job: Optional[AssignmentGradingJob]
     if job is None:
         return {
             "status": "none", "progress": 0, "total_questions": len(question_ids),
-            "answered_question_ids": [], "error": None,
+            "answered_question_ids": [], "image_question_ids": [], "error": None,
         }
-    answered_ids = [row[0] for row in db.query(
-        AssignmentGradingAnswer.question_id,
-    ).filter(AssignmentGradingAnswer.job_id == job.id).all()]
+    answers = db.query(
+        AssignmentGradingAnswer.question_id, AssignmentGradingAnswer.image_path,
+    ).filter(AssignmentGradingAnswer.job_id == job.id).all()
     return {
         "status": job.status, "progress": job.progress,
         "total_questions": len(question_ids),
-        "answered_question_ids": answered_ids, "error": job.error,
+        "answered_question_ids": [question_id for question_id, _ in answers],
+        "image_question_ids": [question_id for question_id, image_path in answers if image_path] if job.status != "completed" else [],
+        "error": job.error,
     }
 
 

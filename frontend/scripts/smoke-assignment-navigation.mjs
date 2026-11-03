@@ -94,6 +94,7 @@ let leaveGuard
 const formTeacher = { fetchWorkbooks: async () => [{ id: 42, title: '练习册' }], fetchClassrooms: async () => [], setAssignmentDateFilter: () => {} }
 const formWindow = { ...fakeWindow, confirm: () => false }
 const descriptor = parse(readFileSync(new URL('../src/views/teacher/TeacherPublish.vue', import.meta.url), 'utf8'), { filename: 'TeacherPublish.vue' }).descriptor
+assert.doesNotMatch(descriptor.template.content, /重新选择发布方式|class="mode-chip"/)
 const formScript = compileScript(descriptor, { id: 'publish-form' }).content
 const formJs = ts.transpileModule(formScript, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText
 const formModule = { exports: {} }
@@ -118,9 +119,7 @@ assert.equal(state.mode, 'offline')
 await new Promise((resolve) => setImmediate(resolve))
 assert.equal(state.workbookId, 42)
 state.title = '未发布草稿'
-state.backToChoose()
-assert.equal(state.step, 'choose')
-assert.equal(formRoute.query.mode, undefined)
+assert.equal(state.backToChoose, undefined)
 state.chooseMode('online')
 assert.equal(state.step, 'form')
 assert.equal(state.mode, 'online')

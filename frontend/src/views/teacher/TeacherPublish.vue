@@ -11,18 +11,10 @@
       <span><AppIcon name="sparkles" :size="16" /> 发布作业草稿</span>
       <button type="button" class="btn small secondary" @click="emit('cancel')">收起</button>
     </div>
-    <!-- v0.13.4：页头两级共用同一结构——选完发布方式后，「重新选择 + 模式徽章」只出现在
-         标题右侧同一行，不再多出一行把整页往下顶，「发布作业」标题位置纹丝不动 -->
     <div v-if="(!embedded || step === 'form') && !chatWorkflow" class="page-head publish-head">
       <div v-if="!embedded" class="ph-main">
         <router-link to="/teacher/assignments" class="btn secondary small inline-icon"><AppIcon name="chevron-left" :size="15" /> 返回作业管理</router-link>
         <h2>发布作业</h2>
-      </div>
-      <div v-if="step === 'form'" class="ph-actions">
-        <button type="button" class="btn ghost inline-icon back-btn" @click="backToChoose">
-          <AppIcon name="chevron-left" :size="16" /> 重新选择发布方式
-        </button>
-        <span class="mode-chip"><AppIcon :name="mode === 'online' ? 'edit' : 'book'" :size="14" /> {{ mode === 'online' ? '线上作业' : '线下作业 · 练习册' }}</span>
       </div>
     </div>
 
@@ -579,10 +571,6 @@ function chooseMode(m: 'online' | 'offline') {
   // v0.13.6：不再 scrollTo(0)——点卡时页面停在原地，顶部标题位置一点都不动
 }
 
-function backToChoose() {
-  step.value = 'choose'
-  void router.replace({ query: { ...route.query, mode: undefined } })
-}
 const title = ref(props.initialDraft?.title ?? '')
 const titleInputRef = ref<HTMLInputElement | null>(null)
 const description = ref('')   // 作业说明（v0.13.1）：两种模式共用，学生端交作业页顶部展示
@@ -1543,14 +1531,6 @@ onMounted(async () => {
 .recipient-class span { display: flex; flex-direction: column; gap: 2px; }
 .recipient-class small, .class-empty { color: var(--text-3); font-size: 12px; }
 .class-empty { padding-top: 10px; }
-.ph-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
-.back-btn { padding-left: 4px; font-weight: 600; }
-.mode-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13px; font-weight: 600; color: var(--primary);
-  background: var(--primary-50); border: 1px solid #D9E1F2;
-  padding: 6px 13px; border-radius: 999px;
-}
 /* ---------- 表单布局：按实际位置并排，不再逐行堆叠 ---------- */
 .grid-3 { display: grid; grid-template-columns: 1fr 1.1fr 1.3fr; gap: 14px; margin-bottom: 14px; }
 .grid-q-meta { display: grid; grid-template-columns: 1.5fr 1fr 1.3fr; gap: 14px; margin-bottom: 14px; }
