@@ -13,7 +13,7 @@
   <div class="pgf">
     <input ref="fileRef" type="file" accept="image/*" hidden @change="onFileChange" />
 
-    <img v-if="previewUrl" :src="previewUrl" alt="作答照片" class="pgf-preview" />
+    <img v-if="previewUrl && !assignmentAnswer" :src="previewUrl" alt="作答照片" class="pgf-preview" />
 
     <p v-if="phase === 'transcribing' || (direct && phase === 'submitting')" class="pgf-status">
       <AppIcon name="spinner" :size="15" class="spin" /> {{ assignmentAnswer ? '正在保存作答照片…' : direct ? '正在识别并批改…' : '正在识别照片里的解题步骤…' }}

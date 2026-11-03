@@ -50,9 +50,11 @@ const file = { type: 'image/jpeg', size: 50 }
 await flow.value.processFile(file)
 await vue.nextTick()
 assert.match(text(), /正在保存作答照片/)
+assert.equal(nodes(root).some((n) => n.type === 'img'), false)
 assert.doesNotMatch(text(), /作答已添加/)
 state.saving = false; state.error = true
 await vue.nextTick()
+assert.equal(nodes(root).some((n) => n.type === 'img'), false)
 assert.doesNotMatch(text(), /作答已添加/)
 const retry = nodes(root).find((n) => n.type === 'button' && n.text === '重试保存')
 assert.ok(retry)
@@ -64,4 +66,5 @@ assert.match(text(), /正在保存作答照片/)
 state.saving = false; state.saved = true
 await vue.nextTick()
 assert.match(text(), /作答已添加/)
+assert.equal(nodes(root).some((n) => n.type === 'img'), false)
 console.log('照片保存状态和重试检查通过')
