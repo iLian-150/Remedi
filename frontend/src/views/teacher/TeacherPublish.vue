@@ -386,7 +386,7 @@
     </div>
 
     <!-- 大题（v0.13.1）：共享题干 + 若干小题，小题逐题作答/批改/计分 -->
-    <div v-for="(g, gi) in groups" :key="`g${gi}`" class="card group-card">
+    <div v-for="(g, gi) in groups" :key="`g${gi}`" class="card">
       <div class="q-head">
         <h3 style="margin-bottom: 0">大题 {{ gi + 1 }} · {{ subjectLabel }}</h3>
         <div class="q-actions">
@@ -1752,7 +1752,6 @@ onMounted(async () => {
   width: 17px; height: 17px; flex: none; margin: 0;
   accent-color: var(--primary); cursor: pointer;
 }
-.group-card { border-left: 3px solid var(--primary); }
 .figure-message { margin-top: 8px; }
 .group-material.has-figure { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .figure-preview { display: flex; min-width: 0; flex-direction: column; align-items: center; }
