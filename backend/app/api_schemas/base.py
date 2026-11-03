@@ -50,6 +50,7 @@ class QuestionGroupOut(BaseModel):
     stem: str
     order_num: int
     diagram: Optional[FigureSpec] = None
+    diagram_status: Optional[str] = None
 
 class AssignmentBrief(BaseModel):
     id: int

@@ -728,6 +728,20 @@ class QuestionGroup(Base):
     order_num = Column(Integer, nullable=False, default=0, comment="在作业题目序列中的位置（按首个小题排序）")
 
 
+class DiagramJob(Base):
+    """可恢复的图形生成任务；发布后关联到大题。"""
+    __tablename__ = "diagram_jobs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    group_id = Column(Integer, nullable=True, index=True)
+    subject = Column(String(32), nullable=False)
+    question_text = Column(Text, nullable=False)
+    status = Column(String(16), nullable=False, default="queued", index=True)
+    figure_json = Column(Text, nullable=True)
+    message = Column(String(120), nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class QuestionGroupMember(Base):
     """大题成员（v0.13.1 新增表）：一道小题属于一个大题。"""
     __tablename__ = "question_group_members"

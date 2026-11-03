@@ -35,6 +35,7 @@ from ..models import (
     Notification,
     Question,
     QuestionGroup,
+    DiagramJob,
     QuestionGroupMember,
     StudentMistakeArchive,
     StudentMistakeCategoryReview,
@@ -685,6 +686,9 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
         .filter(QuestionGroup.assignment_id == a.id)
         .order_by(QuestionGroup.order_num, QuestionGroup.id).all()
     )
+    diagram_statuses = dict(db.query(DiagramJob.group_id, DiagramJob.status).filter(
+        DiagramJob.group_id.in_([row[0] for row in groups])
+    ).all())
     return AssignmentDetail(
         id=a.id, title=a.title, description=a.description,
         questions=[
@@ -700,6 +704,7 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
                 "stem": stem,
                 "order_num": order_num,
                 "diagram": json.loads(diagram_json) if diagram_json else None,
+                "diagram_status": diagram_statuses.get(group_id),
             }
             for group_id, stem, order_num, diagram_json in groups
         ],

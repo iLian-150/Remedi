@@ -87,7 +87,7 @@ export interface Assignment {
   deadline: string | null
   photo_required?: boolean // v0.13.23：线下作业或非数学科目需要拍照提交
   questions?: Question[] // v0.13.89：作业列表可按需携带题目，供多作业页面一次加载
-  groups?: { id: number; stem: string; order_num: number; diagram?: FigureSpec | null }[]
+  groups?: { id: number; stem: string; order_num: number; diagram?: FigureSpec | null; diagram_status?: string | null }[]
   chat_questions?: ChatQuestion[] // v0.13.260：聊天选题器使用的数学题轻量字段
   submitted_chat_question_ids?: number[] // v0.13.260：聊天选题器所需的已提交数学题 ID
 }
@@ -119,7 +119,7 @@ export interface AssignmentDetail extends Assignment {
   questions: Question[]
   // v0.13.1：允许修改开关 + 大题列表（共享题干）
   allow_revision?: boolean
-  groups?: { id: number; stem: string; order_num: number; diagram?: FigureSpec | null }[]
+  groups?: { id: number; stem: string; order_num: number; diagram?: FigureSpec | null; diagram_status?: string | null }[]
 }
 
 export interface AssignmentGradingStatus {
@@ -699,7 +699,7 @@ export interface TeacherAssignmentInput {
   // v0.13.1：允许学生截止前修改作答（开启后延迟到截止统一批改）
   allow_revision?: boolean
   // v0.13.1：大题列表（共享题干），小题用 group_key 挂靠
-  groups?: { key: string; stem: string; diagram?: FigureSpec | null }[]
+  groups?: { key: string; stem: string; diagram?: FigureSpec | null; diagram_job_id?: number }[]
   // v0.5.0：发布模式（不传 = 线上）；线下模式带练习册/页码/截止
   mode?: 'online' | 'offline'
   workbook_id?: number

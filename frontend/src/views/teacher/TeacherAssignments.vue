@@ -69,6 +69,16 @@
             </button>
           </div>
         </div>
+        <div v-for="job in figureJobs.filter(item => item.assignment_id === a.id && item.status !== 'completed')" :key="job.id" class="figure-job" role="status">
+          <template v-if="job.status === 'failed'">
+            <span>图形生成失败</span>
+            <button class="btn small secondary" :disabled="retryingJob === job.id" @click="retryFigure(job.id)">重试</button>
+          </template>
+          <template v-else>
+            <span>图形生成中，完成后自动显示给学生</span>
+            <IndeterminateProgress label="图形生成中" />
+          </template>
+        </div>
         <table class="table">
           <thead>
             <tr><th style="width: 72px">题型</th><th>题干</th><th style="width: 130px">知识点</th><th style="width: 96px">已提交</th></tr>
@@ -121,6 +131,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignment } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
+import api from '../../api/client'
 
 const teacher = useTeacherStore()
 const route = useRoute()
@@ -135,6 +147,22 @@ const toast = ref('')
 const pendingDelete = ref<TeacherAssignment | null>(null)
 const deleting = ref(false)
 const deleteError = ref('')
+interface FigureJobStatus { id: number; assignment_id: number; status: string }
+const figureJobs = ref<FigureJobStatus[]>([])
+const retryingJob = ref<number | null>(null)
+let figurePollHandle: number | null = null
+async function refreshFigureJobs() {
+  try { figureJobs.value = (await api.get<FigureJobStatus[]>('/api/teacher/diagrams/jobs')).data }
+  catch { /* 保留上次状态，下次自动重试 */ }
+}
+async function retryFigure(id: number) {
+  retryingJob.value = id
+  try {
+    await api.post(`/api/teacher/diagrams/jobs/${id}/retry`)
+    await refreshFigureJobs()
+  } catch { error.value = '图形重试失败，请稍后再试。' }
+  finally { retryingJob.value = null }
+}
 
 function togglePublish() {
   publishOpen.value = !publishOpen.value
@@ -150,6 +178,7 @@ async function onPublished() {
   publishOpen.value = false
   publishReady.value = false
   toast.value = '作业已发布。'
+  void refreshFigureJobs()
   void router.replace({ path: '/teacher/assignments', query: {} })
   if (dateFilter.value) teacher.setAssignmentDateFilter('')
   try {
@@ -282,12 +311,20 @@ async function onAssignmentsChanged(event: Event) {
 
 onMounted(() => {
   void reload().catch((e) => console.error(e))
+  void refreshFigureJobs()
+  figurePollHandle = window.setInterval(() => { void refreshFigureJobs() }, 4000)
   window.addEventListener('assignments-changed', onAssignmentsChanged)
 })
-onUnmounted(() => window.removeEventListener('assignments-changed', onAssignmentsChanged))
+onUnmounted(() => {
+  window.removeEventListener('assignments-changed', onAssignmentsChanged)
+  if (figurePollHandle !== null) window.clearInterval(figurePollHandle)
+})
 </script>
 
 <style scoped>
+.figure-job { margin: 12px 0; color: var(--text-2); font-size: 13px; }
+.figure-job .btn { margin-left: 10px; }
+.figure-job :deep(.progress-track) { max-width: 360px; margin-top: 5px; }
 .rail-note {
   display: flex; align-items: center; gap: 7px;
   font-size: 13.5px; color: var(--text-2);

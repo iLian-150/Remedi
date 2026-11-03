@@ -77,6 +77,7 @@ class QuestionGroupIn(BaseModel):
     key: str = Field(min_length=1, max_length=32)
     stem: str = Field(min_length=1, max_length=4000)            # 大题共享题干
     diagram: Optional[FigureSpec] = None
+    diagram_job_id: Optional[int] = Field(default=None, gt=0)
 
 class TeacherAssignmentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=128)

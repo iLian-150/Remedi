@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from .database import SessionLocal, init_db
 from .services import deferral as deferral_svc
-from .services import assignment_grading
+from .services import assignment_grading, diagram_jobs
 from .services import knowledge_jobs, reviews as review_svc
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,8 @@ async def lifespan(_: FastAPI):
     except Exception as exc:
         logger.warning("整份作业批改队列启动失败（error=%s）", type(exc).__name__)
 
+    diagram_jobs.start_worker()
+
     grading_task = None
     try:
         grading_task = asyncio.create_task(
@@ -78,3 +80,4 @@ async def lifespan(_: FastAPI):
                 pass
         knowledge_jobs.stop_worker()
         assignment_grading.stop_worker()
+        diagram_jobs.stop_worker()

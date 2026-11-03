@@ -393,7 +393,7 @@
           <button type="button" class="btn small secondary inline-icon" :disabled="groupRecognizing || g.diagramBusy" @click="pickGroupPhoto(g)">
             <AppIcon name="camera" :size="15" /> {{ groupRecognizing && groupPhotoTarget === g ? '识别中…' : '拍照识别大题' }}
           </button>
-          <button type="button" class="btn small secondary inline-icon" :disabled="g.diagramBusy || groupRecognizing || !groupFigurePrompt(g).trim()" @click="generateGroupFigure(g)">
+          <button type="button" class="btn small secondary inline-icon" :disabled="g.diagramBusy || g.diagramStarting || groupRecognizing || !groupFigurePrompt(g).trim()" @click="generateGroupFigure(g)">
             <AppIcon name="sparkles" :size="14" /> {{ g.diagramBusy ? '正在生成…' : g.diagram ? '重新生成图形' : 'AI生成图形' }}
           </button>
           <button type="button" class="btn small danger" @click="groups.splice(gi, 1)">删除大题</button>
@@ -402,6 +402,10 @@
       <div class="form-row">
         <label>大题题干（共享材料，每道小题上方都会展示给学生）</label>
         <textarea v-model="g.stem" rows="3" :placeholder="subject === 'math' ? '例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。' : '填写多道小题共用的题干材料或背景信息'" @input="clearGroupFigure(g)"></textarea>
+        <div v-if="g.diagramBusy" class="figure-progress" role="status">
+          <span>图形生成中，可先发布作业</span>
+          <IndeterminateProgress label="图形生成中" />
+        </div>
         <p v-if="g.diagramMessage" class="hint figure-message" role="status">{{ g.diagramMessage }}</p>
         <div v-if="g.diagram" class="figure-preview">
           <FigureRenderer :figure="g.diagram" />
@@ -527,7 +531,7 @@
       </span>
       <span v-if="questions.length || groups.length" class="weight-mini" :class="{ bad: !weightSumOk }">分值占比合计 <b class="tnum">{{ fmtScore(weightSum) }}%</b><template v-if="!weightSumOk">（需 100%）</template></span>
       <span class="spacer"></span>
-      <button class="btn" :disabled="submitting || checkingAll" @click="submit">
+      <button class="btn" :disabled="submitting || checkingAll || groups.some(g => g.diagramStarting)" @click="submit">
         {{ checkingAll ? '正在验算参考答案…' : submitting ? '发布中…' : mode === 'offline' ? '发布线下作业' : '发布作业' }}
       </button>
     </div>
@@ -536,7 +540,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/client'
 import { useTeacherStore } from '../../stores/teacher'
@@ -544,6 +548,7 @@ import type { Classroom, FigureSpec, QuestionSubject, SubjectAgentCode, TeacherA
 import { useAuthStore } from '../../stores/auth'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import FigureRenderer from '../../components/FigureRenderer.vue'
+import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -645,10 +650,14 @@ interface GroupForm {
   subs: QuestionForm[]
   diagram: FigureSpec | null
   diagramBusy: boolean
+  diagramStarting: boolean
+  diagramJobId: number | null
+  diagramSubject: string
+  diagramPrompt: string
   diagramMessage: string
 }
 const groups = ref<GroupForm[]>([])
-const blankGroup = (): GroupForm => ({ stem: '', subs: [blankQuestion()], diagram: null, diagramBusy: false, diagramMessage: '' })
+const blankGroup = (): GroupForm => ({ stem: '', subs: [blankQuestion()], diagram: null, diagramBusy: false, diagramStarting: false, diagramJobId: null, diagramSubject: '', diagramPrompt: '', diagramMessage: '' })
 function addGroup() {
   groups.value.push(blankGroup())
 }
@@ -657,39 +666,61 @@ function groupFigurePrompt(g: GroupForm): string {
   return [g.stem.trim(), ...g.subs.map((item) => item.prompt.trim())].filter(Boolean).join('\n')
 }
 function clearGroupFigure(g: GroupForm) {
-  const hadFigure = !!g.diagram
+  const hadFigure = !!g.diagram || g.diagramBusy
+  g.diagramJobId = null
+  g.diagramBusy = false
   g.diagram = null
   g.diagramMessage = hadFigure ? '题目内容已修改，请重新生成图形。' : ''
 }
+watch(subject, () => { groups.value.forEach(clearGroupFigure) })
 function removeGroupFigure(g: GroupForm) {
   g.diagram = null
+  g.diagramJobId = null
   g.diagramMessage = ''
 }
 function removeGroupSub(g: GroupForm, index: number) {
   g.subs.splice(index, 1)
   clearGroupFigure(g)
 }
+let figurePageActive = true
+onBeforeUnmount(() => { figurePageActive = false })
+interface FigureJob { id: number; status: string; figure: FigureSpec | null; message: string }
 async function generateGroupFigure(g: GroupForm) {
   const questionText = groupFigurePrompt(g)
+  const jobSubject = subject.value
   if (!questionText) return
+  g.diagram = null
+  g.diagramJobId = null
   g.diagramBusy = true
+  g.diagramStarting = true
+  g.diagramPrompt = questionText
+  g.diagramSubject = jobSubject
   g.diagramMessage = ''
   try {
-    const { data } = await api.post<{ figure: FigureSpec | null; message: string }>(
-      '/api/teacher/diagrams/generate',
-      { subject: subject.value, question_text: questionText },
-    )
-    if (groupFigurePrompt(g) !== questionText) {
-      g.diagram = null
-      g.diagramMessage = '题目内容已修改，旧图形未使用。'
-      return
+    const { data: job } = await api.post<FigureJob>('/api/teacher/diagrams/jobs', { subject: jobSubject, question_text: questionText })
+    g.diagramStarting = false
+    if (groupFigurePrompt(g) !== questionText || subject.value !== jobSubject) { g.diagramBusy = false; return }
+    g.diagramJobId = job.id
+    while (figurePageActive && g.diagramJobId === job.id) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000))
+      if (!figurePageActive || g.diagramJobId !== job.id) return
+      const { data } = await api.get<FigureJob>(`/api/teacher/diagrams/jobs/${job.id}`)
+      if (groupFigurePrompt(g) !== questionText || subject.value !== jobSubject) {
+        clearGroupFigure(g)
+        return
+      }
+      if (data.status === 'completed' || data.status === 'failed') {
+        g.diagram = data.figure
+        g.diagramMessage = data.figure ? '' : (data.message || '题目中没有需要补充的图形。')
+        g.diagramBusy = false
+        return
+      }
     }
-    g.diagram = data.figure
-    g.diagramMessage = data.figure ? '' : (data.message || '题目中没有需要补充的图形。')
   } catch (err: unknown) {
-    g.diagramMessage = '图形生成失败：' + errMsg(err, '请稍后重试。')
-  } finally {
+    g.diagramMessage = '图形任务查询失败：' + errMsg(err, '请稍后重试。')
     g.diagramBusy = false
+  } finally {
+    g.diagramStarting = false
   }
 }
 
@@ -1346,7 +1377,7 @@ async function submit() {
     }
     entries.push({ q, label: `第 ${i + 1} 题`, groupKey: null })
   }
-  const groupPayload: { key: string; stem: string; diagram?: FigureSpec | null }[] = []
+  const groupPayload: { key: string; stem: string; diagram?: FigureSpec | null; diagram_job_id?: number }[] = []
   for (let gi = 0; gi < groups.value.length; gi++) {
     const g = groups.value[gi]
     if (!g.stem.trim()) {
@@ -1358,7 +1389,7 @@ async function submit() {
       return
     }
     const key = `g${gi + 1}`
-    groupPayload.push({ key, stem: g.stem.trim(), diagram: g.diagram || undefined })
+    groupPayload.push({ key, stem: g.stem.trim(), diagram: g.diagram || undefined, diagram_job_id: g.diagramJobId && g.diagramPrompt === groupFigurePrompt(g) && g.diagramSubject === subject.value ? g.diagramJobId : undefined })
     for (let si = 0; si < g.subs.length; si++) {
       const sub = g.subs[si]
       if (!sub.prompt.trim()) {
@@ -1482,6 +1513,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.figure-progress { margin: 10px 0; max-width: 360px; color: var(--text-2); font-size: 13px; }
+.figure-progress :deep(.progress-track) { margin-top: 5px; }
 /* ---------- 两级导航（v0.12.0） ---------- */
 /* v0.13.1 修复「选模式后错位」：此前选择级是 880px 居中窄列、表单级是整幅宽，
    点卡进入表单时内容突然变宽并整体左移，看起来像错位。两级统一为同一内容列宽。 */

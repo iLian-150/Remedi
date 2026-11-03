@@ -99,6 +99,7 @@
             <div class="group-stem-content" :class="{ 'has-diagram': groupDiagramOf(currentQ) }">
               <p>{{ groupStemOf(currentQ) }}</p>
               <FigureRenderer v-if="groupDiagramOf(currentQ)" :figure="groupDiagramOf(currentQ)!" />
+              <span v-else-if="groupFigurePending(currentQ)" class="hint" role="status">图形生成中，将自动显示</span>
             </div>
           </div>
           <p class="board-stem">{{ currentQ.stem }}</p>
@@ -283,6 +284,7 @@
             <div class="group-stem-content" :class="{ 'has-diagram': groupDiagramOf(q) }">
               <p>{{ groupStemOf(q) }}</p>
               <FigureRenderer v-if="groupDiagramOf(q)" :figure="groupDiagramOf(q)!" />
+              <span v-else-if="groupFigurePending(q)" class="hint" role="status">图形生成中，将自动显示</span>
             </div>
           </div>
           <div :id="`q-block-${q.id}`" class="q-block">
@@ -410,6 +412,7 @@ const switchableAssignments = computed(() =>
 const switchOpen = ref(false)
 const switchWrapRef = ref<HTMLElement | null>(null)
 let gradingPollHandle: number | null = null
+let figurePollHandle: number | null = null
 const switchLabel = computed(() => {
   const cur = currentAssignment.value
   if (!cur) return '请选择一份作业…'
@@ -435,6 +438,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onDocKey)
   if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
+  if (figurePollHandle !== null) window.clearInterval(figurePollHandle)
 })
 const currentDetail = shallowRef<AssignmentDetail | null>(null) // 整体替换的只读作业详情，避免代理内部大题目列表
 const questions = shallowRef<Question[]>([]) // 接口题目只整体替换，避免逐题建立深层响应式代理
@@ -740,6 +744,30 @@ function groupStemOf(q: Question): string | undefined {
 function groupDiagramOf(q: Question): FigureSpec | undefined {
   return q.group_id ? groupById.value.get(q.group_id)?.diagram ?? undefined : undefined
 }
+function groupFigurePending(q: Question): boolean {
+  const status = q.group_id ? groupById.value.get(q.group_id)?.diagram_status : null
+  return status === 'queued' || status === 'processing'
+}
+function startFigurePolling(id: number, loadToken: number) {
+  if (figurePollHandle !== null) window.clearInterval(figurePollHandle)
+  figurePollHandle = null
+  if (!currentDetail.value?.groups?.some((g) => ['queued', 'processing', 'failed'].includes(g.diagram_status ?? ''))) return
+  let running = false
+  figurePollHandle = window.setInterval(async () => {
+    if (running) return
+    running = true
+    try {
+      const detail = await student.fetchAssignmentDetail(id)
+      if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return
+      if (currentDetail.value) currentDetail.value = { ...currentDetail.value, groups: detail.groups }
+      if (!detail.groups?.some((g) => ['queued', 'processing', 'failed'].includes(g.diagram_status ?? ''))) {
+        if (figurePollHandle !== null) window.clearInterval(figurePollHandle)
+        figurePollHandle = null
+      }
+    } catch { /* 保留已有题目并在下次轮询时重试 */ }
+    finally { running = false }
+  }, 4000)
+}
 function showGroupBanner(q: Question, i: number, list: Question[] = mathQuestions.value): boolean {
   if (!q.group_id) return false
   const prev = list[i - 1]
@@ -849,6 +877,7 @@ async function loadQuestions(id: number, loadToken: number) {
   if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return detail
   questions.value = detail.questions
   currentDetail.value = detail
+  startFigurePolling(id, loadToken)
   const relatedByQuestion = await relatedPromise
   if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return detail
   const related: Record<number, RelatedMistake> = {}
@@ -901,6 +930,8 @@ async function loadQuestions(id: number, loadToken: number) {
 
 async function selectAssignment(id: number) {
   const loadToken = ++assignmentLoadToken
+  if (figurePollHandle !== null) window.clearInterval(figurePollHandle)
+  figurePollHandle = null
   if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
   gradingPollHandle = null
   answeredQids.value = new Set()

@@ -26,6 +26,7 @@ from ..models import (
     AssignmentScoring,
     AssignmentSetting,
     QuestionGroup,
+    DiagramJob,
     QuestionGroupMember,
     ChatMessage,
     ChatSession,
@@ -1858,6 +1859,18 @@ def create_assignment(body: TeacherAssignmentCreate,
     standard_steps 无独立存储列：落库时并入 standard_answer（参考答案优先）。
     v0.5.0：mode=offline 时把 mode/workbook_id/page_range/deadline 写进 assignment_ext；
     workbook_id 必须指向本人上传的练习册。"""
+    # 任务只允许绑定到同一教师、同一份题目快照，防止旧图或他人任务混入作业。
+    job_ids = [group.diagram_job_id for group in body.groups if group.diagram_job_id]
+    if len(job_ids) != len(set(job_ids)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图形任务不能重复使用。")
+    for group in body.groups:
+        if not group.diagram_job_id:
+            continue
+        job = db.query(DiagramJob).filter_by(id=group.diagram_job_id, teacher_id=current.id, group_id=None).first()
+        members = [q for q in body.questions if q.group_key == group.key]
+        text = "\n".join([group.stem.strip(), *[q.prompt.strip() for q in members]])
+        if not job or not members or job.question_text != text or any((q.subject or ("math" if q.type == "math" else "english")) != job.subject for q in members):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "图形任务与当前题目不匹配，请重新生成。")
     workbook = None
     assignment_deadline = deferral_svc.normalize_deadline(body.deadline)
     class_ids = sorted(set(body.class_ids))
@@ -1951,6 +1964,18 @@ def create_assignment(body: TeacherAssignmentCreate,
     if created_groups:
         db.flush()
     group_id_by_key = {key: grp.id for key, grp in created_groups}
+    for group_in in body.groups:
+        if group_in.diagram_job_id:
+            group_id = group_id_by_key[group_in.key]
+            attached = db.query(DiagramJob).filter_by(
+                id=group_in.diagram_job_id, teacher_id=current.id, group_id=None,
+            ).update({DiagramJob.group_id: group_id}, synchronize_session=False)
+            if not attached:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "图形任务已被使用，请重新生成。")
+            job = db.get(DiagramJob, group_in.diagram_job_id)
+            db.refresh(job)
+            if job.status == "completed":
+                db.get(QuestionGroup, group_id).diagram_json = job.figure_json
     for (question, _pct), qin in zip(created_questions, body.questions):
         if qin.group_key and qin.group_key in group_id_by_key:
             db.add(QuestionGroupMember(question_id=question.id, group_id=group_id_by_key[qin.group_key]))
@@ -2174,6 +2199,9 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db),
     # v0.13.1：提交设置行与大题行随作业一并清理
     db.query(AssignmentSetting).filter(AssignmentSetting.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
+    db.query(DiagramJob).filter(DiagramJob.group_id.in_(
+        db.query(QuestionGroup.id).filter(QuestionGroup.assignment_id == assignment.id)
+    )).delete(synchronize_session=False)
     db.query(QuestionGroup).filter(QuestionGroup.assignment_id == assignment.id) \
         .delete(synchronize_session=False)
     # v0.5.0：作业扩展行（发布模式/练习册关联）一并删除

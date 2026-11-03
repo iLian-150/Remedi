@@ -1895,3 +1895,10 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.383 | 2026-11-02 | 教师 AI 对话识别发布作业意图并展开可编辑的发布工作流；图片题目识别指令与用户消息分开发送，发布结果保存到会话历史。 |
 | v0.13.384 | 2026-11-02 | 移除教师端独立教学建议页面与导航入口，旧链接重定向到班级总览；总览建议摘要保留。 |
 | v0.13.385 | 2026-11-02 | 学生逐题保存整份作业答案，全部完成后由后台批改任务先识别知识点、检索对应学科知识库并注入批改系统提示词；界面只展示待批改与批改进度。 |
+
+
+### 图形后台生成与发布
+
+- `POST /api/teacher/diagrams/jobs` 接收与 `/diagrams/generate` 相同的 `subject`、`question_text`，立即返回任务 `id`、`status`、`figure`、`message`。`GET /api/teacher/diagrams/jobs/{id}` 查询当前教师的任务；状态为 `queued`、`processing`、`completed` 或 `failed`。进度为不确定进度，不提供百分比。
+- 发布作业时 `groups[].diagram_job_id` 可关联当前教师的图形任务。服务端校验学科和题目快照，生成完成后将图形写入对应大题；作业立即对选定班级可见。后台任务在服务重启后恢复。
+- `GET /api/teacher/diagrams/jobs` 返回当前教师已发布作业的图形任务及 `assignment_id`；`POST /api/teacher/diagrams/jobs/{id}/retry` 重试失败任务。学生作业详情 `groups[].diagram_status` 表示生成状态，学生端轮询更新图形。
