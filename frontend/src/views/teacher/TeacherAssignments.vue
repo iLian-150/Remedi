@@ -44,11 +44,11 @@
       </div>
 
       <!-- 作业（全部或按所选日期筛选后） -->
-      <div v-for="a in assignments" :key="a.id" class="card">
+      <div v-for="a in assignments" :key="a.id" class="card assignment-card" @click="openAssignment(a.id)">
         <div class="card-head-row">
           <div>
             <h3>
-              {{ a.title }}
+              <router-link :to="`/teacher/assignments/${a.id}`" class="assignment-title" @click.stop>{{ a.title }}</router-link>
               <span v-if="a.mode === 'offline'" class="badge badge-amber" style="margin-left: 6px">线下练习</span>
             </h3>
             <p class="card-sub" style="margin-bottom: 0">
@@ -61,10 +61,11 @@
             </p>
           </div>
           <div class="head-actions">
-            <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click="remind(a)">
+            <router-link class="btn small secondary" :to="`/teacher/assignments/${a.id}`" @click.stop>查看题目</router-link>
+            <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click.stop="remind(a)">
               <AppIcon name="megaphone" :size="15" /> {{ remindingId === a.id ? '提醒中…' : '提醒未交' }}
             </button>
-            <button v-if="a.can_delete" class="btn small danger-outline inline-icon" @click="askDelete(a)">
+            <button v-if="a.can_delete" class="btn small danger-outline inline-icon" @click.stop="askDelete(a)">
               <AppIcon name="trash" :size="15" /> 删除
             </button>
           </div>
@@ -72,7 +73,7 @@
         <div v-for="job in figureJobs.filter(item => item.assignment_id === a.id && item.status !== 'completed')" :key="job.id" class="figure-job" role="status">
           <template v-if="job.status === 'failed'">
             <span>图形生成失败</span>
-            <button class="btn small secondary" :disabled="retryingJob === job.id" @click="retryFigure(job.id)">重试</button>
+            <button class="btn small secondary" :disabled="retryingJob === job.id" @click.stop="retryFigure(job.id)">重试</button>
           </template>
           <template v-else>
             <span>图形生成中，完成后自动显示给学生</span>
@@ -162,6 +163,10 @@ async function retryFigure(id: number) {
     await refreshFigureJobs()
   } catch { error.value = '图形重试失败，请稍后再试。' }
   finally { retryingJob.value = null }
+}
+
+function openAssignment(id: number) {
+  void router.push(`/teacher/assignments/${id}`)
 }
 
 function togglePublish() {
@@ -338,8 +343,12 @@ onUnmounted(() => {
 .management-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .management-heading h3 { font-size: 18px; }
 .management-heading span { color: var(--text-3); font-size: 13px; }
+.assignment-card { cursor: pointer; }
+.assignment-title { color: inherit; }
+.assignment-title:hover { color: var(--primary); }
 .card-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
+@media (max-width: 760px) { .card-head-row { flex-wrap: wrap; } }
 .filter-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
   background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 12px;

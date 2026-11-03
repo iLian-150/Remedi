@@ -13,6 +13,7 @@ from .routers import diagrams as diagrams_router
 from .routers import health as health_router
 from .routers import student as student_router
 from .routers import teacher as teacher_router
+from .routers import teacher_assignment_detail as teacher_assignment_detail_router
 
 app = FastAPI(
     title="Remedi MVP",
@@ -40,6 +41,7 @@ app.include_router(diagrams_router.router)
 app.include_router(health_router.router)
 app.include_router(student_router.router)
 app.include_router(teacher_router.router)
+app.include_router(teacher_assignment_detail_router.router)
 
 # 拍照上传的图片以静态文件方式回读（前端转写卡片预览用）
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

@@ -1902,3 +1902,8 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 - `POST /api/teacher/diagrams/jobs` 接收与 `/diagrams/generate` 相同的 `subject`、`question_text`，立即返回任务 `id`、`status`、`figure`、`message`。`GET /api/teacher/diagrams/jobs/{id}` 查询当前教师的任务；状态为 `queued`、`processing`、`completed` 或 `failed`。进度为不确定进度，不提供百分比。
 - 发布作业时 `groups[].diagram_job_id` 可关联当前教师的图形任务。服务端校验学科和题目快照，生成完成后将图形写入对应大题；作业立即对选定班级可见。后台任务在服务重启后恢复。
 - `GET /api/teacher/diagrams/jobs` 返回当前教师已发布作业的图形任务及 `assignment_id`；`POST /api/teacher/diagrams/jobs/{id}/retry` 重试失败任务。学生作业详情 `groups[].diagram_status` 表示生成状态，学生端轮询更新图形。
+
+
+### 教师作业题目详情
+
+`GET /api/teacher/assignments/{assignment_id}` 返回教师有权查看的作业详情；题目仅包括该教师对应学科和班级范围，`questions[].group_id` 关联 `groups` 中的共享题干、图形和图形生成状态。作业不存在或无查看权限时返回 404。

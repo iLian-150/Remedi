@@ -35,6 +35,7 @@ const routes: RouteRecordRaw[] = [
     path: '/teacher/assignments',
     query: { ...to.query, publish: '1' },
   }) },
+  { path: '/teacher/assignments/:id', component: () => import('../views/teacher/TeacherAssignmentDetail.vue'), meta: { role: 'teacher', title: '作业题目' } },
   { path: '/teacher/chat', component: () => import('../views/teacher/TeacherChat.vue'), meta: { role: 'teacher', title: 'AI 助手' } },
   // 我的资料：管理当前任教学科 Agent 使用的外挂知识库文档。
   { path: '/teacher/materials', component: () => import('../views/teacher/TeacherKnowledge.vue'), meta: { role: 'teacher', title: '我的资料' } },

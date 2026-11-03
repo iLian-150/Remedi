@@ -663,6 +663,8 @@ export interface TeacherAssignmentQuestion {
   knowledge_point: string
   standard_answer: string | null
   submission_count: number
+  weight_pct?: number | null
+  group_id?: number | null
 }
 
 export interface TeacherAssignment {
@@ -678,6 +680,11 @@ export interface TeacherAssignment {
   deadline: string | null
   class_ids: number[]
   can_delete: boolean
+}
+
+export interface TeacherAssignmentDetail extends TeacherAssignment {
+  total_score: number
+  groups: { id: number; stem: string; order_num: number; diagram: FigureSpec | null; diagram_status: string | null }[]
 }
 
 export interface TeacherQuestionInput {
