@@ -267,7 +267,16 @@ def _grade_job(job_id: int) -> None:
                 image_paths_to_remove.append(_draft_image_path(answer.image_path))
     except Exception as exc:
         db.rollback()
-        logger.warning("整份作业后台批改失败（job_id=%s, error=%s）", job_id, type(exc).__name__)
+        database_error = getattr(exc, "orig", None)
+        sqlite_detail = (
+            str(database_error)[:200]
+            if getattr(database_error, "sqlite_errorname", None)
+            else "unavailable"
+        )
+        logger.warning(
+            "整份作业后台批改失败（job_id=%s, error=%s, database=%s）",
+            job_id, type(exc).__name__, sqlite_detail,
+        )
         job = db.query(AssignmentGradingJob).filter_by(id=job_id).first()
         if job is not None:
             job.status = "failed"
