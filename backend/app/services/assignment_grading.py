@@ -115,7 +115,7 @@ def _copy_to_uploads(source: Path) -> str:
 
 
 def _grade_job(job_id: int) -> None:
-    from .agent.subjects import build_subject_context
+    from ..agent.subjects import build_subject_context
 
     db = SessionLocal()
     image_paths_to_remove = []
