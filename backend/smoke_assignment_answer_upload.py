@@ -38,6 +38,9 @@ class AssignmentAnswerUploadTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["answered_question_ids"], [self.question_id])
         self.assertEqual(response.json()["image_question_ids"], [self.question_id])
+        assignment = next(item for item in self.client.get("/api/student/assignments").json()["items"] if item["id"] == self.assignment_id)
+        self.assertEqual(assignment["staged_count"], 1)
+        self.assertEqual(assignment["grading_status"], "draft")
         image_url = self.answer_url + "/image"
         saved = self.client.get(image_url)
         self.assertEqual(saved.status_code, 200, saved.text)

@@ -486,6 +486,37 @@ def list_assignments(
     assignment_rows = list(assignment_rows_by_id.values())
     assignment_ids = list(assignment_rows_by_id)
 
+    grading_status_by_assignment = {}
+    if assignment_ids:
+        for start in range(0, len(assignment_ids), 500):
+            assignment_batch = assignment_ids[start:start + 500]
+            latest_grading_jobs = (
+                db.query(
+                    AssignmentGradingJob.assignment_id.label("assignment_id"),
+                    func.max(AssignmentGradingJob.id).label("job_id"),
+                )
+                .filter(
+                    AssignmentGradingJob.student_id == current.id,
+                    AssignmentGradingJob.assignment_id.in_(assignment_batch),
+                )
+                .group_by(AssignmentGradingJob.assignment_id)
+                .subquery()
+            )
+            for grading_assignment_id, grading_status, staged_count in (
+                db.query(
+                    AssignmentGradingJob.assignment_id,
+                    AssignmentGradingJob.status,
+                    func.count(AssignmentGradingAnswer.id),
+                )
+                .join(latest_grading_jobs, latest_grading_jobs.c.job_id == AssignmentGradingJob.id)
+                .outerjoin(AssignmentGradingAnswer, AssignmentGradingAnswer.job_id == AssignmentGradingJob.id)
+                .group_by(AssignmentGradingJob.assignment_id, AssignmentGradingJob.status)
+                .all()
+            ):
+                grading_status_by_assignment[grading_assignment_id] = (
+                    grading_status, int(staged_count or 0),
+                )
+
     if include_submission_status and assignment_ids:
         essay_question_rows = db.query(
             Question.assignment_id,
@@ -604,9 +635,11 @@ def list_assignments(
         a, ext, setting, workbook_title = assignment_row[:4]
         question_count, submitted = question_stats.get(a.id, (0, 0))
         mode = (ext.mode or "online") if ext else "online"
+        grading_status, staged_count = grading_status_by_assignment.get(a.id, (None, 0))
         item = {
             "id": a.id, "title": a.title, "description": a.description,
             "question_count": question_count, "submitted_count": submitted,
+            "staged_count": staged_count, "grading_status": grading_status,
             "created_at": a.created_at,
             # v0.5.0：发布模式与线下作业信息（mode/workbook_title/page_range/deadline）
             "mode": mode,

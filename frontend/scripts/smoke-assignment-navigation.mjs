@@ -135,4 +135,35 @@ assert.equal(chatState.mode, 'online')
 assert.equal(chatState.step, 'form')
 await new Promise((resolve) => setImmediate(resolve))
 chatApp.unmount()
+
+// Saved grading drafts appear on the assignment list and can be submitted there.
+let gradingStatus = 'draft'
+let submitCalls = 0
+const stagedAssignment = { id: 71, title: '语文作业', description: '', question_count: 4, submitted_count: 0, staged_count: 4, grading_status: 'draft', created_at: '', mode: 'online', workbook_title: null, page_range: null, deadline: null, photo_required: true }
+const assignmentStore = {
+  assignmentDateFilter: '',
+  fetchAssignments: async () => [{ ...stagedAssignment, grading_status: gradingStatus }],
+  submitAssignmentForGrading: async () => { submitCalls++; gradingStatus = 'queued'; return { status: 'queued' } },
+}
+const assignmentDescriptor = parse(readFileSync(new URL('../src/views/student/StudentAssignments.vue', import.meta.url), 'utf8'), { filename: 'StudentAssignments.vue' }).descriptor
+const assignmentCode = ts.transpileModule(compileScript(assignmentDescriptor, { id: 'student-progress' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText
+const assignmentModule = { exports: {} }
+vm.runInNewContext(assignmentCode, { module: assignmentModule, exports: assignmentModule.exports, window: fakeWindow, console,
+  require: (name) => {
+    if (name === 'vue') return vue
+    if (name === '../../stores/student') return { useStudentStore: () => assignmentStore }
+    if (name.endsWith('AppIcon.vue')) return { __esModule: true, default: icon }
+    throw new Error(`Unexpected student assignment import: ${name}`)
+  } })
+assignmentModule.exports.default.render = () => null
+const assignmentListApp = renderer.createApp(assignmentModule.exports.default)
+const assignmentListState = assignmentListApp.mount(makeNode('root')).$.setupState
+await new Promise((resolve) => setImmediate(resolve))
+assert.equal(assignmentListState.doneCount(stagedAssignment), 4)
+assert.equal(assignmentListState.stampOf(stagedAssignment).text, '待提交')
+assert.equal(assignmentListState.canSubmitStagedAssignment(stagedAssignment), true)
+await assignmentListState.submitStagedAssignment(stagedAssignment)
+assert.equal(submitCalls, 1)
+assert.equal(assignmentListState.stampOf({ ...stagedAssignment, grading_status: gradingStatus }).text, '批改中')
+assignmentListApp.unmount()
 console.log('作业发布入口和旧链接检查通过')

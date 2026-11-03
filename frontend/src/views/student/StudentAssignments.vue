@@ -1,5 +1,5 @@
 <!-- 学生端：作业列表 —— 交作业的统一入口
-     数据源：GET /api/student/assignments（契约 3.1）
+     数据源：GET /api/student/assignments（契约 3.1，含整份作业暂存进度）
      v0.2.1 曾在页内放作业日历；v0.3.0 日历迁至右侧栏；v0.3.1 日历只在本页右栏出现，
      点选日期 → store.assignmentDateFilter 生效 → 服务端按发布日期筛选并显示当天完成进度，
      「返回查看全部作业」清掉筛选。卡片按钮按作业模式分文案（v0.9.2：线上作业=
@@ -15,7 +15,7 @@
   <div class="page">
     <div class="page-head">
       <h2>作业列表</h2>
-      <p class="page-sub">选择一份作业开始作答，系统会自动批改；判断不确定的作答会送老师复核。</p>
+      <p class="page-sub">完成全部题目后，点击「提交作业」开始批改。</p>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -96,8 +96,15 @@
               </div>
               <div class="item-foot">
                 <router-link :to="`/student/submit?assignment_id=${a.id}`" class="btn">
-                  {{ a.photo_required ? '拍照批改' : '在线作答' }}
+                  {{ assignmentActionLabel(a) }}
                 </router-link>
+                <button
+                  v-if="canSubmitStagedAssignment(a)"
+                  type="button"
+                  class="btn"
+                  :disabled="submittingAssignments.has(a.id)"
+                  @click="submitStagedAssignment(a)"
+                >{{ submittingAssignments.has(a.id) ? '提交中…' : a.grading_status === 'failed' ? '重新开始批改' : '提交作业' }}</button>
               </div>
             </section>
           </template>
@@ -116,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useStudentStore } from '../../stores/student'
 import type { Assignment } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
@@ -126,6 +133,8 @@ const student = useStudentStore()
 const assignments = ref<Assignment[]>([])
 const loading = ref(false)
 const error = ref('')
+const submittingAssignments = ref<Set<number>>(new Set())
+let gradingPollHandle: number | null = null
 
 /** 盖章入场只在首次加载播一次；日期筛选变化后关掉，正文只做轻翻页过渡 */
 const intro = ref(true)
@@ -171,7 +180,37 @@ function fmtTime(t: string): string {
 }
 
 function doneCount(a: Assignment): number {
-  return a.submitted_count ?? 0
+  return Math.max(a.submitted_count ?? 0, a.staged_count ?? 0)
+}
+
+function canSubmitStagedAssignment(a: Assignment): boolean {
+  return a.question_count > 0 && (a.staged_count ?? 0) >= a.question_count
+    && (a.grading_status === 'draft' || a.grading_status === 'failed')
+}
+
+function assignmentActionLabel(a: Assignment): string {
+  if (a.grading_status === 'queued' || a.grading_status === 'processing') return '查看批改进度'
+  if (a.grading_status === 'completed') return '查看批改结果'
+  if (canSubmitStagedAssignment(a)) return '检查作答'
+  if ((a.staged_count ?? 0) > 0) return '继续作答'
+  return a.photo_required ? '拍照提交' : '在线作答'
+}
+
+async function submitStagedAssignment(a: Assignment) {
+  if (!canSubmitStagedAssignment(a) || submittingAssignments.value.has(a.id)) return
+  submittingAssignments.value = new Set(submittingAssignments.value).add(a.id)
+  error.value = ''
+  try {
+    await student.submitAssignmentForGrading(a.id)
+    await loadAssignments()
+  } catch (e) {
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    error.value = typeof detail === 'string' ? detail : '提交作业失败，请进入作答页检查后重试。'
+  } finally {
+    const next = new Set(submittingAssignments.value)
+    next.delete(a.id)
+    submittingAssignments.value = next
+  }
 }
 
 /** 大题号：中文数字（一、二、三……，支持到九十九） */
@@ -188,6 +227,9 @@ function cnNum(n: number): string {
 function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string } {
   const total = a.question_count
   const done = doneCount(a)
+  if (a.grading_status === 'queued' || a.grading_status === 'processing') return { kind: 'doing', text: '批改中' }
+  if (a.grading_status === 'failed') return { kind: 'doing', text: '批改失败' }
+  if (a.grading_status === 'draft' && (a.staged_count ?? 0) > 0 && done >= total) return { kind: 'doing', text: '待提交' }
   if (total > 0 && done >= total) return { kind: 'done', text: '已完成' }
   if (done > 0) return { kind: 'doing', text: '进行中' }
   return { kind: 'todo', text: '未开始' }
@@ -195,26 +237,39 @@ function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string
 
 let assignmentLoadGeneration = 0
 
-async function loadAssignments() {
+async function loadAssignments(showLoading = true) {
   const generation = ++assignmentLoadGeneration
-  loading.value = true
+  if (showLoading) loading.value = true
   error.value = ''
   try {
     const list = await student.fetchAssignments(
       false, false, true, false, dateFilter.value || undefined
     )
-    if (generation === assignmentLoadGeneration) assignments.value = list
+    if (generation === assignmentLoadGeneration) {
+      assignments.value = list
+      const hasActiveGrading = list.some((a) => a.grading_status === 'queued' || a.grading_status === 'processing')
+      if (hasActiveGrading && gradingPollHandle === null) {
+        gradingPollHandle = window.setInterval(() => { void loadAssignments(false) }, 3000)
+      } else if (!hasActiveGrading && gradingPollHandle !== null) {
+        window.clearInterval(gradingPollHandle)
+        gradingPollHandle = null
+      }
+    }
   } catch (e) {
     if (generation === assignmentLoadGeneration) {
       error.value = '作业列表加载失败，请确认后端已启动。'
     }
     console.error(e)
   } finally {
-    if (generation === assignmentLoadGeneration) loading.value = false
+    if (showLoading && generation === assignmentLoadGeneration) loading.value = false
   }
 }
 
 onMounted(() => { void loadAssignments() })
+onBeforeUnmount(() => {
+  assignmentLoadGeneration++
+  if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
+})
 </script>
 
 <style scoped>
@@ -381,7 +436,7 @@ onMounted(() => { void loadAssignments() })
 .paper-item .assign-desc { flex: none; }
 .paper-item .assign-meta { flex-wrap: wrap; margin-bottom: 12px; }
 .meta-progress { font-size: 12.5px; color: var(--text-2); }
-.item-foot { display: flex; justify-content: flex-end; }
+.item-foot { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .item-foot .btn { min-width: 168px; }
 
 .assign-offline {
@@ -516,8 +571,7 @@ onMounted(() => { void loadAssignments() })
   .stamp--done { width: 46px; height: 46px; font-size: 11.5px; letter-spacing: 1.5px; }
   .stamp--pending, .stamp--doing, .stamp--todo { font-size: 11px; padding: 4px 7px; letter-spacing: 1.5px; }
   .item-foot .btn { width: 100%; min-width: 0; }
-  .item-foot { display: block; }
-  .item-foot a { display: block; }
+  .item-foot { display: grid; grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
