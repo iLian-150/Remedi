@@ -753,7 +753,7 @@ async def stage_assignment_answer(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先填写作答或上传作答照片")
     if clean_text and len([line for line in clean_text.splitlines() if line.strip()]) > 20:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "作答步骤最多 20 行")
-    deferred_svc.assert_can_submit(db, current, question)
+    deferral_svc.assert_can_submit(db, current, question)
 
     image_data = None
     image_extension = None
@@ -849,7 +849,7 @@ def submit_assignment_for_grading(assignment_id: int, db: Session = Depends(get_
     if missing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先完成全部题目后再提交批改")
     for question in questions:
-        deferred_svc.assert_can_submit(db, current, question)
+        deferral_svc.assert_can_submit(db, current, question)
     job.status = "queued"
     job.progress = 0
     job.total_questions = len(questions)

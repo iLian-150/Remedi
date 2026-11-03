@@ -234,6 +234,9 @@
                 :question-stem="q.stem"
                 direct
                 assignment-answer
+                :assignment-saving="!!submittingMap[q.id]"
+                :assignment-saved="answeredQids.has(q.id)"
+                :assignment-error="!!answerErrors[q.id]"
                 @answered="onPhotoAnswered(q.id, $event)"
                 @active="onFlowActive(q.id, $event)"
               />
@@ -305,7 +308,7 @@
             </div>
             <!-- 点按直达图库（v0.9.2）；v0.13.1：已提交的题锁定不再给按钮，
                  要改走页面底部「修改作业」（老师开启允许修改时才有） -->
-            <button v-if="!noteKind(q) && !batchLocked" class="btn inline-icon" @click="pickPhoto(q.id)">
+            <button v-if="!noteKind(q) && !batchLocked" class="btn inline-icon" :disabled="!!submittingMap[q.id]" @click="pickPhoto(q.id)">
               <AppIcon name="camera" :size="16" />
               {{ answeredQids.has(q.id) ? '重新上传作答' : '上传作答照片' }}
             </button>
@@ -322,6 +325,9 @@
               :question-stem="q.stem"
               direct
               assignment-answer
+              :assignment-saving="!!submittingMap[q.id]"
+              :assignment-saved="answeredQids.has(q.id)"
+              :assignment-error="!!answerErrors[q.id]"
               @answered="onPhotoAnswered(q.id, $event)"
               @active="onFlowActive(q.id, $event)"
             />

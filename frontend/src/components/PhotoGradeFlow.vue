@@ -18,9 +18,16 @@
     <p v-if="phase === 'transcribing' || (direct && phase === 'submitting')" class="pgf-status">
       <AppIcon name="spinner" :size="15" class="spin" /> {{ assignmentAnswer ? '正在保存作答照片…' : direct ? '正在识别并批改…' : '正在识别照片里的解题步骤…' }}
     </p>
-    <p v-if="phase === 'staged'" class="pgf-status">
+    <p v-if="phase === 'staged' && assignmentSaving" class="pgf-status" role="status">
+      <AppIcon name="spinner" :size="15" class="spin" /> 正在保存作答照片…
+    </p>
+    <p v-else-if="phase === 'staged' && assignmentSaved && !assignmentError" class="pgf-status" role="status">
       <AppIcon name="check" :size="15" /> 作答已添加，提交整份作业后统一批改。
     </p>
+    <div v-if="phase === 'staged' && assignmentError" class="toolbar" style="margin-top: 10px">
+      <button type="button" class="btn small secondary" @click="retryStaged">重试保存</button>
+      <button type="button" class="btn small secondary" @click="retake">重新选择图片</button>
+    </div>
     <div v-if="errorText" class="error-msg" style="margin-top: 10px">{{ errorText }}</div>
 
     <div v-if="phase === 'answered'" class="pgf-card">
@@ -151,8 +158,11 @@ const props = withDefaults(
     direct?: boolean
     /** 作业答题模式：只把原图交给父级保存，整份作业完成前不批改。 */
     assignmentAnswer?: boolean
+    assignmentSaving?: boolean
+    assignmentSaved?: boolean
+    assignmentError?: boolean
   }>(),
-  { direct: false, assignmentAnswer: false }
+  { direct: false, assignmentAnswer: false, assignmentSaving: false, assignmentSaved: false, assignmentError: false }
 )
 const emit = defineEmits<{
   (e: 'graded', result: SubmissionResult): void
@@ -168,6 +178,7 @@ const phase = ref<Phase>('idle')
 const busy = ref(false)
 const fileRef = ref<HTMLInputElement | null>(null)
 const previewUrl = ref('')
+let stagedFile: File | null = null
 const errorText = ref('')
 const questionText = ref('')
 const steps = ref<string[]>([])
@@ -248,6 +259,7 @@ async function processFile(file: File) {
   try {
     if (props.assignmentAnswer) {
       questionText.value = props.questionStem || ''
+      stagedFile = file
       phase.value = 'staged'
       emit('answered', file)
       return
@@ -296,6 +308,10 @@ async function processFile(file: File) {
   }
 }
 
+function retryStaged() {
+  if (stagedFile && !props.assignmentSaving) emit('answered', stagedFile)
+}
+
 async function saveCapture() {
   if (!captureId.value || savedCapture.value || savingCapture.value) return
   savingCapture.value = true
@@ -340,6 +356,7 @@ async function confirm() {
 
 function reset() {
   phase.value = 'idle'
+  stagedFile = null
   previewUrl.value = ''
   questionText.value = ''
   steps.value = []
