@@ -256,6 +256,9 @@ def _grade_job(job_id: int) -> None:
         db.flush()
         for submission, _confidence, _visual_steps in created_submissions:
             scoring_svc.persist_ai_score(db, submission, commit=False)
+        # Review aggregation queries scores with autoflush disabled; persist the
+        # pending rows inside this transaction before it checks for missing scores.
+        db.flush()
         for submission, _confidence, _visual_steps in created_submissions:
             review_svc.create_review_if_needed(db, submission, commit=False)
         job.status = "completed"
