@@ -82,7 +82,11 @@ def _worker_loop() -> None:
                 continue
             _grade_job(job_id)
         except Exception as exc:
-            logger.warning("整份作业后台批改任务异常（error=%s）", type(exc).__name__)
+            missing_module = getattr(exc, "name", None) if isinstance(exc, ModuleNotFoundError) else None
+            logger.warning(
+                "整份作业后台批改任务异常（error=%s, module=%s）",
+                type(exc).__name__, missing_module or "unknown",
+            )
             time.sleep(1)
 
 
