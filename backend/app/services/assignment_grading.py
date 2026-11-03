@@ -65,16 +65,11 @@ def stop_worker() -> None:
 
 
 def _next_ready_job_id():
-    from . import deferral as deferral_svc
-
     with SessionLocal() as db:
-        jobs = db.query(AssignmentGradingJob).filter(
+        job = db.query(AssignmentGradingJob.id).filter(
             AssignmentGradingJob.status == "queued"
-        ).order_by(AssignmentGradingJob.created_at, AssignmentGradingJob.id).limit(20).all()
-        for job in jobs:
-            if not deferral_svc.is_deferred_mode(db, job.assignment_id):
-                return job.id
-    return None
+        ).order_by(AssignmentGradingJob.created_at, AssignmentGradingJob.id).first()
+        return job[0] if job else None
 
 
 def _worker_loop() -> None:
