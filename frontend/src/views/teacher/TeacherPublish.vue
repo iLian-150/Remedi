@@ -399,14 +399,16 @@
           <button type="button" class="btn small danger" @click="groups.splice(gi, 1)">删除大题</button>
         </div>
       </div>
-      <div class="form-row">
-        <label>大题题干（共享材料，每道小题上方都会展示给学生）</label>
-        <textarea v-model="g.stem" rows="3" :placeholder="subject === 'math' ? '例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。' : '填写多道小题共用的题干材料或背景信息'" @input="clearGroupFigure(g)"></textarea>
-        <div v-if="g.diagramBusy" class="figure-progress" role="status">
-          <span>图形生成中，可先发布作业</span>
-          <IndeterminateProgress label="图形生成中" />
+      <div class="group-material" :class="{ 'has-figure': g.diagram }">
+        <div class="form-row">
+          <label>大题题干（共享材料，每道小题上方都会展示给学生）</label>
+          <textarea v-model="g.stem" rows="3" :placeholder="subject === 'math' ? '例如：已知直角三角形的两条直角边分别为 3 和 4，回答下列问题。' : '填写多道小题共用的题干材料或背景信息'" @input="clearGroupFigure(g)"></textarea>
+          <div v-if="g.diagramBusy" class="figure-progress" role="status">
+            <span>图形生成中，可先发布作业</span>
+            <IndeterminateProgress label="图形生成中" />
+          </div>
+          <p v-if="g.diagramMessage" class="hint figure-message" role="status">{{ g.diagramMessage }}</p>
         </div>
-        <p v-if="g.diagramMessage" class="hint figure-message" role="status">{{ g.diagramMessage }}</p>
         <div v-if="g.diagram" class="figure-preview">
           <FigureRenderer :figure="g.diagram" />
           <button type="button" class="btn ghost small" :disabled="g.diagramBusy" @click="removeGroupFigure(g)">移除图形</button>
@@ -1752,7 +1754,9 @@ onMounted(async () => {
 }
 .group-card { border-left: 3px solid var(--primary); }
 .figure-message { margin-top: 8px; }
-.figure-preview { display: flex; flex-direction: column; align-items: center; }
+.group-material.has-figure { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.figure-preview { display: flex; min-width: 0; flex-direction: column; align-items: center; }
+@media (max-width: 760px) { .group-material.has-figure { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 .sub-block {
   border-top: 1px dashed var(--border);
   padding-top: 14px; margin-top: 14px;
