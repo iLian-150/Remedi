@@ -62,6 +62,7 @@
           </div>
           <div class="head-actions">
             <router-link class="btn small secondary" :to="`/teacher/assignments/${a.id}`" @click.stop>查看题目</router-link>
+            <router-link v-if="a.can_delete" class="btn small secondary inline-icon" :to="`/teacher/assignments/${a.id}/edit`" @click.stop><AppIcon name="edit" :size="15" /> 编辑作业</router-link>
             <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click.stop="remind(a)">
               <AppIcon name="megaphone" :size="15" /> {{ remindingId === a.id ? '提醒中…' : '提醒未交' }}
             </button>

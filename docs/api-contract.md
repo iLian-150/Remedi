@@ -1907,3 +1907,8 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ### 教师作业题目详情
 
 `GET /api/teacher/assignments/{assignment_id}` 返回教师有权查看的作业详情；题目仅包括该教师对应学科和班级范围，`questions[].group_id` 关联 `groups` 中的共享题干、图形和图形生成状态。作业不存在或无查看权限时返回 404。
+
+
+### 教师编辑已发布作业
+
+`GET /api/teacher/assignments/{assignment_id}/edit` 和 `PUT /api/teacher/assignments/{assignment_id}` 仅允许拥有该作业且具有全部题目学科权限的教师使用。可修改标题、说明、接收班级、截止时间、提交设置、现有题目及大题材料、参考答案和分值；题目编号与既有记录保留。存在学生作答或批改任务后，仅允许修改标题和说明；保存时检查版本并再次检查作答状态。修改大题题干或小题题干时，已有图形自动重新生成。

@@ -3,6 +3,7 @@
     <div class="detail-heading">
       <router-link to="/teacher/assignments" class="btn secondary small inline-icon"><AppIcon name="chevron-left" :size="15" /> 返回作业管理</router-link>
       <h2>作业题目</h2>
+      <router-link v-if="detail?.can_delete" :to="`/teacher/assignments/${detail.id}/edit`" class="btn small secondary inline-icon"><AppIcon name="edit" :size="15" /> 编辑作业</router-link>
     </div>
 
     <div v-if="loading" class="loading">作业加载中…</div>
