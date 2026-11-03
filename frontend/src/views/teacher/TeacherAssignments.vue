@@ -24,7 +24,7 @@
       />
     </section>
 
-    <section class="assignment-management">
+    <section v-show="!publishOpen" class="assignment-management">
       <div class="management-heading">
         <h3>作业管理</h3>
         <span>最新发布在前</span>
