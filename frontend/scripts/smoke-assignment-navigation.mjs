@@ -160,6 +160,8 @@ const assignmentListApp = renderer.createApp(assignmentModule.exports.default)
 const assignmentListState = assignmentListApp.mount(makeNode('root')).$.setupState
 await new Promise((resolve) => setImmediate(resolve))
 assert.equal(assignmentListState.doneCount(stagedAssignment), 4)
+assert.equal(assignmentListState.assignmentPreview({ ...stagedAssignment, description: '', questions: [{ stem: '求解方程', group_id: 9 }], groups: [{ id: 9, stem: '已知条件' }] }), '已知条件 求解方程')
+assert.equal(assignmentListState.assignmentPreview({ ...stagedAssignment, description: '老师说明', questions: [{ stem: '题目' }] }), '老师说明')
 assert.equal(assignmentListState.assignmentActionLabel({ ...stagedAssignment, staged_count: 0, photo_required: false }), '在线答题')
 assert.equal(assignmentListState.assignmentActionLabel({ ...stagedAssignment, staged_count: 0, photo_required: true }), '拍照提交')
 assert.equal(assignmentListState.stampOf(stagedAssignment).text, '待提交')

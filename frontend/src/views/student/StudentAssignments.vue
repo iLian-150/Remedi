@@ -5,7 +5,7 @@
      「返回查看全部作业」清掉筛选。卡片按钮按作业模式分文案（v0.9.2：线上作业=
      「在线作答」、线下练习册=「拍照批改」），均进入 /student/submit?assignment_id=
      v0.9.3 试卷化：列表区整张做成「钉好的试卷」——纸面+订书钉+装订线+试卷头，
-     每份作业是一道大题（中文题号），状态改用印章（已完成=红章、待审核=琥珀章、
+     每份作业展示为一个条目，状态改用印章（已完成=红章、待审核=琥珀章、
      未开始/进行中=灰色铅笔描边章）；入场时试卷落下、印章逐个盖下（仅首次加载，
      日期筛选切换只做轻翻页过渡不再重复盖章）。
      v0.9.3 修复：「返回查看全部作业」原先只是筛选条里的一个低调小按钮、排在提示条
@@ -77,10 +77,8 @@
                 >{{ stampOf(a).text }}</span>
               </div>
 
-              <h4 class="item-title">
-                <span class="item-no">{{ cnNum(i + 1) }}、</span>{{ a.title }}
-              </h4>
-              <p class="assign-desc">{{ a.description || '暂无说明' }}</p>
+              <h4 class="item-title">{{ a.title }}</h4>
+              <p v-if="assignmentPreview(a)" class="assign-desc">{{ assignmentPreview(a) }}</p>
               <p v-if="a.mode === 'offline'" class="assign-offline">
                 <AppIcon name="book" :size="14" />
                 <span v-if="a.workbook_title">{{ a.workbook_title }}</span>
@@ -179,6 +177,14 @@ function fmtTime(t: string): string {
   return t.replace('T', ' ').slice(0, 16)
 }
 
+function assignmentPreview(a: Assignment): string {
+  if (a.description?.trim()) return a.description.trim()
+  const question = a.questions?.[0]
+  if (!question) return ''
+  const group = a.groups?.find((item) => item.id === question.group_id)
+  return [group?.stem?.trim(), question.stem?.trim()].filter(Boolean).join(' ')
+}
+
 function doneCount(a: Assignment): number {
   return Math.max(a.submitted_count ?? 0, a.staged_count ?? 0)
 }
@@ -213,16 +219,6 @@ async function submitStagedAssignment(a: Assignment) {
   }
 }
 
-/** 大题号：中文数字（一、二、三……，支持到九十九） */
-function cnNum(n: number): string {
-  const d = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
-  if (n < 10) return d[n]
-  if (n < 20) return '十' + (n % 10 ? d[n % 10] : '')
-  const t = Math.floor(n / 10)
-  const o = n % 10
-  return d[t] + '十' + (o ? d[o] : '')
-}
-
 /** 状态印章：已完成=红章 / 进行中·未开始=灰色铅笔描边章（待审核为另一颗琥珀章并列） */
 function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string } {
   const total = a.question_count
@@ -243,7 +239,7 @@ async function loadAssignments(showLoading = true) {
   error.value = ''
   try {
     const list = await student.fetchAssignments(
-      false, false, true, false, dateFilter.value || undefined
+      true, false, true, false, dateFilter.value || undefined
     )
     if (generation === assignmentLoadGeneration) {
       assignments.value = list
@@ -432,8 +428,13 @@ onBeforeUnmount(() => {
   padding-right: 158px;
   margin-bottom: 6px;
 }
-.item-no { font-weight: 800; }
-.paper-item .assign-desc { flex: none; }
+.paper-item .assign-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 .paper-item .assign-meta { flex-wrap: wrap; margin-bottom: 12px; }
 .meta-progress { font-size: 12.5px; color: var(--text-2); }
 .item-foot { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
