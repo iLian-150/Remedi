@@ -22,12 +22,18 @@
     </section>
 
     <form class="card threshold-settings" @submit.prevent="saveThreshold">
-      <label for="grading-threshold">低分标记线</label>
-      <span>低于</span>
-      <input id="grading-threshold" v-model="thresholdInput" type="number" min="0" max="100" step="1" required :disabled="savingThreshold || !thresholdLoaded" />
-      <span>%</span>
-      <button class="btn small secondary" type="submit" :disabled="savingThreshold || !thresholdLoaded">{{ savingThreshold ? '保存中…' : '保存' }}</button>
-      <span class="threshold-note">按整份作业的 AI 得分率标记；教师审核规则不变。</span>
+      <div class="threshold-copy">
+        <label for="grading-threshold">低分标记线</label>
+        <span class="threshold-note">按整份作业的 AI 得分率标记；教师审核规则不变。</span>
+      </div>
+      <div class="threshold-controls">
+        <span class="threshold-prefix">低于</span>
+        <div class="threshold-input-wrap">
+          <input id="grading-threshold" v-model="thresholdInput" type="number" min="0" max="100" step="1" aria-label="低分标记线（百分比）" required :disabled="savingThreshold || !thresholdLoaded" />
+          <span aria-hidden="true">%</span>
+        </div>
+        <button class="btn secondary" type="submit" :disabled="savingThreshold || !thresholdLoaded">{{ savingThreshold ? '保存中…' : '保存' }}</button>
+      </div>
     </form>
 
     <section class="card grading-list">
@@ -377,10 +383,23 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .search-field { display: grid; gap: 5px; width: min(460px, 100%); color: var(--text-2); font-size: 13px; }
 .search-field input { width: 100%; }
 .toolbar-total { margin-left: auto; color: var(--text-2); font-size: 13px; }
-.threshold-settings { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.threshold-settings label { font-weight: 600; }
-.threshold-settings input { width: 76px; }
+.threshold-settings { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.threshold-copy { display: grid; gap: 3px; }
+.threshold-copy label { font-weight: 600; }
 .threshold-note { color: var(--text-2); font-size: 13px; }
+.threshold-controls { display: flex; align-items: center; gap: 10px; }
+.threshold-prefix { color: var(--text-2); font-size: 14px; white-space: nowrap; }
+.threshold-input-wrap { position: relative; }
+.threshold-input-wrap input {
+  width: 104px; height: 42px; padding: 9px 32px 9px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--text); font: inherit;
+  font-variant-numeric: tabular-nums; appearance: textfield;
+}
+.threshold-input-wrap input::-webkit-inner-spin-button,
+.threshold-input-wrap input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.threshold-input-wrap span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-2); pointer-events: none; }
+.threshold-controls .btn { min-height: 42px; white-space: nowrap; }
 .grading-list { padding: 0; overflow: hidden; }
 .table-scroll { overflow-x: auto; }
 .table { min-width: 980px; }
@@ -455,6 +474,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 @media (max-width: 540px) {
   .toolbar-total { width: 100%; margin-left: 0; }
+  .threshold-settings { gap: 14px; }
+  .threshold-controls { width: 100%; }
   .correction-controls { grid-template-columns: 1fr; }
   .detail-header { padding: 13px 15px; }
 }
