@@ -160,6 +160,8 @@ const assignmentListApp = renderer.createApp(assignmentModule.exports.default)
 const assignmentListState = assignmentListApp.mount(makeNode('root')).$.setupState
 await new Promise((resolve) => setImmediate(resolve))
 assert.equal(assignmentListState.doneCount(stagedAssignment), 4)
+assert.equal(assignmentListState.assignmentActionLabel({ ...stagedAssignment, staged_count: 0, photo_required: false }), '在线答题')
+assert.equal(assignmentListState.assignmentActionLabel({ ...stagedAssignment, staged_count: 0, photo_required: true }), '拍照提交')
 assert.equal(assignmentListState.stampOf(stagedAssignment).text, '待提交')
 assert.equal(assignmentListState.canSubmitStagedAssignment(stagedAssignment), true)
 await assignmentListState.submitStagedAssignment(stagedAssignment)

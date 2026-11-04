@@ -1746,6 +1746,32 @@ class AgentToolExecutionTests(unittest.TestCase):
         )
         self.assertEqual(item["pending_count"], 1)
         self.assertEqual(item["pending_question_ids"], [math_question.id])
+        self.assertFalse(item["photo_required"])
+
+        # 轻量列表和携带题目的列表应与实际答题页使用相同的模式判断。
+        for include_questions in (False, True):
+            result = list_assignments(
+                include_questions=include_questions,
+                include_submission_status=False,
+                include_pending_count=False,
+                include_chat_questions=False,
+                created_on=None,
+                db=self.db,
+                current=self.student,
+            )
+            item = next(row for row in result["items"] if row["id"] == assignment.id)
+            self.assertFalse(item["photo_required"])
+
+        from app.models import AssignmentExt
+        self.db.add(AssignmentExt(assignment_id=assignment.id, mode="offline"))
+        self.db.commit()
+        result = list_assignments(
+            include_questions=True, include_submission_status=False,
+            include_pending_count=False, include_chat_questions=False,
+            created_on=None, db=self.db, current=self.student,
+        )
+        item = next(row for row in result["items"] if row["id"] == assignment.id)
+        self.assertTrue(item["photo_required"])
 
     def test_shared_mixed_subject_assignment_uses_class_subject_question_scope(self):
         from app.services.teacher_scope import (

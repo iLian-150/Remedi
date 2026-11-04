@@ -87,7 +87,7 @@ export interface Assignment {
   workbook_title: string | null
   page_range: string | null
   deadline: string | null
-  photo_required?: boolean // v0.13.23：线下作业或非数学科目需要拍照提交
+  photo_required?: boolean // 线下作业需要拍照提交；线上作业可在线作答
   questions?: Question[] // v0.13.89：作业列表可按需携带题目，供多作业页面一次加载
   groups?: { id: number; stem: string; order_num: number; diagram?: FigureSpec | null; diagram_status?: string | null }[]
   chat_questions?: ChatQuestion[] // v0.13.260：聊天选题器使用的数学题轻量字段

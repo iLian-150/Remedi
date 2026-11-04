@@ -193,7 +193,7 @@ function assignmentActionLabel(a: Assignment): string {
   if (a.grading_status === 'completed') return '查看批改结果'
   if (canSubmitStagedAssignment(a)) return '检查作答'
   if ((a.staged_count ?? 0) > 0) return '继续作答'
-  return a.photo_required ? '拍照提交' : '在线作答'
+  return a.photo_required ? '拍照提交' : '在线答题'
 }
 
 async function submitStagedAssignment(a: Assignment) {

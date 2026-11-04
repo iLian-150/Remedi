@@ -50,7 +50,7 @@
             >
               <span class="switch-option-main">
                 <span class="switch-option-title">{{ a.title }}</span>
-                <span class="switch-option-meta">{{ a.question_count }} 题<template v-if="a.submitted_count"> · 已交 {{ a.submitted_count }} 题</template> · {{ a.photo_required ? '拍照提交' : '在线作答' }}</span>
+                <span class="switch-option-meta">{{ a.question_count }} 题<template v-if="a.submitted_count"> · 已交 {{ a.submitted_count }} 题</template> · {{ a.photo_required ? '拍照提交' : '在线答题' }}</span>
               </span>
               <AppIcon v-if="a.id === assignmentId" name="check" :size="15" class="switch-option-check" />
             </button>

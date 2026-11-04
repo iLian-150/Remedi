@@ -366,12 +366,6 @@ def list_assignments(
             "submitted_count"
         ),
     )
-    if not include_questions:
-        question_stats_query = question_stats_query.add_columns(
-            func.sum(case((Question.subject != "math", 1), else_=0)).label(
-                "non_math_count"
-            )
-        )
     question_stats_subquery = (
         question_stats_query
         .join(Assignment, Assignment.id == Question.assignment_id)
@@ -386,10 +380,6 @@ def list_assignments(
         question_stats_subquery.c.question_count,
         question_stats_subquery.c.submitted_count,
     )
-    if not include_questions:
-        assignment_query = assignment_query.add_columns(
-            question_stats_subquery.c.non_math_count
-        )
 
     latest_submissions = None
     if include_submission_status or include_pending_count:
@@ -453,11 +443,10 @@ def list_assignments(
     )
     assignment_rows_by_id = {}
     question_stats = {}
-    photo_required_assignment_ids = set()
     submitted_question_ids = {}
     pending_question_ids = {}
     pending_count_by_assignment = {}
-    status_offset = 6 if include_questions else 7
+    status_offset = 6
     pending_count_offset = status_offset + (2 if include_submission_status else 0)
     for row in query_rows:
         assignment_id = row[0].id
@@ -465,8 +454,6 @@ def list_assignments(
         question_count = int(row[4] or 0)
         submitted_count = int(row[5] or 0)
         question_stats[assignment_id] = (question_count, submitted_count)
-        if not include_questions and int(row[6] or 0):
-            photo_required_assignment_ids.add(assignment_id)
         if include_submission_status:
             question_id = row[status_offset]
             review_status = row[status_offset + 1]
@@ -604,8 +591,6 @@ def list_assignments(
                     "order_num": row.order_num,
                     "group_id": row.group_id,
                 })
-                if row.subject != "math":
-                    photo_required_assignment_ids.add(row.assignment_id)
                 if include_chat_questions and row.subject == "math":
                     chat_questions_by_assignment.setdefault(row.assignment_id, []).append({
                         "id": row.id,
@@ -643,7 +628,7 @@ def list_assignments(
             "created_at": a.created_at,
             # v0.5.0：发布模式与线下作业信息（mode/workbook_title/page_range/deadline）
             "mode": mode,
-            "photo_required": mode == "offline" or a.id in photo_required_assignment_ids,
+            "photo_required": mode == "offline",
             "workbook_title": workbook_title if ext and ext.workbook_id else None,
             "page_range": ext.page_range if ext else None,
             "deadline": ext.deadline if ext else None,

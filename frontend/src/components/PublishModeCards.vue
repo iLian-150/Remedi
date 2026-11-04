@@ -13,7 +13,7 @@
       <span class="mode-enter">进入发布 <AppIcon name="arrow-right" :size="15" /></span>
     </button>
   </div>
-  <p class="mode-hint">可发布多学科作业。数学线上作业支持公式板作答，其他学科和线下作业通过拍照提交并由视觉模型批改。</p>
+  <p class="mode-hint">可发布多学科作业。线上作业支持在线答题，线下作业通过拍照提交。</p>
 </template>
 <script setup lang="ts">
 import AppIcon from './icons/AppIcon.vue'

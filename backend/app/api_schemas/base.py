@@ -63,7 +63,7 @@ class AssignmentBrief(BaseModel):
     workbook_title: Optional[str] = None
     page_range: Optional[str] = None
     deadline: Optional[datetime] = None
-    # v0.13.23：非数学题与线下题都需要拍照提交；数学线上题使用在线步骤板。
+    # 线下作业需要拍照；所有学科的线上作业均可在线作答。
     photo_required: bool = False
 
 class AssignmentDetail(BaseModel):

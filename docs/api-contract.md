@@ -137,7 +137,7 @@
 
 - `created_at`：作业发布时间（ISO 8601），学生/教师两端作业日历的数据源（v0.2.1 确认双端均有此字段，无变更）。
 - v0.5.0 新增字段（只加字段）：`mode`（`online | offline`，无扩展记录时为 `online`）、`workbook_title`（线下作业关联的练习册名，未关联时为 `null`）、`page_range`（如「第12-14页 第1-8题」，可空）、`deadline`（截止时间 ISO 8601，可空）。3.2 作业详情同样包含这四个字段；3.12 简报的 `pending_assignments[]` 亦同步包含。
-- v0.13.23 新增 `photo_required`：线下作业或包含非数学题时为 `true`，前端据此显示拍照提交入口；数学线上题使用在线步骤板。
+- `photo_required`：线下作业为 `true`；线上作业各学科均可在线作答，也可上传作答图片。
 
 聊天选题器使用精简接口 `GET /api/student/chat/context`（权限：学生），只返回作业 ID/标题、数学题 ID/科目/题干/顺序，以及已提交数学题 ID；不计算通用作业列表的全科题目数与提交统计。
 
@@ -1174,7 +1174,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 - `subject`：选填，作业级学科标记，供兼容客户端使用。新客户端应在每题传 `questions[].subject`。
 - `class_ids`：必填非空班级 ID 列表；每个目标班级都必须已关联当前教师所教的每个题目学科，否则 `400`。
 - `questions[].type`：保留兼容的 `math | essay` 字段；新客户端仍发送该字段。新增选填 `questions[].subject` 支持 `math | english | english_exercise | physics | chemistry | biology | chinese | history | geography | politics | computer_science | art | music | pe | other`；缺省时按 `type` 映射 `math | essay` 到 `math | english`。`prompt` 落库为题干 `stem`；`order_num` 按数组顺序从 1 开始。响应新增每题实际 `subject`。
-- 学生提交：数学线上题使用在线步骤板；其他学科或线下作业走拍照提交，服务端将原图直接交给视觉模型，不先做 OCR 转写。教师填写的参考答案和步骤仅作为模型批改上下文，不向学生返回。
+- 学生提交：各学科线上作业可在线输入或上传作答图片；线下作业通过拍照提交。服务端将原图直接交给视觉模型，不先做 OCR 转写。教师填写的参考答案和步骤仅作为模型批改上下文，不向学生返回。
 - `standard_steps` / `reference_answer`：选填，仅教师可见（学生端详情不返回标准答案，沿用 3.2 约定）。`standard_steps` 无独立存储列：当 `reference_answer` 为空时，它按行拼入 `standard_answer` 字段保存。
 - 校验：`title`、每道题的 `prompt` 必填；`questions` 至少 1 道，否则 `422`。`class_ids` 必须至少选择一个当前教师可发布的班级，否则 `400`。
 - `knowledge_point`：选填；未填写时可省略或传空字符串。AI 知识点识别独立运行，识别尚未完成或失败时不阻止作业发布；字段为空表示尚未归类，教师可稍后补充。
