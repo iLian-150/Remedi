@@ -1,11 +1,12 @@
 """隔离验证整份作业图片暂存、文本暂存和提交。"""
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.auth import require_student
-from app.models import AssignmentGradingAnswer, ClassroomMember, User
+from app.models import AssignmentGradingAnswer, AssignmentGradingJob, ClassroomMember, Submission, User
 from app.routers import student, student_assignment_image
+from app.services import assignment_grading
 import smoke_diagram_jobs as fixtures
 
 
@@ -86,6 +87,50 @@ class AssignmentAnswerUploadTests(unittest.TestCase):
             response = self.client.post(f"/api/student/assignments/{self.assignment_id}/submit")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["status"], "queued")
+
+    def test_empty_model_result_retries_then_grades_saved_image(self):
+        self.client.put(self.answer_url, files={"file": ("answer.jpg", b"image", "image/jpeg")})
+        with patch.object(student.assignment_grading_svc, "enqueue"):
+            self.client.post(f"/api/student/assignments/{self.assignment_id}/submit")
+        with self.sessions() as db:
+            job_id = db.query(AssignmentGradingJob).filter_by(assignment_id=self.assignment_id).one().id
+        provider = Mock()
+        provider.guess_knowledge_point.return_value = ""
+        provider.diagnose_homework_image.side_effect = [
+            {"steps": []},
+            {"steps": [{"text": "x=1", "result": "correct", "confidence": 0.9}]},
+        ]
+        with patch.object(assignment_grading, "SessionLocal", self.sessions), \
+             patch.object(assignment_grading, "get_provider", return_value=provider), \
+             patch("app.agent.subjects.build_subject_context", return_value=""), \
+             patch.object(assignment_grading.settings, "UPLOAD_DIR", str(Path(self.tmp.name) / "uploads")):
+            assignment_grading._grade_job(job_id)
+        with self.sessions() as db:
+            self.assertEqual(db.get(AssignmentGradingJob, job_id).status, "completed")
+            self.assertEqual(db.query(Submission).count(), 1)
+        self.assertEqual(provider.diagnose_homework_image.call_count, 2)
+
+    def test_unrecognized_image_reports_question_and_preserves_answer(self):
+        self.client.put(self.answer_url, files={"file": ("answer.jpg", b"image", "image/jpeg")})
+        with patch.object(student.assignment_grading_svc, "enqueue"):
+            self.client.post(f"/api/student/assignments/{self.assignment_id}/submit")
+        with self.sessions() as db:
+            job_id = db.query(AssignmentGradingJob).filter_by(assignment_id=self.assignment_id).one().id
+        provider = Mock()
+        provider.guess_knowledge_point.return_value = ""
+        provider.diagnose_homework_image.return_value = {"steps": []}
+        with patch.object(assignment_grading, "SessionLocal", self.sessions), \
+             patch.object(assignment_grading, "get_provider", return_value=provider), \
+             patch("app.agent.subjects.build_subject_context", return_value=""):
+            assignment_grading._grade_job(job_id)
+        status = self.client.get(f"/api/student/assignments/{self.assignment_id}/grading-status").json()
+        self.assertEqual(status["status"], "failed")
+        self.assertIn("第 1 题的作答未能识别", status["error"])
+        self.assertEqual(status["image_question_ids"], [self.question_id])
+        self.assertEqual(self.client.get(self.answer_url + "/image").content, b"image")
+        with self.sessions() as db:
+            self.assertEqual(db.query(Submission).count(), 0)
+        self.assertEqual(provider.diagnose_homework_image.call_count, 2)
 
 
 if __name__ == "__main__":

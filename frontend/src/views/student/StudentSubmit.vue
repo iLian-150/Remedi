@@ -342,7 +342,7 @@
       <div v-if="questions.length" class="card assignment-grading-card">
         <h3>整份作业批改</h3>
         <div class="grading-progress-row">
-          <span>已完成 {{ answeredCount }} / {{ questions.length }} 题</span>
+          <span>已作答 {{ answeredCount }} / {{ questions.length }} 题</span>
           <span v-if="gradingJobStatus === 'queued'" class="badge badge-amber">待批改</span>
           <span v-else-if="gradingJobStatus === 'processing'" class="badge badge-blue">批改中 {{ gradingJobProgress }} / {{ gradingJobTotal }}</span>
           <span v-else-if="gradingJobStatus === 'completed'" class="badge badge-green">批改完成</span>
@@ -350,7 +350,7 @@
         <div v-if="gradingJobStatus === 'queued' || gradingJobStatus === 'processing'" class="grading-progress-track">
           <div class="grading-progress-fill" :style="{ width: `${gradingJobTotal ? Math.round(gradingJobProgress / gradingJobTotal * 100) : 0}%` }"></div>
         </div>
-        <p v-if="gradingJobStatus === 'failed'" class="error-msg">批改暂时失败，作答已保留。可以点击下方按钮重新批改。</p>
+        <p v-if="gradingJobStatus === 'failed'" class="error-msg">{{ gradingJobError || '批改暂时失败，作答已保留。可以点击下方按钮重新批改。' }}</p>
         <p v-else-if="gradingJobStatus === 'none' || gradingJobStatus === 'draft'" class="grading-wait-hint">
           {{ allAnswersStaged ? '全部题目已完成，请点击提交作业。' : '全部题目完成后可提交作业。' }}
         </p>
@@ -457,6 +457,7 @@ const imageQuestionIds = ref<Set<number>>(new Set())
 const gradingJobStatus = ref<AssignmentGradingStatus['status']>('none')
 const gradingJobProgress = ref(0)
 const gradingJobTotal = ref(0)
+const gradingJobError = ref<string | null>(null)
 const batchSubmitting = ref(false)
 const batchLocked = computed(() => gradingJobStatus.value === 'queued' || gradingJobStatus.value === 'processing')
 const answeredCount = computed(() => questions.value.filter((q) => answeredQids.value.has(q.id)).length)
@@ -557,6 +558,7 @@ function applyGradingStatus(status: AssignmentGradingStatus) {
   gradingJobStatus.value = status.status
   gradingJobProgress.value = status.progress
   gradingJobTotal.value = status.total_questions
+  gradingJobError.value = status.error
   answeredQids.value = new Set(status.answered_question_ids)
   imageQuestionIds.value = new Set(status.image_question_ids ?? [])
 }
@@ -1064,6 +1066,7 @@ async function selectAssignment(id: number) {
   gradingJobStatus.value = 'none'
   gradingJobProgress.value = 0
   gradingJobTotal.value = 0
+  gradingJobError.value = null
   error.value = ''
   questions.value = []
   relatedByQid.value = {}

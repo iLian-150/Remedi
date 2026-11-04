@@ -30,6 +30,25 @@ _worker_lock = threading.Lock()
 _worker = None
 
 
+class AnswerRecognitionError(ValueError):
+    """模型未识别出作答；只保存安全的题号，不保存模型原文。"""
+
+    def __init__(self, question_index: int):
+        self.question_index = question_index
+        super().__init__("answer not recognized")
+
+
+def _diagnose_with_retry(diagnose, question_index: int) -> dict:
+    """空结果可能是视觉模型偶发漏识别，重试一次；不凭空生成评分。"""
+    for attempt in range(2):
+        diagnosis = diagnose()
+        if diagnosis.get("steps"):
+            return diagnosis
+        if attempt == 0:
+            logger.info("作答未识别，正在重试（question_index=%s）", question_index)
+    raise AnswerRecognitionError(question_index)
+
+
 def enqueue(job_id: int) -> None:
     _wake.set()
 
@@ -202,8 +221,10 @@ def _grade_job(job_id: int) -> None:
                     f"题目：{question.stem}\n教师参考答案或步骤：{question.standard_answer or '未提供'}\n"
                     f"大题材料：{group_stems.get(question.id, '')}"
                 )
-                diagnosis = provider.diagnose_homework_image(
-                    image_bytes, content_type, context, knowledge_context=rag_context,
+                diagnosis = _diagnose_with_retry(
+                    lambda: provider.diagnose_homework_image(
+                        image_bytes, content_type, context, knowledge_context=rag_context,
+                    ), index,
                 )
                 visual_steps = diagnosis.get("steps") or []
                 source_image_path = source_path
@@ -211,20 +232,20 @@ def _grade_job(job_id: int) -> None:
             else:
                 student_work = [line.strip() for line in (answer.answer_text or "").splitlines()
                                 if line.strip()]
-                diagnosis = provider.diagnose_homework_text(
-                    subject=question.subject,
-                    question_text="\n".join(filter(None, (
-                        group_stems.get(question.id), question.stem,
-                        f"教师参考答案或步骤：{question.standard_answer or '未提供'}",
-                    ))),
-                    student_work=student_work,
-                    knowledge_context=rag_context,
+                diagnosis = _diagnose_with_retry(
+                    lambda: provider.diagnose_homework_text(
+                        subject=question.subject,
+                        question_text="\n".join(filter(None, (
+                            group_stems.get(question.id), question.stem,
+                            f"教师参考答案或步骤：{question.standard_answer or '未提供'}",
+                        ))),
+                        student_work=student_work,
+                        knowledge_context=rag_context,
+                    ), index,
                 )
                 visual_steps = diagnosis.get("steps") or []
                 source_image_path = None
                 confidence = diagnosis.get("confidence", 0.5)
-            if not visual_steps:
-                raise ValueError(f"empty grading result for question {question.id}")
             grading_results.append((question, answer, knowledge_point, visual_steps,
                                     confidence, source_image_path))
             job.progress = index
@@ -283,7 +304,11 @@ def _grade_job(job_id: int) -> None:
         job = db.query(AssignmentGradingJob).filter_by(id=job_id).first()
         if job is not None:
             job.status = "failed"
-            job.error = "批改暂时失败，作答已保留，请点击重新批改。"
+            job.error = (
+                f"第 {exc.question_index} 题的作答未能识别，请检查图片或文字后重新提交。作答已保留。"
+                if isinstance(exc, AnswerRecognitionError)
+                else "批改暂时失败，作答已保留，请点击重新批改。"
+            )
             job.updated_at = datetime.now()
             db.commit()
         for relative_path in final_image_paths:

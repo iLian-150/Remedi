@@ -199,7 +199,7 @@
 
 - `PUT /api/student/assignments/{assignment_id}/answers/{question_id}`：`multipart/form-data`，`answer_text` 和 `file` 至少提供一个。照片仅支持 jpg / png / webp、≤10MB；文本最多 20 行、20000 字。此接口只保存答案，不触发批改。未完成作业的照片保存在公开静态上传目录之外。
 - `POST /api/student/assignments/{assignment_id}/submit`：只有整份作业的所有题目都有答案时才接受并排入后台批改。重复请求在排队、处理中或已完成时幂等返回当前状态。
-- `GET /api/student/assignments/{assignment_id}/grading-status`：读取最近一次整份作业批改状态。
+- `GET /api/student/assignments/{assignment_id}/grading-status`：读取最近一次整份作业批改状态；模型未识别出作答时会自动重试一次，仍失败则在 `error` 中返回题号与检查提示，保留原作答。
 - `GET /api/student/assignments/{assignment_id}/answers/{question_id}/image`：读取当前学生已保存的作答图片，用于刷新或切题后的预览；需要学生身份认证，且只可读取本人的图片。
 
 状态响应：`{"status":"none|draft|queued|processing|completed|failed","progress":1,"total_questions":5,"answered_question_ids":[1],"image_question_ids":[1],"error":null}`。`image_question_ids` 标识仍可预览的图片草稿；批改完成后草稿图片会清理。`error` 仅返回可操作的通用失败提示，不包含知识库资料或模型提示词。前端显示待批改、批改中及完成状态，并轮询后台进度。
