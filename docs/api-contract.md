@@ -1472,7 +1472,11 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 权限：教师。返回当前教师有权查看的所有已完成 AI 批改提交，按提交时间倒序分页。参数：`limit` 默认 50、最大 100；`offset` 默认 0；`keyword` 可按学生、学号、作业、题目或知识点搜索；`submission_id` 可定位一份提交。
 
-每项包含学生、作业、题目、AI/教师分数、错因数、作答步骤统计、原图地址及当前教师处理状态。`teacher_regraded` 表示已有教师保存的最终分；`assignment_ai_score`、`assignment_max_score` 和 `assignment_percent` 按该生该作业每题最新提交汇总；仅作业已完成或到期结算且 AI 总分率严格低于 60% 时，`is_low_score=true`。教师分数不覆盖 AI 原分，`assignment_score` 是采用教师分数后的当前作业总分。响应为 `{ "total", "limit", "offset", "items": [...] }`。
+每项包含学生、作业、题目、AI/教师分数、错因数、作答步骤统计、原图地址及当前教师处理状态。`teacher_regraded` 表示已有教师保存的最终分；`assignment_ai_score`、`assignment_max_score` 和 `assignment_percent` 按该生该作业每题最新提交汇总；仅作业已完成或到期结算且 AI 总分率严格低于当前教师的标记线时，`is_low_score=true`。标记线默认为 60%，由 `low_score_threshold` 返回；它仅影响当前教师列表标记，不改变固定的 60% 审核规则。教师分数不覆盖 AI 原分，`assignment_score` 是采用教师分数后的当前作业总分。响应为 `{ "total", "limit", "offset", "low_score_threshold", "items": [...] }`。
+
+### PUT /api/teacher/ai-gradings/settings —— 设置低分标记线
+
+权限：教师。请求和响应为 `{ "low_score_threshold": 60 }`，取值为 0 到 100 的整数百分比；仅保存当前教师的设置，立即作用于其 AI 批改列表，包括历史记录。
 
 ### 4.32 POST /api/teacher/ai-gradings/{submission_id}/regrade —— 保存教师二次批改
 

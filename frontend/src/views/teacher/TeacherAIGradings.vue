@@ -21,6 +21,15 @@
       <span class="toolbar-total">共 {{ total }} 份 AI 批改</span>
     </section>
 
+    <form class="card threshold-settings" @submit.prevent="saveThreshold">
+      <label for="grading-threshold">低分标记线</label>
+      <span>低于</span>
+      <input id="grading-threshold" v-model="thresholdInput" type="number" min="0" max="100" step="1" required :disabled="savingThreshold || !thresholdLoaded" />
+      <span>%</span>
+      <button class="btn small secondary" type="submit" :disabled="savingThreshold || !thresholdLoaded">{{ savingThreshold ? '保存中…' : '保存' }}</button>
+      <span class="threshold-note">按整份作业的 AI 得分率标记；教师审核规则不变。</span>
+    </form>
+
     <section class="card grading-list">
       <div v-if="loading" class="loading">加载中…</div>
       <div v-else-if="!items.length" class="empty">暂无 AI 批改记录。</div>
@@ -62,7 +71,7 @@
                   {{ fmtScore(item.assignment_ai_score) }} / {{ fmtScore(item.assignment_max_score) }}
                 </span>
                 <span v-else class="table-sub">进行中</span>
-                <span v-if="item.is_low_score" class="badge badge-red low-score-badge">低于 60%</span>
+                <span v-if="item.is_low_score" class="badge badge-red low-score-badge">低于 {{ threshold }}%</span>
               </td>
               <td>
                 <span v-if="item.review_status === 'pending'" class="badge badge-amber">待二次批改</span>
@@ -199,6 +208,10 @@ const detail = ref<ReviewDetail | null>(null)
 const selectedId = ref<number | null>(null)
 const finalScoreInput = ref('')
 const savingRegrade = ref(false)
+const threshold = ref(60)
+const thresholdInput = ref('60')
+const thresholdLoaded = ref(false)
+const savingThreshold = ref(false)
 const correctingId = ref<number | null>(null)
 const correctionForms = reactive<Record<number, { type: string; note: string }>>({})
 let listRequest = 0
@@ -236,11 +249,40 @@ async function load(newOffset = offset.value, submissionId?: number) {
     if (request !== listRequest) return
     items.value = page.items
     total.value = page.total
+    threshold.value = page.low_score_threshold
+    if (!thresholdLoaded.value) {
+      thresholdInput.value = String(page.low_score_threshold)
+      thresholdLoaded.value = true
+    }
+    return true
   } catch (cause) {
     if (request !== listRequest) return
     error.value = `AI 批改列表加载失败：${errDetail(cause)}`
+    return false
   } finally {
     if (request === listRequest) loading.value = false
+  }
+}
+
+async function saveThreshold() {
+  const raw = String(thresholdInput.value).trim()
+  const value = Number(raw)
+  if (!raw || !Number.isInteger(value) || value < 0 || value > 100) {
+    error.value = '低分标记线请输入 0 到 100 之间的整数。'
+    return
+  }
+  savingThreshold.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    await teacher.updateGradingThreshold(value)
+    thresholdInput.value = String(value)
+    if (await load(offset.value)) success.value = '低分标记线已保存。'
+    else error.value = '低分标记线已保存，列表刷新失败，请重新查询。'
+  } catch (cause) {
+    error.value = `低分标记线保存失败：${errDetail(cause)}`
+  } finally {
+    savingThreshold.value = false
   }
 }
 
@@ -335,6 +377,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .search-field { display: grid; gap: 5px; width: min(460px, 100%); color: var(--text-2); font-size: 13px; }
 .search-field input { width: 100%; }
 .toolbar-total { margin-left: auto; color: var(--text-2); font-size: 13px; }
+.threshold-settings { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.threshold-settings label { font-weight: 600; }
+.threshold-settings input { width: 76px; }
+.threshold-note { color: var(--text-2); font-size: 13px; }
 .grading-list { padding: 0; overflow: hidden; }
 .table-scroll { overflow-x: auto; }
 .table { min-width: 980px; }

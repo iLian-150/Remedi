@@ -1902,6 +1902,49 @@ class AgentToolExecutionTests(unittest.TestCase):
         }
         self.assertEqual(notified_ids, {missing_student.id})
 
+    def test_teacher_ai_grading_threshold_is_personal_and_applies_to_ai_score(self):
+        from pydantic import ValidationError
+        from app.api_schemas.teacher import TeacherGradingPreferenceIn
+        from app.routers.teacher import teacher_ai_gradings, update_ai_grading_settings
+
+        assignment = Assignment(title="低分标记", created_by=self.teacher.id)
+        other_teacher = User(name="另一位教师", role="teacher")
+        self.db.add_all([assignment, other_teacher])
+        self.db.flush()
+        question = Question(assignment_id=assignment.id, subject="math", knowledge_point="", stem="求解")
+        self.db.add(question)
+        self.db.flush()
+        submission = Submission(student_id=self.student.id, question_id=question.id, status="graded")
+        self.db.add(submission)
+        self.db.flush()
+        self.db.add(SubmissionScore(submission_id=submission.id, ai_score=60, final_score=90))
+        self.db.commit()
+
+        def page(teacher):
+            with patch("app.routers.teacher._teacher_submission_ids", return_value=self.db.query(Submission.id)):
+                return teacher_ai_gradings(limit=50, offset=0, keyword=None, submission_id=None,
+                                           db=self.db, current=teacher)
+
+        default = page(self.teacher)
+        self.assertEqual(default["low_score_threshold"], 60)
+        self.assertFalse(default["items"][0].is_low_score)  # 等于阈值不标记
+        update_ai_grading_settings(TeacherGradingPreferenceIn(low_score_threshold=61), self.db, self.teacher)
+        self.db.expire_all()
+        updated = page(self.teacher)
+        self.assertEqual(updated["low_score_threshold"], 61)
+        self.assertTrue(updated["items"][0].is_low_score)  # 仍按 AI 分数，而非教师定分
+        self.assertEqual(page(other_teacher)["low_score_threshold"], 60)
+        self.assertFalse(page(other_teacher)["items"][0].is_low_score)
+        update_ai_grading_settings(TeacherGradingPreferenceIn(low_score_threshold=0), self.db, self.teacher)
+        self.assertFalse(page(self.teacher)["items"][0].is_low_score)
+        update_ai_grading_settings(TeacherGradingPreferenceIn(low_score_threshold=100), self.db, self.teacher)
+        self.db.add(Question(assignment_id=assignment.id, subject="math", knowledge_point="", stem="未批改"))
+        self.db.commit()
+        self.assertFalse(page(self.teacher)["items"][0].is_low_score)  # 未结算的作业不标记
+        for invalid in (-1, 101, 60.5):
+            with self.assertRaises(ValidationError):
+                TeacherGradingPreferenceIn(low_score_threshold=invalid)
+
     def test_low_score_suggestions_use_latest_approved_submission_per_student_question(self):
         from app.services.suggestions import build_teaching_suggestions
 

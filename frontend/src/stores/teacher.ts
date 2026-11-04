@@ -1102,6 +1102,9 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.get<TeacherAIGradingPage>('/api/teacher/ai-gradings', { params })
       return data
     },
+    async updateGradingThreshold(threshold: number): Promise<void> {
+      await api.put('/api/teacher/ai-gradings/settings', { low_score_threshold: threshold })
+    },
     async regradeAIGrading(submissionId: number, finalScore: number): Promise<void> {
       await api.post(`/api/teacher/ai-gradings/${submissionId}/regrade`, {
         final_score: finalScore

@@ -57,6 +57,7 @@ from ..models import (
     SubjectKnowledgeChunk,
     SubjectKnowledgePassage,
     TeacherSubject,
+    TeacherGradingPreference,
     User,
     Verification,
     Workbook,
@@ -99,6 +100,7 @@ from ..api_schemas.teacher import (
     TeacherAIGradingPage,
     TeacherAIRegradeIn,
     TeacherAIRegradeOut,
+    TeacherGradingPreferenceIn,
     TeacherErrorItem,
     TopQuestionItem,
     WorkbookExtractIn,
@@ -974,6 +976,21 @@ def _review_pending_item(
     )
 
 
+@router.put("/ai-gradings/settings", summary="设置 AI 批改低分标记分数线")
+def update_ai_grading_settings(
+    body: TeacherGradingPreferenceIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    preference = db.get(TeacherGradingPreference, current.id)
+    if preference is None:
+        preference = TeacherGradingPreference(teacher_id=current.id)
+        db.add(preference)
+    preference.low_score_threshold = body.low_score_threshold
+    db.commit()
+    return {"low_score_threshold": preference.low_score_threshold}
+
+
 @router.get("/ai-gradings", response_model=TeacherAIGradingPage,
             summary="教师 AI 批改结果列表")
 def teacher_ai_gradings(
@@ -985,6 +1002,8 @@ def teacher_ai_gradings(
     current: User = Depends(require_teacher),
 ):
     """统一列出教师有权查看的 AI 批改提交，按提交时间倒序分页。"""
+    preference = db.get(TeacherGradingPreference, current.id)
+    low_score_threshold = preference.low_score_threshold if preference else 60
     query = (
         db.query(Submission)
         .join(Question, Question.id == Submission.question_id)
@@ -1025,7 +1044,8 @@ def teacher_ai_gradings(
         Submission.submitted_at.desc(), Submission.id.desc(),
     ).offset(offset).limit(limit).all()
     if not submissions:
-        return {"total": total, "limit": limit, "offset": offset, "items": []}
+        return {"total": total, "limit": limit, "offset": offset,
+                "low_score_threshold": low_score_threshold, "items": []}
 
     submission_ids = [item.id for item in submissions]
     step_rows = db.query(
@@ -1088,7 +1108,7 @@ def teacher_ai_gradings(
             "percent": percent,
             "complete": bool(context["complete"]),
             "is_low_score": bool(
-                context["complete"] and raw_percent is not None and raw_percent < 60
+                context["complete"] and raw_percent is not None and raw_percent < low_score_threshold
             ),
         }
 
@@ -1138,7 +1158,8 @@ def teacher_ai_gradings(
             image_url=f"/api/uploads/{image.file_path}" if image else None,
             image_name=image.file_name if image else None,
         ))
-    return {"total": total, "limit": limit, "offset": offset, "items": items}
+    return {"total": total, "limit": limit, "offset": offset,
+            "low_score_threshold": low_score_threshold, "items": items}
 
 
 @router.post("/ai-gradings/{submission_id}/regrade",

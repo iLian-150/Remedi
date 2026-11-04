@@ -321,7 +321,11 @@ class TeacherAIGradingPage(BaseModel):
     total: int
     limit: int
     offset: int
+    low_score_threshold: int = 60
     items: List[TeacherAIGradingItem]
+
+class TeacherGradingPreferenceIn(BaseModel):
+    low_score_threshold: int = Field(ge=0, le=100, strict=True)
 
 class TeacherAIRegradeIn(BaseModel):
     final_score: float = Field(ge=0, allow_inf_nan=False)

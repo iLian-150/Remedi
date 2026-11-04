@@ -695,6 +695,14 @@ class AssignmentGradingAnswer(Base):
 
 # ---------------------------------------------------------------- v0.13.1：提交规则 + 大题/小题
 
+class TeacherGradingPreference(Base):
+    """教师个人的 AI 批改列表低分标记阈值（百分制）。"""
+    __tablename__ = "teacher_grading_preferences"
+
+    teacher_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    low_score_threshold = Column(Integer, nullable=False, default=60)
+
+
 class AssignmentSetting(Base):
     """作业提交设置（v0.13.1 新增表）：一份作业一行，无行 = 全部默认。
 

@@ -496,6 +496,7 @@ export interface TeacherAIGradingPage {
   total: number
   limit: number
   offset: number
+  low_score_threshold: number
   items: TeacherAIGradingItem[]
 }
 
