@@ -157,8 +157,7 @@ export const useTeacherStore = defineStore('teacher', {
     knowledgeImportPollingError: '',
     knowledgeImportControllers: [] as AbortController[],
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
-     *  fresh=true 且 id=null 表示固定的新对话草稿，发送首条消息时才创建真实会话。 */
-    newChatStartedAt: new Date().toISOString(),
+     *  fresh=true 且 id=null 表示页面内的新对话草稿，发送首条消息时才创建真实会话。 */
     sessionView: { id: null, fresh: false, seq: 0 } as {
       id: number | null
       fresh: boolean
@@ -983,10 +982,9 @@ export const useTeacherStore = defineStore('teacher', {
     setActiveSession(id: number | null) {
       this.activeSessionId = id
     },
-    /** 固定的侧栏「新对话」入口：只切换到本地草稿，首次发送时再创建会话。 */
+    /** 侧栏「新对话」入口：切换到页面内的本地草稿，首次发送时再创建会话。 */
     startSidebarSession() {
       this.activeSessionId = null
-      this.newChatStartedAt = new Date().toISOString()
       this.sessionView = { id: null, fresh: true, seq: this.sessionView.seq + 1 }
     },
     /** 侧栏点选某条会话：通知对话页加载该会话的消息 */
@@ -997,7 +995,7 @@ export const useTeacherStore = defineStore('teacher', {
       this.activeSessionId = id
       this.sessionView = { id, fresh: false, seq: this.sessionView.seq + 1 }
     },
-    /** 删除当前会话后切回固定的新对话草稿；其他历史记录继续保留。 */
+    /** 删除当前会话后切回页面内的新对话草稿；其他历史记录继续保留。 */
     async removeSidebarSession(id: number) {
       const generation = this.sessionsGeneration
       const ownerId = useAuthStore().user?.id
@@ -1008,7 +1006,6 @@ export const useTeacherStore = defineStore('teacher', {
       this.sessions = this.sessions.filter((x) => x.id !== id)
       if (wasActive) {
         this.activeSessionId = null
-        this.newChatStartedAt = new Date().toISOString()
         this.sessionView = {
           id: null,
           fresh: true,
@@ -1022,7 +1019,6 @@ export const useTeacherStore = defineStore('teacher', {
       this.sessionsMutationVersion = 0
       this.sessions = []
       this.activeSessionId = null
-      this.newChatStartedAt = new Date().toISOString()
       this.sessionsLoading = false
       this.sessionsLoaded = false
       this.sessionsHasMore = false
