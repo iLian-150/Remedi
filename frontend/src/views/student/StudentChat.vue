@@ -139,7 +139,6 @@
               <span v-else-if="msg.mistakeSync.deferred">本次作答已保存，作业截止后统一批改</span>
               <span v-else-if="msg.mistakeSync.errorCount">
                 已将 {{ msg.mistakeSync.errorCount }} 条诊断记录同步到错题本和订正区
-                <small v-if="msg.mistakeSync.pendingReview">本题已提交老师复核</small>
               </span>
               <span v-else>本次没有发现错题，未加入错题本</span>
               <router-link v-if="msg.mistakeSync.errorCount" to="/student/mistakes">查看错题本</router-link>
@@ -211,14 +210,6 @@
               <AppIcon name="check" :size="17" /> 批改结果
               <span class="badge badge-blue">{{ questionStem(msg.result.question_id) }}</span>
             </p>
-            <!-- 错题立即进入订正；整份作业低于 60 分时教师审核并行进行 -->
-            <div v-if="msg.result.status === 'pending_review'" class="review-pending-box">
-              <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
-              <div>
-                <p class="review-pending-title">错题已同步加入错题本和订正区</p>
-                <p class="review-pending-sub">这份作业总分低于 60 分，老师正在审核；错题和订正任务已同步，你可以先继续订正。</p>
-              </div>
-            </div>
             <template v-if="msg.result.steps.length || msg.result.errors.length">
             <div
               v-for="st in msg.result.steps"

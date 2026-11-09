@@ -70,7 +70,6 @@
 
       <div class="card summary-card">
         <h3><AppIcon name="sparkles" :size="18" /> 学习记忆</h3>
-        <p class="hint">系统把错题、最近订正和变式验证连在一起；待教师审核的暂定判断不会记作已确认薄弱点。</p>
         <div v-if="learningMemory.length" class="memory-list">
           <div v-for="item in learningMemory" :key="`${item.subject}:${item.knowledge_point}`" class="memory-row">
             <span class="memory-tag">{{ SUBJECT_TEXT[item.subject] ?? item.subject }}</span>

@@ -68,17 +68,9 @@
     <!-- 诊断、评分和错题即时展示；整份作业低于 60 分才进入教师复核 -->
     <div v-if="phase === 'done' && result" class="pgf-card">
       <p class="pgf-card-title">
-        <AppIcon :name="result.status === 'pending_review' ? 'history' : 'check'" :size="16" />
-        {{ result.status === 'pending_review' ? '诊断已生成 · 老师复核中' : '老师批改结果' }}
+        <AppIcon name="check" :size="16" /> 批改结果
         <span v-if="questionStem" class="badge badge-blue">{{ questionStem }}</span>
       </p>
-      <div v-if="result.status === 'pending_review'" class="review-pending-box">
-        <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
-        <div>
-          <p class="review-pending-title">错题已同步加入错题本和订正区</p>
-          <p class="review-pending-sub">这份作业总分低于 60 分，老师正在审核；错题和订正任务已同步，你可以先继续订正。</p>
-        </div>
-      </div>
       <p v-if="result.score" class="score-line">
         本题 {{ result.score.score }} / {{ result.score.max_score }} 分
         <span v-if="result.score.assignment_score !== null && result.score.assignment_score !== undefined">

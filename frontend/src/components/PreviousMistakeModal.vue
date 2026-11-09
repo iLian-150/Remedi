@@ -14,7 +14,6 @@
       <div class="mistake-meta">
         <strong>{{ mistake.assignment_title }}</strong>
         <span>{{ mistake.knowledge_point }} · {{ formatDate(mistake.created_at) }}</span>
-        <span v-if="mistake.review_status === 'pending'" class="badge badge-amber">老师复核中</span>
       </div>
 
       <div class="mistake-columns">

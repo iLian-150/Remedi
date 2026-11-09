@@ -90,7 +90,7 @@
               <span v-if="gradingJobStatus === 'queued'" class="badge badge-amber">待批改</span>
               <span v-else-if="gradingJobStatus === 'processing'" class="badge badge-blue">批改中</span>
               <span v-else-if="noteKind(currentQ) === 'deferred'" class="badge badge-amber">待统一批改</span>
-              <span v-else-if="pendingQids.has(currentQ.id)" class="badge badge-amber">待老师审核</span>
+              <span v-else-if="pendingQids.has(currentQ.id)" class="badge badge-green">已提交</span>
               <span v-else-if="doneQids.has(currentQ.id)" class="badge badge-green">已完成</span>
               <span v-else-if="answeredQids.has(currentQ.id)" class="badge badge-amber">已作答</span>
               <span v-else class="badge badge-gray">未完成</span>
@@ -138,7 +138,7 @@
               <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
               <div>
                 <p class="review-pending-title">已提交，诊断和订正入口已同步生成</p>
-                <p class="review-pending-sub">这份作业总分低于 60 分，已进入教师审核。系统评分已显示，错题和订正任务也已同步；你可以先继续订正。每道题只能提交一次。<template v-if="currentDetail?.allow_revision">如需修改，去页面底部的「修改作业」。</template></p>
+                <p class="review-pending-sub">请前往订正区完成错题订正。<template v-if="currentDetail?.allow_revision">如需修改作答，去页面底部的「修改作业」。</template></p>
               </div>
               <router-link class="btn small secondary" to="/student/corrections">现在去订正</router-link>
             </div>
@@ -272,7 +272,7 @@
               </div>
               <p class="answer-card-legend">
                 <span class="dot done"></span>已完成
-                <span class="dot pending"></span>待审核
+                <span class="dot pending"></span>已提交
                 <span class="dot todo"></span>未完成
               </p>
             </div>
@@ -303,7 +303,7 @@
                 <span v-else-if="gradingJobStatus === 'processing'" class="badge badge-blue">批改中</span>
                 <span v-else-if="answeredQids.has(q.id) && gradingJobStatus !== 'completed'" class="badge badge-amber">已作答</span>
                 <span v-else-if="noteKind(q) === 'deferred'" class="badge badge-amber">已提交 · 截止后统一批改</span>
-                <span v-else-if="pendingQids.has(q.id)" class="badge badge-amber">待老师审核</span>
+                <span v-else-if="pendingQids.has(q.id)" class="badge badge-green">已提交</span>
                 <span v-else-if="doneQids.has(q.id)" class="badge badge-green">已完成</span>
                 <span v-else class="badge badge-gray">未完成</span>
                 <span v-if="scoreByQid[q.id]" class="badge badge-green tnum">得分 {{ fmtScore(scoreByQid[q.id].score) }} / {{ fmtScore(scoreByQid[q.id].max) }} 分</span>
@@ -372,7 +372,7 @@
           <span class="q-order tnum">{{ q.order_num }}</span>
           <span class="revise-stem">{{ q.stem }}</span>
           <span v-if="noteKind(q) === 'deferred'" class="badge badge-amber">已提交 · 待统一批改</span>
-          <span v-else-if="noteKind(q) === 'pending'" class="badge badge-amber">待老师审核</span>
+          <span v-else-if="noteKind(q) === 'pending'" class="badge badge-green">已提交</span>
           <span v-else class="badge badge-green">已完成</span>
           <button type="button" class="btn secondary small inline-icon" @click="reviseQuestion(q)">
             <AppIcon name="edit" :size="14" /> 修改

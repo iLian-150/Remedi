@@ -66,12 +66,6 @@
             >
               <div class="stamps" aria-hidden="true">
                 <span
-                  v-if="hasPending(a)"
-                  class="stamp stamp--pending"
-                  :class="{ 'stamp--anim': intro }"
-                  title="有提交待老师审核"
-                >待审核</span>
-                <span
                   class="stamp"
                   :class="[`stamp--${stampOf(a).kind}`, { 'stamp--anim': intro }]"
                 >{{ stampOf(a).text }}</span>
@@ -166,11 +160,6 @@ const dayProgress = computed(() => {
 
 function clearFilter() {
   student.setAssignmentDateFilter('')
-}
-
-/** 这份作业里有没有题目在等老师审核 */
-function hasPending(a: Assignment): boolean {
-  return (a.pending_count ?? 0) > 0
 }
 
 function fmtTime(t: string): string {

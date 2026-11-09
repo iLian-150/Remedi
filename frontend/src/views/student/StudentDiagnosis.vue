@@ -22,24 +22,13 @@
             当前查看较早的提交 · #{{ selectedSubmissionFromHistory }}
           </option>
           <option v-for="s in submissions" :key="s.id" :value="s.id">
-            {{ s.question_stem }} · {{ s.review_status === 'pending' ? `老师复核中${s.error_count ? ` · 发现 ${s.error_count} 个问题` : ''}` : s.error_count ? `发现 ${s.error_count} 个问题` : '全部正确' }} · {{ fmtTime(s.submitted_at) }}
+            {{ s.question_stem }} · {{ s.error_count ? `发现 ${s.error_count} 个问题` : '全部正确' }} · {{ fmtTime(s.submitted_at) }}
           </option>
         </select>
       </div>
     </div>
 
     <div v-if="mathLoading" class="loading">加载批改结果中…</div>
-
-    <!-- 整份作业低于 60 分进入教师审核，错题、订正和系统评分仍即时展示 -->
-    <div v-if="mathDetail && mathDetail.status === 'pending_review'" class="card">
-      <div class="review-pending-box">
-        <span class="review-pending-icon"><AppIcon name="history" :size="17" /></span>
-        <div>
-          <p class="review-pending-title">错题已同步加入错题本和订正区</p>
-          <p class="review-pending-sub">这份作业总分低于 60 分，正在等待教师审核。系统评分已显示，你可以先继续订正；老师改判后，成绩和错题记录会同步更新。</p>
-        </div>
-      </div>
-    </div>
 
     <template v-if="mathDetail && (mathDetail.status !== 'pending_review' || mathDetail.steps.length || mathDetail.errors.length)">
       <!-- 成绩单：系统评分立即展示，教师审核可调整最终分 -->
