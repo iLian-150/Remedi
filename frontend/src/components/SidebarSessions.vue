@@ -2,8 +2,14 @@
      历史记录悬停浮现删除操作；数据与动作全部走 store 的会话状态层。 -->
 <template>
   <section class="sb-sessions">
-    <button class="sb-new-btn" type="button" aria-label="新建对话" @click="onCreate">
-      <AppIcon name="compose" :size="17" /> 新建对话
+    <button
+      class="sb-new-btn"
+      type="button"
+      :aria-label="createAcknowledged ? '已开启新对话' : '新建对话'"
+      @click="onCreate"
+    >
+      <AppIcon :name="createAcknowledged ? 'check' : 'compose'" :size="17" />
+      <span aria-live="polite">{{ createAcknowledged ? '已开启新对话' : '新建对话' }}</span>
     </button>
 
     <div class="sb-list">
@@ -55,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
@@ -70,9 +76,15 @@ const store = computed(() =>
 )
 
 const confirmId = ref<number | null>(null)
+const createAcknowledged = ref(false)
+let createFeedbackTimer: number | undefined
 
 onMounted(() => {
   store.value.loadSessions()
+})
+
+onUnmounted(() => {
+  if (createFeedbackTimer !== undefined) window.clearTimeout(createFeedbackTimer)
 })
 
 async function retrySessions() {
@@ -95,6 +107,12 @@ function formatSessionTime(value: string): string {
 function onCreate() {
   store.value.startSidebarSession()
   confirmId.value = null
+  createAcknowledged.value = true
+  if (createFeedbackTimer !== undefined) window.clearTimeout(createFeedbackTimer)
+  createFeedbackTimer = window.setTimeout(() => {
+    createAcknowledged.value = false
+    createFeedbackTimer = undefined
+  }, 1800)
   emit('navigate')
 }
 
