@@ -721,6 +721,15 @@ class AssignmentGradingAnswer(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class AssignmentGradingCheckpoint(Base):
+    """保留每题成功的模型判断，重试时复用；成绩仍在整份完成后统一提交。"""
+    __tablename__ = "assignment_grading_checkpoints"
+
+    answer_id = Column(Integer, ForeignKey("assignment_grading_answers.id", ondelete="CASCADE"), primary_key=True)
+    fingerprint = Column(String(64), nullable=False)
+    diagnosis_json = Column(Text, nullable=False)
+
+
 # ---------------------------------------------------------------- v0.13.1：提交规则 + 大题/小题
 
 class TeacherGradingPreference(Base):

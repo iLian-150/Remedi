@@ -1,5 +1,7 @@
 """Persistent background grading for complete student assignments."""
 import logging
+import hashlib
+import json
 import os
 import shutil
 import threading
@@ -13,6 +15,7 @@ from ..config import settings
 from ..database import SessionLocal
 from ..models import (
     AssignmentGradingAnswer,
+    AssignmentGradingCheckpoint,
     AssignmentGradingJob,
     Question,
     QuestionGroup,
@@ -43,7 +46,13 @@ class AnswerRecognitionError(ValueError):
 def _diagnose_with_retry(diagnose, question_index: int) -> dict:
     """空结果可能是视觉模型偶发漏识别，重试一次；不凭空生成评分。"""
     for attempt in range(2):
-        diagnosis = diagnose()
+        try:
+            diagnosis = diagnose()
+        except (RuntimeError, TimeoutError):
+            if attempt == 1:
+                raise
+            logger.info("模型调用暂时失败，正在重试本题（question_index=%s）", question_index)
+            continue
         if diagnosis.get("steps"):
             return diagnosis
         if attempt == 0:
@@ -142,6 +151,7 @@ def _grade_job(job_id: int) -> None:
     db = SessionLocal()
     image_paths_to_remove = []
     final_image_paths = []
+    stage = "initializing"
     try:
         job = db.query(AssignmentGradingJob).filter_by(id=job_id).first()
         if job is None or job.status != "queued":
@@ -180,9 +190,35 @@ def _grade_job(job_id: int) -> None:
         ).filter(QuestionGroupMember.question_id.in_(question_ids)).all()
         group_stems = {question_id: stem for question_id, stem in group_rows}
 
+        fingerprints = {}
+        cached_diagnoses = {}
+        for question in questions:
+            answer = answer_by_question[question.id]
+            source = {
+                "subject": question.subject, "stem": question.stem,
+                "standard_answer": question.standard_answer, "knowledge_point": question.knowledge_point,
+                "group_stem": group_stems.get(question.id), "answer_text": answer.answer_text,
+                "image_hash": (hashlib.sha256(_draft_image_path(answer.image_path).read_bytes()).hexdigest()
+                               if answer.image_path else None),
+                "vision_model": settings.DASHSCOPE_VISION_MODEL, "text_model": settings.DASHSCOPE_MODEL,
+            }
+            fingerprint = hashlib.sha256(json.dumps(source, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            fingerprints[question.id] = fingerprint
+            checkpoint = db.get(AssignmentGradingCheckpoint, answer.id)
+            if checkpoint and checkpoint.fingerprint == fingerprint:
+                diagnosis = json.loads(checkpoint.diagnosis_json)
+                if diagnosis.get("steps"):
+                    cached_diagnoses[question.id] = diagnosis
+
         provider = get_provider()
         inferred_points = {}
         for question in questions:
+            cached = cached_diagnoses.get(question.id)
+            known_point = (question.knowledge_point or "").strip()
+            if cached or known_point:
+                inferred_points[question.id] = cached["knowledge_point"] if cached else known_point
+                continue
+            stage = f"knowledge_point:{question.id}"
             source = "\n".join(filter(None, (
                 group_stems.get(question.id), question.stem,
             )))
@@ -194,8 +230,10 @@ def _grade_job(job_id: int) -> None:
             inferred_points[question.id] = (inferred or "").strip()[:64] or question.knowledge_point
 
         rag_by_subject = {}
-        for subject in {question.subject for question in questions}:
-            subject_questions = [question for question in questions if question.subject == subject]
+        pending_questions = [q for q in questions if q.id not in cached_diagnoses]
+        for subject in {question.subject for question in pending_questions}:
+            stage = f"retrieval:{subject}"
+            subject_questions = [question for question in pending_questions if question.subject == subject]
             query_parts = []
             for question in subject_questions:
                 if group_stems.get(question.id):
@@ -218,10 +256,16 @@ def _grade_job(job_id: int) -> None:
 
         grading_results = []
         for index, question in enumerate(questions, start=1):
+            stage = f"diagnosis:{question.id}"
             answer = answer_by_question[question.id]
             knowledge_point = inferred_points[question.id]
             rag_context = rag_by_subject.get(question.subject, "")
-            if answer.image_path:
+            cached = cached_diagnoses.get(question.id)
+            if cached:
+                visual_steps = cached["steps"]
+                confidence = cached.get("confidence", 0.5)
+                source_image_path = _draft_image_path(answer.image_path) if answer.image_path else None
+            elif answer.image_path:
                 source_path = _draft_image_path(answer.image_path)
                 image_bytes = source_path.read_bytes()
                 content_type = {
@@ -258,6 +302,12 @@ def _grade_job(job_id: int) -> None:
                 visual_steps = diagnosis.get("steps") or []
                 source_image_path = None
                 confidence = diagnosis.get("confidence", 0.5)
+            if not cached:
+                db.merge(AssignmentGradingCheckpoint(
+                    answer_id=answer.id, fingerprint=fingerprints[question.id],
+                    diagnosis_json=json.dumps({"steps": visual_steps, "confidence": confidence,
+                                               "knowledge_point": knowledge_point}, ensure_ascii=False),
+                ))
             grading_results.append((question, answer, knowledge_point, visual_steps,
                                     confidence, source_image_path))
             job.progress = index
@@ -266,6 +316,7 @@ def _grade_job(job_id: int) -> None:
 
         # 先完成整份作业的模型判断，再一次性写入提交，避免中途模型失败时只生成部分成绩。
         created_submissions = []
+        stage = "persisting_results"
         for question, answer, knowledge_point, visual_steps, confidence, source_image_path in grading_results:
             image_path = None
             if source_image_path is not None:
@@ -310,9 +361,17 @@ def _grade_job(job_id: int) -> None:
             if getattr(database_error, "sqlite_errorname", None)
             else "unavailable"
         )
+        root = exc
+        seen = set()
+        while id(root) not in seen:
+            seen.add(id(root))
+            cause = root.__cause__ or root.__context__
+            if cause is None:
+                break
+            root = cause
         logger.warning(
-            "整份作业后台批改失败（job_id=%s, error=%s, database=%s）",
-            job_id, type(exc).__name__, sqlite_detail,
+            "整份作业后台批改失败（job_id=%s, stage=%s, error=%s, cause=%s, database=%s）",
+            job_id, stage, type(exc).__name__, type(root).__name__, sqlite_detail,
         )
         job = db.query(AssignmentGradingJob).filter_by(id=job_id).first()
         if job is not None and job.status == "completed":
