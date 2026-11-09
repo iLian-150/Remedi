@@ -288,7 +288,7 @@
           <button class="btn small danger" @click="questions.splice(idx, 1)">删除本题</button>
         </div>
       </div>
-      <p v-if="q.recognized" class="ok-msg" style="margin-bottom: 12px">已通过照片识别填入，请检查题干与标准步骤是否正确，可直接修改后再发布。</p>
+      <p v-if="q.recognized" class="ok-msg" style="margin-bottom: 12px">已识别题目，请检查题干；标准步骤可按需展开修改。</p>
       <div class="form-row">
         <label>题干</label>
         <textarea v-model="q.prompt" rows="2" :placeholder="subject === 'math' ? '例如：解方程：3x-5=10' : '输入题目内容、要求或需要学生完成的任务'"></textarea>
@@ -350,8 +350,13 @@
           <span>参考答案可能有误：{{ q.check_detail }}（只是提醒，仍可照常发布）</span>
         </p>
       </div>
-      <div class="form-row">
-        <label>{{ subject === 'math' ? '标准解题步骤（选填，每行一步，含第一步原式，供批改参考）' : '参考作答要点（选填，每行一条，供视觉模型批改参考）' }}</label>
+      <div v-if="!q.recognizing && q.stepsExpanded" class="form-row">
+        <div class="steps-heading">
+          <label>{{ subject === 'math' ? '标准解题步骤（选填，每行一步，含第一步原式，供批改参考）' : '参考作答要点（选填，每行一条，供视觉模型批改参考）' }}</label>
+          <button type="button" class="btn ghost small inline-icon" @click="q.stepsExpanded = false">
+            <AppIcon name="chevron-down" :size="14" class="steps-chevron-up" /> 收起
+          </button>
+        </div>
         <div v-if="subject === 'math'" class="symbol-bar" role="group" aria-label="数学符号">
           <button
             v-for="s in STEP_SYMBOLS"
@@ -365,6 +370,15 @@
         <textarea :ref="(el) => setStepsRef(q, el)" v-model="q.standard_steps_text" rows="5" :placeholder="subject === 'math' ? mathStandardStepsPlaceholder : '按评分标准列出关键要点，每行一条'"></textarea>
         <p class="hint" style="margin-top: 8px">参考内容只提供给视觉模型和教师，不会展示给学生。</p>
       </div>
+      <button
+        v-else-if="!q.recognizing"
+        type="button"
+        class="btn ghost small inline-icon steps-toggle"
+        @click="q.stepsExpanded = true"
+      >
+        <AppIcon name="chevron-down" :size="14" />
+        {{ q.standard_steps_text.trim() ? '查看参考步骤' : subject === 'math' ? '添加标准解题步骤（选填）' : '添加参考作答要点（选填）' }}
+      </button>
     </div>
 
     <!-- 大题（v0.13.1）：共享题干 + 若干小题，小题逐题作答/批改/计分 -->
@@ -405,7 +419,7 @@
             <button type="button" class="btn small danger" :disabled="g.subs.length === 1" @click="removeGroupSub(g, si)">删除小题</button>
           </div>
         </div>
-        <p v-if="sub.recognized" class="ok-msg" style="margin-bottom: 12px">已通过照片识别填入，请检查题干与标准步骤是否正确，可直接修改后再发布。</p>
+        <p v-if="sub.recognized" class="ok-msg" style="margin-bottom: 12px">已识别题目，请检查题干；标准步骤可按需展开修改。</p>
         <div class="form-row">
           <label>小题题干</label>
           <textarea v-model="sub.prompt" rows="2" placeholder="例如：求斜边的长" @input="clearGroupFigure(g)"></textarea>
@@ -466,8 +480,13 @@
             <span>参考答案可能有误：{{ sub.check_detail }}（只是提醒，仍可照常发布）</span>
           </p>
         </div>
-        <div class="form-row">
-          <label>{{ subject === 'math' ? '标准解题步骤（选填，每行一步）' : '参考作答要点（选填，每行一条）' }}</label>
+        <div v-if="!(groupRecognizing && groupPhotoTarget === g) && sub.stepsExpanded" class="form-row">
+          <div class="steps-heading">
+            <label>{{ subject === 'math' ? '标准解题步骤（选填，每行一步）' : '参考作答要点（选填，每行一条）' }}</label>
+            <button type="button" class="btn ghost small inline-icon" @click="sub.stepsExpanded = false">
+              <AppIcon name="chevron-down" :size="14" class="steps-chevron-up" /> 收起
+            </button>
+          </div>
           <div v-if="subject === 'math'" class="symbol-bar" role="group" aria-label="数学符号">
             <button
               v-for="s in STEP_SYMBOLS"
@@ -480,6 +499,15 @@
           </div>
           <textarea :ref="(el) => setStepsRef(sub, el)" v-model="sub.standard_steps_text" rows="5" :placeholder="subject === 'math' ? groupMathStandardStepsPlaceholder : '按评分标准列出关键要点，每行一条'"></textarea>
         </div>
+        <button
+          v-else-if="!(groupRecognizing && groupPhotoTarget === g)"
+          type="button"
+          class="btn ghost small inline-icon steps-toggle"
+          @click="sub.stepsExpanded = true"
+        >
+          <AppIcon name="chevron-down" :size="14" />
+          {{ sub.standard_steps_text.trim() ? '查看参考步骤' : subject === 'math' ? '添加标准解题步骤（选填）' : '添加参考作答要点（选填）' }}
+        </button>
       </div>
       <button type="button" class="btn secondary small inline-icon" @click="g.subs.push(blankQuestion())">
         <AppIcon name="plus" :size="14" /> 添加小题
@@ -554,6 +582,7 @@ interface QuestionForm {
   prompt: string
   knowledge_point: string
   standard_steps_text: string
+  stepsExpanded: boolean
   reference_answer: string
   weight_pct: number | null   // 评分系统：分值占比 %；null = 留空（按题数均分）
   recognized: boolean   // 是否刚通过照片识别填入（展示检查提示）
@@ -615,7 +644,7 @@ watch(subject, () => { selectedClassIds.value = [] })
 const subjectLabel = computed(() => SUBJECT_OPTIONS.find((option) => option.value === subject.value)?.label ?? '其他')
 const totalScore = ref(100)   // 评分系统：作业总分（满分），默认 100
 const blankQuestion = (): QuestionForm => ({
-  prompt: '', knowledge_point: '', standard_steps_text: '', reference_answer: '',
+  prompt: '', knowledge_point: '', standard_steps_text: '', stepsExpanded: true, reference_answer: '',
   weight_pct: null,
   recognized: false, recognizing: false, kp_guessing: false,
   check_status: 'idle', check_detail: '', check_stamp: ''
@@ -1222,7 +1251,9 @@ async function onPhotoChange(e: Event) {
     if (!photoTargetQ.value) return
     q = photoTargetQ.value
   }
+  const stepsExpandedBeforeRecognition = q.stepsExpanded
   q.recognizing = true
+  q.stepsExpanded = false
   error.value = ''
   try {
     const res = await teacher.recognizePhoto(file)
@@ -1232,6 +1263,7 @@ async function onPhotoChange(e: Event) {
     // v0.13.3：拍照追加的题先自动均分（单题拍照只改本题内容、题数不变，不重排分值）
     if (appendMode) distributeEvenly()
   } catch (err: unknown) {
+    q.stepsExpanded = stepsExpandedBeforeRecognition
     recognitionError.value = '照片识别失败：' + recognitionFailureMessage(err, '请稍后重试。')
     error.value = recognitionError.value
     console.error(err)
@@ -1277,6 +1309,9 @@ async function onGroupPhotoChange(e: Event) {
     error.value = '大题照片太大了（超过 10MB），请压缩后再试。'
     return
   }
+  const target = groupPhotoTarget.value
+  const previousStepsExpanded = new Map(target?.subs.map((sub) => [sub, sub.stepsExpanded]) ?? [])
+  target?.subs.forEach((sub) => { sub.stepsExpanded = false })
   groupRecognizing.value = true
   error.value = ''
   try {
@@ -1285,6 +1320,7 @@ async function onGroupPhotoChange(e: Event) {
       const sf = blankQuestion()
       sf.prompt = formatRecognizedMath(s.question_text ?? '')
       sf.standard_steps_text = formatRecognizedMath((s.steps ?? []).join('\n'))
+      sf.stepsExpanded = false
       sf.recognized = true
       return sf
     })
@@ -1303,6 +1339,7 @@ async function onGroupPhotoChange(e: Event) {
       if (sf.prompt.trim() && !sf.knowledge_point) void guessKp(sf, `大题 ${gi + 1} 小题（${si + 1}）`)
     })
   } catch (err: unknown) {
+    previousStepsExpanded.forEach((expanded, sub) => { sub.stepsExpanded = expanded })
     recognitionError.value = '大题识别失败：' + recognitionFailureMessage(err, '请换一张更清晰的照片重试。')
     error.value = recognitionError.value
     console.error(err)
@@ -1730,6 +1767,10 @@ onMounted(async () => {
   padding-top: 14px; margin-top: 14px;
 }
 .sub-block:first-of-type { border-top: none; padding-top: 4px; }
+.steps-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.steps-heading label { min-width: 0; }
+.steps-chevron-up { transform: rotate(180deg); }
+.steps-toggle { margin-bottom: 14px; }
 .symbol-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .symbol-btn {
   min-width: 38px; height: 34px; padding: 0 9px;
