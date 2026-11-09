@@ -48,7 +48,7 @@ def chat(mistake_id: int, body: MistakeChatIn,
 
     def events():
         yield ": connected\n\n"
-        stream = mistake_chat.reply_stream(db, context, rows, text)
+        stream = mistake_chat.reply_stream(db, context, rows, text, student_id=student_id)
         try:
             parts = []
             for chunk in stream:

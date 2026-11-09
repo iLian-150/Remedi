@@ -21,6 +21,7 @@ from .subjects import (
     SUBJECT_AGENTS, build_subject_context, detect_subject, mentions_subject, normalize_subject,
 )
 from ..services.learning_memory import student_memory_to_text
+from ..services.assistant_preferences import preference_context
 from ..services.bailian_options import bailian_request_options, is_kimi_k3
 from .tools import build_tools, student_notebook_to_text
 from .rag_context import subject_retrieval_query as _subject_retrieval_query
@@ -295,6 +296,7 @@ def agent_reply_stream(db: Session, student: User,
                        subject: str | None = None):
     """逐块输出 Agent 回复；迭代结束时返回回复全文和本轮调用的工具名。"""
     # 流式响应中的非文本 content 会在模型适配层被过滤；回复可以边生成边发送。
+    preferences = preference_context(db, student.id)
     llm = _build_llm(streaming=True)
     if safe_tools_only:
         intent = "tutoring"
@@ -354,6 +356,9 @@ def agent_reply_stream(db: Session, student: User,
             except Exception:
                 logger.exception("读取学习记忆失败，student_id=%s", student.id)
         messages = [SystemMessage(content=system), *history, HumanMessage(content=user_text)]
+    # 闲聊也读取持久偏好；无需携带其他会话的完整消息或错题资料。
+    system += "\n\n" + preferences
+    messages[0] = SystemMessage(content=system)
     related_result: dict = {"mistake": None}
     reply_parts: list[str] = []
     tool_names: list[str] = []

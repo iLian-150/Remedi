@@ -493,6 +493,16 @@ Index(
 )
 
 
+class StudentAssistantPreference(Base):
+    """学生明确表达的回答风格，跨会话保存；游标用于增量补录旧聊天。"""
+    __tablename__ = "student_assistant_preferences"
+
+    student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    styles_json = Column(Text, nullable=False, default="[]")
+    last_message_id = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class StudentMistakeChatMessage(Base):
     """错题本专属问答；独立于主页会话，负数 mistake_id 对应自主收录题目。"""
     __tablename__ = "student_mistake_chat_messages"
