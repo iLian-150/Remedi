@@ -36,7 +36,7 @@
         <div class="card-head-row">
           <div>
             <h3>
-              <router-link :to="`/teacher/assignments/${a.id}`" class="assignment-title" @click.stop>{{ a.title }}</router-link>
+              <router-link :to="`/teacher/assignments/${a.id}/analytics`" class="assignment-title" @click.stop>{{ a.title }}</router-link>
               <span v-if="a.mode === 'offline'" class="badge badge-amber" style="margin-left: 6px">线下练习</span>
             </h3>
             <p class="card-sub" style="margin-bottom: 0">
@@ -49,6 +49,7 @@
             </p>
           </div>
           <div class="head-actions">
+            <router-link class="btn small" :to="`/teacher/assignments/${a.id}/analytics`" @click.stop>查看学情</router-link>
             <router-link class="btn small secondary" :to="`/teacher/assignments/${a.id}`" @click.stop>查看题目</router-link>
             <router-link v-if="a.can_delete" class="btn small secondary inline-icon" :to="`/teacher/assignments/${a.id}/edit`" @click.stop><AppIcon name="edit" :size="15" /> 编辑作业</router-link>
             <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click.stop="remind(a)">
@@ -152,7 +153,7 @@ async function retryFigure(id: number) {
 }
 
 function openAssignment(id: number) {
-  void router.push(`/teacher/assignments/${id}`)
+  void router.push(`/teacher/assignments/${id}/analytics`)
 }
 
 function openPublish(mode: 'online' | 'offline') {

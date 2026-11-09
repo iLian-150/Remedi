@@ -691,6 +691,45 @@ export interface TeacherAssignmentDetail extends TeacherAssignment {
   groups: { id: number; stem: string; order_num: number; diagram: FigureSpec | null; diagram_status: string | null }[]
 }
 
+export interface TeacherAssignmentQuestionAnalytics {
+  id: number
+  number: number
+  subject: string
+  prompt: string
+  knowledge_point: string
+  expected_students: number
+  submitted_students: number
+  graded_students: number
+  average_score_rate: number | null
+}
+
+export interface TeacherAssignmentStudentAnalytics {
+  id: number
+  name: string
+  student_no: string | null
+  expected_questions: number
+  submitted_questions: number
+  graded_questions: number
+  score: number
+  max_score: number
+  score_rate: number | null
+  status: '未开始' | '部分提交' | '批改中' | '待复核' | '已完成'
+}
+
+export interface TeacherAssignmentAnalytics {
+  assignment_id: number
+  title: string
+  student_count: number
+  started_count: number
+  completed_count: number
+  grading_count: number
+  review_count: number
+  question_count: number
+  progress_counts: Record<string, number>
+  questions: TeacherAssignmentQuestionAnalytics[]
+  students: TeacherAssignmentStudentAnalytics[]
+}
+
 export interface TeacherQuestionInput {
   type: 'math' | 'essay'
   subject?: QuestionSubject

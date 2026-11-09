@@ -29,6 +29,7 @@ import type {
   TeachingPlan,
   TeachingExercise,
   TeacherAssignment,
+  TeacherAssignmentAnalytics,
   TeacherAssignmentInput,
   TeacherAIGradingPage,
   TeacherErrorItem,
@@ -573,6 +574,12 @@ export const useTeacherStore = defineStore('teacher', {
         })
         return data.items
       })
+    },
+    async fetchTeacherAssignmentAnalytics(id: number): Promise<TeacherAssignmentAnalytics> {
+      const { data } = await api.get<TeacherAssignmentAnalytics>(
+        `/api/teacher/assignments/${id}/analytics`
+      )
+      return data
     },
     async fetchTeacherAssignmentCalendarMarks(): Promise<Record<string, number>> {
       const { data } = await api.get<Record<string, number>>(

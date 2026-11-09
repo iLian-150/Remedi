@@ -37,6 +37,7 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/teacher/assignments/new', component: () => import('../views/teacher/TeacherPublish.vue'), meta: { role: 'teacher', title: '发布作业' } },
   { path: '/teacher/assignments/:id/edit', component: () => import('../views/teacher/TeacherAssignmentEdit.vue'), meta: { role: 'teacher', title: '编辑作业' } },
+  { path: '/teacher/assignments/:id/analytics', component: () => import('../views/teacher/TeacherAssignmentAnalytics.vue'), meta: { role: 'teacher', title: '作业学情' } },
   { path: '/teacher/assignments/:id', component: () => import('../views/teacher/TeacherAssignmentDetail.vue'), meta: { role: 'teacher', title: '作业题目' } },
   { path: '/teacher/chat', component: () => import('../views/teacher/TeacherChat.vue'), meta: { role: 'teacher', title: 'AI 助手' } },
   // 我的资料：管理当前任教学科 Agent 使用的外挂知识库文档。
