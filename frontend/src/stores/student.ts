@@ -309,6 +309,7 @@ export const useStudentStore = defineStore('student', {
     sessionsRefreshPromise: null as Promise<void> | null,
     sessionCreatePromise: null as Promise<ChatSession> | null,
     sessionCreatePreservesView: false,
+    sessionCreateViewSeq: null as number | null,
     sessionsGeneration: 0,
     sessionsMutationVersion: 0,
     /** 侧栏发起的查看请求：seq 每次递增，对话页 watch 到变化后重渲染对应会话消息；
@@ -1080,28 +1081,53 @@ export const useStudentStore = defineStore('student', {
       }
     },
     /** 首次发送消息时提前准备会话，让左侧历史列表在 AI 长耗时处理期间也能显示当前对话。 */
-    async ensureActiveChatSession(): Promise<number> {
+    async ensureActiveChatSession(expectedViewSeq?: number): Promise<number> {
+      const viewSeq = expectedViewSeq ?? this.sessionView.seq
       const generation = this.sessionsGeneration
       const ownerId = useAuthStore().user?.id
-      const session = await this.prepareActiveChatSession(true)
+      const session = await this.prepareActiveChatSession(true, viewSeq)
       if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) {
         const error = new Error('登录状态已变化，请重新操作。')
+        error.name = 'AbortError'
+        throw error
+      }
+      if (viewSeq !== this.sessionView.seq) {
+        const error = new Error('对话已切换，请重新操作。')
         error.name = 'AbortError'
         throw error
       }
       return session.id
     },
     /** 首次发送与侧栏共享创建任务；发送参与时保留已显示的用户消息和待回复占位。 */
-    async prepareActiveChatSession(preserveView: boolean): Promise<ChatSession> {
-      if (this.sessionCreatePromise) {
+    async prepareActiveChatSession(
+      preserveView: boolean,
+      expectedViewSeq?: number
+    ): Promise<ChatSession> {
+      const viewSeq = expectedViewSeq ?? this.sessionView.seq
+      if (viewSeq !== this.sessionView.seq) {
+        const error = new Error('对话已切换，请重新操作。')
+        error.name = 'AbortError'
+        throw error
+      }
+      if (this.sessionCreatePromise && this.sessionCreateViewSeq === viewSeq) {
         if (preserveView) this.sessionCreatePreservesView = true
         return this.sessionCreatePromise
+      }
+      if (this.sessionCreatePromise) {
+        this.sessionCreatePromise = null
+        this.sessionCreateViewSeq = null
+        this.sessionCreatePreservesView = false
       }
       const generation = this.sessionsGeneration
       const ownerId = useAuthStore().user?.id
       const assertCurrentSession = () => {
         if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) {
           const error = new Error('登录状态已变化，请重新操作。')
+          error.name = 'AbortError'
+          throw error
+        }
+        if (viewSeq !== this.sessionView.seq) {
+          const error = new Error('对话已切换，请重新操作。')
           error.name = 'AbortError'
           throw error
         }
@@ -1138,21 +1164,27 @@ export const useStudentStore = defineStore('student', {
         return session
       })()
       this.sessionCreatePromise = task
+      this.sessionCreateViewSeq = viewSeq
       try {
         return await task
       } finally {
         if (this.sessionCreatePromise === task) {
           this.sessionCreatePromise = null
+          this.sessionCreateViewSeq = null
           this.sessionCreatePreservesView = false
         }
       }
     },
-    setActiveSession(id: number | null) {
+    setActiveSession(id: number | null, expectedViewSeq?: number) {
+      if (expectedViewSeq != null && expectedViewSeq !== this.sessionView.seq) return
       this.activeSessionId = id
       persistActiveSessionId(id)
     },
     /** 侧栏「新对话」入口：切换到页面内的本地草稿，首次发送时再创建会话。 */
     startSidebarSession() {
+      this.sessionCreatePromise = null
+      this.sessionCreateViewSeq = null
+      this.sessionCreatePreservesView = false
       this.activeSessionId = null
       persistActiveSessionId(null)
       this.sessionView = { id: null, fresh: true, seq: this.sessionView.seq + 1 }
@@ -1201,6 +1233,7 @@ export const useStudentStore = defineStore('student', {
       this.sessionsRefreshPromise = null
       this.sessionCreatePromise = null
       this.sessionCreatePreservesView = false
+      this.sessionCreateViewSeq = null
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     /** 退出登录时重置提醒未读数（v0.8.2），避免换人登录后角标残留 */

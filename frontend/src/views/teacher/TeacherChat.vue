@@ -193,6 +193,10 @@ function isAbortError(error: unknown): boolean {
     'name' in error && (error as { name?: unknown }).name === 'AbortError'
 }
 
+function isCurrentChatView(viewSeq: number): boolean {
+  return teacher.sessionView.seq === viewSeq
+}
+
 // ---------- 会话（v0.6.0 会话制；v0.6.2 导航移入左侧栏，会话状态归 store 与侧栏共用） ----------
 // 本页不持有会话列表：侧栏操作改 store.sessionView，本页 watch seq 变化后同步重渲染。
 // ---------- 建议气泡（v0.6.0）：只存最新一轮的建议 ----------
@@ -351,6 +355,8 @@ function onWorkflowPublished(message: Msg, assignment: TeacherAssignment) {
 async function sendText(raw: string, attachmentFile?: File) {
   const enteredText = raw.trim()
   if ((!enteredText && !attachmentFile) || sending.value) return
+  const viewSeq = teacher.sessionView.seq
+  const sessionId = teacher.activeSessionId
   const text = enteredText || (attachmentFile ? '请阅读并分析这个文件。' : '')
   if (text.length > 2000) {
     error.value = '这条消息有点太长了（最多 2000 字），拆成两条发吧。'
@@ -382,8 +388,10 @@ async function sendText(raw: string, attachmentFile?: File) {
     const extractedAttachment = attachmentFile
       ? await teacher.extractChatAttachment(attachmentFile)
       : undefined
+    if (!isCurrentChatView(viewSeq)) return
     let receivedCharacter = false
-    const res = await teacher.agentChatStream(text, teacher.activeSessionId, (character) => {
+    const res = await teacher.agentChatStream(text, sessionId, (character) => {
+      if (!isCurrentChatView(viewSeq)) return
       if (!receivedCharacter) {
         wait.text = ''
         wait.pending = false
@@ -393,22 +401,25 @@ async function sendText(raw: string, attachmentFile?: File) {
       wait.text += character
       scrollToBottom()
     }, controller.signal, extractedAttachment)
-    if (res.session_id) teacher.setActiveSession(res.session_id)
+    if (res.session_id && isCurrentChatView(viewSeq)) teacher.setActiveSession(res.session_id)
+    if (!isCurrentChatView(viewSeq)) return
     suggestions.value = res.suggestions ?? []
     // 刷新侧栏会话列表（v0.6.2）：首问会生成标题，顺序也按最近更新重排
     teacher.loadSessions(true)
   } catch (e) {
     // 后端会在生成回复前保存用户消息；即使模型失败或请求中断，也刷新侧栏会话。
     void teacher.loadSessions(true)
-    if (isAbortError(e)) return
+    if (isAbortError(e) || !isCurrentChatView(viewSeq)) return
     wait.text = '查询失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
   } finally {
-    stopPendingTimer()
-    if (activeStreamController === controller) activeStreamController = null
     wait.pending = false
-    sending.value = false
-    scrollToBottom()
+    if (activeStreamController === controller) {
+      stopPendingTimer()
+      activeStreamController = null
+      sending.value = false
+      scrollToBottom()
+    }
   }
 }
 
@@ -450,6 +461,7 @@ async function importKnowledgeDocument(file: File, subject: SubjectAgentCode) {
 
 async function sendImage(file: File, question: string) {
   if (sending.value) return
+  const viewSeq = teacher.sessionView.seq
   if (question.length > 2000) {
     error.value = '这条消息有点太长了（最多 2000 字），请拆成两条发送。'
     return
@@ -478,12 +490,14 @@ async function sendImage(file: File, question: string) {
     let sessionId = teacher.activeSessionId
     if (sessionId == null && teacher.sessionView.fresh) {
       const session = await teacher.createSession()
+      if (!isCurrentChatView(viewSeq)) return
       sessionId = session.id
       teacher.setActiveSession(session.id)
     }
     const result = await teacher.agentVisionChatStream(
       file, questionForModel, sessionId,
       (text) => {
+        if (!isCurrentChatView(viewSeq)) return
         if (!receivedText) {
           wait.text = ''
           receivedText = true
@@ -495,25 +509,28 @@ async function sendImage(file: File, question: string) {
       publishIntent ? imageAssignmentAnalysisPrompt(question) : undefined,
       controller.signal
     )
-    if (result.session_id) teacher.setActiveSession(result.session_id)
+    if (result.session_id && isCurrentChatView(viewSeq)) teacher.setActiveSession(result.session_id)
+    if (!isCurrentChatView(viewSeq)) return
     suggestions.value = result.suggestions ?? []
     void teacher.loadSessions(true)
   } catch (e) {
-    if (isAbortError(e)) return
+    if (isAbortError(e) || !isCurrentChatView(viewSeq)) return
     wait.text = '图片分析失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
     void teacher.loadSessions(true)
   } finally {
-    if (publishIntent) {
+    if (publishIntent && isCurrentChatView(viewSeq)) {
       wait.workflowDraft = assignmentDraftFromText(question, wait.text)
       await nextTick()
+      if (isCurrentChatView(viewSeq)) scrollToBottom()
+    }
+    wait.pending = false
+    if (activeStreamController === controller) {
+      stopPendingTimer()
+      activeStreamController = null
+      sending.value = false
       scrollToBottom()
     }
-    stopPendingTimer()
-    if (activeStreamController === controller) activeStreamController = null
-    wait.pending = false
-    sending.value = false
-    scrollToBottom()
   }
 }
 
@@ -611,6 +628,11 @@ watch(
   async (seq) => {
     if (seq === appliedViewSeq) return
     appliedViewSeq = seq
+    activeStreamController?.abort()
+    activeStreamController = null
+    stopPendingTimer()
+    pendingElapsedSeconds.value = 0
+    sending.value = false
     const requestToken = ++historyRequestToken
     const view = teacher.sessionView
     const viewId = view.id
@@ -641,7 +663,8 @@ watch(
       renderHistory(null)
     }
     scrollToBottom()
-  }
+  },
+  { flush: 'sync' }
 )
 
 onMounted(async () => {

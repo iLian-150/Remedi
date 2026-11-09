@@ -403,6 +403,10 @@ function isAbortError(error: unknown): boolean {
     'name' in error && (error as { name?: unknown }).name === 'AbortError'
 }
 
+function isCurrentChatView(viewSeq: number): boolean {
+  return student.sessionView.seq === viewSeq
+}
+
 function createStreamAbortController(): AbortController {
   const controller = new AbortController()
   if (chatUnmounted) controller.abort()
@@ -792,6 +796,8 @@ watch(
   async (seqVal) => {
     if (seqVal === appliedViewSeq) return
     appliedViewSeq = seqVal
+    for (const controller of streamAbortControllers) controller.abort()
+    chatSending.value = false
     const requestToken = ++historyRequestToken
     const view = student.sessionView
     const viewId = view.id
@@ -835,7 +841,8 @@ watch(
       }
     }
     scrollToBottom()
-  }
+  },
+  { flush: 'sync' }
 )
 
 function retrySelectedHistory() {
@@ -855,6 +862,7 @@ async function sendChat(raw?: string) {
   const text = (typeof raw === 'string' ? raw : chatInput.value).trim()
   const file = selectedFile.value
   if ((!text && !file) || chatSending.value) return
+  const viewSeq = student.sessionView.seq
   if (text.length > 2000) {
     pushMsg({ side: 'ai', kind: 'error', text: '这条消息有点太长了（最多 2000 字），拆成两条发给我吧。' })
     return
@@ -863,7 +871,7 @@ async function sendChat(raw?: string) {
     chatInput.value = ''
     clearSelectedFile()
     suggestions.value = []
-    await sendPhotoReview(file, text)
+    await sendPhotoReview(file, text, viewSeq)
     return
   }
   const attachment = file ? { name: file.name, file } : undefined
@@ -876,8 +884,10 @@ async function sendChat(raw?: string) {
   const wait = pushMsg({ side: 'ai', kind: 'text', text: attachment ? '正在读取文件并思考…' : '正在思考…', pending: true })
   chatSending.value = true
   try {
-    await student.ensureActiveChatSession()
+    const sessionId = await student.ensureActiveChatSession(viewSeq)
+    if (!isCurrentChatView(viewSeq)) return
     const extractedAttachment = attachment ? await student.extractChatAttachment(attachment.file) : undefined
+    if (!isCurrentChatView(viewSeq)) return
     const saveIntent = !attachment && /加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏/.test(text) && /错题本|错题/.test(text)
     const refersToPrevious = /刚才|上一题|前面那题|之前那题/.test(text)
     const cleanedQuestion = text.replace(/[，,。 ]*(?:顺便)?(?:请)?(?:把)?(?:这道题|这题)?(?:加入|收录|保存|放(?:到|进|入)?|加(?:到|进|入)|记(?:到|进)|收藏)(?:错题本|错题)(?:里|中)?[。！!]?/g, '').trim()
@@ -901,16 +911,18 @@ async function sendChat(raw?: string) {
         if (refersToPrevious || !containsQuestion) return
       }
     }
-    await streamAssistantReply(wait, prompt, true, false, undefined, extractedAttachment)
+    await streamAssistantReply(wait, prompt, true, false, undefined, extractedAttachment, sessionId, viewSeq)
   } catch (e) {
-    if (isAbortError(e)) return
+    if (isAbortError(e) || !isCurrentChatView(viewSeq)) return
     wait.kind = 'error'
     wait.text = '发送失败：' + (errDetail(e) || '请稍后重试。')
     console.error(e)
   } finally {
     wait.pending = false
-    chatSending.value = false
-    scrollToBottom()
+    if (isCurrentChatView(viewSeq)) {
+      chatSending.value = false
+      scrollToBottom()
+    }
   }
 }
 
@@ -920,15 +932,23 @@ async function streamAssistantReply(
   persistUserMessage = true,
   safeToolsOnly = false,
   relatedMistakeErrorId?: number | null,
-  attachment?: { name: string; text: string }
+  attachment?: { name: string; text: string },
+  sessionId: number | null = student.activeSessionId,
+  viewSeq = student.sessionView.seq
 ) {
+  if (!isCurrentChatView(viewSeq)) {
+    const error = new Error('对话已切换，请重新操作。')
+    error.name = 'AbortError'
+    throw error
+  }
   let firstText = true
   const controller = createStreamAbortController()
   wait.text = '正在识别需求并准备回答…'
   wait.pending = true
   wait.streaming = true
   try {
-    const result = await student.agentChatStream(prompt, student.activeSessionId, (text) => {
+    const result = await student.agentChatStream(prompt, sessionId, (text) => {
+      if (!isCurrentChatView(viewSeq)) return
       if (firstText) {
         wait.text = ''
         wait.pending = false
@@ -943,7 +963,8 @@ async function streamAssistantReply(
     wait.retryPrompt = undefined
     wait.retrySafeToolsOnly = undefined
     wait.retryChat = undefined
-    if (result.session_id) student.setActiveSession(result.session_id)
+    if (result.session_id) student.setActiveSession(result.session_id, viewSeq)
+    if (!isCurrentChatView(viewSeq)) return
     suggestions.value = result.suggestions ?? []
     // 刷新侧栏会话列表：首问生成标题、顺序按最近更新重排。
     student.loadSessions(true)
@@ -971,9 +992,15 @@ function onComposerFileSelected(file: File) {
   selectedFileUrl.value = isImage ? createImageUrl(file) : ''
 }
 
-function applyPhotoReviewResult(wait: ChatMsg, userImage: ChatMsg, res: PhotoReviewResult) {
+function applyPhotoReviewResult(
+  wait: ChatMsg,
+  userImage: ChatMsg,
+  res: PhotoReviewResult,
+  viewSeq = student.sessionView.seq
+) {
+  if (!isCurrentChatView(viewSeq)) return
   if (res.image_url) userImage.url = res.image_url
-  if (res.session_id) student.setActiveSession(res.session_id)
+  if (res.session_id) student.setActiveSession(res.session_id, viewSeq)
   wait.questionText = res.question_text
   wait.steps = [...res.steps]
   wait.relatedMistake = res.related_mistake ?? null
@@ -1057,13 +1084,14 @@ async function streamVisionReply(
   }
 }
 
-async function sendPhotoReview(file: File, prompt: string) {
+async function sendPhotoReview(file: File, prompt: string, viewSeq: number) {
   suggestions.value = []
   const userImage = pushMsg({ side: 'user', kind: 'image', text: prompt, fileName: file.name, url: createImageUrl(file) })
   const wait = pushMsg({ side: 'ai', kind: 'text', text: '正在分析原图并检查作答…', pending: true })
   chatSending.value = true
   try {
-    await student.ensureActiveChatSession()
+    await student.ensureActiveChatSession(viewSeq)
+    if (!isCurrentChatView(viewSeq)) return
     const sessionId = student.activeSessionId
     if (!sessionId) throw new Error('当前对话暂不可用，请新建对话后重试。')
     const questionId = selectedQuestion.value?.id ?? null
@@ -1086,10 +1114,10 @@ async function sendPhotoReview(file: File, prompt: string) {
       file, questionId, '', sessionId, true, prompt
     )).then((result) => {
       // 批改与视觉讲解并发；批改一完成就更新错题/审核状态，不等待讲解流结束。
-      applyPhotoReviewResult(wait, userImage, result)
+      applyPhotoReviewResult(wait, userImage, result, viewSeq)
       void student.loadSessions(true)
       // 简报刷新不应阻塞本轮并发任务收尾、讲解保存或输入框解锁。
-      void refreshBriefing()
+      if (isCurrentChatView(viewSeq)) void refreshBriefing()
       return result
     }).catch((reason: unknown) => {
       markPhotoReviewFailure(wait, reason)
@@ -1144,13 +1172,16 @@ async function sendPhotoReview(file: File, prompt: string) {
   } finally {
     wait.pending = false
     wait.streaming = false
-    chatSending.value = false
-    scrollToBottom()
+    if (isCurrentChatView(viewSeq)) {
+      chatSending.value = false
+      scrollToBottom()
+    }
   }
 }
 
 async function retryExplanation(msg: ChatMsg) {
   if (chatSending.value) return
+  const viewSeq = student.sessionView.seq
   const photoRetry = pendingPhotoRetries.get(msg.id)
   if (photoRetry && (msg.retryVision || msg.retryDiagnosis || msg.retrySave)) {
     chatSending.value = true
@@ -1168,9 +1199,9 @@ async function retryExplanation(msg: ChatMsg) {
       const diagnosisTask = msg.retryDiagnosis
         ? firstVisionText.promise.then(() => student.reviewPhoto(photoRetry.file, photoRetry.questionId, '', photoRetry.sessionId, false, photoRetry.prompt))
           .then((result) => {
-            applyPhotoReviewResult(msg, photoRetry.userImage, result)
+            applyPhotoReviewResult(msg, photoRetry.userImage, result, viewSeq)
             void student.loadSessions(true)
-            void refreshBriefing()
+            if (isCurrentChatView(viewSeq)) void refreshBriefing()
             return result
           })
           .catch((reason: unknown) => {
@@ -1231,8 +1262,10 @@ async function retryExplanation(msg: ChatMsg) {
     } finally {
       msg.pending = false
       msg.streaming = false
-      chatSending.value = false
-      scrollToBottom()
+      if (isCurrentChatView(viewSeq)) {
+        chatSending.value = false
+        scrollToBottom()
+      }
     }
     return
   }
@@ -1243,9 +1276,12 @@ async function retryExplanation(msg: ChatMsg) {
   chatSending.value = true
   msg.pending = true
   try {
-    await streamAssistantReply(msg, prompt, false, safeToolsOnly, msg.relatedMistake?.id)
+    await streamAssistantReply(
+      msg, prompt, false, safeToolsOnly, msg.relatedMistake?.id,
+      undefined, student.activeSessionId, viewSeq
+    )
   } catch (err) {
-    if (isAbortError(err)) return
+    if (isAbortError(err) || !isCurrentChatView(viewSeq)) return
     msg.kind = 'text'
     msg.text = msg.retryChat
       ? '重新生成回复失败：' + (errDetail(err) || '请稍后重试。')
@@ -1255,8 +1291,10 @@ async function retryExplanation(msg: ChatMsg) {
     console.error(err)
   } finally {
     msg.pending = false
-    chatSending.value = false
-    scrollToBottom()
+    if (isCurrentChatView(viewSeq)) {
+      chatSending.value = false
+      scrollToBottom()
+    }
   }
 }
 async function savePhotoQuestion(msg: ChatMsg) {
