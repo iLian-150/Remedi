@@ -717,24 +717,39 @@ onMounted(async () => {
 .tchat-body-welcome .msg-row { justify-content: center; width: 100%; margin-bottom: 12px; }
 .tchat-body-welcome .msg-avatar { display: none; }
 .welcome-bubble { max-width: 100%; padding: 4px 8px; color: var(--text); font-size: 24px; font-weight: 650; line-height: 1.4; text-align: center; }
-.welcome-prompts { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 24px; }
-.welcome-prompts button {
-  padding: 6px 0; border: 0; background: transparent; color: var(--text-2);
-  font: inherit; font-size: 14px; cursor: pointer; transition: color 0.18s ease;
+.welcome-prompts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(640px, 100%);
+  margin-top: 14px;
+  gap: 8px;
 }
-.welcome-prompts button:hover:not(:disabled) { color: var(--primary); text-decoration: underline; text-underline-offset: 4px; }
+.welcome-prompts button {
+  min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--card); color: var(--text-2); font: inherit; font-size: 14px;
+  line-height: 1.45; text-align: left; cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.welcome-prompts button:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-50); }
 .welcome-prompts button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* 建议气泡（v0.6.0）：本轮回复后淡入上浮，stagger 错峰 */
-.suggest-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 10px 40px; }
+.suggest-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 8px;
+  margin: 8px 0 12px 40px;
+}
 .suggest-chip {
-  border: 0; background: transparent; color: var(--text-2);
-  padding: 6px 0; font-size: 13px; font-weight: 500;
+  display: flex; min-width: 0; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--card); color: var(--text-2); font-size: 13px; font-weight: 500;
+  line-height: 1.45; text-align: left; white-space: normal; overflow-wrap: anywhere;
   cursor: pointer; font-family: var(--font);
   animation: suggest-in 0.35s ease both;
-  transition: color 0.18s ease;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-.suggest-chip:hover { color: var(--primary); text-decoration: underline; text-underline-offset: 4px; }
+.suggest-chip:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-50); }
 @keyframes suggest-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -758,5 +773,8 @@ onMounted(async () => {
   .suggest-row { margin-left: 0; }
   .tchat-body { padding-bottom: 112px; }
   .tchat-body-image-composer { padding-bottom: 220px; }
+}
+@media (max-width: 600px) {
+  .welcome-prompts { grid-template-columns: 1fr; }
 }
 </style>
