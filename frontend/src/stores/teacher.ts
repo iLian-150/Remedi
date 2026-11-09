@@ -26,6 +26,8 @@ import type {
   StudentProfile,
   StudentSummary,
   TeacherDashboardSummary,
+  TeachingPlan,
+  TeachingExercise,
   TeacherAssignment,
   TeacherAssignmentInput,
   TeacherAIGradingPage,
@@ -238,6 +240,22 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.get<TeacherDashboardSummary>('/api/teacher/dashboard', {
         params: { n, ...(includeSuggestions ? { include_suggestions: true } : {}) }
       })
+      return data
+    },
+    async fetchTeachingPlan(signal?: AbortSignal): Promise<TeachingPlan> {
+      const { data } = await api.get<TeachingPlan>('/api/teacher/teaching-plan', { signal })
+      return data
+    },
+    async generateTeachingExercise(subject: string, knowledgePoint: string, signal?: AbortSignal): Promise<TeachingExercise> {
+      const { data } = await api.post<TeachingExercise>('/api/teacher/teaching-plan/exercise', {
+        subject, knowledge_point: knowledgePoint
+      }, { signal })
+      return data
+    },
+    async markTopicTaught(subject: string, knowledgePoint: string, signal?: AbortSignal): Promise<TeachingPlan> {
+      const { data } = await api.post<TeachingPlan>('/api/teacher/teaching-plan/taught', {
+        subject, knowledge_point: knowledgePoint
+      }, { signal })
       return data
     },
     // 4.5 学生列表

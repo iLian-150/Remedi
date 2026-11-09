@@ -888,6 +888,32 @@ export interface ClassRepairRate {
   knowledge_points: KnowledgePointRepair[]
 }
 
+export interface TeachingTopic {
+  subject: string
+  knowledge_point: string
+  error_rate: number
+  student_count: number
+  taught_at: string | null
+}
+
+export interface TeachingPlan {
+  topics: TeachingTopic[]
+  follow_up: {
+    subject: string
+    knowledge_point: string
+    taught_at: string
+    student_count: number
+  } | null
+}
+
+export interface TeachingExercise {
+  subject: string
+  knowledge_point: string
+  prompt: string
+  standard_steps: string[]
+  answer: string
+}
+
 export interface StudentAttention {
   id: number
   name: string

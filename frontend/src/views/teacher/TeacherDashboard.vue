@@ -12,23 +12,7 @@
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="!loading">
-      <!-- 教学建议与看板复用同一批统计；建议生成失败时只隐藏本区。 -->
-      <div v-if="suggestions.length || suggestionsLoaded" class="card suggest-card" style="margin-bottom: 16px">
-        <h3><AppIcon name="lightbulb" :size="18" /> 教学建议</h3>
-        <p class="card-sub">按班级修复率、知识点错误率、顽固错题与成绩自动生成，供备课参考。</p>
-        <div v-if="suggestions.length" class="suggest-list">
-          <div v-for="(s, i) in suggestions" :key="i" class="suggest-item">
-            <div class="suggest-head">
-              <span class="badge" :class="suggestBadgeClass(s.kind)">{{ suggestKindText(s.kind) }}</span>
-              <span class="suggest-title">{{ s.title }}</span>
-            </div>
-            <p class="suggest-evidence tnum">{{ s.evidence }}</p>
-            <p class="suggest-action">{{ s.action }}</p>
-            <p v-if="s.sample_questions.length" class="suggest-samples">高频错题：{{ s.sample_questions.join('；') }}</p>
-          </div>
-        </div>
-        <div v-else class="empty">暂无建议：各知识点修复情况良好，或数据还不够。</div>
-      </div>
+      <TeachingPlanCard />
 
       <!-- KPI 指标卡横排（v0.4.0：含新增「班级知识修复率」卡） -->
       <div class="stat-row kpi-row" style="margin-bottom: 16px">
@@ -124,10 +108,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useTeacherStore } from '../../stores/teacher'
-import type { ClassRepairRate, KnowledgePointStat, StudentAttention, TeachingSuggestion, TopQuestion } from '../../api/types'
+import type { ClassRepairRate, KnowledgePointStat, StudentAttention, TopQuestion } from '../../api/types'
 import { errorTypeKey, ERROR_TYPE_CHART_COLORS } from '../../utils/errorType'
 import { AsyncEChartBarPie as EChart } from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import TeachingPlanCard from '../../components/TeachingPlanCard.vue'
 
 const teacher = useTeacherStore()
 const topQuestions = ref<TopQuestion[]>([])
@@ -177,27 +162,6 @@ const repairTextByKnowledgePoint = computed(() => {
   return grouped
 })
 
-// 教学建议（独立于看板主体加载，失败不报错、不拖垮页面）
-const suggestions = ref<TeachingSuggestion[]>([])
-const suggestionsLoaded = ref(false)
-const SUGGEST_KIND_TEXT: Record<TeachingSuggestion['kind'], string> = {
-  reteach: '建议重讲',
-  stubborn_group: '分组辅导',
-  high_error: '错误率预警',
-  low_score: '巩固练习'
-}
-const SUGGEST_BADGE_CLASS: Record<TeachingSuggestion['kind'], string> = {
-  reteach: 'badge-red',
-  stubborn_group: 'badge-purple',
-  high_error: 'badge-amber',
-  low_score: 'badge-blue'
-}
-function suggestKindText(kind: TeachingSuggestion['kind']): string {
-  return SUGGEST_KIND_TEXT[kind] ?? '教学建议'
-}
-function suggestBadgeClass(kind: TeachingSuggestion['kind']): string {
-  return SUGGEST_BADGE_CLASS[kind] ?? 'badge-gray'
-}
 const topQuestionsOption = computed(() => {
   // 教师首页汇总接口已按错误数降序，图表直接复用以免再次复制和排序。
   const list = topQuestions.value
@@ -271,11 +235,11 @@ const typeOption = computed(() => ({
   ]
 }))
 
-async function loadStats(includeSuggestions = false) {
+async function loadStats() {
   loading.value = true
   error.value = ''
   try {
-    const summary = await teacher.fetchDashboardSummary(topN.value, includeSuggestions)
+    const summary = await teacher.fetchDashboardSummary(topN.value)
     topQuestions.value = summary.top_questions
     kpStats.value = summary.knowledge_points
     attentionStudents.value = summary.attention_students
@@ -284,10 +248,6 @@ async function loadStats(includeSuggestions = false) {
     overview.stubbornErrors = summary.stubborn_errors
     overview.studentCount = summary.students.length
     typeOptionData.value = summary.recent_error_types
-    if (includeSuggestions) {
-      suggestions.value = summary.suggestions ?? []
-      suggestionsLoaded.value = true
-    }
   } catch (e) {
     error.value = '班级看板加载失败，请确认后端已启动。'
     console.error(e)
@@ -310,7 +270,7 @@ async function loadTopQuestions() {
 }
 
 onMounted(() => {
-  loadStats(true)
+  loadStats()
 })
 </script>
 
@@ -361,11 +321,4 @@ onMounted(() => {
 .student-reason { font-size: 13.5px; color: var(--text-2); }
 .student-row > svg { flex-shrink: 0; }
 
-.suggest-list { display: flex; flex-direction: column; gap: 12px; }
-.suggest-item { background: var(--bg); border-radius: 10px; padding: 12px 14px; }
-.suggest-head { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
-.suggest-title { font-size: 14.5px; font-weight: 700; }
-.suggest-evidence { font-size: 13px; color: var(--text); margin: 0 0 4px; }
-.suggest-action { font-size: 13.5px; color: var(--text-2); margin: 0; line-height: 1.55; }
-.suggest-samples { font-size: 12.5px; color: var(--text-3); margin: 6px 0 0; }
 </style>

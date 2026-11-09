@@ -34,6 +34,17 @@ class User(Base):
     essays = relationship("Essay", back_populates="student")
 
 
+class TeacherTeachingFocus(Base):
+    """教师显式标记的最近讲解；生成练习、浏览看板不代表已经讲过。"""
+    __tablename__ = "teacher_teaching_focus"
+    __table_args__ = (Index("ix_teacher_teaching_focus_latest", "teacher_id", "taught_at"),)
+
+    teacher_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    subject = Column(String(32), primary_key=True)
+    knowledge_point = Column(String(64), primary_key=True)
+    taught_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class Assignment(Base):
     __tablename__ = "assignments"
 

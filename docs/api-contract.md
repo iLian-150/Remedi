@@ -1925,3 +1925,10 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ### 教师作业发布入口
 
 作业管理页直接展示线上作业与线下练习册两个发布入口；选择后进入独立的 `/teacher/assignments/new?mode=online|offline` 发布页。练习册链接仍可通过 `workbook_id` 预选练习册，历史 `publish=1&mode=...` 链接跳转到对应发布页。
+
+### 明天讲什么与讲后追踪
+
+- `GET /api/teacher/teaching-plan` 返回 `topics`（最多 3 项）和可空的 `follow_up`。只统计当前教师有权查看、已批改且不处于待审核状态的提交。学科与知识点分别分组，同次提交多个错误步骤只算一次含错提交；错误率为含错提交数 / 涉及该知识点的提交数。至少 2 名学生出错且错误率 ≥ 50% 才进入共性薄弱点，按涉及人数、错误率降序排列。每项包含 `subject`、`knowledge_point`、`error_rate`、`student_count`、可空的 `taught_at`。
+- `POST /api/teacher/teaching-plan/exercise` 接收 `{subject, knowledge_point}`，校验该教师的知识点权限后生成一道同类练习，返回 `prompt`、`standard_steps`、`answer` 及原学科知识点。复用现有数学验算模板和模型通道，无模板时依据该学科真实原题生成自包含练习。生成失败返回可重试的 503，不写入“已讲”记录，也不自动发布作业。
+- `POST /api/teacher/teaching-plan/taught` 接收相同字段，只在教师主动点击“标记已讲”时持久化该教师的最近讲解时间，返回更新后的讲评计划。同一业务日重复提交不重置起点；业务日与周一边界使用 `APP_TIMEZONE`。
+- `follow_up` 取当前教师最近一次、且仍在权限范围内的已讲知识点，包含 `subject`、`knowledge_point`、`taught_at`、`student_count`。人数按学生去重，只统计本周且在讲解后提交、产生的错误，排除旧作业迟到批改；没有讲解记录时返回 `null`。没有新错误表示暂无新出错记录，不等同于全班已掌握。
