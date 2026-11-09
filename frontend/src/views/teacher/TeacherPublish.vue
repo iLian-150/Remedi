@@ -6,11 +6,17 @@
      契约：POST /api/teacher/assignments（4.7，v0.5.0 加 mode/workbook_id/page_range/deadline）、
            练习册知识库 4.15~4.17、拍照识别 4.9。数学线上作答用公式板，其他学科通过视觉模型拍照批改。 -->
 <template>
-  <div class="page publish-page" :class="{ 'is-embedded': embedded, 'is-chat-workflow': chatWorkflow }">
+  <div class="page publish-page" :class="{ 'is-embedded': embedded, 'is-chat-workflow': chatWorkflow, 'is-chat-workflow-collapsed': chatWorkflow && chatWorkflowCollapsed }">
     <div v-if="chatWorkflow" class="chat-workflow-head">
       <span><AppIcon name="sparkles" :size="16" /> 发布作业草稿</span>
-      <button type="button" class="btn small secondary" @click="emit('cancel')">收起</button>
+      <button
+        type="button"
+        class="btn small secondary"
+        :aria-expanded="!chatWorkflowCollapsed"
+        @click="chatWorkflowCollapsed = !chatWorkflowCollapsed"
+      >{{ chatWorkflowCollapsed ? '展开' : '收起' }}</button>
     </div>
+    <template v-if="!chatWorkflowCollapsed">
     <div v-if="(!embedded || step === 'form') && !chatWorkflow" class="page-head publish-head">
       <div v-if="!embedded" class="ph-main">
         <router-link to="/teacher/assignments" class="btn secondary small inline-icon"><AppIcon name="chevron-left" :size="15" /> 返回作业管理</router-link>
@@ -514,6 +520,7 @@
       </button>
     </div>
     </template>
+    </template>
   </div>
 </template>
 
@@ -535,7 +542,8 @@ const props = withDefaults(defineProps<{
   chatWorkflow?: boolean
   initialDraft?: TeacherAssignmentDraftSeed
 }>(), { embedded: false, chatWorkflow: false })
-const emit = defineEmits<{ published: [assignment: TeacherAssignment]; cancel: [] }>()
+const emit = defineEmits<{ published: [assignment: TeacherAssignment] }>()
+const chatWorkflowCollapsed = ref(false)
 
 const teacher = useTeacherStore()
 const auth = useAuthStore()
@@ -1509,6 +1517,8 @@ onMounted(async () => {
 .chat-workflow-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; color: var(--text); font-size: 14px; font-weight: 650; }
 .chat-workflow-head > span { display: inline-flex; align-items: center; gap: 8px; }
 .publish-page.is-chat-workflow { padding-top: 14px; }
+.publish-page.is-chat-workflow.is-chat-workflow-collapsed { padding-top: 0; padding-bottom: 0; }
+.publish-page.is-chat-workflow-collapsed .chat-workflow-head { margin-bottom: 0; }
 /* v0.13.11：红色警示悬浮 toast（固定在视口顶部居中，盖在内容之上，不占位） */
 .error-toast {
   position: fixed; top: 18px; left: 50%; transform: translateX(-50%);

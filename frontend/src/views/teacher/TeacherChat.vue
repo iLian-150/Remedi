@@ -31,9 +31,10 @@
             <span v-if="historyLoadError" class="history-pager-error">{{ historyLoadError }}</span>
           </div>
           <div v-for="msg in messages" :key="msg.id" class="msg-row" :class="[msg.side, { 'workflow-event-hidden': msg.workflowEventHidden }]">
-            <div v-if="msg.side === 'ai'" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
+            <div v-if="msg.side === 'ai' && !(msg.pending && msg.workflowDraft)" class="msg-avatar"><AppIcon name="sparkles" :size="16" /></div>
             <div class="msg-content" :class="{ 'has-workflow': msg.workflowDraft || msg.workflowPublished }">
               <div
+                v-if="(msg.pending && !msg.workflowDraft) || (!msg.pending && (msg.text || msg.imageUrl || msg.imageName))"
                 class="bubble"
                 :class="[
                   msg.side === 'ai' ? 'ai-bubble' : 'user-bubble',
@@ -67,7 +68,6 @@
                   chat-workflow
                   :initial-draft="msg.workflowDraft"
                   @published="onWorkflowPublished(msg, $event)"
-                  @cancel="msg.workflowDraft = undefined"
                 />
               </div>
               <div v-else-if="msg.workflowPublished" class="chat-workflow-success">
@@ -366,12 +366,14 @@ async function sendText(raw: string, attachmentFile?: File) {
     wait.workflowDraft = assignmentDraftFromText(text)
     scrollToBottom()
   }
-  pendingElapsedSeconds.value = 0
-  const pendingStartedAt = Date.now()
   stopPendingTimer()
-  pendingTimer = window.setInterval(() => {
-    pendingElapsedSeconds.value = Math.floor((Date.now() - pendingStartedAt) / 1000)
-  }, 1000)
+  if (!publishIntent) {
+    pendingElapsedSeconds.value = 0
+    const pendingStartedAt = Date.now()
+    pendingTimer = window.setInterval(() => {
+      pendingElapsedSeconds.value = Math.floor((Date.now() - pendingStartedAt) / 1000)
+    }, 1000)
+  }
   const controller = new AbortController()
   activeStreamController = controller
   sending.value = true
