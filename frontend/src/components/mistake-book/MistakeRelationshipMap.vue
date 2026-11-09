@@ -77,6 +77,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { StudentMistake } from '../../api/types'
+import { getSubjectLabel } from '../../utils/subjectLabels'
 import AppIcon from '../icons/AppIcon.vue'
 
 type Point = { x: number; y: number }
@@ -96,7 +97,6 @@ const networkHub = ref<HTMLElement | null>(null)
 const isPanning = ref(false)
 let panStart: { pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null = null
 
-const subjectNames: Record<string, string> = { math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学', biology: '生物', chinese: '语文', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }
 const colors = ['#1D4ED8', '#059669', '#D97706', '#DC2626', '#7C3AED', '#0284C7', '#DB2777', '#65A30D']
 const subjects = computed<SubjectGroup[]>(() => {
   const result = new Map<string, SubjectGroup>()
@@ -106,7 +106,7 @@ const subjects = computed<SubjectGroup[]>(() => {
     const subjectKey = entry.question_subject || 'other'
     let subject = result.get(subjectKey)
     if (!subject) {
-      subject = { key: subjectKey, label: subjectNames[subjectKey] || subjectKey, topics: [], recordCount: 0 }
+      subject = { key: subjectKey, label: getSubjectLabel(subjectKey, subjectKey), topics: [], recordCount: 0 }
       result.set(subjectKey, subject)
       topicsBySubject.set(subjectKey, new Map())
     }

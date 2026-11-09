@@ -148,6 +148,7 @@ import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
 import type { ErrorType, NotificationItem, StudentMistake, StudentMistakeTimelineItem } from '../api/types'
 import { errorTypeDotClass } from '../utils/errorType'
+import { getSubjectLabel } from '../utils/subjectLabels'
 import AppIcon from './icons/AppIcon.vue'
 import AssignmentCalendar from './AssignmentCalendar.vue'
 import ErrorTypeBadge from './ErrorTypeBadge.vue'
@@ -275,17 +276,12 @@ const reviewTotalCount = computed(() => reviewSummary.value.totalCount)
 const reviewCategories = computed<ReviewCategory[]>(() => reviewSummary.value.categories)
 const reviewStudiedCount = computed(() => reviewTotalCount.value - reviewCategories.value.length)
 
-const TL_SUBJECT_TEXT: Record<string, string> = {
-  math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学',
-  chinese: '语文', biology: '生物', history: '历史', geography: '地理', politics: '道德与法治',
-  computer_science: '信息科技'
-}
 /** 科目详情路由带 subject 参数时只看该科目；总览页为空 = 全部 */
 const tlSubject = computed(() =>
   typeof route.params.subject === 'string' ? route.params.subject : ''
 )
 const tlScopeLabel = computed(() =>
-  tlSubject.value ? `${TL_SUBJECT_TEXT[tlSubject.value] ?? tlSubject.value}错题` : '全部错题'
+  tlSubject.value ? `${getSubjectLabel(tlSubject.value, tlSubject.value)}错题` : '全部错题'
 )
 watch(tlSubject, () => {
   if (props.mode !== 'timeline') return
@@ -473,7 +469,7 @@ function toggleTimeline() {
 }
 
 function reviewSubjectName(value: string) {
-  return TL_SUBJECT_TEXT[value] ?? (value || '其他学科')
+  return getSubjectLabel(value, value || '其他学科')
 }
 
 async function loadMistakeReview() {

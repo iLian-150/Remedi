@@ -58,6 +58,7 @@ import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { isAxiosError } from 'axios'
 import type { TeachingExercise, TeachingPlan, TeachingTopic } from '../api/types'
 import { useTeacherStore } from '../stores/teacher'
+import { getSubjectLabel } from '../utils/subjectLabels'
 import AppIcon from './icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
@@ -67,12 +68,7 @@ const loadError = ref('')
 const marking = ref('')
 const controller = new AbortController()
 const states = reactive<Record<string, { generating: boolean; error: string; exercise: TeachingExercise | null }>>({})
-const subjects: Record<string, string> = {
-  math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理', chemistry: '化学',
-  biology: '生物', chinese: '语文', history: '历史', geography: '地理', politics: '道德与法治',
-  computer_science: '信息科技', art: '艺术', music: '音乐', pe: '体育', other: '其他'
-}
-const subjectLabel = (subject: string) => subjects[subject] ?? subject
+const subjectLabel = (subject: string) => getSubjectLabel(subject, subject)
 const keyOf = (topic: TeachingTopic) => `${topic.subject}:${topic.knowledge_point}`
 function stateOf(topic: TeachingTopic) {
   return states[keyOf(topic)] ??= { generating: false, error: '', exercise: null }

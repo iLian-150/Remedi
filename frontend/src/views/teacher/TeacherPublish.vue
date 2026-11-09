@@ -564,6 +564,7 @@ import FigureRenderer from '../../components/FigureRenderer.vue'
 import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
 import PublishModeCards from '../../components/PublishModeCards.vue'
 import { formatRecognizedMath } from '../../utils/recognizedMath'
+import { SUBJECT_OPTIONS } from '../../utils/subjectLabels'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -611,23 +612,6 @@ function chooseMode(m: 'online' | 'offline') {
 const title = ref(props.initialDraft?.title ?? '')
 const titleInputRef = ref<HTMLInputElement | null>(null)
 const description = ref('')   // 作业说明（v0.13.1）：两种模式共用，学生端交作业页顶部展示
-const SUBJECT_OPTIONS: { value: QuestionSubject; label: string }[] = [
-  { value: 'math', label: '数学' },
-  { value: 'english', label: '英语' },
-  { value: 'english_exercise', label: '英语练习' },
-  { value: 'physics', label: '物理' },
-  { value: 'chemistry', label: '化学' },
-  { value: 'biology', label: '生物' },
-  { value: 'chinese', label: '语文' },
-  { value: 'history', label: '历史' },
-  { value: 'geography', label: '地理' },
-  { value: 'politics', label: '道德与法治' },
-  { value: 'computer_science', label: '信息科技' },
-  { value: 'art', label: '艺术' },
-  { value: 'music', label: '音乐' },
-  { value: 'pe', label: '体育' },
-  { value: 'other', label: '其他' },
-]
 const mathStandardStepsPlaceholder = '3x-5=10\n3x=10+5\n3x=15\nx=5'
 const groupMathStandardStepsPlaceholder = 'c²=a²+b²\nc²=3²+4²\nc²=25\nc=5'
 const subject = ref<QuestionSubject>((auth.activeSubject as QuestionSubject) || 'math')

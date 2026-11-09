@@ -177,6 +177,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { AwaitingVerificationKnowledgePoint, CorrectionResult, StepDiagnosis, StudentCorrectionWallItem } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
+import { getSubjectLabel } from '../../utils/subjectLabels'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import VerifyPanel from '../../components/VerifyPanel.vue'
@@ -405,13 +406,7 @@ const selectedError = computed(() => loadedMistakesById.get(Number(selectedError
 const correctionPlaceholder = computed(() => selectedError.value?.question_subject === 'math'
   ? '例如：2x=7-3'
   : '写出订正后的正确步骤、结论或答案')
-const subjectNames: Record<string, string> = {
-  math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理',
-  chemistry: '化学', biology: '生物', chinese: '语文', history: '历史',
-  geography: '地理', politics: '道德与法治', computer_science: '信息科技',
-  art: '艺术', music: '音乐', pe: '体育', other: '其他学科'
-}
-function subjectName(subject: string) { return subjectNames[subject] || subject || '其他学科' }
+function subjectName(subject: string) { return getSubjectLabel(subject, subject || '其他学科') }
 
 // v0.13.9：题目回顾要展示「我当时的作答」全文——错题条目里只有出错的那一步，
 // 完整原步骤在提交详情里（每步带判定状态），选中错题时按 submission_id 拉一次；

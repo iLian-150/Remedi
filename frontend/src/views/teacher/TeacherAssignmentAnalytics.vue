@@ -83,6 +83,7 @@ import { useRoute } from 'vue-router'
 import type { TeacherAssignmentAnalytics } from '../../api/types'
 import { AsyncEChartBar, AsyncEChartPie } from '../../components/AsyncEChart'
 import { useTeacherStore } from '../../stores/teacher'
+import { getSubjectLabel } from '../../utils/subjectLabels'
 
 const route = useRoute()
 const teacher = useTeacherStore()
@@ -183,15 +184,7 @@ function percent(rate: number | null): string {
   return rate === null ? '—' : `${Math.round(rate * 100)}%`
 }
 
-function subjectLabel(subject: string): string {
-  const labels: Record<string, string> = {
-    math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理',
-    chemistry: '化学', biology: '生物', chinese: '语文', history: '历史',
-    geography: '地理', politics: '道德与法治', computer_science: '信息科技',
-    art: '艺术', music: '音乐', pe: '体育', other: '其他'
-  }
-  return labels[subject] ?? '其他'
-}
+const subjectLabel = (subject: string) => getSubjectLabel(subject)
 
 function statusClass(status: string): string {
   if (status === '已完成') return 'badge-green'

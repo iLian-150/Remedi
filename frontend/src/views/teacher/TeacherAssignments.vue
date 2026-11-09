@@ -125,6 +125,7 @@ import AppIcon from '../../components/icons/AppIcon.vue'
 import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
 import PublishModeCards from '../../components/PublishModeCards.vue'
 import api from '../../api/client'
+import { getSubjectLabel } from '../../utils/subjectLabels'
 
 const teacher = useTeacherStore()
 const router = useRouter()
@@ -160,15 +161,7 @@ function openPublish(mode: 'online' | 'offline') {
   void router.push({ path: '/teacher/assignments/new', query: { mode } })
 }
 
-function subjectLabel(subject: string): string {
-  const labels: Record<string, string> = {
-    math: '数学', english: '英语', english_exercise: '英语练习', physics: '物理',
-    chemistry: '化学', biology: '生物', chinese: '语文', history: '历史',
-    geography: '地理', politics: '道德与法治', computer_science: '信息科技',
-    art: '艺术', music: '音乐', pe: '体育', other: '其他',
-  }
-  return labels[subject] ?? '其他'
-}
+const subjectLabel = (subject: string) => getSubjectLabel(subject)
 
 /** 右侧栏日历选中的发布日期（yyyy-mm-dd，空 = 不筛选）——与日历共用 store 状态 */
 const dateFilter = computed(() => teacher.assignmentDateFilter)
