@@ -140,6 +140,10 @@ class ClassroomStudentCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     student_no: str = Field(min_length=1, max_length=32)
 
+class ClassroomStudentUpdateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    student_no: str = Field(min_length=1, max_length=32)
+
 class ClassroomStudentOut(BaseModel):
     id: int
     name: str
@@ -359,6 +363,7 @@ __all__ = [
     'TeacherAssignmentOut',
     'ClassroomCreateIn',
     'ClassroomStudentCreateIn',
+    'ClassroomStudentUpdateIn',
     'ClassroomStudentOut',
     'ClassroomOut',
     'SubjectKnowledgeCreateIn',

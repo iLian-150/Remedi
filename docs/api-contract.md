@@ -1417,9 +1417,12 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 权限：教师。`GET` 只列出当前教师关联的班级及学生人数。`POST` 建立或关联班级，请求 `{ "name": "七年级一班", "subject": "math" }`；班级名按全局名称匹配，已存在时会关联到该班级。所选学科必须是当前教师登录的学科。响应为 `{ id, name, subjects, student_count }`。
 
-### 4.28.1 GET/POST /api/teacher/classes/{classroom_id}/students —— 班级名册
+### 4.28.1 班级名册 `/api/teacher/classes/{classroom_id}/students`
 
 权限：该班级任课教师。`GET` 返回学生 `{ id, name, student_no }` 列表。`POST` 请求 `{ "name": "林小夏", "student_no": "S2026001" }`，将学生加入名册；学号在全局唯一，同名学生可通过不同学号区分。已有学号若姓名不匹配返回 `409`。学生只有在教师录入名册并加入班级后才能以姓名+学号登录。
+
+- `PATCH /{student_id}`：修改请求 `{ "name": "林小夏", "student_no": "S2026001" }` 中的学生姓名和学号，返回更新后的学生对象。学生必须属于当前班级；学号在全局唯一，重复时返回 `409`。修改会作用于该学生的全局身份信息及所有关联班级，学生之后使用更新后的姓名和学号登录。
+- `DELETE /{student_id}`：将学生从当前班级名册移除，返回 `{ "deleted": true, "classroom_id": 1, "student_id": 2 }`。学生身份及历史学习数据保留；若学生仍在其他班级，仍可从该班级登录。
 
 ### 4.29 GET/POST/DELETE /api/teacher/knowledge/{subject}[/{chunk_id}] —— 学科 Agent 知识库
 

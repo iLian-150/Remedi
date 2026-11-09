@@ -37,29 +37,76 @@
 
     <template v-if="!loading">
       <div v-if="rosterCards.length" class="stu-grid">
-        <router-link
+        <article
           v-for="s in rosterCards"
           :key="s.id"
-          :to="`/teacher/students/${s.id}`"
           class="card hoverable stu-card"
         >
-          <div class="stu-head">
-            <span class="stu-avatar">{{ s.name.slice(0, 1) }}</span>
-            <div class="stu-id">
-              <div class="stu-name">{{ s.name }}</div>
-              <div class="stu-no tnum">{{ s.student_no || '—' }}</div>
+          <router-link :to="`/teacher/students/${s.id}`" class="stu-card-link">
+            <div class="stu-head">
+              <span class="stu-avatar">{{ s.name.slice(0, 1) }}</span>
+              <div class="stu-id">
+                <div class="stu-name">{{ s.name }}</div>
+                <div class="stu-no tnum">{{ s.student_no || '—' }}</div>
+              </div>
+              <AppIcon name="chevron-right" :size="17" class="stu-arrow" />
             </div>
-            <AppIcon name="chevron-right" :size="17" class="stu-arrow" />
+            <div class="stu-stats">
+              <div class="stu-stat"><span class="stu-stat-num tnum">{{ s.summary?.submission_count ?? 0 }}</span><span class="stu-stat-label">累计提交</span></div>
+              <div class="stu-stat"><span class="stu-stat-num tnum err">{{ s.summary?.error_count ?? 0 }}</span><span class="stu-stat-label">累计错误</span></div>
+              <div class="stu-stat"><span class="stu-stat-num tnum">{{ errorRate(s.summary) }}</span><span class="stu-stat-label">错误率</span></div>
+            </div>
+            <div class="stu-bar"><span :style="{ width: errorRateWidth(s.summary) }"></span></div>
+          </router-link>
+          <div class="stu-actions">
+            <button type="button" class="btn ghost small" :aria-label="`编辑${s.name}的信息`" @click="openEdit(s)">
+              <AppIcon name="edit" :size="15" /> 编辑
+            </button>
+            <button type="button" class="btn small stu-delete-btn" :aria-label="`从当前班级删除${s.name}`" @click="pendingDelete = s">
+              <AppIcon name="trash" :size="15" /> 删除
+            </button>
           </div>
-          <div class="stu-stats">
-            <div class="stu-stat"><span class="stu-stat-num tnum">{{ s.summary?.submission_count ?? 0 }}</span><span class="stu-stat-label">累计提交</span></div>
-            <div class="stu-stat"><span class="stu-stat-num tnum err">{{ s.summary?.error_count ?? 0 }}</span><span class="stu-stat-label">累计错误</span></div>
-            <div class="stu-stat"><span class="stu-stat-num tnum">{{ errorRate(s.summary) }}</span><span class="stu-stat-label">错误率</span></div>
-          </div>
-          <div class="stu-bar"><span :style="{ width: errorRateWidth(s.summary) }"></span></div>
-        </router-link>
+        </article>
       </div>
     </template>
+
+    <div v-if="editingStudent" class="student-modal-mask" @click.self="closeEdit" @keydown.esc.stop="closeEdit">
+      <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="edit-student-title">
+        <h3 id="edit-student-title">编辑学生信息</h3>
+        <p class="student-modal-note">修改后会同步到该学生关联的班级，学生需使用新姓名和学号登录。</p>
+        <form class="student-edit-form" @submit.prevent="saveStudentInfo">
+          <div class="form-row">
+            <label for="edit-student-name">学生姓名</label>
+            <input id="edit-student-name" v-model="editName" type="text" maxlength="64" required />
+          </div>
+          <div class="form-row">
+            <label for="edit-student-no">学号</label>
+            <input id="edit-student-no" v-model="editStudentNo" type="text" maxlength="32" required />
+          </div>
+          <div v-if="editError" class="error-msg" role="alert">{{ editError }}</div>
+          <div class="student-modal-actions">
+            <button type="button" class="btn secondary" :disabled="savingStudentInfo" @click="closeEdit">取消</button>
+            <button type="submit" class="btn" :disabled="savingStudentInfo || !editName.trim() || !editStudentNo.trim()">
+              {{ savingStudentInfo ? '保存中…' : '保存修改' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div v-if="pendingDelete" class="student-modal-mask" @click.self="closeDelete" @keydown.esc.stop="closeDelete">
+      <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="delete-student-title">
+        <h3 id="delete-student-title">从班级删除学生</h3>
+        <p class="student-modal-note">确定将 {{ pendingDelete.name }} 从当前班级名册中移除吗？没有其他班级名册时，该学生将无法登录；历史学习记录会保留。</p>
+        <div v-if="deleteError" class="error-msg" role="alert">{{ deleteError }}</div>
+        <div class="student-modal-actions">
+          <button type="button" class="btn secondary" :disabled="deletingStudentId !== null" @click="closeDelete">取消</button>
+          <button type="button" class="btn danger" :disabled="deletingStudentId !== null" @click="confirmDeleteStudent">
+            {{ deletingStudentId === pendingDelete.id ? '删除中…' : '确认删除' }}
+          </button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -84,6 +131,14 @@ const className = ref('')
 const studentName = ref('')
 const studentNo = ref('')
 const rosterError = ref('')
+const editingStudent = ref<ClassroomStudent | null>(null)
+const editName = ref('')
+const editStudentNo = ref('')
+const editError = ref('')
+const savingStudentInfo = ref(false)
+const pendingDelete = ref<ClassroomStudent | null>(null)
+const deleteError = ref('')
+const deletingStudentId = ref<number | null>(null)
 const savingClass = ref(false)
 const savingStudent = ref(false)
 const loading = ref(false)
@@ -143,6 +198,68 @@ async function addStudent() {
   finally { savingStudent.value = false }
 }
 
+function openEdit(student: ClassroomStudent) {
+  editingStudent.value = student
+  editName.value = student.name
+  editStudentNo.value = student.student_no
+  editError.value = ''
+}
+
+function closeEdit() {
+  if (savingStudentInfo.value) return
+  editingStudent.value = null
+  editError.value = ''
+}
+
+async function saveStudentInfo() {
+  if (!selectedClass.value || !editingStudent.value) return
+  savingStudentInfo.value = true
+  editError.value = ''
+  try {
+    const updated = await teacher.updateClassroomStudent(selectedClass.value.id, editingStudent.value.id, {
+      name: editName.value.trim(), student_no: editStudentNo.value.trim()
+    })
+    classStudents.value = classStudents.value.map((student) => student.id === updated.id ? updated : student)
+    students.value = students.value.map((student) => student.id === updated.id
+      ? { ...student, name: updated.name, student_no: updated.student_no }
+      : student)
+    editingStudent.value = null
+  } catch (e) {
+    editError.value = '保存失败，请检查姓名和学号是否有效，学号也可能已被使用。'
+    console.error(e)
+  } finally {
+    savingStudentInfo.value = false
+  }
+}
+
+function closeDelete() {
+  if (deletingStudentId.value !== null) return
+  pendingDelete.value = null
+  deleteError.value = ''
+}
+
+async function confirmDeleteStudent() {
+  if (!selectedClass.value || !pendingDelete.value) return
+  const classroomId = selectedClass.value.id
+  const studentId = pendingDelete.value.id
+  deletingStudentId.value = studentId
+  deleteError.value = ''
+  try {
+    await teacher.removeClassroomStudent(classroomId, studentId)
+    classStudents.value = classStudents.value.filter((student) => student.id !== studentId)
+    classrooms.value = classrooms.value.map((room) => room.id === classroomId
+      ? { ...room, student_count: Math.max(0, room.student_count - 1) }
+      : room)
+    selectedClass.value = classrooms.value.find((room) => room.id === classroomId) ?? selectedClass.value
+    pendingDelete.value = null
+  } catch (e) {
+    deleteError.value = '删除失败，请稍后重试。'
+    console.error(e)
+  } finally {
+    deletingStudentId.value = null
+  }
+}
+
 // 错误率 = 累计错误 / 累计提交（契约 4.5 口径可直接推导）
 type StudentLearningStats = Pick<StudentSummary, 'submission_count' | 'error_count'>
 function errorRate(s?: StudentLearningStats): string {
@@ -184,7 +301,12 @@ onMounted(async () => {
 .roster-form input:nth-child(2) { width: 220px; }
 .small-empty { margin: 14px 0 0; }
 .stu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-.stu-card { margin-bottom: 0; color: var(--text); display: block; }
+.stu-card { margin-bottom: 0; color: var(--text); }
+.stu-card-link { color: var(--text); display: block; }
+.stu-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--border); }
+.stu-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
+.stu-delete-btn { background: #fff; color: var(--red); border: 1px solid var(--border); font-weight: 500; }
+.stu-delete-btn:hover { background: var(--red-bg); }
 .stu-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .stu-avatar {
   width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
@@ -206,4 +328,15 @@ onMounted(async () => {
 .stu-stat-label { font-size: 12px; color: var(--text-2); }
 .stu-bar { height: 6px; background: #EDF0F4; border-radius: 3px; overflow: hidden; margin-top: 12px; }
 .stu-bar > span { display: block; height: 100%; background: var(--amber); border-radius: 3px; }
+.student-modal-mask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, .4); }
+.student-modal { width: min(440px, 100%); padding: 22px 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: var(--shadow-lg); }
+.student-modal h3 { font-size: 16.5px; }
+.student-modal-note { margin-top: 10px; color: var(--text-2); font-size: 14px; }
+.student-edit-form { margin-top: 16px; }
+.student-edit-form .form-row { margin-bottom: 12px; }
+.student-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+@media (max-width: 480px) {
+  .student-modal { padding: 20px; }
+  .student-modal-actions .btn { padding-inline: 14px; }
+}
 </style>

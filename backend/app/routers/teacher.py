@@ -76,6 +76,7 @@ from ..api_schemas.teacher import (
     ClassroomCreateIn,
     ClassroomOut,
     ClassroomStudentCreateIn,
+    ClassroomStudentUpdateIn,
     ClassroomStudentOut,
     ErrorCorrectIn,
     ErrorTypeCountOut,
@@ -247,6 +248,80 @@ def add_classroom_student(
         db.add(ClassroomMember(classroom_id=classroom_id, student_id=student.id))
     db.commit()
     return ClassroomStudentOut(id=student.id, name=student.name, student_no=student.student_no)
+
+
+@router.patch(
+    "/classes/{classroom_id}/students/{student_id}",
+    response_model=ClassroomStudentOut,
+    summary="修改班级学生信息",
+)
+def update_classroom_student(
+    classroom_id: int,
+    student_id: int,
+    body: ClassroomStudentUpdateIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    allowed = db.query(ClassroomTeacherSubject.classroom_id).filter_by(
+        classroom_id=classroom_id, teacher_id=current.id,
+    ).first()
+    if not allowed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "班级不存在或你没有任课权限。")
+    student = db.query(User).join(ClassroomMember, ClassroomMember.student_id == User.id).filter(
+        ClassroomMember.classroom_id == classroom_id,
+        User.id == student_id,
+        User.role == "student",
+    ).first()
+    if student is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该学生不在当前班级名册中。")
+
+    name, student_no = body.name.strip(), body.student_no.strip()
+    if not name or not student_no:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "姓名和学号不能为空。")
+    duplicate = db.query(User.id).filter(
+        User.student_no == student_no,
+        User.id != student.id,
+    ).first()
+    if duplicate:
+        raise HTTPException(status.HTTP_409_CONFLICT, "学号已被其他学生使用。")
+
+    student.name = name
+    student.student_no = student_no
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "学号已被其他学生使用。") from exc
+    return ClassroomStudentOut(id=student.id, name=student.name, student_no=student.student_no)
+
+
+@router.delete(
+    "/classes/{classroom_id}/students/{student_id}",
+    summary="将学生从班级名册移除",
+)
+def remove_classroom_student(
+    classroom_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    allowed = db.query(ClassroomTeacherSubject.classroom_id).filter_by(
+        classroom_id=classroom_id, teacher_id=current.id,
+    ).first()
+    if not allowed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "班级不存在或你没有任课权限。")
+    membership = db.query(ClassroomMember).join(
+        User, User.id == ClassroomMember.student_id,
+    ).filter(
+        ClassroomMember.classroom_id == classroom_id,
+        ClassroomMember.student_id == student_id,
+        User.role == "student",
+    ).first()
+    if membership is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该学生不在当前班级名册中。")
+    db.delete(membership)
+    db.commit()
+    return {"deleted": True, "classroom_id": classroom_id, "student_id": student_id}
 
 
 def _require_teacher_subject(db: Session, teacher: User, subject: str) -> None:

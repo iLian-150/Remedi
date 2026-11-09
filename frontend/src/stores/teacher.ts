@@ -268,6 +268,17 @@ export const useTeacherStore = defineStore('teacher', {
       )
       return data
     },
+    async updateClassroomStudent(
+      classroomId: number, studentId: number, payload: { name: string; student_no: string }
+    ): Promise<ClassroomStudent> {
+      const { data } = await api.patch<ClassroomStudent>(
+        `/api/teacher/classes/${classroomId}/students/${studentId}`, payload
+      )
+      return data
+    },
+    async removeClassroomStudent(classroomId: number, studentId: number): Promise<void> {
+      await api.delete(`/api/teacher/classes/${classroomId}/students/${studentId}`)
+    },
     async fetchSubjectKnowledge(subject: SubjectAgentCode): Promise<SubjectKnowledgeList> {
       const { data } = await api.get<SubjectKnowledgeList>(`/api/teacher/knowledge/${subject}`)
       return data
