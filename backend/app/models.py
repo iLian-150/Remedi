@@ -672,6 +672,8 @@ class AssignmentGradingJob(Base):
     progress = Column(Integer, nullable=False, default=0)
     total_questions = Column(Integer, nullable=False, default=0)
     error = Column(String(500), nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now)
 

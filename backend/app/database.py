@@ -36,6 +36,17 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     # 老库补齐会话计数和作文延迟批改状态；只在缺列时迁移一次。
     with engine.begin() as connection:
+        grading_columns = {
+            column["name"] for column in inspect(connection).get_columns("assignment_grading_jobs")
+        }
+        if "retry_count" not in grading_columns:
+            connection.execute(text(
+                "ALTER TABLE assignment_grading_jobs ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"
+            ))
+        if "next_attempt_at" not in grading_columns:
+            connection.execute(text(
+                "ALTER TABLE assignment_grading_jobs ADD COLUMN next_attempt_at DATETIME"
+            ))
         essay_columns = {
             column["name"]
             for column in inspect(connection).get_columns("essays")

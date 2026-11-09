@@ -4,8 +4,10 @@ import os
 import shutil
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+
+from sqlalchemy import or_
 
 from ..config import settings
 from ..database import SessionLocal
@@ -62,9 +64,10 @@ def start_worker() -> None:
         _stop.clear()
         with SessionLocal() as db:
             db.query(AssignmentGradingJob).filter(
-                AssignmentGradingJob.status == "processing"
+                AssignmentGradingJob.status.in_(["processing", "failed"])
             ).update({
                 AssignmentGradingJob.status: "queued",
+                AssignmentGradingJob.next_attempt_at: None,
                 AssignmentGradingJob.updated_at: datetime.now(),
             }, synchronize_session=False)
             db.commit()
@@ -86,7 +89,9 @@ def stop_worker() -> None:
 def _next_ready_job_id():
     with SessionLocal() as db:
         job = db.query(AssignmentGradingJob.id).filter(
-            AssignmentGradingJob.status == "queued"
+            AssignmentGradingJob.status == "queued",
+            or_(AssignmentGradingJob.next_attempt_at.is_(None),
+                AssignmentGradingJob.next_attempt_at <= datetime.now()),
         ).order_by(AssignmentGradingJob.created_at, AssignmentGradingJob.id).first()
         return job[0] if job else None
 
@@ -134,15 +139,24 @@ def _copy_to_uploads(source: Path) -> str:
 
 
 def _grade_job(job_id: int) -> None:
-    from ..agent.subjects import build_subject_context
-
     db = SessionLocal()
     image_paths_to_remove = []
     final_image_paths = []
     try:
         job = db.query(AssignmentGradingJob).filter_by(id=job_id).first()
-        if job is None or job.status not in {"queued", "processing"}:
+        if job is None or job.status != "queued":
             return
+        claimed = db.query(AssignmentGradingJob).filter(
+            AssignmentGradingJob.id == job_id,
+            AssignmentGradingJob.status == "queued",
+            or_(AssignmentGradingJob.next_attempt_at.is_(None),
+                AssignmentGradingJob.next_attempt_at <= datetime.now()),
+        ).update({AssignmentGradingJob.status: "processing"}, synchronize_session=False)
+        db.commit()
+        if not claimed:
+            return
+        db.refresh(job)
+        from ..agent.subjects import build_subject_context
         answers = db.query(AssignmentGradingAnswer).filter_by(job_id=job.id).all()
         questions = db.query(Question).filter(
             Question.assignment_id == job.assignment_id
@@ -150,15 +164,13 @@ def _grade_job(job_id: int) -> None:
         question_ids = {question.id for question in questions}
         answer_by_question = {answer.question_id: answer for answer in answers}
         if not questions or question_ids - set(answer_by_question):
-            job.status = "failed"
-            job.error = "作答内容不完整，请返回作业继续完成。"
-            db.commit()
-            return
+            raise ValueError("incomplete assignment answers")
 
         job.status = "processing"
         job.progress = 0
         job.total_questions = len(questions)
         job.error = None
+        job.next_attempt_at = None
         job.updated_at = datetime.now()
         db.commit()
 
@@ -283,6 +295,7 @@ def _grade_job(job_id: int) -> None:
         for submission, _confidence, _visual_steps in created_submissions:
             review_svc.create_review_if_needed(db, submission, commit=False)
         job.status = "completed"
+        job.next_attempt_at = None
         job.progress = job.total_questions
         job.updated_at = datetime.now()
         db.commit()
@@ -302,13 +315,14 @@ def _grade_job(job_id: int) -> None:
             job_id, type(exc).__name__, sqlite_detail,
         )
         job = db.query(AssignmentGradingJob).filter_by(id=job_id).first()
+        if job is not None and job.status == "completed":
+            return
         if job is not None:
-            job.status = "failed"
-            job.error = (
-                f"第 {exc.question_index} 题的作答未能识别，请检查图片或文字后重新提交。作答已保留。"
-                if isinstance(exc, AnswerRecognitionError)
-                else "批改暂时失败，作答已保留，请点击重新批改。"
-            )
+            job.status = "queued"
+            job.retry_count = (job.retry_count or 0) + 1
+            delay = min(300, 30 * 2 ** min(job.retry_count - 1, 4))
+            job.next_attempt_at = datetime.now() + timedelta(seconds=delay)
+            job.error = "批改暂未完成，后台将自动重试。"
             job.updated_at = datetime.now()
             db.commit()
         for relative_path in final_image_paths:

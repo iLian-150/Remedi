@@ -60,6 +60,10 @@
         <router-link to="/student/assignments" class="switch-all">全部作业 <AppIcon name="chevron-right" :size="13" /></router-link>
       </div>
 
+      <div v-if="awaitingGrading" class="grading-wait-screen" role="status" aria-live="polite">
+        等待教师批阅
+      </div>
+      <template v-else>
       <!-- 当前作业信息（v0.13.1 精简）：只留标题、老师写的说明、截止时间与必要的作答提示；
            说明没填就不显示这一行（不再占位「暂无说明」），截止时间两种模式都显示 -->
       <div v-if="currentDetail" class="card assign-info">
@@ -350,14 +354,13 @@
         <div v-if="gradingJobStatus === 'queued' || gradingJobStatus === 'processing'" class="grading-progress-track">
           <div class="grading-progress-fill" :style="{ width: `${gradingJobTotal ? Math.round(gradingJobProgress / gradingJobTotal * 100) : 0}%` }"></div>
         </div>
-        <p v-if="gradingJobStatus === 'failed'" class="error-msg">{{ gradingJobError || '批改暂时失败，作答已保留。可以点击下方按钮重新批改。' }}</p>
-        <p v-else-if="gradingJobStatus === 'none' || gradingJobStatus === 'draft'" class="grading-wait-hint">
+        <p v-if="gradingJobStatus === 'none' || gradingJobStatus === 'draft'" class="grading-wait-hint">
           {{ allAnswersStaged ? '全部题目已完成，请点击提交作业。' : '全部题目完成后可提交作业。' }}
         </p>
         <button
-          v-if="allAnswersStaged && (gradingJobStatus === 'failed' || (gradingJobStatus === 'draft' && isOffline))"
+          v-if="allAnswersStaged && gradingJobStatus === 'draft' && isOffline"
           type="button" class="btn" :disabled="!canSubmitAssignment" @click="queueWholeAssignment"
-        >{{ batchSubmitting ? '提交中…' : gradingJobStatus === 'failed' ? '重新批改整份作业' : '提交作业' }}</button>
+        >{{ batchSubmitting ? '提交中…' : '提交作业' }}</button>
       </div>
 
       <!-- 修改作业（v0.13.1）：老师勾选「允许修改」后出现在页面最后面——
@@ -380,6 +383,7 @@
       <div v-if="!questions.length && assignmentId" class="card">
         <div class="empty">这份作业暂时没有可作答的题目。</div>
       </div>
+      </template>
     </template>
     <PreviousMistakeModal :mistake="selectedRelatedMistake" @close="selectedRelatedMistake = null" />
   </div>
@@ -457,9 +461,9 @@ const imageQuestionIds = ref<Set<number>>(new Set())
 const gradingJobStatus = ref<AssignmentGradingStatus['status']>('none')
 const gradingJobProgress = ref(0)
 const gradingJobTotal = ref(0)
-const gradingJobError = ref<string | null>(null)
+const awaitingGrading = computed(() => ['queued', 'processing', 'failed'].includes(gradingJobStatus.value))
 const batchSubmitting = ref(false)
-const batchLocked = computed(() => gradingJobStatus.value === 'queued' || gradingJobStatus.value === 'processing')
+const batchLocked = computed(() => awaitingGrading.value)
 const answeredCount = computed(() => questions.value.filter((q) => answeredQids.value.has(q.id)).length)
 const allAnswersStaged = computed(() => questions.value.length > 0 && answeredCount.value === questions.value.length)
 const canSubmitAssignment = computed(() => allAnswersStaged.value && !batchSubmitting.value && !batchLocked.value
@@ -558,7 +562,6 @@ function applyGradingStatus(status: AssignmentGradingStatus) {
   gradingJobStatus.value = status.status
   gradingJobProgress.value = status.progress
   gradingJobTotal.value = status.total_questions
-  gradingJobError.value = status.error
   answeredQids.value = new Set(status.answered_question_ids)
   imageQuestionIds.value = new Set(status.image_question_ids ?? [])
 }
@@ -586,7 +589,7 @@ async function refreshGradingStatus(id: number) {
     const status = await student.fetchAssignmentGradingStatus(id)
     if (id !== Number(assignmentId.value)) return
     applyGradingStatus(status)
-    if (status.status === 'queued' || status.status === 'processing') return
+    if (awaitingGrading.value) return
     if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
     gradingPollHandle = null
     if (status.status === 'completed') {
@@ -614,7 +617,7 @@ async function queueWholeAssignment() {
     if (loadToken !== assignmentLoadToken || id !== Number(assignmentId.value)) return
     applyGradingStatus(status)
     editorOpen.value = {}
-    if (status.status === 'queued' || status.status === 'processing') startGradingPolling(id)
+    if (awaitingGrading.value) startGradingPolling(id)
   } catch (e) {
     if (loadToken === assignmentLoadToken && id === Number(assignmentId.value)) {
       error.value = `提交整份作业失败：${errDetail(e) || '请稍后重试。'}`
@@ -1013,7 +1016,7 @@ async function loadQuestions(id: number, loadToken: number) {
   if (loadToken !== assignmentLoadToken || Number(assignmentId.value) !== id) return detail
   if (gradingStatus) {
     applyGradingStatus(gradingStatus)
-    if (gradingStatus.status === 'queued' || gradingStatus.status === 'processing') {
+    if (awaitingGrading.value) {
       startGradingPolling(id)
     } else if (gradingStatus.status === 'completed') {
       await refreshLatestQuestionStatuses(detail.questions.map((q) => q.id))
@@ -1066,7 +1069,6 @@ async function selectAssignment(id: number) {
   gradingJobStatus.value = 'none'
   gradingJobProgress.value = 0
   gradingJobTotal.value = 0
-  gradingJobError.value = null
   error.value = ''
   questions.value = []
   relatedByQid.value = {}
@@ -1144,6 +1146,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.grading-wait-screen {
+  display: grid; place-items: center; min-height: 65vh;
+  padding: 32px 16px; background: var(--card); color: var(--primary);
+  border-radius: var(--radius); font-size: clamp(28px, 5vw, 64px); font-weight: 500;
+}
 /* 作业切换条（v0.9.0）：sticky 钉顶，与下方卡片拉开间距和层级 */
 .switch-bar {
   position: sticky;
