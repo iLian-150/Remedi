@@ -84,12 +84,14 @@ import type { TeacherAssignmentAnalytics } from '../../api/types'
 import { AsyncEChartBar, AsyncEChartPie } from '../../components/AsyncEChart'
 import { useTeacherStore } from '../../stores/teacher'
 import { getSubjectLabel } from '../../utils/subjectLabels'
+import { readChartColors } from '../../utils/chartTheme'
 
 const route = useRoute()
 const teacher = useTeacherStore()
 const report = ref<TeacherAssignmentAnalytics | null>(null)
 const loading = ref(false)
 const error = ref('')
+const chartColors = readChartColors()
 const assignmentId = computed(() => {
   const value = Number(route.params.id)
   return Number.isInteger(value) && value > 0 ? value : null
@@ -125,16 +127,16 @@ const progressOption = computed(() => {
     .map((name) => ({ name, value: report.value?.progress_counts[name] ?? 0 }))
     .filter((item) => item.value > 0)
   return {
-    color: ['#9CA3AF', '#D97706', '#1D4ED8', '#D97706', '#059669'],
+    color: [chartColors.gray, chartColors.amber, chartColors.primary, chartColors.amber, chartColors.green],
     tooltip: { trigger: 'item', formatter: (item: { name: string; value: number; percent: number }) => `${item.name}：${item.value} 人（${item.percent}%）` },
-    legend: { bottom: 0, textStyle: { color: '#6B7280' } },
+    legend: { bottom: 0, textStyle: { color: chartColors.textMuted } },
     series: [{
       type: 'pie',
       radius: ['42%', '68%'],
       center: ['50%', '46%'],
       data,
-      label: { formatter: '{b}\n{c} 人', color: '#4B5563' },
-      itemStyle: { borderColor: '#fff', borderWidth: 2 }
+      label: { formatter: '{b}\n{c} 人', color: chartColors.textStrong },
+      itemStyle: { borderColor: chartColors.surface, borderWidth: 2 }
     }]
   }
 })
@@ -162,20 +164,20 @@ const questionOption = computed(() => {
       type: 'value',
       min: 0,
       max: 100,
-      axisLabel: { formatter: (value: number) => `${value}%`, color: '#6B7280' },
-      splitLine: { lineStyle: { color: '#E5E7EB' } }
+      axisLabel: { formatter: (value: number) => `${value}%`, color: chartColors.textMuted },
+      splitLine: { lineStyle: { color: chartColors.border } }
     },
     yAxis: {
       type: 'category',
       data: questions.map((question) => `第 ${question.number} 题 · ${subjectLabel(question.subject)} · ${question.knowledge_point || '待归类'}`),
-      axisLabel: { width: 190, overflow: 'truncate', color: '#4B5563' }
+      axisLabel: { width: 190, overflow: 'truncate', color: chartColors.textStrong }
     },
     series: [{
       type: 'bar',
       data: questions.map((question) => question.average_score_rate === null ? null : Math.round(question.average_score_rate * 100)),
-      itemStyle: { color: '#1D4ED8', borderRadius: [0, 6, 6, 0] },
+      itemStyle: { color: chartColors.primary, borderRadius: [0, 6, 6, 0] },
       barMaxWidth: 26,
-      label: { show: true, position: 'right', formatter: (item: { value: number | null }) => item.value === null ? '' : `${item.value}%`, color: '#6B7280' }
+      label: { show: true, position: 'right', formatter: (item: { value: number | null }) => item.value === null ? '' : `${item.value}%`, color: chartColors.textMuted }
     }]
   }
 })
