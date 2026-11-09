@@ -19,6 +19,7 @@ class Settings:
     if LLM_PROVIDER in {"dashscope", "aliyun"}:
         LLM_PROVIDER = "bailian"
     LLM_TIMEOUT_SECONDS: int = _get_int("LLM_TIMEOUT_SECONDS", 120)
+    ASSIGNMENT_GRADING_TIMEOUT_SECONDS: int = max(120, min(_get_int("ASSIGNMENT_GRADING_TIMEOUT_SECONDS", 300), 600))
 
     DASHSCOPE_API_KEY: str = os.getenv("DASHSCOPE_API_KEY", "").strip()
     DASHSCOPE_BASE_URL: str = os.getenv(

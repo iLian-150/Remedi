@@ -238,6 +238,16 @@ class AssignmentAnswerUploadTests(unittest.TestCase):
                 assignment_grading.start_worker()
                 self.assertIsNotNone(assignment_grading._next_ready_job_id())
 
+    def test_background_vision_timeout_does_not_change_interactive_default(self):
+        from app.services.providers import OpenAICompatibleVisionProvider
+        provider = OpenAICompatibleVisionProvider("test", "https://example.invalid", "test", "test")
+        payload = '{"steps":[{"text":"x=1","result":"correct","confidence":0.9}]}'
+        with patch.object(provider, "_vision_text", return_value=payload) as vision:
+            provider.diagnose_homework_image(b"image", "image/jpeg", timeout_seconds=300)
+            self.assertEqual(vision.call_args.kwargs["timeout"], 300)
+            provider.diagnose_homework_image(b"image", "image/jpeg")
+            self.assertEqual(vision.call_args.kwargs["timeout"], assignment_grading.settings.LLM_TIMEOUT_SECONDS)
+
     def test_existing_database_migration_preserves_answers_and_is_idempotent(self):
         self.client.put(self.answer_url, data={"answer_text": "x=1"})
         with self.fixture.engine.begin() as connection:

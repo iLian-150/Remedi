@@ -280,6 +280,7 @@ def _grade_job(job_id: int) -> None:
                 diagnosis = _diagnose_with_retry(
                     lambda: provider.diagnose_homework_image(
                         image_bytes, content_type, context, knowledge_context=rag_context,
+                        timeout_seconds=settings.ASSIGNMENT_GRADING_TIMEOUT_SECONDS,
                     ), index,
                 )
                 visual_steps = diagnosis.get("steps") or []
