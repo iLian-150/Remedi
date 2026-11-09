@@ -43,15 +43,6 @@
         </div>
       </div>
 
-      <!-- 全科概览：只统计已批改提交，并按含错提交数计算错误率。 -->
-      <div class="subject-strip">
-        <span class="strip-subject"><AppIcon name="book" :size="15" /> 全科</span>
-        <span>已批改提交 <b class="tnum">{{ overview.gradedSubmissions }}</b> 次</span>
-        <span>已批含错率 <b class="tnum">{{ Math.round(gradedErrorRate * 100) }}%</b></span>
-        <span>涉及学科知识点 <b class="tnum">{{ overview.kpCount }}</b> 个</span>
-        <span class="strip-note">修复 = 订正错题后通过二次验证</span>
-      </div>
-
       <!-- 双列：左 知识点错误率 | 右 高频错题 -->
       <div class="dash-grid">
         <div class="card">
@@ -151,10 +142,7 @@ const error = ref('')
 const overview = reactive({
   totalErrors: 0,
   stubbornErrors: 0,
-  studentCount: 0,
-  kpCount: 0,
-  gradedSubmissions: 0,
-  gradedSubmissionsWithErrors: 0
+  studentCount: 0
 })
 const typeOptionData = ref<Array<{ name: string; value: number }>>([])
 
@@ -210,11 +198,6 @@ function suggestKindText(kind: TeachingSuggestion['kind']): string {
 function suggestBadgeClass(kind: TeachingSuggestion['kind']): string {
   return SUGGEST_BADGE_CLASS[kind] ?? 'badge-gray'
 }
-// 已批提交中至少有一条诊断错因的比例，按提交去重且包含零错因知识点的提交。
-const gradedErrorRate = computed(() => overview.gradedSubmissions
-  ? Math.min(1, overview.gradedSubmissionsWithErrors / overview.gradedSubmissions)
-  : 0)
-
 const topQuestionsOption = computed(() => {
   // 教师首页汇总接口已按错误数降序，图表直接复用以免再次复制和排序。
   const list = topQuestions.value
@@ -300,9 +283,6 @@ async function loadStats(includeSuggestions = false) {
     overview.totalErrors = summary.total_errors
     overview.stubbornErrors = summary.stubborn_errors
     overview.studentCount = summary.students.length
-    overview.kpCount = summary.knowledge_points.length
-    overview.gradedSubmissions = summary.graded_submissions
-    overview.gradedSubmissionsWithErrors = summary.graded_submissions_with_errors
     typeOptionData.value = summary.recent_error_types
     if (includeSuggestions) {
       suggestions.value = summary.suggestions ?? []
@@ -348,15 +328,6 @@ onMounted(() => {
 .repair-bar { height: 7px; background: #EDF0F4; border-radius: 4px; overflow: hidden; margin-top: 9px; }
 .repair-bar > span { display: block; height: 100%; background: var(--green); border-radius: 4px; transition: width 0.35s ease; }
 .repair-sub { font-size: 12px; color: var(--text-2); margin-top: 6px; }
-.subject-strip {
-  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  background: var(--card); border: 1px solid #EDF0F4; border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 11px 18px; margin-bottom: 16px;
-  font-size: 13.5px; color: var(--text-2);
-}
-.subject-strip b { color: var(--text); }
-.strip-subject { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--primary); font-size: 14.5px; }
-.strip-note { margin-left: auto; font-size: 12.5px; color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) {
   .repair-bar > span { transition: none; }
 }
