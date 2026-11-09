@@ -493,6 +493,22 @@ Index(
 )
 
 
+class StudentMistakeChatMessage(Base):
+    """错题本专属问答；独立于主页会话，负数 mistake_id 对应自主收录题目。"""
+    __tablename__ = "student_mistake_chat_messages"
+    __table_args__ = (
+        Index("ix_mistake_chat_student_mistake_created_id",
+              "student_id", "mistake_id", "created_at", "id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    mistake_id = Column(Integer, nullable=False)
+    role = Column(String(16), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class StudentMistakeCategoryReview(Base):
     """学生错题本中，某份作业的某类错因是否已学习。"""
     __tablename__ = "student_mistake_category_reviews"

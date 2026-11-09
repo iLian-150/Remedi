@@ -13,6 +13,7 @@ from .routers import diagrams as diagrams_router
 from .routers import health as health_router
 from .routers import student as student_router
 from .routers import student_assignment_image as student_assignment_image_router
+from .routers import student_mistake_chat as student_mistake_chat_router
 from .routers import teacher as teacher_router
 from .routers import teacher_assignment_detail as teacher_assignment_detail_router
 from .routers import teacher_assignment_edit as teacher_assignment_edit_router
@@ -43,6 +44,7 @@ app.include_router(diagrams_router.router)
 app.include_router(health_router.router)
 app.include_router(student_router.router)
 app.include_router(student_assignment_image_router.router)
+app.include_router(student_mistake_chat_router.router)
 app.include_router(teacher_router.router)
 app.include_router(teacher_assignment_detail_router.router)
 app.include_router(teacher_assignment_edit_router.router)

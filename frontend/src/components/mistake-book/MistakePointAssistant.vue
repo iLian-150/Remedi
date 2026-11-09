@@ -73,7 +73,8 @@
     <div v-if="mistake.source_kind !== 'student_saved' && progress.complete" class="mistake-point-assignment-complete" role="status"><AppIcon name="check" :size="15"/> 这份作业的所有错误点和知识点都已学完。</div>
     <div class="mistake-point-chat-title"><strong>一起弄懂这道题</strong><span>从你卡住的地方开始</span></div>
     <div class="mistake-point-transcript" aria-live="polite">
-      <div v-if="messages.length === 0" class="mistake-point-empty">
+      <p v-if="loading" class="mistake-point-empty" role="status">正在加载对话…</p>
+      <div v-else-if="messages.length === 0 && !error" class="mistake-point-empty">
         <div class="mistake-point-empty-intro">
           <span class="mistake-point-book-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 6.5C9.8 4.8 6.8 4.4 3.5 5.2v13c3.3-.8 6.3-.4 8.5 1.3m0-13c2.2-1.7 5.2-2.1 8.5-1.3v13c-3.3-.8-6.3-.4-8.5 1.3m0-13v13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></span>
           <div><strong>想从哪里问起？</strong><p>错因、解题思路，或者再练一道相似题，都可以慢慢聊。</p></div>
@@ -83,22 +84,23 @@
         </div>
       </div>
       <article v-for="(message, index) in messages" :key="`${index}-${message.role}`" class="mistake-point-message" :class="message.role">
-        <template v-if="message.role === 'assistant'"><strong>知行 · 思路讲解</strong><div class="mistake-point-message-content" v-html="renderAssistantMarkdown(message, message.content || (sending ? '正在整理思路…' : ''))"></div></template>
+        <template v-if="message.role === 'assistant'"><strong>Remedi · 思路讲解</strong><div class="mistake-point-message-content" v-html="renderAssistantMarkdown(message, message.content || (sending ? '正在整理思路…' : ''))"></div></template>
         <p v-else>{{ message.content }}</p>
       </article>
       <p v-if="error" class="mistake-point-chat-error" role="alert">{{ error }}</p>
+      <button v-if="historyFailed" type="button" class="btn btn-outline" @click="loadHistory">重新加载</button>
     </div>
     <form class="mistake-point-composer" @submit.prevent="sendQuestion">
       <div class="mistake-point-composer-inner">
-        <textarea v-model="question" placeholder="写下你卡住的地方…" rows="2" :disabled="sending" @keydown.enter.exact.prevent="sendQuestion" />
-        <button type="submit" :disabled="!question.trim() || sending">{{ sending ? '讲解中…' : '提问' }}</button>
+        <textarea v-model="question" placeholder="写下你卡住的地方…" rows="2" :disabled="sending || loading || historyFailed" @keydown.enter.exact.prevent="sendQuestion" />
+        <button type="submit" :disabled="!question.trim() || sending || loading || historyFailed">{{ sending ? '讲解中…' : '提问' }}</button>
       </div>
     </form>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useStudentStore } from '../../stores/student'
 import type { StudentMistake } from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
@@ -129,6 +131,9 @@ interface ChatMessage {
 }
 const messages = ref<ChatMessage[]>([])
 const sending = ref(false)
+const loading = ref(false)
+const historyFailed = ref(false)
+let requestController: AbortController | null = null
 const summaryCollapsed = ref(false)
 const error = ref('')
 /** v0.13.10：正确答案/解题过程默认不展示，学生点开才看；换一道错题自动收起 */
@@ -136,12 +141,37 @@ const answerRevealed = ref(false)
 const renderAssistantMarkdown = createMarkdownRenderer<ChatMessage>((message) => message.content)
 
 watch(() => props.mistake.id, () => {
+  requestController?.abort()
   question.value = ''
   messages.value = []
   error.value = ''
   summaryCollapsed.value = false
   answerRevealed.value = false
-})
+  sending.value = false
+  void loadHistory()
+}, { immediate: true })
+
+onBeforeUnmount(() => requestController?.abort())
+
+async function loadHistory() {
+  requestController?.abort()
+  const controller = new AbortController()
+  requestController = controller
+  loading.value = true
+  historyFailed.value = false
+  error.value = ''
+  try {
+    const history = await student.fetchMistakeChatHistory(props.mistake.id, controller.signal)
+    if (!controller.signal.aborted) messages.value = history
+  } catch (err) {
+    if (!controller.signal.aborted) {
+      historyFailed.value = true
+      error.value = err instanceof Error ? err.message : '对话加载失败，请重试。'
+    }
+  } finally {
+    if (requestController === controller) loading.value = false
+  }
+}
 
 function subjectName(value: string) {
   const labels: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物' }
@@ -150,15 +180,10 @@ function subjectName(value: string) {
 function safe(value: string) { return sanitizeStudentCopy(value) }
 async function sendQuestion() {
   const text = question.value.trim()
-  if (!text || sending.value) return
-  const context = [
-    `请围绕这道错题回答学生的问题。学科：${subjectName(props.mistake.question_subject)}。`,
-    `知识点：${props.mistake.knowledge_point}；错误类别：${props.mistake.category_label}。`,
-    `题目：${props.mistake.question_stem}`,
-    props.mistake.step_text ? `学生作答：${props.mistake.step_text}` : '',
-    props.mistake.detail ? `诊断说明：${safe(props.mistake.detail)}` : '',
-    `学生问题：${text}`
-  ].filter(Boolean).join('\n')
+  if (!text || sending.value || loading.value || historyFailed.value) return
+  const controller = new AbortController()
+  requestController = controller
+  const previousLength = messages.value.length
   messages.value.push({ role: 'user', content: text }, { role: 'assistant', content: '' })
   question.value = ''
   error.value = ''
@@ -166,15 +191,17 @@ async function sendQuestion() {
   summaryCollapsed.value = true
   try {
     const assistantMessage = messages.value[messages.value.length - 1]
-    await student.agentChatStream(context, student.activeSessionId, (character) => {
+    await student.mistakeChatStream(props.mistake.id, text, (character) => {
       assistantMessage.content += character
-    })
+    }, controller.signal)
   } catch (err) {
-    messages.value.pop()
-    question.value = text
-    error.value = err instanceof Error ? err.message : '暂时无法回答，请稍后重试。'
+    if (!controller.signal.aborted) {
+      messages.value.splice(previousLength)
+      question.value = text
+      error.value = err instanceof Error ? err.message : '暂时无法回答，请稍后重试。'
+    }
   } finally {
-    sending.value = false
+    if (requestController === controller) sending.value = false
   }
 }
 </script>

@@ -2,6 +2,7 @@
 // 路径与字段严格对齐 docs/api-contract.md v0.1.0
 import { defineStore } from 'pinia'
 import api from '../api/client'
+import { streamChatReply } from '../api/chatStream'
 import { visionImageForModel } from '../utils/visionImage'
 import { useAuthStore } from './auth'
 import type {
@@ -43,14 +44,6 @@ import type {
   Verification,
   VerificationSubmitResult
 } from '../api/types'
-
-// Keep updates slower than a 60 Hz paint interval so each streamed character
-// can appear in its own rendered frame instead of being visually batched.
-const TYPEWRITER_INTERVAL_MS = 18
-
-function waitForNextCharacter(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, TYPEWRITER_INTERVAL_MS))
-}
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return
@@ -780,125 +773,32 @@ export const useStudentStore = defineStore('student', {
       subject?: string,
       attachment?: { name: string; text: string }
     ): Promise<AgentChatResult> {
-      const auth = useAuthStore()
-      const response = await fetch(api.getUri({ url: '/api/student/agent/chat/stream' }), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {})
-        },
-        body: JSON.stringify({
-          message,
-          session_id: sessionId ?? undefined,
-          persist_user_message: persistUserMessage,
-          safe_tools_only: safeToolsOnly,
-          related_mistake_error_id: relatedMistakeErrorId ?? undefined,
-          subject,
-          attachment_name: attachment?.name,
-          attachment_text: attachment?.text
-        }),
-        signal
-      })
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { detail?: unknown } | null
-        if (response.status === 401) {
-          auth.logout()
-          if (window.location.pathname !== '/') window.location.href = '/'
-        }
-        const detail = typeof payload?.detail === 'string' ? payload.detail : ''
-        throw new Error(detail || `学习助手请求失败（HTTP ${response.status}）`)
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('浏览器无法读取学习助手的流式回复。')
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let result: AgentChatResult | null = null
-      let finalReply = ''
-      const characterQueue: string[] = []
-      let queueOffset = 0
-      let typingTask: Promise<void> | null = null
-      let streamedText = ''
-
-      const startTypewriter = () => {
-        if (typingTask || queueOffset >= characterQueue.length) return
-        typingTask = (async () => {
-          while (queueOffset < characterQueue.length && !signal?.aborted) {
-            onText(characterQueue[queueOffset++])
-            await waitForNextCharacter()
-          }
-        })().finally(() => {
-          typingTask = null
-          characterQueue.splice(0, queueOffset)
-          queueOffset = 0
-          if (characterQueue.length) startTypewriter()
-        })
-      }
-
-      const waitForTypewriter = async () => {
-        while (typingTask) await typingTask
-        if (characterQueue.length) {
-          startTypewriter()
-          await waitForTypewriter()
-        }
-      }
-
-      const consumeEvent = (block: string) => {
-        let eventName = ''
-        const dataLines: string[] = []
-        for (const line of block.split('\n')) {
-          if (!line || line.startsWith(':')) continue
-          const separator = line.indexOf(':')
-          const field = separator < 0 ? line : line.slice(0, separator)
-          let value = separator < 0 ? '' : line.slice(separator + 1)
-          if (value.startsWith(' ')) value = value.slice(1)
-          if (field === 'event') eventName = value
-          else if (field === 'data') dataLines.push(value)
-        }
-        if (!dataLines.length) return
-        const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
-        if (eventName === 'token') {
-          const text = typeof payload.text === 'string' ? payload.text : ''
-          if (text) {
-            streamedText += text
-            // 网络流持续读取；独立的队列逐字渲染，避免打字延时反压模型流。
-            characterQueue.push(...Array.from(text))
-            startTypewriter()
-          }
-        } else if (eventName === 'done') {
-          result = payload as unknown as AgentChatResult
-          finalReply = typeof payload.reply === 'string' ? payload.reply : ''
-        } else if (eventName === 'error') {
-          throw new Error(typeof payload.detail === 'string' ? payload.detail : '回复生成中断，请稍后重试。')
-        }
-      }
-
-      try {
-        while (true) {
-          const { value, done } = await reader.read()
-          buffer += decoder.decode(value, { stream: !done })
-          let boundary = buffer.indexOf('\n\n')
-          while (boundary >= 0) {
-            consumeEvent(buffer.slice(0, boundary))
-            buffer = buffer.slice(boundary + 2)
-            boundary = buffer.indexOf('\n\n')
-          }
-          if (done) break
-        }
-        if (buffer.trim()) consumeEvent(buffer)
-      } catch (error) {
-        await waitForTypewriter()
-        throw error
-      }
-      if (finalReply.startsWith(streamedText) && finalReply.length > streamedText.length) {
-        characterQueue.push(...Array.from(finalReply.slice(streamedText.length)))
-        startTypewriter()
-      }
-      await waitForTypewriter()
-      throwIfAborted(signal)
-      if (!result) throw new Error('学习助手的流式回复没有正常结束，请重试。')
-      return result
+      return streamChatReply<AgentChatResult>('/api/student/agent/chat/stream', {
+        message,
+        session_id: sessionId ?? undefined,
+        persist_user_message: persistUserMessage,
+        safe_tools_only: safeToolsOnly,
+        related_mistake_error_id: relatedMistakeErrorId ?? undefined,
+        subject,
+        attachment_name: attachment?.name,
+        attachment_text: attachment?.text
+      }, onText, signal)
+    },
+    async fetchMistakeChatHistory(mistakeId: number, signal?: AbortSignal) {
+      const { data } = await api.get<{ role: 'user' | 'assistant'; content: string }[]>(
+        `/api/student/mistakes/${mistakeId}/chat`, { signal, timeout: 15_000 }
+      )
+      return data
+    },
+    async mistakeChatStream(
+      mistakeId: number,
+      message: string,
+      onText: (text: string) => void,
+      signal?: AbortSignal
+    ): Promise<AgentChatResult> {
+      return streamChatReply<AgentChatResult>(
+        `/api/student/mistakes/${mistakeId}/chat/stream`, { message }, onText, signal
+      )
     },
     // 3.16 我的对话历史（v0.3.0；v0.6.0 起返回当前会话最近 50 条，时间正序）
     async fetchAgentHistory(): Promise<AgentHistoryItem[]> {
