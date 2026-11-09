@@ -63,7 +63,7 @@ def parse_prompt(content: str):
     return {
         "subject": subject,
         "knowledge_point": knowledge_match.group(1),
-        "category_label": knowledge_match.group(2),
+        "category_label": knowledge_match.group(2).removesuffix("。"),
         "stem": stem,
         "step_text": step_text,
         "question": content[student_question_start + len(student_question_marker):],
