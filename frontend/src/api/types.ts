@@ -713,7 +713,7 @@ export interface TeacherAssignmentStudentAnalytics {
   score: number
   max_score: number
   score_rate: number | null
-  status: '未开始' | '部分提交' | '批改中' | '待复核' | '已完成'
+  status: '未开始' | '部分提交' | '截止后批改' | '批改中' | '待复核' | '已完成'
 }
 
 export interface TeacherAssignmentAnalytics {
@@ -725,7 +725,7 @@ export interface TeacherAssignmentAnalytics {
   grading_count: number
   review_count: number
   question_count: number
-  progress_counts: Record<string, number>
+  progress_counts: Partial<Record<TeacherAssignmentStudentAnalytics['status'], number>>
   questions: TeacherAssignmentQuestionAnalytics[]
   students: TeacherAssignmentStudentAnalytics[]
 }

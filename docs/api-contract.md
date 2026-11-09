@@ -1917,6 +1917,11 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 `GET /api/teacher/assignments/{assignment_id}` 返回教师有权查看的作业详情；题目仅包括该教师对应学科和班级范围，`questions[].group_id` 关联 `groups` 中的共享题干、图形和图形生成状态。作业不存在或无查看权限时返回 404。
 
 
+### 教师作业学情
+
+`GET /api/teacher/assignments/{assignment_id}/analytics` 返回当前教师授权班级与学科范围内的学生和题目统计；作业不存在或无查看权限时返回 404。`completed_count` 统计已交齐的学生，不受批改或复核状态影响；`grading_count` 统计尚未批改的已提交题目数，包含等到截止时间后统一批改的作答；`review_count` 统计待教师复核题目数。`progress_counts` 只包含本次实际出现的状态，学生状态为 `未开始`、`部分提交`、`批改中`、`截止后批改`、`待复核` 或 `已完成`。截止前 deferred 作答显示为“截止后批改”，不会误报为正在批改。
+
+
 ### 教师编辑已发布作业
 
 `GET /api/teacher/assignments/{assignment_id}/edit` 和 `PUT /api/teacher/assignments/{assignment_id}` 仅允许拥有该作业且具有全部题目学科权限的教师使用。可修改标题、说明、接收班级、截止时间、提交设置、现有题目及大题材料、参考答案和分值；题目编号与既有记录保留。存在学生作答或批改任务后，仅允许修改标题和说明；保存时检查版本并再次检查作答状态。修改大题题干或小题题干时，已有图形自动重新生成。

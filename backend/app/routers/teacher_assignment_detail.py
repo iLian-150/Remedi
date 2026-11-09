@@ -239,6 +239,7 @@ def assignment_analytics(
 
     submitted_pairs = set()
     pending_pairs = set()
+    deferred_pairs = set()
     scored_pairs = set()
     review_pairs = set()
     score_by_pair = {}
@@ -249,6 +250,8 @@ def assignment_analytics(
         submitted_pairs.add(pair)
         if submission.status != "graded":
             pending_pairs.add(pair)
+            if submission.status == "deferred":
+                deferred_pairs.add(pair)
             continue
         max_score = max_scores[question.id]
         saved_score = score_rows.get(submission.id)
@@ -280,6 +283,8 @@ def assignment_analytics(
                 total_score = None
         if total_score is None:
             pending_pairs.add(pair)
+            if essay.status == "deferred":
+                deferred_pairs.add(pair)
             continue
         score_by_pair[pair] = (total_score, 100.0, False)
         scored_pairs.add(pair)
@@ -330,14 +335,20 @@ def assignment_analytics(
             (student_id, question_id) in pending_pairs
             for question_id in expected_questions
         )
+        deferred_count = sum(
+            (student_id, question_id) in deferred_pairs
+            for question_id in expected_questions
+        )
         if not student_submitted:
             progress = "未开始"
         elif len(student_submitted) < len(expected_questions):
             progress = "部分提交"
-        elif pending_count:
+        elif pending_count > deferred_count:
             progress = "批改中"
         elif any((student_id, question_id) in review_pairs for question_id in expected_questions):
             progress = "待复核"
+        elif deferred_count:
+            progress = "截止后批改"
         else:
             progress = "已完成"
         progress_counts[progress] += 1
@@ -370,7 +381,10 @@ def assignment_analytics(
         "title": assignment.title,
         "student_count": len(student_items),
         "started_count": sum(item["submitted_questions"] > 0 for item in student_items),
-        "completed_count": progress_counts["已完成"] + progress_counts["批改中"] + progress_counts["待复核"],
+        "completed_count": (
+            progress_counts["已完成"] + progress_counts["截止后批改"]
+            + progress_counts["批改中"] + progress_counts["待复核"]
+        ),
         "grading_count": len(pending_pairs),
         "review_count": len(review_pairs),
         "question_count": len(questions),

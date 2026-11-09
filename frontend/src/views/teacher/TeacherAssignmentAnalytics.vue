@@ -121,13 +121,13 @@ async function load(id: number | null) {
   }
 }
 
-const progressLabels = ['未开始', '部分提交', '批改中', '待复核', '已完成'] as const
+const progressLabels = ['未开始', '部分提交', '截止后批改', '批改中', '待复核', '已完成'] as const
 const progressOption = computed(() => {
   const data = progressLabels
     .map((name) => ({ name, value: report.value?.progress_counts[name] ?? 0 }))
     .filter((item) => item.value > 0)
   return {
-    color: [chartColors.gray, chartColors.amber, chartColors.primary, chartColors.amber, chartColors.green],
+    color: [chartColors.gray, chartColors.amber, chartColors.textStrong, chartColors.primary, chartColors.amber, chartColors.green],
     tooltip: { trigger: 'item', formatter: (item: { name: string; value: number; percent: number }) => `${item.name}：${item.value} 人（${item.percent}%）` },
     legend: { bottom: 0, textStyle: { color: chartColors.textMuted } },
     series: [{
@@ -191,6 +191,7 @@ const subjectLabel = (subject: string) => getSubjectLabel(subject)
 function statusClass(status: string): string {
   if (status === '已完成') return 'badge-green'
   if (status === '批改中') return 'badge-blue'
+  if (status === '截止后批改') return 'badge-gray'
   if (status === '部分提交' || status === '待复核') return 'badge-amber'
   return 'badge-gray'
 }
