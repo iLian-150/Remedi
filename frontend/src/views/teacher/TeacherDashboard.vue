@@ -100,7 +100,7 @@
         </div>
       </div>
 
-      <!-- 底部双列：错因分布 | 学生概览 -->
+      <!-- 底部双列：错因分布 | 需要关注的学生 -->
       <div class="dash-grid">
         <div class="card">
           <h3>错因类型分布</h3>
@@ -110,20 +110,18 @@
         </div>
 
         <div class="card">
-          <h3><AppIcon name="users" :size="18" /> 学生概览</h3>
-          <p class="card-sub">点击任意学生，查看他的个人学习画像与错题轨迹。</p>
-          <div v-if="!studentsList.length" class="empty">暂无学生数据。</div>
+          <h3><AppIcon name="users" :size="18" /> 需要你关注的学生</h3>
+          <div v-if="!attentionStudents.length" class="empty">暂无需要关注的学生。</div>
           <router-link
-            v-for="s in studentsList"
+            v-for="s in attentionStudents"
             :key="s.id"
             :to="`/teacher/students/${s.id}`"
             class="student-row"
           >
             <span class="student-main">
-              <span class="student-name">{{ s.name }}</span>
-              <span class="student-no">{{ s.student_no || '—' }}</span>
+              <span class="student-name">{{ s.name }}：</span>
+              <span class="student-reason">{{ s.reason }}</span>
             </span>
-            <span class="student-meta tnum">提交 {{ s.submission_count }} 次 · 错误 {{ s.error_count }} 条</span>
             <AppIcon name="chevron-right" :size="16" />
           </router-link>
         </div>
@@ -135,7 +133,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useTeacherStore } from '../../stores/teacher'
-import type { ClassRepairRate, KnowledgePointStat, StudentSummary, TeachingSuggestion, TopQuestion } from '../../api/types'
+import type { ClassRepairRate, KnowledgePointStat, StudentAttention, TeachingSuggestion, TopQuestion } from '../../api/types'
 import { errorTypeKey, ERROR_TYPE_CHART_COLORS } from '../../utils/errorType'
 import { AsyncEChartBarPie as EChart } from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
@@ -143,7 +141,7 @@ import AppIcon from '../../components/icons/AppIcon.vue'
 const teacher = useTeacherStore()
 const topQuestions = ref<TopQuestion[]>([])
 const kpStats = ref<KnowledgePointStat[]>([])
-const studentsList = ref<StudentSummary[]>([])
+const attentionStudents = ref<StudentAttention[]>([])
 const topN = ref(10)
 const topQuestionsLoading = ref(false)
 const topQuestionsError = ref('')
@@ -297,7 +295,7 @@ async function loadStats(includeSuggestions = false) {
     const summary = await teacher.fetchDashboardSummary(topN.value, includeSuggestions)
     topQuestions.value = summary.top_questions
     kpStats.value = summary.knowledge_points
-    studentsList.value = summary.students
+    attentionStudents.value = summary.attention_students
     if (summary.repair_rate) repairRate.value = summary.repair_rate
     overview.totalErrors = summary.total_errors
     overview.stubbornErrors = summary.stubborn_errors
@@ -383,14 +381,14 @@ onMounted(() => {
 
 .student-row {
   display: flex; align-items: center; gap: 12px;
-  padding: 11px 6px; border-bottom: 1px solid #F1F3F6; color: var(--text);
+  padding: 11px 6px; border-bottom: 1px solid var(--border); color: var(--text);
 }
 .student-row:last-child { border-bottom: none; }
-.student-row:hover { background: #F8FAFF; }
-.student-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.student-row:hover, .student-row:focus-visible { background: var(--primary-50); }
+.student-main { flex: 1; min-width: 0; line-height: 1.65; overflow-wrap: anywhere; }
 .student-name { font-size: 14.5px; font-weight: 600; }
-.student-no { font-size: 12.5px; color: var(--text-3); }
-.student-meta { font-size: 12.5px; color: var(--text-2); }
+.student-reason { font-size: 13.5px; color: var(--text-2); }
+.student-row > svg { flex-shrink: 0; }
 
 .suggest-list { display: flex; flex-direction: column; gap: 12px; }
 .suggest-item { background: var(--bg); border-radius: 10px; padding: 12px 14px; }

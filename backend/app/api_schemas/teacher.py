@@ -218,10 +218,17 @@ class TeachingSuggestionOut(BaseModel):
     action: str
     sample_questions: List[str] = Field(default_factory=list)
 
+class StudentAttentionOut(BaseModel):
+    id: int
+    name: str
+    reason: str
+
+
 class TeacherDashboardOut(BaseModel):
     top_questions: List[TopQuestionItem]
     knowledge_points: List[KnowledgePointRankItem]
     students: List[StudentBrief]
+    attention_students: List[StudentAttentionOut] = Field(default_factory=list, max_length=5)
     total_errors: int
     stubborn_errors: int
     graded_submissions: int

@@ -134,6 +134,7 @@ from ..services.stats import (
     top_error_questions,
 )
 from ..services.teacher_stats import students_not_fully_submitted
+from ..services.teacher_attention import students_needing_attention
 from ..services.teacher_scope import (
     teacher_assignment_ids as _scoped_teacher_assignment_ids,
     teacher_assignment_class_pairs as _scoped_teacher_assignment_class_pairs,
@@ -1686,6 +1687,10 @@ def teacher_dashboard(
         top_questions=top_questions,
         knowledge_points=knowledge_points,
         students=students_list,
+        attention_students=students_needing_attention(
+            db, student_ids=student_ids, assignment_ids=assignment_ids,
+            submission_ids=authorized_submission_ids,
+        ),
         total_errors=int(error_total or 0),
         stubborn_errors=int(stubborn_total or 0),
         graded_submissions=int(graded_submissions or 0),

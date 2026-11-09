@@ -888,10 +888,17 @@ export interface ClassRepairRate {
   knowledge_points: KnowledgePointRepair[]
 }
 
+export interface StudentAttention {
+  id: number
+  name: string
+  reason: string
+}
+
 export interface TeacherDashboardSummary {
   top_questions: TopQuestion[]
   knowledge_points: KnowledgePointStat[]
   students: StudentSummary[]
+  attention_students: StudentAttention[]
   total_errors: number
   stubborn_errors: number
   graded_submissions: number
