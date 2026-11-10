@@ -1,12 +1,23 @@
-<!-- 教师端：班级总览 Dashboard（v0.4.0 版式重构：KPI 横排 → 双列网格 → 底部双列）
+<!-- 教师端：教学工作台与班级学习概览。
      数据源：教师首页汇总接口（高频错题、知识点错误率、错因分布、学生列表与修复率）
      错因三色全局统一：计算失误=琥珀 / 概念混淆=红 / 审题遗漏=紫 -->
 <template>
-  <div class="page">
-    <div class="page-head">
-      <h2>班级总览</h2>
-      <p class="page-sub">一眼看清班级整体的错误分布与高频问题。</p>
-    </div>
+  <div class="page dashboard-page">
+    <header class="dashboard-head">
+      <div>
+        <div class="dashboard-context"><AppIcon name="cap" :size="16" />{{ activeSubjectLabel }} · 教师端</div>
+        <h2>工作台</h2>
+      </div>
+      <router-link to="/teacher/assignments/new" class="btn"><AppIcon name="plus" :size="17" />发布作业</router-link>
+    </header>
+
+    <nav class="quick-links" aria-label="快捷入口">
+      <router-link v-for="entry in quickEntries" :key="entry.to" :to="entry.to" class="quick-link">
+        <span class="quick-link-icon"><AppIcon :name="entry.icon" :size="19" /></span>
+        <span>{{ entry.label }}</span>
+        <AppIcon name="chevron-right" :size="16" class="quick-link-arrow" />
+      </router-link>
+    </nav>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="loading" class="loading">加载中…</div>
@@ -14,8 +25,7 @@
     <template v-if="!loading">
       <TeachingPlanCard />
 
-      <!-- KPI 指标卡横排（v0.4.0：含新增「班级知识修复率」卡） -->
-      <div class="stat-row kpi-row" style="margin-bottom: 16px">
+      <div class="stat-row kpi-row">
         <div class="stat red"><div class="stat-num tnum">{{ overview.totalErrors }}</div><div class="stat-label">累计错误记录</div></div>
         <div class="stat amber"><div class="stat-num tnum">{{ overview.stubbornErrors }}</div><div class="stat-label">顽固误区</div></div>
         <div class="stat"><div class="stat-num tnum">{{ overview.studentCount }}</div><div class="stat-label">班级学生</div></div>
@@ -111,11 +121,21 @@ import { useTeacherStore } from '../../stores/teacher'
 import type { ClassRepairRate, KnowledgePointStat, StudentAttention, TopQuestion } from '../../api/types'
 import { errorTypeKey, ERROR_TYPE_CHART_COLORS } from '../../utils/errorType'
 import { getSubjectLabel } from '../../utils/subjectLabels'
+import { useAuthStore } from '../../stores/auth'
 import { AsyncEChartBarPie as EChart } from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import type { IconName } from '../../components/icons/paths'
 import TeachingPlanCard from '../../components/TeachingPlanCard.vue'
 
 const teacher = useTeacherStore()
+const auth = useAuthStore()
+const activeSubjectLabel = computed(() => getSubjectLabel(auth.activeSubject, '未选择任教学科'))
+const quickEntries: Array<{ to: string; icon: IconName; label: string }> = [
+  { to: '/teacher/assignments', icon: 'clipboard', label: '作业管理' },
+  { to: '/teacher/students', icon: 'users', label: '学生名册' },
+  { to: '/teacher/submissions', icon: 'check', label: 'AI 批改' },
+  { to: '/teacher/materials', icon: 'file', label: '我的资料' },
+]
 const topQuestions = ref<TopQuestion[]>([])
 const kpStats = ref<KnowledgePointStat[]>([])
 const attentionStudents = ref<StudentAttention[]>([])
@@ -275,9 +295,22 @@ onMounted(() => {
   display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 16px; align-items: start; margin-bottom: 16px;
 }
+.dashboard-page { max-width: 1440px; }
+.dashboard-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.dashboard-head h2 { margin-top: 4px; font-size: clamp(26px, 2.4vw, 32px); font-weight: 740; letter-spacing: -.035em; }
+.dashboard-context { display: flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13px; }
+.dashboard-context :deep(.app-icon) { color: var(--primary); }
+.dashboard-head > .btn { flex: 0 0 auto; }
+.quick-links { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+.quick-link { display: flex; min-height: 76px; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); color: var(--text-strong); font-size: 14px; font-weight: 650; transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+.quick-link:hover { transform: translateY(-1px); border-color: var(--border-strong); box-shadow: var(--shadow-md); color: var(--primary-dark); }
+.quick-link-icon { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 13px; background: var(--primary-50); color: var(--primary); }
+.quick-link-arrow { margin-left: auto; color: var(--text-3); }
+.kpi-row { margin-bottom: 16px; }
 .dash-grid > .card { margin-bottom: 0; }
 @media (max-width: 1080px) {
   .dash-grid { grid-template-columns: 1fr; }
+  .quick-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .kpi-row .repair-stat { flex: 1.5 1 200px; }
 .repair-bar { height: 7px; background: #EDF0F4; border-radius: 4px; overflow: hidden; margin-top: 9px; }
@@ -315,5 +348,17 @@ onMounted(() => {
 .student-name { font-size: 14.5px; font-weight: 600; }
 .student-reason { font-size: 13.5px; color: var(--text-2); }
 .student-row > svg { flex-shrink: 0; }
-
+@media (max-width: 560px) {
+  .dashboard-head { align-items: flex-start; }
+  .dashboard-head > .btn { min-height: 40px; padding: 9px 12px; }
+  .quick-links { gap: 8px; }
+  .quick-link { min-height: 65px; gap: 8px; padding: 10px; font-size: 13px; }
+  .quick-link-icon { width: 34px; height: 34px; border-radius: 11px; }
+  .quick-link-arrow { width: 14px; }
+}
+@media (max-width: 380px) {
+  .dashboard-head { flex-direction: column; align-items: stretch; }
+  .dashboard-head > .btn { align-self: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) { .quick-link { transition: none; } }
 </style>

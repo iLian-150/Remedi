@@ -28,6 +28,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/teacher/reviews', redirect: (to) => ({ path: '/teacher/submissions', query: to.query }) },
   { path: '/teacher/submissions/:id', component: () => import('../views/teacher/TeacherSubmissionDetail.vue'), meta: { role: 'teacher', title: '诊断详情' } },
   { path: '/teacher/students', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生列表' } },
+  { path: '/teacher/students/classes/:classroomId', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生花名册' } },
   { path: '/teacher/students/:id', component: () => import('../views/teacher/TeacherStudentPortrait.vue'), meta: { role: 'teacher', title: '学生画像' } },
   { path: '/teacher/suggestions', redirect: '/teacher/dashboard' },
   { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' },
@@ -62,11 +63,11 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta.public) {
     if (!auth.token) return true
-    return auth.role === 'teacher' ? '/teacher/assignments' : '/student/assignments'
+    return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/assignments'
   }
   if (!auth.token) return '/'
   if (to.meta.role && to.meta.role !== auth.role) {
-    return auth.role === 'teacher' ? '/teacher/assignments' : '/student/assignments'
+    return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/assignments'
   }
   return true
 })
