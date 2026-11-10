@@ -287,7 +287,7 @@ onMounted(async () => {
   position: absolute; top: -32px; left: 50%;
   width: 2px; height: 32px; margin-left: -1px;
   background: linear-gradient(#C7CEDA, #9AA7BC);
-  border-radius: 1px;
+  border-radius: var(--radius-micro);
 }
 .hang-hole {
   position: absolute; top: 9px; left: 50%;
@@ -299,15 +299,15 @@ onMounted(async () => {
 .hang-name { font-size: 19px; font-weight: 800; margin-top: 6px; }
 .hang-stats { font-size: 12.5px; color: var(--text-2); text-align: center; line-height: 1.5; }
 .hang-bar {
-  width: 100%; height: 8px; border-radius: 999px;
+  width: 100%; height: 8px; border-radius: var(--radius-pill);
   background: #EDF0F4; overflow: hidden; display: block;
 }
-.hang-bar > span { display: block; height: 100%; background: var(--green); border-radius: 999px; }
+.hang-bar > span { display: block; height: 100%; background: var(--green); border-radius: var(--radius-pill); }
 .hang-ratio { font-size: 12.5px; color: var(--text-2); }
 .hang-cta { font-size: 12.5px; color: var(--primary); font-weight: 600; margin-top: 2px; }
 .hang-soon {
   font-size: 12.5px; font-weight: 600; color: var(--text-3);
-  border: 1px dashed #C7CEDA; border-radius: 999px; padding: 3px 12px; margin-top: 8px;
+  border: 1px dashed #C7CEDA; border-radius: var(--radius-pill); padding: 3px 12px; margin-top: 8px;
 }
 /* ---------- 掉落动画 ---------- */
 /* 挂绳先"断"（快速消失），卡片以加速曲线（近似重力）下坠、轻微旋转并淡出，随后跳页 */

@@ -1,14 +1,14 @@
 /* 错题本样式（v0.8.2 收编）：原 assets/mistake-book-reference/ 五个文件合并为一份，
  * 全部规则以 .remedi-mistake-book 前缀收作用域（页面根节点类名），不再全局散射；
  * 配色整体映射回 Remedi 设计令牌（--primary / --bg / --card / --text 系 / 错因三色 /
- * --green），便利贴配色与 RightRail 统一为 #fff3b8 / #ffdce8 / #d6e9ff + 墨色 #3f3a2a。
+ * --green），便利贴配色与 RightRail 统一为 var(--note-yellow) / var(--note-pink) / var(--note-blue) + 墨色 var(--note-ink)。
  * 内容对应：卡片笔记 / 便利贴 / 思维导图 / 关联图谱 / 错题点助手 五个视图。 */
 
 .remedi-mistake-book .mistake-map-view .mistakes-panel.is-notebook, .remedi-mistake-book.mistake-map-view .mistakes-panel.is-notebook {
   container-type: inline-size;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-surface);
   color: var(--text);
   background: var(--card);
 }
@@ -38,7 +38,7 @@
   gap: 2px;
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.941);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.063);
   backdrop-filter: blur(10px);
@@ -47,7 +47,7 @@
   min-width: 74px;
   padding: 6px 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-2);
   background: transparent;
   cursor: pointer;
@@ -72,7 +72,7 @@
   height: 36px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--text);
   background: rgba(255, 255, 255, 0.941);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.063);
@@ -153,7 +153,7 @@
   gap: 4px;
   padding: 5px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-detail);
   color: inherit;
   background: transparent;
   cursor: pointer;
@@ -232,7 +232,7 @@
   gap: 7px;
   padding: 7px 10px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   color: var(--text-2);
   background: transparent;
   font-size: 12px;
@@ -252,7 +252,7 @@
   gap: 7px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--text-2);
   background: var(--card);
 }
@@ -263,14 +263,14 @@
 .remedi-mistake-book .notebook-search input::placeholder, .remedi-mistake-book.notebook-search input::placeholder { color: var(--text-2); }
 .remedi-mistake-book .notebook-search input:focus-visible, .remedi-mistake-book.notebook-search input:focus-visible { outline: none; }
 .remedi-mistake-book .notebook-search input::-webkit-search-cancel-button, .remedi-mistake-book.notebook-search input::-webkit-search-cancel-button { appearance: none; }
-.remedi-mistake-book .notebook-search button, .remedi-mistake-book.notebook-search button { display: grid; width: 21px; height: 23px; flex: 0 0 21px; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--text-2); background: transparent; }
+.remedi-mistake-book .notebook-search button, .remedi-mistake-book.notebook-search button { display: grid; width: 21px; height: 23px; flex: 0 0 21px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-micro); color: var(--text-2); background: transparent; }
 .remedi-mistake-book .notebook-search button:hover, .remedi-mistake-book.notebook-search button:hover { color: var(--text); background: var(--bg); }
 .remedi-mistake-book .notebook-search button svg, .remedi-mistake-book.notebook-search button svg { width: 13px; height: 13px; }
 .remedi-mistake-book .notebook-sort, .remedi-mistake-book.notebook-sort { display: flex; flex-shrink: 0; align-items: center; color: var(--text-2); }
-.remedi-mistake-book .notebook-sort select, .remedi-mistake-book.notebook-sort select { max-width: 100%; min-height: 35px; padding: 7px 6px 7px 9px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); background: var(--card); font-size: 12px; cursor: pointer; }
+.remedi-mistake-book .notebook-sort select, .remedi-mistake-book.notebook-sort select { max-width: 100%; min-height: 35px; padding: 7px 6px 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-2); background: var(--card); font-size: 12px; cursor: pointer; }
 .remedi-mistake-book .notebook-results-note, .remedi-mistake-book.notebook-results-note { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin: 17px 0 12px; color: var(--text-2); font-size: 12px; line-height: 1.6; }
 .remedi-mistake-book .notebook-results-note strong, .remedi-mistake-book.notebook-results-note strong { color: var(--text-2); font-weight: 500; }
-.remedi-mistake-book .notebook-results-note button, .remedi-mistake-book.notebook-results-note button { padding: 4px 7px; border: 0; border-radius: 5px; color: var(--text-2); background: transparent; font-size: 12px; }
+.remedi-mistake-book .notebook-results-note button, .remedi-mistake-book.notebook-results-note button { padding: 4px 7px; border: 0; border-radius: var(--radius-detail); color: var(--text-2); background: transparent; font-size: 12px; }
 .remedi-mistake-book .notebook-results-note button:hover, .remedi-mistake-book.notebook-results-note button:hover { color: var(--text); background: var(--bg); }
 .remedi-mistake-book .notebook-grid, .remedi-mistake-book.notebook-grid, .remedi-mistake-book .notebook-loading, .remedi-mistake-book.notebook-loading { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 
@@ -280,7 +280,7 @@
   flex-direction: column;
   padding: 21px 22px 16px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-surface);
   background: var(--card);
   box-shadow: 0 2px 3px rgba(31, 41, 55, 0.012);
   transition: border-color .18s ease, box-shadow .18s ease;
@@ -288,7 +288,7 @@
 
 .remedi-mistake-book .notebook-card:hover, .remedi-mistake-book.notebook-card:hover { border-color: var(--border); box-shadow: 0 5px 18px rgba(31, 41, 55, 0.031); }
 .remedi-mistake-book .notebook-card-top, .remedi-mistake-book.notebook-card-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.remedi-mistake-book .notebook-subject-badge, .remedi-mistake-book.notebook-subject-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; color: var(--subject-color, var(--text)); background: var(--subject-tint, var(--green-bg)); font-size: 12px; font-weight: 500; }
+.remedi-mistake-book .notebook-subject-badge, .remedi-mistake-book.notebook-subject-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: var(--radius-detail); color: var(--subject-color, var(--text)); background: var(--subject-tint, var(--green-bg)); font-size: 12px; font-weight: 500; }
 .remedi-mistake-book .notebook-subject-badge svg, .remedi-mistake-book.notebook-subject-badge svg { width: 14px; height: 14px; }
 .remedi-mistake-book .notebook-state, .remedi-mistake-book.notebook-state { display: inline-flex; align-items: center; gap: 5px; color: var(--amber); font-size: 11px; white-space: nowrap; }
 .remedi-mistake-book .notebook-state > span, .remedi-mistake-book.notebook-state > span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
@@ -302,33 +302,33 @@
 .remedi-mistake-book .notebook-excerpt > :first-child, .remedi-mistake-book.notebook-excerpt > :first-child { margin-top: 0; }
 .remedi-mistake-book .notebook-excerpt > :last-child, .remedi-mistake-book.notebook-excerpt > :last-child { margin-bottom: 0; }
 .remedi-mistake-book .notebook-excerpt p, .remedi-mistake-book.notebook-excerpt p { margin: 0 0 5px; }
-.remedi-mistake-book .notebook-excerpt code, .remedi-mistake-book.notebook-excerpt code { padding: 1px 4px; border-radius: 4px; color: var(--text); background: var(--bg); font-size: .95em; white-space: normal; }
+.remedi-mistake-book .notebook-excerpt code, .remedi-mistake-book.notebook-excerpt code { padding: 1px 4px; border-radius: var(--radius-micro); color: var(--text); background: var(--bg); font-size: .95em; white-space: normal; }
 .remedi-mistake-book .notebook-excerpt pre, .remedi-mistake-book.notebook-excerpt pre { max-width: 100%; margin: 0; white-space: pre-wrap; }
 .remedi-mistake-book .notebook-excerpt .katex, .remedi-mistake-book.notebook-excerpt .katex { font-size: 1.05em; }
 .remedi-mistake-book .notebook-excerpt .katex-display, .remedi-mistake-book.notebook-excerpt .katex-display { max-width: 100%; margin: 4px 0; overflow: hidden; text-align: left; }
 .remedi-mistake-book .notebook-card-tags, .remedi-mistake-book.notebook-card-tags { display: flex; min-height: 25px; flex-wrap: wrap; align-items: center; gap: 6px; margin: 16px 0 17px; }
-.remedi-mistake-book .notebook-card-tags > span, .remedi-mistake-book.notebook-card-tags > span { max-width: 100%; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-2); background: var(--card); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.remedi-mistake-book .notebook-card-tags > span, .remedi-mistake-book.notebook-card-tags > span { max-width: 100%; padding: 4px 7px; border: 1px solid var(--border); border-radius: var(--radius-detail); color: var(--text-2); background: var(--card); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 .remedi-mistake-book .notebook-card-tags > .is-repeat, .remedi-mistake-book.notebook-card-tags > .is-repeat { border-color: var(--border); color: var(--amber); background: var(--amber-bg); }
 .remedi-mistake-book .notebook-card-tags > .is-marked, .remedi-mistake-book.notebook-card-tags > .is-marked { border-color: var(--border); color: var(--text-2); background: var(--bg); }
 .remedi-mistake-book .notebook-card-footer, .remedi-mistake-book.notebook-card-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--bg); }
 .remedi-mistake-book .notebook-card-footer time, .remedi-mistake-book.notebook-card-footer time { display: flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 11px; }
 .remedi-mistake-book .notebook-card-footer time svg, .remedi-mistake-book.notebook-card-footer time svg { width: 13px; height: 13px; }
-.remedi-mistake-book .notebook-card-footer button, .remedi-mistake-book.notebook-card-footer button { display: inline-flex; align-items: center; gap: 6px; margin-right: -5px; padding: 5px; border: 0; border-radius: 5px; color: var(--text); background: transparent; font-size: 12px; }
+.remedi-mistake-book .notebook-card-footer button, .remedi-mistake-book.notebook-card-footer button { display: inline-flex; align-items: center; gap: 6px; margin-right: -5px; padding: 5px; border: 0; border-radius: var(--radius-detail); color: var(--text); background: transparent; font-size: 12px; }
 .remedi-mistake-book .notebook-card-footer button:hover, .remedi-mistake-book.notebook-card-footer button:hover { color: var(--green); background: var(--bg); }
 .remedi-mistake-book .notebook-card-footer button svg, .remedi-mistake-book.notebook-card-footer button svg { width: 15px; height: 15px; }
-.remedi-mistake-book .notebook-empty, .remedi-mistake-book.notebook-empty { display: flex; min-height: 295px; flex-direction: column; align-items: center; justify-content: center; padding: 35px 20px; border: 1px dashed var(--border); border-radius: 14px; text-align: center; background: var(--card); }
-.remedi-mistake-book .notebook-empty-icon, .remedi-mistake-book.notebook-empty-icon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 14px; color: var(--text-2); background: var(--bg); }
+.remedi-mistake-book .notebook-empty, .remedi-mistake-book.notebook-empty { display: flex; min-height: 295px; flex-direction: column; align-items: center; justify-content: center; padding: 35px 20px; border: 1px dashed var(--border); border-radius: var(--radius-surface); text-align: center; background: var(--card); }
+.remedi-mistake-book .notebook-empty-icon, .remedi-mistake-book.notebook-empty-icon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: var(--radius-surface); color: var(--text-2); background: var(--bg); }
 .remedi-mistake-book .notebook-empty-icon svg, .remedi-mistake-book.notebook-empty-icon svg { width: 23px; height: 23px; }
 .remedi-mistake-book .notebook-empty h3, .remedi-mistake-book.notebook-empty h3 { margin: 18px 0 7px; color: var(--text); font-size: 15px; font-weight: 500; }
 .remedi-mistake-book .notebook-empty p, .remedi-mistake-book.notebook-empty p { max-width: 330px; margin: 0; color: var(--text-2); font-size: 12px; line-height: 1.9; }
-.remedi-mistake-book .notebook-empty button, .remedi-mistake-book.notebook-empty button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); background: var(--bg); font-size: 12px; }
+.remedi-mistake-book .notebook-empty button, .remedi-mistake-book.notebook-empty button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-2); background: var(--bg); font-size: 12px; }
 .remedi-mistake-book .notebook-empty button:hover, .remedi-mistake-book.notebook-empty button:hover { border-color: var(--green); background: var(--green-bg); }
 .remedi-mistake-book .notebook-assignment-list, .remedi-mistake-book.notebook-assignment-list { display: flex; flex-direction: column; gap: 10px; }
-.remedi-mistake-book .notebook-more-assignments, .remedi-mistake-book.notebook-more-assignments { align-self: center; min-height: 38px; margin: 5px 0 10px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--primary); background: var(--card); font-size: 12px; font-weight: 600; cursor: pointer; }
+.remedi-mistake-book .notebook-more-assignments, .remedi-mistake-book.notebook-more-assignments { align-self: center; min-height: 38px; margin: 5px 0 10px; padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--primary); background: var(--card); font-size: 12px; font-weight: 600; cursor: pointer; }
 .remedi-mistake-book .notebook-more-assignments:hover, .remedi-mistake-book.notebook-more-assignments:hover { border-color: var(--primary); background: var(--primary-50); }
-.remedi-mistake-book .notebook-more-category-items, .remedi-mistake-book.notebook-more-category-items { align-self: center; min-height: 34px; margin: 3px 0 4px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; color: var(--primary); background: var(--card); font-size: 11px; font-weight: 600; cursor: pointer; }
+.remedi-mistake-book .notebook-more-category-items, .remedi-mistake-book.notebook-more-category-items { align-self: center; min-height: 34px; margin: 3px 0 4px; padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--primary); background: var(--card); font-size: 11px; font-weight: 600; cursor: pointer; }
 .remedi-mistake-book .notebook-more-category-items:hover, .remedi-mistake-book.notebook-more-category-items:hover { border-color: var(--primary); background: var(--primary-50); }
-.remedi-mistake-book .notebook-assignment, .remedi-mistake-book.notebook-assignment { overflow: hidden; border: 1px solid var(--border); border-radius: 13px; background: var(--card); }
+.remedi-mistake-book .notebook-assignment, .remedi-mistake-book.notebook-assignment { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); }
 .remedi-mistake-book .notebook-assignment[open], .remedi-mistake-book.notebook-assignment[open] { border-color: var(--border); box-shadow: 0 5px 18px rgba(31, 41, 55, 0.031); }
 .remedi-mistake-book .notebook-assignment > summary, .remedi-mistake-book.notebook-assignment > summary { display: grid; min-height: 74px; grid-template-columns: 18px auto minmax(0, 1fr) auto auto; align-items: center; gap: 13px; padding: 13px 17px; cursor: pointer; list-style: none; }
 .remedi-mistake-book .notebook-assignment > summary::-webkit-details-marker, .remedi-mistake-book.notebook-assignment > summary::-webkit-details-marker { display: none; }
@@ -338,10 +338,10 @@
 .remedi-mistake-book .notebook-assignment-title strong, .remedi-mistake-book.notebook-assignment-title strong { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .remedi-mistake-book .notebook-assignment-title small, .remedi-mistake-book.notebook-assignment-title small { color: var(--text-2); font-size: 11px; }
 .remedi-mistake-book .notebook-assignment-progress, .remedi-mistake-book.notebook-assignment-progress { color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.remedi-mistake-book .notebook-assignment-state, .remedi-mistake-book.notebook-assignment-state { padding: 5px 8px; border-radius: 6px; color: var(--text-2); background: var(--amber-bg); font-size: 10px; white-space: nowrap; }
+.remedi-mistake-book .notebook-assignment-state, .remedi-mistake-book.notebook-assignment-state { padding: 5px 8px; border-radius: var(--radius-detail); color: var(--text-2); background: var(--amber-bg); font-size: 10px; white-space: nowrap; }
 .remedi-mistake-book .notebook-assignment-state.ready, .remedi-mistake-book.notebook-assignment-state.ready { color: var(--text); background: var(--bg); }
 .remedi-mistake-book .notebook-assignment-content, .remedi-mistake-book.notebook-assignment-content { display: flex; flex-direction: column; gap: 10px; padding: 0 17px 16px 48px; }
-.remedi-mistake-book .notebook-category, .remedi-mistake-book.notebook-category { padding: 13px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+.remedi-mistake-book .notebook-category, .remedi-mistake-book.notebook-category { padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
 .remedi-mistake-book .notebook-category.studied, .remedi-mistake-book.notebook-category.studied { border-color: var(--border); background: var(--card); }
 .remedi-mistake-book .notebook-category-head, .remedi-mistake-book.notebook-category-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .remedi-mistake-book .notebook-category-head > div, .remedi-mistake-book.notebook-category-head > div { display: flex; min-width: 0; align-items: center; gap: 9px; }
@@ -349,13 +349,13 @@
 .remedi-mistake-book .notebook-category.studied .notebook-category-dot, .remedi-mistake-book.notebook-category.studied .notebook-category-dot { background: var(--text-2); }
 .remedi-mistake-book .notebook-category-head h4, .remedi-mistake-book.notebook-category-head h4 { margin: 0; color: var(--text); font-size: 12px; font-weight: 600; }
 .remedi-mistake-book .notebook-category-head small, .remedi-mistake-book.notebook-category-head small { display: block; margin-top: 4px; color: var(--text-2); font-size: 10px; }
-.remedi-mistake-book .notebook-category-head button, .remedi-mistake-book.notebook-category-head button { min-height: 29px; flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-2); background: var(--card); font-size: 10px; }
+.remedi-mistake-book .notebook-category-head button, .remedi-mistake-book.notebook-category-head button { min-height: 29px; flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-2); background: var(--card); font-size: 10px; }
 .remedi-mistake-book .notebook-category-head button:hover:not(:disabled), .remedi-mistake-book.notebook-category-head button:hover:not(:disabled) { border-color: var(--border); background: var(--bg); }
 .remedi-mistake-book .notebook-category-head button.studied, .remedi-mistake-book.notebook-category-head button.studied { border-color: var(--border); color: var(--text); background: var(--bg); }
-.remedi-mistake-book .notebook-repeat-note, .remedi-mistake-book.notebook-repeat-note { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin: 11px 0 0; padding: 9px 10px; border-radius: 7px; color: var(--text); background: var(--amber-bg); font-size: 10px; }
+.remedi-mistake-book .notebook-repeat-note, .remedi-mistake-book.notebook-repeat-note { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin: 11px 0 0; padding: 9px 10px; border-radius: var(--radius-control); color: var(--text); background: var(--amber-bg); font-size: 10px; }
 .remedi-mistake-book .notebook-repeat-note strong, .remedi-mistake-book.notebook-repeat-note strong { color: var(--text); font-weight: 600; }
 .remedi-mistake-book .notebook-repeat-note > div, .remedi-mistake-book.notebook-repeat-note > div { display: flex; flex-wrap: wrap; gap: 5px; }
-.remedi-mistake-book .notebook-repeat-note button, .remedi-mistake-book.notebook-repeat-note button { padding: 3px 6px; border: 1px solid var(--amber-bg); border-radius: 5px; color: var(--text); background: var(--card); font: inherit; }
+.remedi-mistake-book .notebook-repeat-note button, .remedi-mistake-book.notebook-repeat-note button { padding: 3px 6px; border: 1px solid var(--amber-bg); border-radius: var(--radius-detail); color: var(--text); background: var(--card); font: inherit; }
 .remedi-mistake-book .notebook-repeat-note button:hover, .remedi-mistake-book.notebook-repeat-note button:hover { border-color: var(--amber-bg); background: var(--card); }
 .remedi-mistake-book .notebook-category-questions, .remedi-mistake-book.notebook-category-questions { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
 .remedi-mistake-book .notebook-category-questions article, .remedi-mistake-book.notebook-category-questions article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 8px 0 0; border-top: 1px solid var(--bg); }
@@ -366,16 +366,16 @@
 .remedi-mistake-book .notebook-question-excerpt > :first-child, .remedi-mistake-book.notebook-question-excerpt > :first-child { margin-top: 0; }
 .remedi-mistake-book .notebook-question-excerpt > :last-child, .remedi-mistake-book.notebook-question-excerpt > :last-child { margin-bottom: 0; }
 .remedi-mistake-book .notebook-question-excerpt p, .remedi-mistake-book.notebook-question-excerpt p { margin: 0; }
-.remedi-mistake-book .notebook-category-questions article > button, .remedi-mistake-book.notebook-category-questions article > button { display: inline-flex; grid-column: 2; grid-row: 1 / span 2; align-items: center; gap: 4px; padding: 5px; border: 0; border-radius: 5px; color: var(--text); background: transparent; font-size: 10px; white-space: nowrap; }
+.remedi-mistake-book .notebook-category-questions article > button, .remedi-mistake-book.notebook-category-questions article > button { display: inline-flex; grid-column: 2; grid-row: 1 / span 2; align-items: center; gap: 4px; padding: 5px; border: 0; border-radius: var(--radius-detail); color: var(--text); background: transparent; font-size: 10px; white-space: nowrap; }
 .remedi-mistake-book .notebook-category-questions article > button:hover, .remedi-mistake-book.notebook-category-questions article > button:hover { background: var(--bg); }
 .remedi-mistake-book .notebook-category-questions article > button svg, .remedi-mistake-book.notebook-category-questions article > button svg { width: 13px; height: 13px; }
 .remedi-mistake-book .notebook-assignment-footer, .remedi-mistake-book.notebook-assignment-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 5px; color: var(--text-2); font-size: 11px; }
-.remedi-mistake-book .notebook-assignment-footer button, .remedi-mistake-book.notebook-assignment-footer button { min-height: 34px; padding: 8px 12px; border: 1px solid var(--primary); border-radius: 8px; color: var(--card); background: var(--primary); font-size: 11px; }
+.remedi-mistake-book .notebook-assignment-footer button, .remedi-mistake-book.notebook-assignment-footer button { min-height: 34px; padding: 8px 12px; border: 1px solid var(--primary); border-radius: var(--radius-control); color: var(--card); background: var(--primary); font-size: 11px; }
 .remedi-mistake-book .notebook-assignment-footer button:hover:not(:disabled), .remedi-mistake-book.notebook-assignment-footer button:hover:not(:disabled) { border-color: var(--primary-dark); background: var(--primary-dark); }
 .remedi-mistake-book .notebook-assignment-footer button:disabled, .remedi-mistake-book.notebook-assignment-footer button:disabled { border-color: var(--border); color: var(--text-2); background: var(--bg); }
-.remedi-mistake-book .notebook-action-error, .remedi-mistake-book.notebook-action-error { margin: 10px 0; color: #991B1B; font-size: 12px; }
-.remedi-mistake-book .notebook-skeleton, .remedi-mistake-book.notebook-skeleton { min-height: 259px; padding: 23px; border: 1px solid var(--border); border-radius: 14px; background: linear-gradient(100deg, var(--bg) 30%, var(--card) 50%, var(--bg) 70%); background-size: 200% 100%; animation: notebook-loading 1.6s ease-in-out infinite; }
-.remedi-mistake-book .notebook-skeleton > span, .remedi-mistake-book.notebook-skeleton > span { display: block; width: 90%; height: 10px; margin-top: 16px; border-radius: 4px; background: var(--border); }
+.remedi-mistake-book .notebook-action-error, .remedi-mistake-book.notebook-action-error { margin: 10px 0; color: var(--red-strong); font-size: 12px; }
+.remedi-mistake-book .notebook-skeleton, .remedi-mistake-book.notebook-skeleton { min-height: 259px; padding: 23px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: linear-gradient(100deg, var(--bg) 30%, var(--card) 50%, var(--bg) 70%); background-size: 200% 100%; animation: notebook-loading 1.6s ease-in-out infinite; }
+.remedi-mistake-book .notebook-skeleton > span, .remedi-mistake-book.notebook-skeleton > span { display: block; width: 90%; height: 10px; margin-top: 16px; border-radius: var(--radius-micro); background: var(--border); }
 .remedi-mistake-book .notebook-skeleton > span:first-child, .remedi-mistake-book.notebook-skeleton > span:first-child { width: 70px; height: 23px; margin-top: 0; margin-bottom: 28px; }
 .remedi-mistake-book .notebook-skeleton > span:nth-child(2), .remedi-mistake-book.notebook-skeleton > span:nth-child(2) { width: 65%; height: 15px; }
 @keyframes notebook-loading { to { background-position: -200% 0; } }
@@ -477,7 +477,7 @@
   container-type: inline-size;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-surface);
   background: var(--bg);
 }
 
@@ -567,8 +567,8 @@
 }
 
 .remedi-mistake-book .sticky-note, .remedi-mistake-book.sticky-note {
-  --note-paper: #fff3b8;
-  --note-ink: #3f3a2a;
+  --note-paper: var(--note-yellow);
+
   position: relative;
   display: flex;
   min-width: 0;
@@ -577,7 +577,7 @@
   align-items: stretch;
   padding: 31px 25px 20px;
   border: 1px solid rgba(31, 41, 55, 0.063);
-  border-radius: 3px 3px 2px 3px;
+  border-radius: var(--radius-surface);
   color: var(--note-ink);
   background: var(--note-paper);
   box-shadow: 1px 8px 17px rgba(31, 41, 55, 0.125), 0 2px 3px rgba(31, 41, 55, 0.063);
@@ -614,16 +614,16 @@
 .remedi-mistake-book .sticky-note:hover, .remedi-mistake-book.sticky-note:hover { z-index: 1; box-shadow: 2px 13px 24px rgba(31, 41, 55, 0.161), 0 2px 4px rgba(31, 41, 55, 0.071); transform: translateY(-6px) rotate(0); }
 .remedi-mistake-book .sticky-note:focus-visible, .remedi-mistake-book.sticky-note:focus-visible, .remedi-mistake-book .mistake-sticky-notes button:focus-visible, .remedi-mistake-book.mistake-sticky-notes button:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
 .remedi-mistake-book .sticky-note:active, .remedi-mistake-book.sticky-note:active { transform: translateY(-2px) rotate(0); }
-.remedi-mistake-book .sticky-note-yellow, .remedi-mistake-book.sticky-note-yellow { --note-paper: #fff3b8; --note-ink: #3f3a2a; }
-.remedi-mistake-book .sticky-note-mint, .remedi-mistake-book.sticky-note-mint { --note-paper: #d6e9ff; --note-ink: #3f3a2a; }
-.remedi-mistake-book .sticky-note-pink, .remedi-mistake-book.sticky-note-pink { --note-paper: #ffdce8; --note-ink: #3f3a2a; }
-.remedi-mistake-book .sticky-note-blue, .remedi-mistake-book.sticky-note-blue { --note-paper: #d6e9ff; --note-ink: #3f3a2a; }
-.remedi-mistake-book .sticky-note-peach, .remedi-mistake-book.sticky-note-peach { --note-paper: #fff3b8; --note-ink: #3f3a2a; }
-.remedi-mistake-book .sticky-note-lilac, .remedi-mistake-book.sticky-note-lilac { --note-paper: #ffdce8; --note-ink: #3f3a2a; }
+.remedi-mistake-book .sticky-note-yellow, .remedi-mistake-book.sticky-note-yellow { --note-paper: var(--note-yellow);  }
+.remedi-mistake-book .sticky-note-mint, .remedi-mistake-book.sticky-note-mint { --note-paper: var(--note-blue);  }
+.remedi-mistake-book .sticky-note-pink, .remedi-mistake-book.sticky-note-pink { --note-paper: var(--note-pink);  }
+.remedi-mistake-book .sticky-note-blue, .remedi-mistake-book.sticky-note-blue { --note-paper: var(--note-blue);  }
+.remedi-mistake-book .sticky-note-peach, .remedi-mistake-book.sticky-note-peach { --note-paper: var(--note-yellow);  }
+.remedi-mistake-book .sticky-note-lilac, .remedi-mistake-book.sticky-note-lilac { --note-paper: var(--note-pink);  }
 .remedi-mistake-book .sticky-note.is-studied, .remedi-mistake-book.sticky-note.is-studied { filter: saturate(.72); }
 .remedi-mistake-book .sticky-note-index, .remedi-mistake-book.sticky-note-index { opacity: .65; font-size: 11px; font-weight: 600; letter-spacing: .1em; }
 .remedi-mistake-book .sticky-note-title, .remedi-mistake-book.sticky-note-title { display: block; margin: 17px 0 10px; font-size: 25px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
-.remedi-mistake-book .sticky-note-rule, .remedi-mistake-book.sticky-note-rule { display: block; width: 28px; height: 2px; margin: 3px 0 13px; border-radius: 2px; background: currentColor; opacity: .35; }
+.remedi-mistake-book .sticky-note-rule, .remedi-mistake-book.sticky-note-rule { display: block; width: 28px; height: 2px; margin: 3px 0 13px; border-radius: var(--radius-micro); background: currentColor; opacity: .35; }
 .remedi-mistake-book .sticky-note-stat, .remedi-mistake-book.sticky-note-stat { font-size: 13px; line-height: 1.5; }
 .remedi-mistake-book .sticky-note-stat b, .remedi-mistake-book.sticky-note-stat b { font-size: 17px; }
 .remedi-mistake-book .sticky-note-tags, .remedi-mistake-book.sticky-note-tags { display: -webkit-box; max-height: 38px; margin-top: 8px; overflow: hidden; opacity: .7; font-size: 12px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -642,7 +642,7 @@
   min-width: 0;
   padding: 32px 30px 23px;
   border: 1px solid rgba(31, 41, 55, 0.094);
-  border-radius: 4px 4px 3px 4px;
+  border-radius: var(--radius-surface);
   color: var(--note-ink);
   background: var(--note-paper);
   box-shadow: 3px 10px 23px rgba(31, 41, 55, 0.125), 0 2px 3px rgba(31, 41, 55, 0.063);
@@ -676,7 +676,7 @@
 .remedi-mistake-book .sticky-assignment-date, .remedi-mistake-book.sticky-assignment-date { color: inherit; opacity: .68; font-size: 12px; }
 .remedi-mistake-book .sticky-assignment-head h2, .remedi-mistake-book.sticky-assignment-head h2 { margin: 7px 0 5px; color: var(--note-ink); font-size: 20px; line-height: 1.4; overflow-wrap: anywhere; }
 .remedi-mistake-book .sticky-assignment-head p, .remedi-mistake-book.sticky-assignment-head p { margin: 0; color: inherit; opacity: .76; font-size: 12px; line-height: 1.6; }
-.remedi-mistake-book .sticky-assignment-state, .remedi-mistake-book.sticky-assignment-state { flex: 0 0 auto; padding: 6px 10px; border: 1px solid rgba(31, 41, 55, 0.094); border-radius: 20px; color: var(--note-ink); background: rgba(255, 255, 255, 0.659); font-size: 11px; }
+.remedi-mistake-book .sticky-assignment-state, .remedi-mistake-book.sticky-assignment-state { flex: 0 0 auto; padding: 6px 10px; border: 1px solid rgba(31, 41, 55, 0.094); border-radius: var(--radius-surface); color: var(--note-ink); background: rgba(255, 255, 255, 0.659); font-size: 11px; }
 .remedi-mistake-book .sticky-assignment.is-studied .sticky-assignment-state, .remedi-mistake-book.sticky-assignment.is-studied .sticky-assignment-state { color: var(--green); background: var(--green-bg); }
 .remedi-mistake-book .sticky-assignment-questions, .remedi-mistake-book.sticky-assignment-questions {
   display: grid;
@@ -693,7 +693,7 @@
   flex-direction: column;
   padding: 29px 20px 17px;
   border: 1px solid rgba(31, 41, 55, 0.094);
-  border-radius: 3px 3px 2px 3px;
+  border-radius: var(--radius-surface);
   color: var(--note-ink);
   background: var(--note-paper);
   box-shadow: 2px 7px 14px rgba(31, 41, 55, 0.141), 0 2px 3px rgba(31, 41, 55, 0.071);
@@ -704,7 +704,7 @@
 .remedi-mistake-book .sticky-question::before, .remedi-mistake-book.sticky-question::before { width: 59px; height: 15px; }
 .remedi-mistake-book .sticky-question::after, .remedi-mistake-book.sticky-question::after { width: 22px; height: 22px; }
 .remedi-mistake-book .sticky-question:hover, .remedi-mistake-book.sticky-question:hover { z-index: 1; box-shadow: 3px 10px 18px rgba(31, 41, 55, 0.188), 0 2px 4px rgba(31, 41, 55, 0.086); transform: rotate(0); }
-.remedi-mistake-book .sticky-question-main, .remedi-mistake-book.sticky-question-main { min-width: 0; border-radius: 2px; }
+.remedi-mistake-book .sticky-question-main, .remedi-mistake-book.sticky-question-main { min-width: 0; border-radius: var(--radius-micro); }
 .remedi-mistake-book .sticky-question-main:focus-visible, .remedi-mistake-book.sticky-question-main:focus-visible { outline: 2px solid var(--primary); outline-offset: 5px; }
 .remedi-mistake-book .sticky-question-head, .remedi-mistake-book.sticky-question-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 10px; }
 .remedi-mistake-book .sticky-question-head strong, .remedi-mistake-book.sticky-question-head strong { color: var(--note-ink); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
@@ -719,18 +719,18 @@
 .remedi-mistake-book .sticky-question-actions, .remedi-mistake-book.sticky-question-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: auto; padding-top: 16px; }
 .remedi-mistake-book .sticky-question-actions button:first-child, .remedi-mistake-book.sticky-question-actions button:first-child { color: var(--green); }
 .remedi-mistake-book .sticky-assignment-actions, .remedi-mistake-book.sticky-assignment-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 13px; padding-top: 16px; border-top: 1px solid rgba(31, 41, 55, 0.129); }
-.remedi-mistake-book .sticky-assignment-actions button, .remedi-mistake-book.sticky-assignment-actions button { min-height: 35px; padding: 7px 12px; border: 1px solid rgba(31, 41, 55, 0.188); border-radius: 7px; color: var(--green); background: rgba(255, 255, 255, 0.678); cursor: pointer; font-size: 12px; }
+.remedi-mistake-book .sticky-assignment-actions button, .remedi-mistake-book.sticky-assignment-actions button { min-height: 35px; padding: 7px 12px; border: 1px solid rgba(31, 41, 55, 0.188); border-radius: var(--radius-control); color: var(--green); background: rgba(255, 255, 255, 0.678); cursor: pointer; font-size: 12px; }
 .remedi-mistake-book .sticky-assignment-actions button:hover:not(:disabled), .remedi-mistake-book.sticky-assignment-actions button:hover:not(:disabled) { border-color: var(--text-2); background: var(--border); }
 .remedi-mistake-book .sticky-assignment-actions button:disabled, .remedi-mistake-book.sticky-assignment-actions button:disabled { cursor: default; opacity: .48; }
 .remedi-mistake-book .sticky-assignment-actions > span, .remedi-mistake-book.sticky-assignment-actions > span { color: inherit; opacity: .7; font-size: 11px; }
 .remedi-mistake-book .sticky-assignment-actions .sticky-archive-button, .remedi-mistake-book.sticky-assignment-actions .sticky-archive-button { margin-left: auto; background: rgba(255, 255, 255, 0.678); }
-.remedi-mistake-book .sticky-notes-error, .remedi-mistake-book.sticky-notes-error { max-width: 940px; margin: 17px 0 0; padding: 11px 13px; border: 1px solid var(--red-bg); border-radius: 8px; color: #991B1B; background: var(--card); font-size: 12px; }
+.remedi-mistake-book .sticky-notes-error, .remedi-mistake-book.sticky-notes-error { max-width: 940px; margin: 17px 0 0; padding: 11px 13px; border: 1px solid var(--red-bg); border-radius: var(--radius-control); color: var(--red-strong); background: var(--card); font-size: 12px; }
 
-.remedi-mistake-book .sticky-notes-empty, .remedi-mistake-book.sticky-notes-empty { display: flex; min-height: 370px; flex-direction: column; align-items: center; justify-content: center; margin-top: 40px; border: 1px dashed var(--border); border-radius: 15px; background: rgba(255, 255, 255, 0.659); text-align: center; }
-.remedi-mistake-book .sticky-notes-empty-icon, .remedi-mistake-book.sticky-notes-empty-icon { display: grid; width: 72px; height: 72px; place-items: center; border-radius: 5px; color: var(--text); background: #fff3b8; box-shadow: 4px 7px 13px rgba(31, 41, 55, 0.098); font-size: 35px; transform: rotate(-5deg); }
+.remedi-mistake-book .sticky-notes-empty, .remedi-mistake-book.sticky-notes-empty { display: flex; min-height: 370px; flex-direction: column; align-items: center; justify-content: center; margin-top: 40px; border: 1px dashed var(--border); border-radius: var(--radius-surface); background: rgba(255, 255, 255, 0.659); text-align: center; }
+.remedi-mistake-book .sticky-notes-empty-icon, .remedi-mistake-book.sticky-notes-empty-icon { display: grid; width: 72px; height: 72px; place-items: center; border-radius: var(--radius-detail); color: var(--text); background: var(--note-yellow); box-shadow: 4px 7px 13px rgba(31, 41, 55, 0.098); font-size: 35px; transform: rotate(-5deg); }
 .remedi-mistake-book .sticky-notes-empty h2, .remedi-mistake-book.sticky-notes-empty h2 { margin: 20px 0 7px; color: var(--text); font-size: 19px; }
 .remedi-mistake-book .sticky-notes-empty p, .remedi-mistake-book.sticky-notes-empty p { max-width: 360px; margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.7; }
-.remedi-mistake-book .sticky-notes-empty button, .remedi-mistake-book.sticky-notes-empty button { margin-top: 20px; padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--bg); cursor: pointer; font-size: 13px; }
+.remedi-mistake-book .sticky-notes-empty button, .remedi-mistake-book.sticky-notes-empty button { margin-top: 20px; padding: 10px 16px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text); background: var(--bg); cursor: pointer; font-size: 13px; }
 .remedi-mistake-book .sticky-notes-empty button:hover, .remedi-mistake-book.sticky-notes-empty button:hover { background: var(--border); }
 
 @container (max-width: 850px) {

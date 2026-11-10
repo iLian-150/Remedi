@@ -188,17 +188,17 @@ onMounted(async () => {
 .score-rows { display: flex; flex-direction: column; gap: 8px; }
 .score-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 14.5px; }
 .score-row b { color: var(--primary); font-size: 17px; }
-.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: var(--radius-control); padding: 13px 15px; }
+.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid var(--amber-border); border-radius: var(--radius-control); padding: 13px 15px; }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
-.review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
-.review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
+.review-pending-title { font-size: 14.5px; font-weight: 700; color: var(--amber-strong); }
+.review-pending-sub { font-size: 13px; color: var(--amber-strong); opacity: 0.85; margin-top: 2px; }
 .error-item { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #F1F3F6; }
 .error-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .encourage { margin-top: 8px; font-size: 14px; color: var(--text); }
 .detail { margin-top: 6px; font-size: 14px; color: var(--text-2); }
 .followup-box {
   display: flex; gap: 9px; align-items: flex-start;
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: var(--radius-control);
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 11px 14px; margin-top: 4px; font-size: 14px;
 }
 .followup-icon {

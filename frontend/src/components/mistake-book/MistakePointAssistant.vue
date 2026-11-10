@@ -210,27 +210,27 @@ async function sendQuestion() {
 .mistake-reference-line { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; align-items: start; margin: 9px 0; color: var(--text-3); font-size: 12px; }
 .mistake-reference-line p { margin: 0; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .mistake-reference-line.correction p { color: var(--green); }
-.mistake-reference-line.is-error, .mistake-reference-line.is-correct, .mistake-reference-line.is-revision { grid-template-columns: max-content minmax(0, 1fr); padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; }
-.mistake-reference-line.is-error { border-color: #FECACA; color: #991B1B; background: #FEF2F2; }
-.mistake-reference-line.is-error p { color: #991B1B; }
-.mistake-reference-line.is-correct { border-color: #A7F3D0; color: #065F46; background: #ECFDF5; }
-.mistake-reference-line.is-correct p { color: #065F46; }
-.mistake-reference-line.is-revision { border-color: #FDE68A; color: #92400E; background: #FFFBEB; }
-.mistake-reference-line.is-revision p { color: #92400E; }
+.mistake-reference-line.is-error, .mistake-reference-line.is-correct, .mistake-reference-line.is-revision { grid-template-columns: max-content minmax(0, 1fr); padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius-control); }
+.mistake-reference-line.is-error { border-color: var(--red-border); color: var(--red-strong); background: var(--red-bg); }
+.mistake-reference-line.is-error p { color: var(--red-strong); }
+.mistake-reference-line.is-correct { border-color: var(--green-border); color: var(--green-strong); background: var(--green-bg); }
+.mistake-reference-line.is-correct p { color: var(--green-strong); }
+.mistake-reference-line.is-revision { border-color: var(--amber-border); color: var(--amber-strong); background: var(--amber-bg); }
+.mistake-reference-line.is-revision p { color: var(--amber-strong); }
 .mistake-point-summary-detail-head span { color: var(--text-3); }
 .mistake-point-summary-detail-head strong { color: var(--green); }
-.mistake-point-reason { margin-top: 10px; padding: 10px 12px; border: 1px solid #DBEAFE; border-radius: 9px; background: #F8FAFF; }
+.mistake-point-reason { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--blue-bg); border-radius: var(--radius-control); background: #F8FAFF; }
 .mistake-point-reason strong, .mistake-solution > strong { color: var(--primary); font-size: 12px; }
 .mistake-point-reason p { margin: 4px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
-.mistake-solution { margin-top: 10px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); }
+.mistake-solution { margin-top: 10px; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
 .mistake-solution ol { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
 .mistake-solution li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }
 .mistake-solution li > span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-50); font-size: 11px; font-weight: 700; }
 .mistake-solution li p { margin: 1px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .mistake-answer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 10px 0 2px; }
-.mistake-answer-reveal { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: 9px; background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
+.mistake-answer-reveal { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 12px; border: 1.5px dashed var(--border); border-radius: var(--radius-control); background: transparent; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
 .mistake-answer-reveal:hover { border-color: var(--primary); background: var(--primary-50); }
-.mistake-point-summary-detail .mistake-answer-actions .mistake-original-button { display: inline-flex; min-width: 100px; min-height: 38px; align-items: center; justify-content: center; gap: 5px; padding: 8px 12px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; cursor: pointer; }
+.mistake-point-summary-detail .mistake-answer-actions .mistake-original-button { display: inline-flex; min-width: 100px; min-height: 38px; align-items: center; justify-content: center; gap: 5px; padding: 8px 12px; border: 1px solid var(--primary); border-radius: var(--radius-control); background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; cursor: pointer; }
 .mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:hover { border-color: var(--primary-dark, var(--primary)); background: var(--primary-dark, var(--primary)); }
 .mistake-point-summary-detail .mistake-answer-actions .mistake-original-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 2px; }
 .mistake-point-transcript { overflow-y: auto; }
@@ -240,7 +240,7 @@ async function sendQuestion() {
 .mistake-point-message-content :deep(h1), .mistake-point-message-content :deep(h2), .mistake-point-message-content :deep(h3), .mistake-point-message-content :deep(h4) { margin: 12px 0 6px; font-size: 14px; line-height: 1.45; }
 .mistake-point-message-content :deep(ul), .mistake-point-message-content :deep(ol) { margin: 4px 0 10px; padding-left: 22px; line-height: 1.7; }
 .mistake-point-message-content :deep(li + li) { margin-top: 3px; }
-.mistake-point-message-content :deep(pre) { max-width: 100%; overflow-x: auto; padding: 9px 11px; border-radius: 8px; background: var(--bg-subtle); white-space: pre-wrap; }
+.mistake-point-message-content :deep(pre) { max-width: 100%; overflow-x: auto; padding: 9px 11px; border-radius: var(--radius-control); background: var(--bg-subtle); white-space: pre-wrap; }
 .mistake-point-message-content :deep(code) { overflow-wrap: anywhere; }
 .mistake-point-message-content :deep(hr) { margin: 12px 0; border: 0; border-top: 1px solid var(--border); }
 .mistake-point-composer textarea { resize: vertical; }

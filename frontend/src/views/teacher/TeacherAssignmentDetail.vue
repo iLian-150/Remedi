@@ -99,7 +99,7 @@ onBeforeUnmount(() => { requestGeneration++; clearPoll() })
 .detail-info h3 { margin-bottom: 6px; }
 .detail-info .detail-text { margin-top: 12px; }
 .detail-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.group-material { padding: 16px; background: var(--primary-50); border-radius: var(--radius-sm); }
+.group-material { padding: 16px; background: var(--primary-50); border-radius: var(--radius-control); }
 .group-material h3, .question-item h3 { margin-bottom: 8px; font-size: 16px; }
 .group-content.has-figure { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .group-content :deep(.question-figure) { margin-top: 0; }

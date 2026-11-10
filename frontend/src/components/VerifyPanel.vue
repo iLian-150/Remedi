@@ -206,7 +206,7 @@ onMounted(load)
 <style scoped>
 .verify-panel {
   background: var(--primary-50);
-  border: 1px solid #DBEAFE;
+  border: 1px solid var(--blue-bg);
   border-radius: var(--radius-surface);
   padding: 16px 18px;
 }
@@ -240,8 +240,8 @@ onMounted(load)
 .diag-icon.unparseable { background: var(--amber-bg); color: var(--amber); }
 .diag-step-main { flex: 1; min-width: 0; }
 .diag-step .step-title { font-weight: 600; font-size: 12.5px; color: var(--text-3); margin-bottom: 1px; }
-.diag-step.first-error .step-title { color: #991B1B; }
-.diag-step.correct .step-title { color: #065F46; }
+.diag-step.first-error .step-title { color: var(--red-strong); }
+.diag-step.correct .step-title { color: var(--green-strong); }
 .vp-passed {
   display: flex; gap: 11px; align-items: flex-start;
   background: var(--green-bg); border-radius: var(--radius-control); padding: 12px 14px; margin-top: 12px;
@@ -251,8 +251,8 @@ onMounted(load)
   background: var(--green); color: #fff;
   display: flex; align-items: center; justify-content: center;
 }
-.vp-passed-title { font-size: 14.5px; font-weight: 700; color: #065F46; }
-.vp-passed-line { font-size: 13.5px; color: #065F46; }
-.vp-failed { margin-top: 12px; background: #fff; border: 1px solid #FDE68A; border-radius: var(--radius-control); padding: 12px 14px; }
+.vp-passed-title { font-size: 14.5px; font-weight: 700; color: var(--green-strong); }
+.vp-passed-line { font-size: 13.5px; color: var(--green-strong); }
+.vp-failed { margin-top: 12px; background: #fff; border: 1px solid var(--amber-border); border-radius: var(--radius-control); padding: 12px 14px; }
 .vp-failed .detail { margin-top: 7px; font-size: 14px; color: var(--text-2); }
 </style>

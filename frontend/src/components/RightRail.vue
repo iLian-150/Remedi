@@ -682,15 +682,15 @@ async function markAllRead() {
   to { opacity: 1; transform: translateY(0); }
 }
 .note {
-  position: relative; cursor: pointer; border-radius: 4px 4px 10px 4px;
+  position: relative; cursor: pointer; border-radius: var(--radius-surface);
   padding: 16px 13px 10px; box-shadow: 0 3px 8px rgba(15, 23, 42, 0.13);
   transform: rotate(var(--tilt));
   animation: note-sway 6.2s ease-in-out infinite;
   transition: box-shadow 0.25s ease;
 }
-.note-c0 { background: #fff3b8; }
-.note-c1 { background: #ffdce8; }
-.note-c2 { background: #d6e9ff; }
+.note-c0 { background: var(--note-yellow); }
+.note-c1 { background: var(--note-pink); }
+.note-c2 { background: var(--note-blue); }
 .note.read { filter: saturate(0.45); opacity: 0.72; }
 .note:hover {
   animation: none;
@@ -704,14 +704,14 @@ async function markAllRead() {
 .note-tape {
   position: absolute; top: -9px; left: 50%;
   transform: translateX(-50%) rotate(-2deg);
-  width: 62px; height: 17px; border-radius: 2px;
+  width: 62px; height: 17px; border-radius: var(--radius-micro);
   background: rgba(255, 255, 255, 0.55);
   border-left: 1px dashed rgba(0, 0, 0, 0.07);
   border-right: 1px dashed rgba(0, 0, 0, 0.07);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
-.note-content { font-size: 13.5px; line-height: 1.55; color: #3f3a2a; }
-.note-time { display: block; margin-top: 6px; font-size: 11.5px; color: rgba(63, 58, 42, 0.6); }
+.note-content { font-size: 13.5px; line-height: 1.55; color: var(--note-ink); }
+.note-time { display: block; margin-top: 6px; font-size: 11.5px; color: var(--note-ink); opacity: .6; }
 .note-dot {
   position: absolute; top: 8px; right: 8px; width: 8px; height: 8px;
   border-radius: 50%; background: var(--red);

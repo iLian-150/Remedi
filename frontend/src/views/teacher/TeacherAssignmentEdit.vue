@@ -134,15 +134,15 @@ async function save() {
 .class-fields { min-width: 0; }
 .class-fields legend { font-weight: 600; padding: 0 4px; }
 .class-options { display: flex; flex-wrap: wrap; gap: 12px; }
-.class-option { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.class-option { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); }
 .question-fields { border: 0; min-width: 0; padding: 0; margin: 0; }
 .question-edit { padding: 16px 0; border-bottom: 1px solid var(--border); }
 .question-edit:last-child { border-bottom: 0; }
 .question-edit h3 { margin-bottom: 12px; font-size: 16px; }
 .question-meta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .35fr); gap: 16px; }
-.group-edit { padding: 16px; border-radius: var(--radius-sm); background: var(--primary-50); }
+.group-edit { padding: 16px; border-radius: var(--radius-control); background: var(--primary-50); }
 .group-edit .form-row { margin: 0; }
-.lock-notice { padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-sm); background: var(--amber-bg); color: var(--amber); }
+.lock-notice { padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-control); background: var(--amber-bg); color: var(--amber); }
 .diagram-note { margin: 0 0 12px; }
 .edit-actions { justify-content: flex-end; gap: 12px; }
 @media (max-width: 760px) { .question-meta { grid-template-columns: minmax(0, 1fr); gap: 0; } }

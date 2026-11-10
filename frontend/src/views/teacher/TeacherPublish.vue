@@ -1627,7 +1627,7 @@ onMounted(async () => {
   position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
   z-index: 200; display: flex; align-items: center; gap: 8px;
   max-width: min(92vw, 560px); padding: 11px 16px; border-radius: var(--radius-control);
-  background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA;
+  background: var(--red-bg); color: var(--red-strong); border: 1px solid var(--red-border);
   box-shadow: var(--shadow-md); font-size: 14px; font-weight: 600; line-height: 1.5;
 }
 .error-toast svg { flex-shrink: 0; }
@@ -1692,7 +1692,7 @@ onMounted(async () => {
   .grid-3, .grid-q-meta { grid-template-columns: 1fr; }
 }
 /* ---------- v0.13.4：练习册折叠卡 / 时间限制面板（自制日历） ---------- */
-.opt-dot { background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; }
+.opt-dot { background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; border-radius: var(--radius-pill); padding: 1px 7px; }
 .fold-head {
   width: 100%; display: flex; align-items: center; gap: 12px;
   background: none; border: none; padding: 0; cursor: pointer;
@@ -1739,11 +1739,11 @@ onMounted(async () => {
 .quick-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .quick-chip {
   border: 1.5px solid var(--border); background: #fff; color: var(--text-2);
-  border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; font-family: var(--font);
+  border-radius: var(--radius-pill); padding: 4px 11px; font-size: 12.5px; cursor: pointer; font-family: var(--font);
   transition: border-color .12s ease, color .12s ease, background .12s ease;
 }
 .quick-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
-.deadline-warn { margin-top: 8px; font-size: 12.5px; color: #92400E; }
+.deadline-warn { margin-top: 8px; font-size: 12.5px; color: var(--amber-strong); }
 .desc-row { margin-bottom: 14px; }
 .desc-area textarea { overflow-y: auto; resize: none; transition: height .18s ease; }
 .check-notes { margin: -6px 0 12px; }
@@ -1774,7 +1774,7 @@ onMounted(async () => {
 .publish-actions .spacer { flex: 1; }
 .recognition-error { display: inline-flex; align-items: center; gap: 5px; max-width: 440px; color: var(--red); font-size: 12px; line-height: 1.4; }
 .recognition-progress-status { display: flex; flex: 1 0 100%; align-items: center; gap: 12px; color: var(--text-2); font-size: 12px; }
-.recognition-progress-track { width: min(280px, 42vw); height: 5px; overflow: hidden; border-radius: 999px; background: var(--primary-50); }
+.recognition-progress-track { width: min(280px, 42vw); height: 5px; overflow: hidden; border-radius: var(--radius-pill); background: var(--primary-50); }
 .recognition-progress-indicator { display: block; width: 34%; height: 100%; border-radius: inherit; background: var(--primary); animation: recognition-progress-slide 1.35s ease-in-out infinite; }
 @keyframes recognition-progress-slide {
   from { transform: translateX(-110%); }
@@ -1825,9 +1825,9 @@ onMounted(async () => {
 }
 .wb-thumb:hover { transform: translateY(-1px); }
 .wb-thumb.active { border-color: var(--primary); background: var(--primary-50); }
-.wb-thumb img { width: 44px; height: 59px; object-fit: cover; border-radius: 2px 4px 4px 2px; box-shadow: 0 3px 7px rgba(15, 23, 42, 0.2); }
+.wb-thumb img { width: 44px; height: 59px; object-fit: cover; border-radius: var(--radius-book); box-shadow: 0 3px 7px rgba(15, 23, 42, 0.2); }
 .wb-thumb-spine {
-  width: 44px; height: 59px; border-radius: 2px 4px 4px 2px;
+  width: 44px; height: 59px; border-radius: var(--radius-book);
   background: var(--primary-50); color: var(--primary);
   display: flex; align-items: center; justify-content: center;
 }
@@ -1840,7 +1840,7 @@ onMounted(async () => {
 .kp-row .btn { flex: none; }
 .extract-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
 .extract-row .hint { flex: 1; min-width: 240px; line-height: 1.55; }
-.btn.danger-outline { background: #fff; color: var(--red); border: 1px solid #FECACA; }
+.btn.danger-outline { background: #fff; color: var(--red); border: 1px solid var(--red-border); }
 .btn.danger-outline:hover { background: var(--red-bg); }
 /* 评分系统：总分/占比输入与合计条 */
 .score-input-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -1853,7 +1853,7 @@ onMounted(async () => {
 .weight-bar .btn { margin-left: auto; }
 .offline-photo-card { border: 1px dashed #B7C9F5; background: #FBFCFF; }
 /* 参考答案 AI 验算（v0.9.3） */
-.card.q-suspect { border: 1.5px solid var(--amber); background: #FFFBEB; }
+.card.q-suspect { border: 1.5px solid var(--amber); background: var(--amber-bg); }
 /* ---------- v0.13.1：允许修改勾选 / 大题 / 标准步骤符号栏 / 过渡动画 ---------- */
 .revision-check {
   display: flex; align-items: center; gap: 8px;
@@ -1901,7 +1901,7 @@ onMounted(async () => {
 .check-note .check-ic { flex: none; display: inline-flex; margin-top: 1px; }
 .check-note.ok { color: var(--green); align-items: center; }
 .check-note.ok .check-ic { margin-top: 0; }
-.check-note.warn { color: #92400E; }
+.check-note.warn { color: var(--amber-strong); }
 .check-note.muted { color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) {
   .recognition-progress-indicator { width: 100%; animation: none; }

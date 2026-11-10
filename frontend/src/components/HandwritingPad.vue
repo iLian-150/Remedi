@@ -243,7 +243,7 @@ defineExpose({ clear })
   width: 100%;
   height: 280px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: #fff;
   touch-action: none;
   cursor: crosshair;

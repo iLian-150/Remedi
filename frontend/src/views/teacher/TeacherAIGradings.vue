@@ -21,7 +21,6 @@
       <form class="threshold-settings" @submit.prevent="saveThreshold">
         <div class="threshold-copy">
           <label for="grading-threshold">低分标记线</label>
-          <span class="threshold-note">按整份作业的 AI 得分率标记；教师审核规则不变。</span>
         </div>
         <div class="threshold-controls">
           <span class="threshold-prefix">低于</span>
@@ -385,7 +384,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .threshold-settings { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 0; padding: 0 0 0 24px; border: 0; border-left: 1px solid var(--border); }
 .threshold-copy { display: grid; gap: 3px; }
 .threshold-copy label { font-weight: 600; }
-.threshold-note { color: var(--text-2); font-size: 13px; }
 .threshold-controls { display: flex; align-items: center; gap: 10px; }
 .threshold-prefix { color: var(--text-2); font-size: 14px; white-space: nowrap; }
 .threshold-input-wrap { position: relative; }
@@ -441,7 +439,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .answer-step p { margin-top: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer-step.wrong { border-left-color: var(--red); background: #FFFBFB; }
 .answer-step.right { border-left-color: var(--green); }
-.process-note { margin-bottom: 12px; padding: 12px; background: var(--amber-bg); border-radius: var(--radius-control); color: #92400E; }
+.process-note { margin-bottom: 12px; padding: 12px; background: var(--amber-bg); border-radius: var(--radius-control); color: var(--amber-strong); }
 .process-note p { margin-top: 4px; }
 .process-note small { display: block; margin-top: 5px; }
 .issue-card { padding: 12px 0; border-top: 1px solid var(--border); }
@@ -457,7 +455,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .score-input-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .score-input-row > input { width: 130px; font-size: 18px; font-weight: 700; }
 .score-input-row > span { color: var(--text-2); }
-.chip-btn { padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: #fff; color: var(--text-2); font-size: 12px; cursor: pointer; }
+.chip-btn { padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: #fff; color: var(--text-2); font-size: 12px; cursor: pointer; }
 .chip-btn:hover { color: var(--primary); border-color: var(--primary); }
 .save-regrade { margin-top: 13px; }
 .detail-loading { padding: 40px; text-align: center; }

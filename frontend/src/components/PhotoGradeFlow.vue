@@ -366,10 +366,10 @@ function reset() {
 .pgf-auto-booked { margin: 0 0 10px; color: var(--green); font-size: 12px; font-weight: 600; }
 .pgf-status { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: var(--text-2); padding: 8px 0; }
 /* 待老师审核状态盒（v0.9.0，与对话页诊断卡同一套语义） */
-.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: var(--radius-control); padding: 13px 15px; }
+.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid var(--amber-border); border-radius: var(--radius-control); padding: 13px 15px; }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
-.review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
-.review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
+.review-pending-title { font-size: 14.5px; font-weight: 700; color: var(--amber-strong); }
+.review-pending-sub { font-size: 13px; color: var(--amber-strong); opacity: 0.85; margin-top: 2px; }
 .pgf-card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-surface);
   box-shadow: var(--shadow); padding: 14px 16px; margin-top: 10px;
@@ -391,12 +391,12 @@ function reset() {
 .diag-icon.unparseable { background: var(--amber-bg); color: var(--amber); }
 .diag-step-main { flex: 1; min-width: 0; }
 .diag-step .step-title { font-weight: 600; font-size: 12.5px; color: var(--text-3); margin-bottom: 2px; }
-.diag-step.first-error .step-title { color: #991B1B; }
-.diag-step.correct .step-title { color: #065F46; }
+.diag-step.first-error .step-title { color: var(--red-strong); }
+.diag-step.correct .step-title { color: var(--green-strong); }
 .error-item { margin-top: 12px; padding-top: 11px; border-top: 1px solid #F1F3F6; }
 .encourage { margin-top: 7px; font-size: 14px; }
 .detail { margin-top: 5px; font-size: 14px; color: var(--text-2); }
-.ok-line { margin-top: 9px; font-size: 14.5px; color: #065F46; display: flex; align-items: center; gap: 6px; }
+.ok-line { margin-top: 9px; font-size: 14.5px; color: var(--green-strong); display: flex; align-items: center; gap: 6px; }
 .followup-box {
   display: flex; gap: 9px; align-items: flex-start;
   background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);

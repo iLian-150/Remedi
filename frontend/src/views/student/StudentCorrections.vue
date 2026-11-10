@@ -548,7 +548,7 @@ onMounted(async () => {
 .rail-note {
   display: flex; align-items: center; gap: 7px;
   font-size: 13.5px; color: var(--text-2);
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: var(--radius-control);
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 10px 14px; margin-bottom: 16px;
 }
 .filter-bar {
@@ -567,7 +567,7 @@ onMounted(async () => {
 .review-img-link { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--primary); font-weight: 600; }
 .orig-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .orig-steps li { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px; border-radius: var(--radius-control); background: var(--bg); font-size: 14px; }
-.orig-steps li.is-error { background: #FEF2F2; box-shadow: inset 0 0 0 1.5px #DC2626; }
+.orig-steps li.is-error { background: var(--red-bg); box-shadow: inset 0 0 0 1.5px #DC2626; }
 .orig-steps li.is-dim { opacity: .55; }
 .orig-seq { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; transform: translateY(2px); }
 .orig-steps li.is-error .orig-seq { background: #DC2626; border-color: transparent; color: #fff; }
@@ -577,7 +577,7 @@ onMounted(async () => {
 .note.hint { color: var(--text-3); font-size: 13px; }
 .verify-cta {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: var(--radius-control);
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 11px 14px; margin-top: 12px; font-size: 14px;
 }
 /* 页内变式题面板与验证入口（报告纯化后迁入本页） */

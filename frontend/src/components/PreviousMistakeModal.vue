@@ -186,9 +186,9 @@ function stepStatusLabel(status: string) {
 .mistake-brand small { margin-left: 5px; color: var(--text-2); }
 .mistake-close { width: 38px; height: 38px; border: 1px solid var(--border); border-radius: 50%; background: var(--card); color: var(--text-2); font-size: 25px; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
 .mistake-close:hover { border-color: #bfdbfe; background: var(--primary-50); color: var(--primary); }
-.mistake-meta { flex: none; display: flex; justify-content: space-between; gap: 12px; padding: 12px 24px; border-bottom: 1px solid #dbeafe; color: var(--text); background: var(--primary-50); font-size: 13px; }
+.mistake-meta { flex: none; display: flex; justify-content: space-between; gap: 12px; padding: 12px 24px; border-bottom: 1px solid var(--blue-bg); color: var(--text); background: var(--primary-50); font-size: 13px; }
 .mistake-meta span { color: var(--text-2); }
-.mistake-meta .badge-amber { color: #92400e; }
+.mistake-meta .badge-amber { color: var(--amber-strong); }
 .mistake-columns { min-height: 0; overflow: auto; display: grid; grid-template-columns: 1fr 1.15fr; gap: 14px; padding: 14px; }
 .mistake-panel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); }
 .mistake-panel h3 { margin: 0 0 14px; color: var(--text); font-size: 18px; }
@@ -199,9 +199,9 @@ function stepStatusLabel(status: string) {
 .mistake-work h4, .mistake-solution h4, .mistake-correction h4 { margin: 0 0 9px; color: var(--text); font-size: 14px; }
 .mistake-work ol, .mistake-solution ol { margin: 0; padding-left: 24px; color: var(--text-2); line-height: 1.8; }
 .mistake-work li, .mistake-solution li { padding: 6px 8px; border-bottom: 1px solid var(--border); }
-.mistake-work li.wrong, .mistake-solution li.wrong { border-radius: var(--radius-detail); background: var(--red-bg); color: #991b1b; }
+.mistake-work li.wrong, .mistake-solution li.wrong { border-radius: var(--radius-detail); background: var(--red-bg); color: var(--red-strong); }
 .mistake-work li b, .mistake-solution li b { display: block; margin-top: 3px; color: var(--red); font-size: 12px; font-weight: 600; }
-.mistake-error-card { padding: 14px 16px; border: 1px solid #fecaca; border-radius: var(--radius-control); background: var(--red-bg); color: #7f1d1d; line-height: 1.7; }
+.mistake-error-card { padding: 14px 16px; border: 1px solid var(--red-border); border-radius: var(--radius-control); background: var(--red-bg); color: var(--red-strong); line-height: 1.7; }
 .mistake-error-title { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; color: var(--text-2); font-size: 13px; }
 .mistake-error-title strong { color: var(--red); }
 .mistake-error-card p { margin: 0; white-space: pre-wrap; }

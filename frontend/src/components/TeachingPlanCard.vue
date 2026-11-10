@@ -132,7 +132,7 @@ onBeforeUnmount(() => controller.abort())
 .topic-actions .btn { font-size: 13px; padding: 7px 12px; }
 .follow-up { color: var(--text-2); font-size: 13px; margin: 14px 0 0; }
 .follow-up strong, .follow-up b { color: var(--text); }
-.topic-exercise { margin-top: 14px; padding: 14px; background: var(--bg); border-radius: var(--radius-sm); }
+.topic-exercise { margin-top: 14px; padding: 14px; background: var(--bg); border-radius: var(--radius-control); }
 .exercise-prompt, .exercise-steps li, .exercise-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
 .topic-exercise summary { cursor: pointer; color: var(--primary); font-size: 13px; margin-top: 12px; }
 .exercise-steps { padding-left: 22px; margin-top: 10px; }

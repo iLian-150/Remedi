@@ -12,20 +12,20 @@
           <div class="management-feature">
             <span class="management-feature-icon"><AppIcon name="clipboard" :size="20" /></span>
             <span class="management-feature-copy">
-              <strong>全部作业</strong>
-              <small>集中查看已发布的作业和题目</small>
+              <strong>作业列表</strong>
+              <small>已发布作业、题目与状态</small>
             </span>
           </div>
           <div class="management-feature">
             <span class="management-feature-icon"><AppIcon name="chart" :size="20" /></span>
             <span class="management-feature-copy">
-              <strong>提交与学情</strong>
-              <small>跟进学生提交情况和作业表现</small>
+              <strong>学生提交</strong>
+              <small>完成进度与作答情况</small>
             </span>
           </div>
         </div>
         <span class="management-entry-action">
-          进入作业管理 <AppIcon name="arrow-right" :size="16" />
+          查看全部作业 <AppIcon name="arrow-right" :size="16" />
         </span>
       </router-link>
     </div>
@@ -60,11 +60,11 @@ function resetAssignmentFilter() {
   transition: border-color .16s ease, box-shadow .16s ease;
 }
 .management-entry:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }
+.management-entry:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 .publish-entry :deep(.mode-grid) { grid-template-columns: minmax(0, 1fr); }
 .publish-entry :deep(.mode-card) { min-height: 145px; padding: 19px 21px; border-radius: var(--radius-control); }
-.publish-entry :deep(.mode-hint) { display: none; }
 .management-entry-content { display: flex; flex: 1; flex-direction: column; gap: 12px; }
-.management-feature { display: flex; min-height: 102px; align-items: center; gap: 13px; padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
+.management-feature { display: flex; min-height: 102px; flex: 1; align-items: center; gap: 13px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
 .management-feature-icon { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
 .management-feature-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .management-feature-copy strong { color: var(--text); font-size: 14px; font-weight: 700; }

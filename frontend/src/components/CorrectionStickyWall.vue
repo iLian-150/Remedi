@@ -1,7 +1,7 @@
 <!-- 订正便利贴墙（v0.9.3）：一题一张便利贴贴在板面上错落排布。
      点待订正的贴 → 先播「撕下来」动画（掀角 → 向下撕落），动画结束才 emit pick，
      由订正页切到该题的修正工作区；已订正的贴换柔和色 + 盖对勾印，点开看诊断详情。
-     配色与 RightRail 便利贴统一：#fff3b8 / #ffdce8 / #d6e9ff 循环 + 墨色 #3f3a2a。
+     配色与 RightRail 便利贴统一：var(--note-yellow) / var(--note-pink) / var(--note-blue) 循环 + 墨色 var(--note-ink)。
      prefers-reduced-motion 时不播动画、点按直接 emit。 -->
 <template>
   <div class="wall">
@@ -158,7 +158,7 @@ function onNoteClick(n: CorrectionNote) {
   gap: 30px 22px;
 }
 .wall-subject + .wall-subject { margin-top: 30px; padding-top: 24px; border-top: 1px solid rgba(63, 58, 42, 0.16); }
-.wall-subject-title { margin: 0 0 18px; color: #3f3a2a; font-size: 18px; font-weight: 750; }
+.wall-subject-title { margin: 0 0 18px; color: var(--note-ink); font-size: 18px; font-weight: 750; }
 .wall-assignment + .wall-assignment { margin-top: 26px; }
 .wall-assignment-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .wall-assignment-title { min-width: 0; margin: 0; color: rgba(63, 58, 42, 0.84); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
@@ -191,7 +191,7 @@ function onNoteClick(n: CorrectionNote) {
   border: 0;
   font: inherit;
   text-align: left;
-  color: #3f3a2a;
+  color: var(--note-ink);
   cursor: pointer;
   appearance: none;
   transform: rotate(var(--rot, 0deg));
@@ -217,9 +217,9 @@ function onNoteClick(n: CorrectionNote) {
   box-shadow: 4px 10px 20px rgba(63, 58, 42, 0.24);
   z-index: 1;
 }
-.note-c0 { background: linear-gradient(180deg, #fff6c4, #fff3b8); }
-.note-c1 { background: linear-gradient(180deg, #ffe3ee, #ffdce8); }
-.note-c2 { background: linear-gradient(180deg, #e0efff, #d6e9ff); }
+.note-c0 { background: var(--note-yellow); }
+.note-c1 { background: var(--note-pink); }
+.note-c2 { background: var(--note-blue); }
 
 /* 已订正：纸色柔和下来（去饱和）+ 对勾印 */
 .note.fixed { filter: saturate(0.48) brightness(1.045); }
@@ -258,8 +258,8 @@ function onNoteClick(n: CorrectionNote) {
 /* ---------- 贴面内容 ---------- */
 .note-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .note-stubborn {
-  font-size: 11.5px; font-weight: 700; color: #92400e;
-  background: rgba(217, 119, 6, 0.16); padding: 2px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; color: var(--amber-strong);
+  background: rgba(217, 119, 6, 0.16); padding: 2px 8px; border-radius: var(--radius-pill);
 }
 .note-stem {
   font-size: 15px; font-weight: 700; line-height: 1.45;

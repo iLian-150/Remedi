@@ -90,11 +90,13 @@ import { useRoute } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { StudentProfile } from '../../api/types'
 import { errorTypeDotClass } from '../../utils/errorType'
+import { readChartColors } from '../../utils/chartTheme'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import { AsyncEChartBar as EChart } from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const route = useRoute()
+const chartColors = readChartColors()
 const teacher = useTeacherStore()
 
 const profile = ref<StudentProfile | null>(null)
@@ -189,7 +191,7 @@ const kpOption = computed(() => ({
     {
       type: 'bar',
       data: sortedKps.value.map((k) => k.error_rate),
-      itemStyle: { color: '#1D4ED8', borderRadius: [6, 6, 0, 0] },
+      itemStyle: { color: chartColors.primary, borderRadius: [chartColors.radiusDetail, chartColors.radiusDetail, 0, 0] },
       barWidth: '48%'
     }
   ]

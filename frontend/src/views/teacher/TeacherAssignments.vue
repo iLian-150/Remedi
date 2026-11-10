@@ -298,11 +298,11 @@ onUnmounted(() => {
 }
 .filter-title { font-size: 14.5px; font-weight: 700; }
 .btn.danger-outline {
-  background: #fff; color: var(--red); border: 1px solid #FECACA;
+  background: #fff; color: var(--red); border: 1px solid var(--red-border);
 }
 .btn.danger-outline:hover { background: var(--red-bg); }
 .btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
-.btn.danger:hover { background: #B91C1C; }
+.btn.danger:hover { background: var(--red-strong); }
 .modal-mask {
   position: fixed; inset: 0; z-index: 300;
   background: rgba(15, 23, 42, 0.4);

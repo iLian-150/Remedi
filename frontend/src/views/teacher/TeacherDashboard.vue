@@ -105,11 +105,13 @@ import { useTeacherStore } from '../../stores/teacher'
 import type { ClassRepairRate, KnowledgePointStat, StudentAttention, TopQuestion } from '../../api/types'
 import { errorTypeKey, ERROR_TYPE_CHART_COLORS } from '../../utils/errorType'
 import { getSubjectLabel } from '../../utils/subjectLabels'
+import { readChartColors } from '../../utils/chartTheme'
 import { AsyncEChartBarPie as EChart } from '../../components/AsyncEChart'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import TeachingPlanCard from '../../components/TeachingPlanCard.vue'
 
 const teacher = useTeacherStore()
+const chartColors = readChartColors()
 const topQuestions = ref<TopQuestion[]>([])
 const kpStats = ref<KnowledgePointStat[]>([])
 const attentionStudents = ref<StudentAttention[]>([])
@@ -167,15 +169,15 @@ const topQuestionsOption = computed(() => {
     yAxis: {
       type: 'category',
       data: list.map((d) => `[${subjectLabel(d.subject)}·${d.knowledge_point}] ${d.stem}`),
-      axisLabel: { width: 220, overflow: 'truncate', color: '#4B5563' }
+      axisLabel: { width: 220, overflow: 'truncate', color: chartColors.textStrong }
     },
     series: [
       {
         type: 'bar',
         data: list.map((d) => d.error_count),
-        itemStyle: { color: '#1D4ED8', borderRadius: [0, 6, 6, 0] },
+        itemStyle: { color: chartColors.primary, borderRadius: [0, chartColors.radiusDetail, chartColors.radiusDetail, 0] },
         barWidth: '52%',
-        label: { show: true, position: 'right', color: '#6B7280', fontVariantNumeric: 'tabular-nums' }
+        label: { show: true, position: 'right', color: chartColors.textMuted, fontVariantNumeric: 'tabular-nums' }
       }
     ]
   }
@@ -196,14 +198,14 @@ const knowledgeOption = computed(() => {
     xAxis: {
       type: 'category',
       data: list.map((d) => `${subjectLabel(d.subject)}·${d.knowledge_point}`),
-      axisLabel: { rotate: 20, color: '#4B5563' }
+      axisLabel: { rotate: 20, color: chartColors.textStrong }
     },
-    yAxis: { type: 'value', name: '错误率', max: 1, axisLabel: { formatter: (v: number) => `${Math.round(v * 100)}%`, color: '#6B7280' } },
+    yAxis: { type: 'value', name: '错误率', max: 1, axisLabel: { formatter: (v: number) => `${Math.round(v * 100)}%`, color: chartColors.textMuted } },
     series: [
       {
         type: 'bar',
         data: list.map((d) => d.error_rate),
-        itemStyle: { color: '#D97706', borderRadius: [6, 6, 0, 0] },
+        itemStyle: { color: chartColors.amber, borderRadius: [chartColors.radiusDetail, chartColors.radiusDetail, 0, 0] },
         barWidth: '48%'
       }
     ]
@@ -218,7 +220,7 @@ const typeOption = computed(() => ({
       type: 'pie',
       radius: '62%',
       data: typeOptionData.value,
-      label: { color: '#4B5563', formatter: '{b}：{c} 次' },
+      label: { color: chartColors.textStrong, formatter: '{b}：{c} 次' },
       itemStyle: { borderColor: '#fff', borderWidth: 2 }
     }
   ]
@@ -276,8 +278,8 @@ onMounted(() => {
   .dash-grid { grid-template-columns: 1fr; }
 }
 .kpi-row .repair-stat { flex: 1.5 1 200px; }
-.repair-bar { height: 7px; background: #EDF0F4; border-radius: 999px; overflow: hidden; margin-top: 9px; }
-.repair-bar > span { display: block; height: 100%; background: var(--green); border-radius: 999px; transition: width 0.35s ease; }
+.repair-bar { height: 7px; background: #EDF0F4; border-radius: var(--radius-pill); overflow: hidden; margin-top: 9px; }
+.repair-bar > span { display: block; height: 100%; background: var(--green); border-radius: var(--radius-pill); transition: width 0.35s ease; }
 .repair-sub { font-size: 12px; color: var(--text-2); margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) {
   .repair-bar > span { transition: none; }
@@ -288,8 +290,8 @@ onMounted(() => {
 .kp-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .kp-card-name { font-size: 14.5px; font-weight: 700; }
 .kp-card-rate { font-size: 18px; font-weight: 800; color: var(--amber); }
-.kp-card-bar { height: 7px; background: #EDF0F4; border-radius: 999px; overflow: hidden; }
-.kp-card-bar > span { display: block; height: 100%; background: var(--amber); border-radius: 999px; }
+.kp-card-bar { height: 7px; background: #EDF0F4; border-radius: var(--radius-pill); overflow: hidden; }
+.kp-card-bar > span { display: block; height: 100%; background: var(--amber); border-radius: var(--radius-pill); }
 .kp-card-meta { font-size: 12.5px; color: var(--text-2); margin-top: 7px; }
 
 .top-list { margin-top: 14px; border-top: 1px solid #F1F3F6; }

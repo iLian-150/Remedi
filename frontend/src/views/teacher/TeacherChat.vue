@@ -691,8 +691,8 @@ onMounted(async () => {
 
 <style scoped>
 /* 对话区保持连续、轻量的页面结构，避免多层卡片和边框分隔 */
-.tchat-shell { flex: 1; display: flex; flex-direction: column; height: 100dvh; padding: 0; background: var(--bg); }
-.tchat-col { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: var(--content-frame-width); margin: 0 auto; padding: var(--content-frame-gutter); min-height: 0; }
+.tchat-shell { flex: 1; display: flex; flex-direction: column; height: 100dvh; padding: clamp(16px, 2.2vw, 28px); background: var(--bg); }
+.tchat-col { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 960px; margin: 0 auto; min-height: 0; }
 
 .tchat-panel {
   background: transparent; display: flex; flex-direction: column;
@@ -701,9 +701,10 @@ onMounted(async () => {
 }
 .tchat-panel-welcome { justify-content: center; }
 /* 底部留白给悬浮输入卡让位，最后的消息不被卡片遮住 */
-.tchat-body { flex: 1; overflow-y: auto; padding: 18px var(--content-frame-gutter) 118px; background: transparent; }
-.tchat-body-welcome { flex: 0 1 auto; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; padding: 0 var(--content-frame-gutter); overflow: visible; background: transparent; }
-.tchat-panel-welcome :deep(.chat-composer) { position: relative; right: auto; bottom: auto; left: auto; width: 100%; padding: 22px 0 30px; }
+.tchat-body { flex: 1; overflow-y: auto; padding: 18px 20px 118px; background: transparent; }
+.tchat-body-welcome { flex: 0 1 auto; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; padding: 0 24px; overflow: visible; background: transparent; }
+.tchat-panel-welcome :deep(.chat-composer) { position: relative; right: auto; bottom: auto; left: auto; width: 100%; padding: 22px clamp(20px, 4vw, 72px) 30px; }
+.tchat-panel-welcome :deep(.chat-composer .chat-inner) { max-width: 860px; padding: 0; }
 .history-pager { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 16px; }
 .history-pager-button { min-height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 7px 14px; background: var(--card); color: var(--primary-dark); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .history-pager-button:disabled { opacity: 0.55; cursor: wait; }
@@ -732,8 +733,8 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: min(640px, 100%);
-  margin-top: 14px;
-  gap: 8px;
+  margin-top: 18px;
+  gap: 10px;
 }
 .welcome-prompts button {
   min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-control);
@@ -777,12 +778,11 @@ onMounted(async () => {
   .suggest-chip { animation: none; }
 }
 @media (max-width: 960px) {
-  .tchat-shell { height: calc(100dvh - 52px); padding: 0; }
-  .tchat-col { padding: var(--content-frame-gutter-compact); }
+  .tchat-shell { height: calc(100dvh - 52px); padding: 14px 14px 16px; }
   .tchat-panel { min-height: 0; }
   .tchat-panel-welcome { justify-content: center; }
-  .tchat-panel-welcome :deep(.chat-composer) { padding: 20px 0 24px; }
-  .tchat-body-welcome { padding: 0 var(--content-frame-gutter-compact); }
+  .tchat-panel-welcome :deep(.chat-composer) { padding: 20px 18px 24px; }
+  .tchat-body-welcome { padding: 0 16px; }
   .bubble { max-width: 88%; }
   .msg-content { max-width: 88%; }
   .msg-content.has-workflow { width: 100%; max-width: none; }
@@ -790,10 +790,9 @@ onMounted(async () => {
   .tchat-body-image-composer { padding-bottom: 220px; }
 }
 @media (max-width: 600px) {
-  .welcome-prompts { grid-template-columns: 1fr; }
-  .tchat-shell { padding: 0; }
-  .tchat-col { padding: var(--content-frame-gutter-compact); }
-  .tchat-body { padding-right: var(--content-frame-gutter-compact); padding-left: var(--content-frame-gutter-compact); }
-  .tchat-panel-welcome :deep(.chat-composer) { padding: 16px 0 18px; }
+  .welcome-prompts { grid-template-columns: 1fr; margin-top: 14px; gap: 7px; }
+  .tchat-shell { padding: 12px 10px; }
+  .tchat-body { padding-right: 12px; padding-left: 12px; }
+  .tchat-panel-welcome :deep(.chat-composer) { padding: 16px 10px 18px; }
 }
 </style>

@@ -90,7 +90,7 @@ onBeforeUnmount(() => {
   padding: 8px 10px 8px 13px;
   transform: translateX(-50%);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--card);
   box-shadow: var(--shadow-md);
   color: var(--text-2);
@@ -99,7 +99,7 @@ onBeforeUnmount(() => {
 }
 
 .app-update-notice > svg { color: var(--primary); }
-.app-update-notice .btn { padding: 5px 12px; border-radius: 999px; }
+.app-update-notice .btn { padding: 5px 12px; border-radius: var(--radius-pill); }
 .app-update-notice .icon-btn { width: 28px; height: 28px; }
 
 @media (max-width: 480px) {

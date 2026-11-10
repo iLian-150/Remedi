@@ -533,19 +533,19 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .feedback:empty { display: none; }
 .feedback p { margin: 0 0 12px; }
 .notice, .warning { padding: 11px 14px; border-radius: var(--radius-control); font-size: 13px; line-height: 1.6; }
-.notice { color: #166534; background: #f0fdf4; }
-.warning { color: #92400e; background: #fffbeb; }
+.notice { color: var(--green-strong); background: var(--green-bg); }
+.warning { color: var(--amber-strong); background: var(--amber-bg); }
 .bookshelf-panel { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface); background: linear-gradient(180deg, #fff 0%, #FAFBFE 100%); box-shadow: var(--shadow); }
 .shelf-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 26px 18px; border-bottom: 1px solid rgba(223, 229, 239, .82); }
 .shelf-title-line { display: flex; align-items: center; gap: 12px; }
 .shelf-title-line h3, .search-heading h3 { margin: 0; color: var(--text); font-size: 17px; }
-.document-count { padding: 4px 9px; border-radius: 999px; background: #EFF4FF; color: #3157A5; font-size: 12px; font-weight: 700; }
+.document-count { padding: 4px 9px; border-radius: var(--radius-pill); background: var(--primary-50); color: var(--primary-dark); font-size: 12px; font-weight: 700; }
 .shelf-heading p, .search-heading p { margin: 6px 0 0; color: var(--text-3); font-size: 13px; }
 .shelf-scene { padding: 24px 28px 18px; background: radial-gradient(ellipse at 50% 0%, rgba(245, 238, 220, .52), transparent 68%); }
 .shelf-loading { display: grid; min-height: 230px; place-items: center; color: var(--text-3); font-size: 14px; }
 .books-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 148px)); align-items: end; justify-content: start; gap: 26px 24px; min-height: 226px; padding: 8px 6px 0; }
 .document-slot { min-width: 0; text-align: center; }
-.document-cover { position: relative; display: flex; width: 126px; height: 172px; flex-direction: column; align-items: stretch; margin: 0 auto; padding: 13px 12px 11px 16px; overflow: hidden; border: 0; border-radius: 3px 8px 8px 3px; color: #fff; text-align: left; cursor: pointer; box-shadow: inset 5px 0 10px rgba(0, 0, 0, .22), inset -2px 0 4px rgba(255, 255, 255, .18), 0 8px 18px rgba(19, 38, 72, .24); transition: transform .22s ease, box-shadow .22s ease; }
+.document-cover { position: relative; display: flex; width: 126px; height: 172px; flex-direction: column; align-items: stretch; margin: 0 auto; padding: 13px 12px 11px 16px; overflow: hidden; border: 0; border-radius: var(--radius-book); color: #fff; text-align: left; cursor: pointer; box-shadow: inset 5px 0 10px rgba(0, 0, 0, .22), inset -2px 0 4px rgba(255, 255, 255, .18), 0 8px 18px rgba(19, 38, 72, .24); transition: transform .22s ease, box-shadow .22s ease; }
 .document-cover::before { position: absolute; inset: 0 auto 0 8px; width: 1px; background: rgba(255,255,255,.22); content: ''; }
 .document-cover::after { position: absolute; inset: 0; background: linear-gradient(108deg, rgba(255,255,255,.13), transparent 35%, transparent 76%, rgba(0,0,0,.12)); content: ''; pointer-events: none; }
 .document-cover:hover { transform: translateY(-7px) rotate(-1deg); box-shadow: inset 5px 0 10px rgba(0, 0, 0, .22), 0 14px 22px rgba(19, 38, 72, .27); }
@@ -567,7 +567,7 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .add-plus { font-size: 34px; font-weight: 300; line-height: 1; }
 .add-document-card b { font-size: 13px; }
 .add-document-card small { color: var(--text-3); font-size: 10px; line-height: 1.4; }
-.shelf-board { height: 13px; margin-top: 3px; border-radius: 3px; background: linear-gradient(180deg, #C99D70 0%, #A97A4D 55%, #87582F 100%); box-shadow: 0 10px 15px rgba(90, 58, 25, .2), inset 0 1px 0 rgba(255,255,255,.48); }
+.shelf-board { height: 13px; margin-top: 3px; border-radius: var(--radius-micro); background: linear-gradient(180deg, #C99D70 0%, #A97A4D 55%, #87582F 100%); box-shadow: 0 10px 15px rgba(90, 58, 25, .2), inset 0 1px 0 rgba(255,255,255,.48); }
 .search-panel { margin-top: 20px; padding: 20px 24px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
 .search-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .search-mark { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); font-size: 27px; line-height: 1; }
@@ -582,7 +582,7 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .search-result { padding: 15px 0; border-top: 1px solid #EDF0F5; }
 .result-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 14px; }
 .result-head b { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
-.citation { padding: 4px 8px; border-radius: 999px; background: #F0F4FB; color: #52647F; font-size: 11px; }
+.citation { padding: 4px 8px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-2); font-size: 11px; }
 .source { margin: 6px 0 0; color: var(--text-3); font-size: 12px; }
 .passage { margin: 9px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .modal-mask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 22px; background: rgba(15, 23, 42, .46); backdrop-filter: blur(4px); }
@@ -612,23 +612,23 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .dialog-input { height: 43px; padding: 0 12px; font-size: 13px; }
 .dialog-textarea { min-height: 150px; padding: 11px 12px; resize: vertical; font-size: 13px; line-height: 1.65; }
 .character-count { display: block; margin-top: 5px; color: var(--text-3); font-size: 11px; text-align: right; }
-.dialog-error { margin: 12px 0 0; color: #B42318; font-size: 12px; }
+.dialog-error { margin: 12px 0 0; color: var(--red-strong); font-size: 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #EDF0F5; }
 .cancel-button, .delete-button { padding: 9px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: #fff; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
 .cancel-button:hover { background: #F7F9FC; }
 .save-button { min-height: 40px; padding: 9px 16px; font-size: 13px; }
-.delete-button { margin-right: auto; border-color: #F4D1CF; color: #B42318; }
+.delete-button { margin-right: auto; border-color: #F4D1CF; color: var(--red-strong); }
 .delete-button:hover { background: #FFF6F5; }
 .delete-confirm-dialog { width: min(420px, 100%); padding: 25px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--card); box-shadow: var(--shadow-lg); animation: dialog-in .18s ease both; }
-.delete-confirm-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: #FFF0EF; color: #B42318; font-size: 22px; font-weight: 800; }
+.delete-confirm-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: var(--red-bg); color: var(--red-strong); font-size: 22px; font-weight: 800; }
 .delete-confirm-dialog h3 { margin: 16px 0 7px; color: var(--text); font-size: 18px; }
 .delete-confirm-dialog p { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
 .delete-confirm-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
-.confirm-delete-button { padding: 9px 14px; border: 1px solid #B42318; border-radius: var(--radius-control); background: #B42318; color: #fff; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.confirm-delete-button { padding: 9px 14px; border: 1px solid var(--red-strong); border-radius: var(--radius-control); background: var(--red-strong); color: #fff; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
 .confirm-delete-button:hover { border-color: #912018; background: #912018; }
 .confirm-delete-button:disabled, .cancel-button:disabled { opacity: .58; cursor: wait; }
 .delete-progress { display: grid; gap: 9px; margin-top: 16px; color: var(--text-2); font-size: 12px; }
-.delete-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: var(--border); }
+.delete-progress-track { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: var(--border); }
 .delete-progress-track > span { display: block; width: 36%; height: 100%; border-radius: inherit; background: var(--primary); animation: delete-progress 1.2s ease-in-out infinite; }
 .delete-progress-track.complete > span { width: 100%; animation: none; transition: width .2s ease; }
 .duplicate-import-mask { z-index: 330; }
@@ -637,7 +637,7 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 @keyframes delete-progress { 0% { transform: translateX(-105%); } 100% { transform: translateX(290%); } }
 .document-dialog { padding: 22px; }
 .document-dialog-head { display: flex; align-items: center; gap: 14px; }
-.preview-cover { display: grid; width: 54px; height: 70px; flex: 0 0 auto; place-items: center; border-radius: 3px 6px 6px 3px; color: #fff; font-size: 23px; font-weight: 800; box-shadow: inset 4px 0 8px rgba(0,0,0,.2), 0 5px 12px rgba(15,23,42,.2); }
+.preview-cover { display: grid; width: 54px; height: 70px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-book); color: #fff; font-size: 23px; font-weight: 800; box-shadow: inset 4px 0 8px rgba(0,0,0,.2), 0 5px 12px rgba(15,23,42,.2); }
 .preview-title { min-width: 0; flex: 1; }
 .preview-title h3 { overflow-wrap: anywhere; font-size: 18px; }
 .preview-title small { display: block; margin-top: 5px; color: var(--text-3); font-size: 11px; }

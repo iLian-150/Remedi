@@ -24,8 +24,8 @@
           <div v-if="confirmId === s.id" class="sb-confirm" role="group" aria-label="确认删除对话" :aria-busy="deletingId === s.id">
             <span class="sb-confirm-text">确认删除？</span>
             <div class="sb-confirm-actions">
-              <button class="sb-confirm-yes" type="button" :disabled="deletingId === s.id" @click="onRemove(s.id)">删除</button>
-              <button class="sb-confirm-no" type="button" :disabled="deletingId === s.id" @click="cancelRemove(s.id)">取消</button>
+              <button class="btn small danger sb-confirm-action" type="button" :disabled="deletingId === s.id" @click="onRemove(s.id)">删除</button>
+              <button class="btn small secondary sb-confirm-action" type="button" :disabled="deletingId === s.id" @click="cancelRemove(s.id)">取消</button>
             </div>
           </div>
           <template v-else>
@@ -134,8 +134,8 @@ function cancelRemove(id: number) {
   font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
   transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
-.sb-heading { flex-shrink: 0; padding: 7px 10px 9px; color: var(--sidebar-muted); font-size: 12px; font-weight: 650; line-height: 1.3; }
-.sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; display: flex; flex-direction: column; gap: 5px; }
+.sb-heading { flex-shrink: 0; padding: 7px 10px 9px; color: var(--sidebar-muted); font-size: 12.5px; font-weight: 650; line-height: 1.3; }
+.sb-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
 .sb-load-more {
@@ -150,56 +150,49 @@ function cancelRemove(id: number) {
 .sb-error button:disabled { opacity: 0.6; cursor: wait; }
 .sb-row {
   display: flex; align-items: center; gap: 4px;
-  border: 1px solid transparent; border-radius: var(--radius-control); padding: 2px 4px 2px 2px;
+  width: 100%; border: 1px solid transparent; border-radius: var(--radius-control); padding: 2px 4px;
   background: transparent; transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 @media (hover: hover) {
-  .sb-row:hover:not(.active):not(.confirming) { background: var(--sidebar-hover); border-color: var(--sidebar-border); }
+  .sb-row:hover:not(.active):not(.confirming) { background: var(--sidebar-hover); }
 }
-.sb-row.active { background: var(--sidebar-active); border-color: var(--blue-bg); }
+.sb-row.active { background: var(--sidebar-active); }
+.sb-row:focus-within { background: var(--sidebar-hover); }
+.sb-row.active:focus-within { background: var(--sidebar-active); }
 .sb-row.confirming {
-  align-self: flex-start; width: fit-content; max-width: 100%; min-width: 0;
-  background: var(--red-bg); border-color: #FECACA; padding: 6px 8px; gap: 8px;
+  align-self: stretch; min-width: 0;
+  background: var(--red-bg); border-color: var(--red-border); padding: 6px 8px; gap: 8px;
 }
 .sb-main {
   display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px;
   text-align: left; background: none; border: none; cursor: pointer;
   font-family: var(--font); color: var(--text);
-  min-height: 42px; padding: 6px 8px; border-radius: var(--radius-detail);
+  min-height: 46px; padding: 6px 8px; border-radius: var(--radius-detail);
 }
 .sb-title {
-  display: block; width: 100%; font-size: 13.5px;
+  display: block; width: 100%; font-size: 14px; line-height: 1.35;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sb-time { display: block; width: 100%; color: var(--text-3); font-size: 11px; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.sb-time { display: block; width: 100%; color: var(--text-3); font-size: 11.5px; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .sb-row.active .sb-title { color: var(--primary-dark); font-weight: 650; }
 .sb-trash {
-  width: 34px; height: 34px; flex-shrink: 0; background: transparent; border: none; cursor: pointer;
+  width: 36px; height: 36px; flex-shrink: 0; background: transparent; border: 1px solid transparent; cursor: pointer;
   color: var(--text-3); display: inline-flex; align-items: center; justify-content: center;
   padding: 5px; border-radius: var(--radius-detail);
   opacity: 0; transition: opacity 0.18s ease, color 0.18s ease, background 0.18s ease;
 }
 @media (hover: hover) { .sb-row:hover .sb-trash { opacity: 1; } }
 .sb-row.active .sb-trash, .sb-row:focus-within .sb-trash { opacity: 1; }
-@media (hover: hover) { .sb-trash:hover { color: var(--red); background: #fff; } }
+@media (hover: hover) { .sb-trash:hover { color: var(--red); background: var(--red-bg); } }
 @media (hover: none) { .sb-trash { opacity: 0.8; } }
-.sb-confirm { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.sb-confirm { display: flex; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
 .sb-confirm-text {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 12.5px; font-weight: 600; color: #991B1B;
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12.5px; font-weight: 600; color: var(--red-strong);
 }
-.sb-confirm-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; }
-.sb-confirm-yes {
-  display: inline-flex; min-width: 48px; min-height: 32px; align-items: center; justify-content: center;
-  border: none; background: var(--red); color: #fff; cursor: pointer;
-  border-radius: var(--radius-detail); padding: 0 10px; font-size: 12px; font-weight: 600; font-family: var(--font); line-height: 1;
-}
-.sb-confirm-no {
-  display: inline-flex; min-width: 48px; min-height: 32px; align-items: center; justify-content: center;
-  border: 1px solid var(--border); background: #fff; color: var(--text-2); cursor: pointer;
-  border-radius: var(--radius-detail); padding: 0 10px; font-size: 12px; font-family: var(--font); line-height: 1;
-}
-.sb-confirm-yes:disabled, .sb-confirm-no:disabled { opacity: 1; cursor: wait; }
+.sb-confirm-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.sb-confirm-action { width: 58px; min-width: 58px; height: 36px; min-height: 36px; flex: 0 0 58px; padding: 7px 8px; white-space: nowrap; }
+.sb-confirm-action:disabled { opacity: 0.7; cursor: wait; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .sb-trash, .sb-new-btn { transition: none; }
 }

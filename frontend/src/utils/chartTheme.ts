@@ -7,6 +7,7 @@ export interface ChartColors {
   textMuted: string
   border: string
   surface: string
+  radiusDetail: number
 }
 
 const FALLBACK_COLORS: ChartColors = {
@@ -18,6 +19,7 @@ const FALLBACK_COLORS: ChartColors = {
   textMuted: '#6B7280',
   border: '#E5E7EB',
   surface: '#FFFFFF',
+  radiusDetail: 6,
 }
 
 export function readChartColors(): ChartColors {
@@ -25,6 +27,7 @@ export function readChartColors(): ChartColors {
 
   const styles = window.getComputedStyle(document.documentElement)
   const read = (token: string, fallback: string) => styles.getPropertyValue(token).trim() || fallback
+  const radiusDetail = Number.parseFloat(read('--radius-detail', `${FALLBACK_COLORS.radiusDetail}px`))
 
   return {
     primary: read('--primary', FALLBACK_COLORS.primary),
@@ -35,5 +38,6 @@ export function readChartColors(): ChartColors {
     textMuted: read('--text-2', FALLBACK_COLORS.textMuted),
     border: read('--border', FALLBACK_COLORS.border),
     surface: read('--card', FALLBACK_COLORS.surface),
+    radiusDetail: Number.isFinite(radiusDetail) ? radiusDetail : FALLBACK_COLORS.radiusDetail,
   }
 }

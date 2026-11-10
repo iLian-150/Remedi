@@ -261,7 +261,7 @@ onMounted(async () => {
   min-height: 190px;
 }
 .shelf-board {
-  height: 13px; border-radius: 3px; margin-top: 2px;
+  height: 13px; border-radius: var(--radius-micro); margin-top: 2px;
   background: linear-gradient(180deg, #C89B6D 0%, #A97C50 55%, #8A5A33 100%);
   box-shadow: 0 10px 14px rgba(90, 58, 25, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
@@ -274,14 +274,14 @@ onMounted(async () => {
 .book:hover { transform: translateY(-7px); }
 .book-cover {
   width: 104px; height: 140px; object-fit: cover; display: block;
-  border-radius: 2px 7px 7px 2px;
+  border-radius: var(--radius-book);
   box-shadow:
     inset 4px 0 8px rgba(0, 0, 0, 0.18),
     0 6px 14px rgba(15, 23, 42, 0.22);
 }
 .book-spine {
   width: 104px; height: 140px; display: flex; align-items: center; justify-content: center;
-  border-radius: 2px 7px 7px 2px;
+  border-radius: var(--radius-book);
   box-shadow:
     inset 4px 0 8px rgba(0, 0, 0, 0.22),
     inset -2px 0 4px rgba(255, 255, 255, 0.18),
@@ -327,12 +327,12 @@ onMounted(async () => {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .modal-book-head { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
-.modal-cover { width: 52px; height: 70px; object-fit: cover; border-radius: 2px 5px 5px 2px; box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2); }
-.modal-spine { width: 52px; height: 70px; border-radius: 2px 5px 5px 2px; flex-shrink: 0; box-shadow: inset 3px 0 6px rgba(0, 0, 0, 0.22); }
+.modal-cover { width: 52px; height: 70px; object-fit: cover; border-radius: var(--radius-book); box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2); }
+.modal-spine { width: 52px; height: 70px; border-radius: var(--radius-book); flex-shrink: 0; box-shadow: inset 3px 0 6px rgba(0, 0, 0, 0.22); }
 .modal-title { font-size: 16.5px; font-weight: 700; }
 .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 .modal-actions a.btn { text-decoration: none; }
-.btn.danger-outline { background: #fff; color: var(--red); border: 1px solid #FECACA; }
+.btn.danger-outline { background: #fff; color: var(--red); border: 1px solid var(--red-border); }
 .btn.danger-outline:hover { background: var(--red-bg); }
 .btn.danger { background: var(--red); color: #fff; }
 @media (prefers-reduced-motion: reduce) {

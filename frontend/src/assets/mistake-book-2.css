@@ -42,7 +42,7 @@
   gap: 2px;
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.941);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.071);
   backdrop-filter: blur(10px);
@@ -53,7 +53,7 @@
   height: 30px;
   padding: 0 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-2);
   background: transparent;
   cursor: pointer;
@@ -110,7 +110,7 @@
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--bg);
-  border-radius: 16px;
+  border-radius: var(--radius-surface);
   background: var(--card);
   cursor: grab;
   touch-action: none;
@@ -127,7 +127,7 @@
   position: absolute;
   z-index: 8;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--border);
   cursor: pointer;
   touch-action: none;
@@ -271,7 +271,7 @@
   height: 96px;
   gap: 4px;
   border: 0;
-  border-radius: 20px;
+  border-radius: var(--radius-surface);
   color: var(--bg);
   background: linear-gradient(150deg, var(--text) 0%, var(--text) 100%);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.122), 0 14px 34px rgba(31, 41, 55, 0.161);
@@ -308,7 +308,7 @@
   padding: 8px 12px 8px 15px;
   border: 1px solid var(--bg);
   border-left: 3px solid var(--accent, var(--primary));
-  border-radius: 13px;
+  border-radius: var(--radius-surface);
   color: var(--text);
   background: var(--card);
   box-shadow: 0 1px 2px rgba(31, 41, 55, 0.031), 0 6px 18px rgba(31, 41, 55, 0.039);
@@ -346,7 +346,7 @@
   gap: 3px;
   padding: 8px 12px;
   border: 1px solid var(--bg);
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   color: var(--text);
   background: var(--card);
   box-shadow: 0 1px 2px rgba(31, 41, 55, 0.024), 0 4px 14px rgba(31, 41, 55, 0.031);
@@ -386,7 +386,7 @@
 }
 
 .remedi-mistake-book .mistake-map-leaf-node small, .remedi-mistake-book.mistake-map-leaf-node small {
-  color: color-mix(in srgb, var(--accent, #92400E) 80%, var(--text-3));
+  color: color-mix(in srgb, var(--accent, var(--amber-strong)) 80%, var(--text-3));
 }
 
 .remedi-mistake-book .mistake-map-leaf-node.studied, .remedi-mistake-book.mistake-map-leaf-node.studied {
@@ -433,7 +433,7 @@
   }
 
   .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book.mistake-map-viewport {
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
   }
 
   .remedi-mistake-book .mistake-map-section.is-split, .remedi-mistake-book.mistake-map-section.is-split {
@@ -499,7 +499,7 @@
     margin: 0;
     padding: 6px;
     border: 1px solid var(--bg);
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
     background: rgba(255, 255, 255, 0.941);
     box-shadow: 0 4px 16px rgba(31, 41, 55, 0.051);
     backdrop-filter: blur(10px);
@@ -513,7 +513,7 @@
     gap: 7px;
     padding: 6px 10px;
     border: 1px solid var(--bg);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     color: var(--text-2);
     background: var(--card);
     cursor: pointer;
@@ -584,7 +584,7 @@
   height: 36px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--text);
   background: rgba(255, 255, 255, 0.941);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.063);
@@ -609,7 +609,7 @@
   gap: 10px;
   padding: 9px 10px 9px 13px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: rgba(255, 255, 255, 0.929);
   box-shadow: 0 8px 25px rgba(31, 41, 55, 0.086);
   color: var(--text);
@@ -618,11 +618,11 @@
 }
 
 .remedi-mistake-book .mistake-removal-notice span, .remedi-mistake-book.mistake-removal-notice span { min-width: 0; line-height: 1.5; }
-.remedi-mistake-book .mistake-removal-notice em, .remedi-mistake-book.mistake-removal-notice em { display: block; color: #991B1B; font-style: normal; }
+.remedi-mistake-book .mistake-removal-notice em, .remedi-mistake-book.mistake-removal-notice em { display: block; color: var(--red-strong); font-style: normal; }
 .remedi-mistake-book .mistake-removal-notice button, .remedi-mistake-book.mistake-removal-notice button {
   padding: 4px 6px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-detail);
   background: transparent;
   color: var(--text);
   font-size: 11px;
@@ -641,7 +641,7 @@
   justify-content: center;
   gap: 8px;
   border: 1px solid var(--bg);
-  border-radius: 16px;
+  border-radius: var(--radius-surface);
   color: var(--text-3);
   background: var(--card);
   font-size: 12px;
@@ -662,7 +662,7 @@
   gap: 2px;
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.941);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.063);
   backdrop-filter: blur(10px);
@@ -672,7 +672,7 @@
   min-width: 74px;
   padding: 6px 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-2);
   background: transparent;
   cursor: pointer;
@@ -749,7 +749,7 @@
   gap: 2px;
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.941);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.071);
   backdrop-filter: blur(10px);
@@ -760,7 +760,7 @@
   height: 30px;
   padding: 0 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-2);
   background: transparent;
   cursor: pointer;
@@ -816,7 +816,7 @@
   margin: 0;
   padding: 5px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.941);
   box-shadow: 0 2px 6px rgba(31, 41, 55, 0.039), 0 10px 28px rgba(31, 41, 55, 0.063);
   backdrop-filter: blur(10px);
@@ -836,7 +836,7 @@
   box-sizing: border-box;
   padding: 5px 14px 5px 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   outline: 0;
   color: var(--text);
   background: var(--bg);
@@ -849,7 +849,7 @@
 .remedi-mistake-book .mistake-network-topic-nav button, .remedi-mistake-book.mistake-network-topic-nav button {
   padding: 5px 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-2);
   background: transparent;
   cursor: pointer;
@@ -879,7 +879,7 @@
   contain: paint;
   isolation: isolate;
   border: 1px solid var(--bg);
-  border-radius: 16px;
+  border-radius: var(--radius-surface);
   background: var(--card);
   cursor: grab;
   scrollbar-color: var(--border) transparent;
@@ -1038,7 +1038,7 @@
   justify-content: center;
   padding: 10px 14px 10px 28px;
   border: 1px solid var(--bg);
-  border-radius: 13px;
+  border-radius: var(--radius-surface);
   color: var(--text);
   background: var(--card);
   box-shadow: 0 1px 2px rgba(31, 41, 55, 0.031), 0 6px 18px rgba(31, 41, 55, 0.039);
@@ -1122,7 +1122,7 @@
 }
 
 .remedi-mistake-book .mistake-network-node.leaf-node small, .remedi-mistake-book.mistake-network-node.leaf-node small {
-  color: #92400E;
+  color: var(--amber-strong);
 }
 
 .remedi-mistake-book .mistake-network-node.leaf-node.studied, .remedi-mistake-book.mistake-network-node.leaf-node.studied {
@@ -1253,13 +1253,13 @@
     right: 10px;
     left: 10px;
     max-width: none;
-    border-radius: 14px;
+    border-radius: var(--radius-surface);
   }
 
   .remedi-mistake-book .mistake-network-viewport, .remedi-mistake-book.mistake-network-viewport {
     height: calc(100dvh - 124px);
     min-height: 380px;
-    border-radius: 12px;
+    border-radius: var(--radius-surface);
   }
 
   .remedi-mistake-book .mistake-network.is-split, .remedi-mistake-book.mistake-network.is-split {
@@ -1297,7 +1297,7 @@
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-surface);
   background: var(--card);
   box-shadow: 0 8px 24px rgba(31, 41, 55, 0.039);
 }
@@ -1326,7 +1326,7 @@
   place-items: center;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--text-2);
   background: var(--card);
   cursor: pointer;
@@ -1372,7 +1372,7 @@
   place-items: center;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--text-2);
   background: var(--card);
   cursor: pointer;
@@ -1394,7 +1394,7 @@
   margin: 12px 14px 0;
   padding: 12px;
   border: 1px solid var(--amber-bg);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--card);
   overflow: hidden;
 }
@@ -1430,7 +1430,7 @@
   place-items: center;
   padding: 0;
   border: 1px solid var(--amber-bg);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   color: var(--text);
   background: var(--card);
   cursor: pointer;
@@ -1455,7 +1455,7 @@
   margin: 10px 14px 0;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   color: var(--text);
   background: var(--bg);
   font-size: 11px;
@@ -1476,7 +1476,7 @@
   margin-top: 10px;
   padding: 9px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--card);
 }
 .remedi-mistake-book .mistake-point-related-assignments > strong, .remedi-mistake-book.mistake-point-related-assignments > strong {
@@ -1499,7 +1499,7 @@
   flex: 0 0 auto;
   padding: 3px 7px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-detail);
   color: var(--text);
   background: var(--card);
   cursor: pointer;
@@ -1512,7 +1512,7 @@
   margin-top: 10px;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--card);
 }
 
@@ -1557,7 +1557,7 @@
 .remedi-mistake-book .mistake-point-summary-actions button, .remedi-mistake-book.mistake-point-summary-actions button {
   padding: 6px 9px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   color: var(--text);
   background: var(--card);
   cursor: pointer;
@@ -1611,7 +1611,7 @@
   margin: 0 auto;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   color: var(--text-2);
   background: var(--card);
 }
@@ -1628,7 +1628,7 @@
   height: 34px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--text-2);
   background: var(--bg);
 }
@@ -1661,7 +1661,7 @@
 .remedi-mistake-book .mistake-point-quick-questions button, .remedi-mistake-book.mistake-point-quick-questions button {
   padding: 5px 9px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text);
   background: var(--card);
   cursor: pointer;
@@ -1681,7 +1681,7 @@
   padding: 13px 15px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--green);
-  border-radius: 4px 11px 11px 4px;
+  border-radius: var(--radius-control);
   color: var(--text);
   background: var(--card);
   overflow-wrap: anywhere;
@@ -1722,7 +1722,7 @@
 
 .remedi-mistake-book .mistake-point-chat-error, .remedi-mistake-book.mistake-point-chat-error {
   margin: 7px 2px;
-  color: #991B1B;
+  color: var(--red-strong);
   font-size: 10px;
   line-height: 1.5;
 }
@@ -1742,7 +1742,7 @@
   margin: 0 auto;
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 13px;
+  border-radius: var(--radius-surface);
   background: var(--card);
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
@@ -1760,7 +1760,7 @@
   resize: vertical;
   padding: 7px 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   outline: none;
   color: var(--text);
   background: transparent;
@@ -1776,7 +1776,7 @@
   height: 36px;
   padding: 0 13px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   color: var(--card);
   background: var(--text);
   cursor: pointer;

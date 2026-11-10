@@ -120,6 +120,6 @@ function goToday() {
 .cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
 .cal-count {
   font-size: 10.5px; font-weight: 700; color: var(--primary);
-  background: var(--blue-bg); border-radius: 999px; padding: 0 5px; line-height: 14px;
+  background: var(--blue-bg); border-radius: var(--radius-pill); padding: 0 5px; line-height: 14px;
 }
 </style>

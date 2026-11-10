@@ -14,27 +14,33 @@
         <h2>登录 Remedi</h2>
         <div class="form-row">
           <label>我是</label>
-          <div class="role-btns">
+          <div class="role-btns" :class="`is-${role}`" role="group" aria-label="选择身份">
+            <span class="role-indicator" aria-hidden="true"></span>
             <button type="button" class="btn inline-icon role-choice" :class="{ selected: role === 'teacher' }" :aria-pressed="role === 'teacher'" :disabled="loading" @click="switchRole('teacher')"><AppIcon name="cap" :size="18" /> 教师</button>
             <button type="button" class="btn inline-icon role-choice" :class="{ selected: role === 'student' }" :aria-pressed="role === 'student'" :disabled="loading" @click="switchRole('student')"><AppIcon name="book" :size="18" /> 学生</button>
           </div>
         </div>
 
-        <div v-if="role === 'student'" class="form-row">
-          <label for="student-name">学生姓名</label>
-          <input id="student-name" v-model="username" type="text" :disabled="loading" placeholder="按班级名册填写" autocomplete="off" />
-        </div>
-
-        <div v-if="role === 'student'" class="form-row">
-          <label for="student-number">学号</label>
-          <input id="student-number" v-model="studentNo" type="text" :disabled="loading" placeholder="输入班级名册中的学号" autocomplete="off" />
-        </div>
-        <div v-else class="form-row">
-          <label for="teacher-subject">任教学科</label>
-          <select id="teacher-subject" v-model="teacherSubject" :disabled="loading">
-            <option v-for="item in subjects" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </div>
+        <Transition name="role-fields" mode="out-in">
+          <div v-if="role === 'student'" key="student" class="role-fields">
+            <div class="form-row">
+              <label for="student-name">学生姓名</label>
+              <input id="student-name" v-model="username" type="text" :disabled="loading" placeholder="按班级名册填写" autocomplete="off" />
+            </div>
+            <div class="form-row">
+              <label for="student-number">学号</label>
+              <input id="student-number" v-model="studentNo" type="text" :disabled="loading" placeholder="输入班级名册中的学号" autocomplete="off" />
+            </div>
+          </div>
+          <div v-else key="teacher" class="role-fields">
+            <div class="form-row">
+              <label for="teacher-subject">任教学科</label>
+              <select id="teacher-subject" v-model="teacherSubject" :disabled="loading">
+                <option v-for="item in subjects" :key="item.value" :value="item.value">{{ item.label }}</option>
+              </select>
+            </div>
+          </div>
+        </Transition>
 
         <div v-if="error" class="error-msg" role="alert">{{ error }}</div>
 
@@ -149,17 +155,32 @@ async function login() {
 .login-card .form-row { margin-bottom: 20px; }
 .login-card .form-row > label { font-size: 13px; color: var(--text-strong); }
 .role-btns {
+  position: relative; isolation: isolate;
   display: flex; gap: var(--control-inset); padding: var(--control-inset);
-  border: 1px solid var(--border); border-radius: var(--radius-toolbar); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface-2);
 }
+.role-indicator {
+  position: absolute; z-index: 0; top: var(--control-inset); bottom: var(--control-inset);
+  left: calc(var(--control-inset) + 1px); width: calc(50% - 7px);
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); box-shadow: var(--shadow);
+  transition: transform 0.36s cubic-bezier(0.2, 0.72, 0.25, 1);
+}
+.role-btns.is-student .role-indicator { transform: translateX(calc(100% + var(--control-inset))); }
 .role-btns .role-choice {
-  flex: 1; min-height: 42px; border: 1px solid transparent; border-radius: var(--radius-toolbar-control);
+  position: relative; z-index: 1; flex: 1; min-height: 42px; border: 1px solid transparent; border-radius: var(--radius-control);
   background: transparent; color: var(--text-2); box-shadow: none; transform: none;
+  transition: color 0.2s ease;
 }
-.role-btns .role-choice.selected { background: #fff; border-color: var(--border); color: var(--primary-dark); box-shadow: var(--shadow); }
+.role-btns .role-choice.selected { background: transparent; border-color: transparent; color: var(--primary-dark); box-shadow: none; }
 .role-btns .role-choice:disabled { opacity: 0.6; }
-@media (hover: hover) { .role-btns .role-choice:hover:not(:disabled) { background: #fff; color: var(--primary-dark); box-shadow: var(--shadow); transform: none; } }
+.role-fields-enter-active, .role-fields-leave-active { transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.2, 0.72, 0.25, 1); }
+.role-fields-enter-from { opacity: 0; transform: translateY(8px); }
+.role-fields-leave-to { opacity: 0; transform: translateY(-5px); }
+@media (hover: hover) { .role-btns .role-choice:hover:not(:disabled) { background: transparent; color: var(--primary-dark); box-shadow: none; transform: none; } }
 .login-card .full { margin-top: 4px; min-height: 48px; }
+@media (prefers-reduced-motion: reduce) {
+  .role-indicator, .role-fields-enter-active, .role-fields-leave-active { transition: none; }
+}
 @media (max-width: 760px) {
   .login-page { width: 100vw; max-width: 100vw; padding: 18px 14px; }
   .login-layout { grid-template-columns: 1fr; width: min(520px, calc(100vw - 28px)); min-height: 0; max-width: 520px; border-radius: var(--radius-panel); }

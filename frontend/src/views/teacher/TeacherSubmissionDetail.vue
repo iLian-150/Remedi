@@ -162,5 +162,5 @@ onMounted(async () => {
 .conf-text { font-size: 13px; color: #5f6b7a; margin-left: 8px; }
 .detail { margin-top: 10px; font-size: 14px; color: #3d4650; }
 .corrected-note { margin-top: 10px; font-size: 13px; color: #b07d1b; }
-.ok-msg { color: #1e7e34; background: #e6f4ea; padding: 10px 14px; border-radius: var(--radius-control); margin-bottom: 12px; font-size: 14px; }
+.ok-msg { color: var(--green-strong); background: var(--green-bg); padding: 10px 14px; border-radius: var(--radius-control); margin-bottom: 12px; font-size: 14px; }
 </style>

@@ -176,7 +176,7 @@ const questionOption = computed(() => {
     series: [{
       type: 'bar',
       data: questions.map((question) => question.average_score_rate === null ? null : Math.round(question.average_score_rate * 100)),
-      itemStyle: { color: chartColors.primary, borderRadius: [0, 6, 6, 0] },
+      itemStyle: { color: chartColors.primary, borderRadius: [0, chartColors.radiusDetail, chartColors.radiusDetail, 0] },
       barMaxWidth: 26,
       label: { show: true, position: 'right', formatter: (item: { value: number | null }) => item.value === null ? '' : `${item.value}%`, color: chartColors.textMuted }
     }]

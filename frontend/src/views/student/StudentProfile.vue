@@ -1,8 +1,4 @@
-<!-- 学生端：我的档案（v0.9.0 黑板化重做，数据与接口不变）
-     主体是一块大黑板：木框 + 黑板绿板面，个人信息、学习数据、知识点掌握度
-     全部用「粉笔字」写在板上（楷体字栈 + 粉笔晕染阴影，重点数字用粉笔黄/粉笔粉点缀，
-     掌握度是粉笔横条 + 虚线刻度）；老师的建议是板下角的粉笔「老师寄语」。
-     板下方用课表式网格展示错误轨迹「成长记录表」，并保留问题类型分布图表卡。
+<!-- 学生端：我的档案。概览、掌握度和记录沿用全站卡片与状态色。
      文案伦理：学生端用「需要加固的知识点」「已订正」「继续保持」，不出现贴标签术语；
      「已订正」口径 = 本机提交订正且判定正确；知识点「已修复」以学习报告为准。 -->
 <template>
@@ -17,13 +13,12 @@
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="profile">
-      <!-- ================= 大黑板 ================= -->
-      <section class="board-frame">
-        <div class="board">
-          <div class="board-identity">
-            <div class="chalk-name chalk">{{ profile.student.name }}</div>
-            <p class="chalk-meta chalk-dim">
-              学号 <span class="chalk tnum">{{ profile.student.student_no || '—' }}</span>
+      <section class="profile-summary-card">
+        <div class="profile-summary">
+          <div class="profile-identity">
+            <div class="profile-name">{{ profile.student.name }}</div>
+            <p class="profile-meta">
+              学号 <span class="tnum">{{ profile.student.student_no || '—' }}</span>
               · 身份 学生
               <template v-if="profile.student.created_at">
                 · {{ fmtDate(profile.student.created_at) }} 来到 Remedi
@@ -31,57 +26,46 @@
             </p>
           </div>
 
-          <div class="chalk-divider"></div>
+          <div class="profile-divider"></div>
 
-          <!-- 黑板上的学习数据（粉笔数字） -->
-          <div class="board-stats">
-            <div class="board-stat">
-              <div class="board-stat-num chalk tnum">{{ totalAttempts }}</div>
-              <div class="board-stat-label chalk-dim">累计作答</div>
+          <div class="profile-stats">
+            <div class="profile-stat">
+              <div class="profile-stat-num tnum">{{ totalAttempts }}</div>
+              <div class="profile-stat-label">累计作答</div>
             </div>
-            <div class="board-stat">
-              <div class="board-stat-num chalk tnum">{{ totalErrors }}</div>
-              <div class="board-stat-label chalk-dim">累计发现问题</div>
+            <div class="profile-stat">
+              <div class="profile-stat-num tnum">{{ totalErrors }}</div>
+              <div class="profile-stat-label">累计发现问题</div>
             </div>
-            <div class="board-stat">
-              <div class="board-stat-num chalk chalk-yellow tnum">{{ reinforcingCount }}</div>
-              <div class="board-stat-label chalk-dim">加固中</div>
+            <div class="profile-stat">
+              <div class="profile-stat-num profile-amber tnum">{{ reinforcingCount }}</div>
+              <div class="profile-stat-label">加固中</div>
             </div>
-            <div class="board-stat">
-              <div class="board-stat-num chalk chalk-green tnum">{{ fixedIds.size }}</div>
-              <div class="board-stat-label chalk-dim">已订正错题</div>
+            <div class="profile-stat">
+              <div class="profile-stat-num profile-green tnum">{{ fixedIds.size }}</div>
+              <div class="profile-stat-label">已订正错题</div>
             </div>
           </div>
 
-          <!-- 知识点掌握度：粉笔条 -->
-          <div class="board-mastery" v-if="profile.knowledge_points.length">
-            <p class="board-section-title chalk">知识点掌握度</p>
-            <div v-for="k in profile.knowledge_points" :key="k.knowledge_point" class="chalk-row">
-              <span class="chalk-kp chalk">{{ k.knowledge_point }}</span>
-              <span class="chalk-track">
+          <div class="profile-mastery" v-if="profile.knowledge_points.length">
+            <p class="profile-section-title">知识点掌握度</p>
+            <div v-for="k in profile.knowledge_points" :key="k.knowledge_point" class="mastery-row">
+              <span class="mastery-point">{{ k.knowledge_point }}</span>
+              <span class="mastery-track">
                 <span
-                  class="chalk-fill"
+                  class="mastery-fill"
                   :class="masteryTone(k.mastery)"
                   :style="{ width: `${Math.max(4, Math.round(k.mastery * 100))}%` }"
                 ></span>
-                <span class="chalk-ticks"></span>
               </span>
-              <span class="chalk-pct chalk tnum">{{ Math.round(k.mastery * 100) }}%</span>
+              <span class="mastery-percent tnum">{{ Math.round(k.mastery * 100) }}%</span>
             </div>
           </div>
-          <p v-else class="chalk-dim board-empty">暂无作答记录。</p>
+          <p v-else class="profile-muted profile-empty">暂无作答记录。</p>
 
-          <!-- 老师寄语（粉笔手写在板角） -->
-          <div class="board-message" v-if="profile.suggestion">
-            <p class="board-message-label chalk chalk-pink">老师寄语</p>
-            <p class="chalk board-message-text">{{ sanitizeStudentCopy(profile.suggestion) }}</p>
-          </div>
-
-          <!-- 板面装饰：粉笔与板擦（纯 CSS） -->
-          <div class="board-ledge" aria-hidden="true">
-            <span class="chalk-stick"></span>
-            <span class="chalk-stick short"></span>
-            <span class="board-eraser"></span>
+          <div class="profile-message" v-if="profile.suggestion">
+            <p class="profile-message-label">老师寄语</p>
+            <p class="profile-message-text">{{ sanitizeStudentCopy(profile.suggestion) }}</p>
           </div>
         </div>
       </section>
@@ -234,11 +218,11 @@ const typeOption = computed(() => ({
   ]
 }))
 
-/** 粉笔条颜色：掌握度高=粉笔绿、中=粉笔白、低=粉笔粉 */
+/** 掌握度高用绿色、中等用蓝色、较低用琥珀色。 */
 function masteryTone(mastery: number): string {
   if (mastery >= 0.8) return 'tone-green'
-  if (mastery >= 0.5) return 'tone-white'
-  return 'tone-pink'
+  if (mastery >= 0.5) return 'tone-blue'
+  return 'tone-amber'
 }
 
 function fmtTime(t: string): string {
@@ -265,142 +249,58 @@ onMounted(async () => {
 <style scoped>
 .profile-page-head { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
 .profile-report-link { flex-shrink: 0; }
-/* ================= 大黑板 ================= */
-.board-frame {
-  /* 木质边框：多层渐变模拟木纹 + 外阴影 */
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.12)),
-    repeating-linear-gradient(93deg, #8A5A33 0 46px, #96683D 46px 52px, #7C4F2A 52px 104px);
-  border-radius: var(--radius-surface);
-  padding: 14px;
-  box-shadow: var(--shadow-lg), inset 0 2px 3px rgba(255, 255, 255, 0.25), inset 0 -3px 6px rgba(0, 0, 0, 0.3);
-  margin-bottom: 16px;
-}
-.board {
-  position: relative;
-  /* 黑板绿板面：径向微光 + 斜向擦痕感 */
-  background:
-    radial-gradient(120% 90% at 30% 0%, rgba(255, 255, 255, 0.07), transparent 55%),
-    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.016) 0 26px, transparent 26px 52px),
-    linear-gradient(160deg, #33584A 0%, #2E4B3F 55%, #29473B 100%);
-  border-radius: var(--radius-control);
-  padding: 26px 30px 20px;
-  box-shadow: inset 0 0 42px rgba(0, 0, 0, 0.35), inset 0 2px 8px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
-}
-/* 粉笔字：楷体字栈 + 轻微晕染 */
-.chalk {
-  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
-  color: #F7F3E8;
-  text-shadow: 0 0 1px rgba(247, 243, 232, 0.55), 0 0 7px rgba(247, 243, 232, 0.14);
-  letter-spacing: 0.5px;
-}
-.chalk-dim {
-  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
-  color: rgba(240, 238, 226, 0.72);
-  letter-spacing: 0.5px;
-}
-.chalk-yellow { color: #FFE58A; text-shadow: 0 0 1px rgba(255, 229, 138, 0.6), 0 0 8px rgba(255, 229, 138, 0.2); }
-.chalk-green { color: #B5E7A0; text-shadow: 0 0 1px rgba(181, 231, 160, 0.6), 0 0 8px rgba(181, 231, 160, 0.2); }
-.chalk-pink { color: #FFB7C5; text-shadow: 0 0 1px rgba(255, 183, 197, 0.6), 0 0 8px rgba(255, 183, 197, 0.2); }
-
-.board-identity { margin-top: 0; }
-.chalk-name { font-size: 38px; font-weight: 700; line-height: 1.15; }
-.chalk-meta { margin-top: 6px; font-size: 15px; }
-/* 粉笔分隔线：断续虚线像手划的 */
-.chalk-divider {
-  height: 0;
-  border-top: 2px dashed rgba(247, 243, 232, 0.4);
-  margin: 18px 0 4px;
-  transform: rotate(-0.15deg);
-}
-.board-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
-.board-stat { text-align: left; }
-.board-stat-num { font-size: 34px; font-weight: 700; line-height: 1.1; }
-.board-stat-label { font-size: 13.5px; margin-top: 2px; }
-
-.board-mastery { margin-top: 20px; }
-.board-section-title { font-size: 16.5px; font-weight: 700; margin-bottom: 10px; }
-.chalk-row { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
-.chalk-kp { flex: 0 0 118px; font-size: 15px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chalk-track {
-  position: relative; flex: 1; height: 17px;
-  border: 2px solid rgba(247, 243, 232, 0.5);
-  /* 手绘感：不对称圆角 */
-  border-radius: 255px 14px 225px 14px / 14px 225px 14px 255px;
-  overflow: hidden;
-}
-.chalk-fill {
-  position: absolute; inset: 1px auto 1px 1px;
-  border-radius: inherit;
-  /* 粉笔填充：斜纹理 + 不均匀透明 */
-  background:
-    repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.16) 0 7px, transparent 7px 13px),
-    rgba(247, 243, 232, 0.92);
-  transition: width 0.5s ease;
-}
-.chalk-fill.tone-green { background: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.16) 0 7px, transparent 7px 13px), rgba(181, 231, 160, 0.92); }
-.chalk-fill.tone-pink { background: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.16) 0 7px, transparent 7px 13px), rgba(255, 183, 197, 0.92); }
-/* 虚线刻度（25/50/75） */
-.chalk-ticks {
-  position: absolute; inset: 0;
-  background:
-    linear-gradient(90deg, transparent calc(25% - 1px), rgba(20, 40, 32, 0.45) 25%, transparent calc(25% + 1px)),
-    linear-gradient(90deg, transparent calc(50% - 1px), rgba(20, 40, 32, 0.45) 50%, transparent calc(50% + 1px)),
-    linear-gradient(90deg, transparent calc(75% - 1px), rgba(20, 40, 32, 0.45) 75%, transparent calc(75% + 1px));
-}
-.chalk-pct { flex: 0 0 46px; font-size: 15px; }
-.board-empty { margin-top: 16px; font-size: 15px; }
-
-.board-message { margin-top: 18px; max-width: 640px; transform: rotate(-0.3deg); }
-.board-message-label { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
-.board-message-text { font-size: 16.5px; line-height: 1.75; }
-
-/* 板面底部小托边：粉笔 + 板擦 */
-.board-ledge { display: flex; align-items: flex-end; gap: 8px; margin-top: 18px; }
-.chalk-stick {
-  width: 44px; height: 7px; border-radius: 4px;
-  background: linear-gradient(180deg, #FFFFFF, #E9E4D2);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  transform: rotate(-2deg);
-}
-.chalk-stick.short { width: 26px; transform: rotate(1.5deg); background: linear-gradient(180deg, #FFE58A, #F3D97B); }
-.board-eraser {
-  margin-left: auto;
-  width: 56px; height: 15px; border-radius: 3px;
-  background: linear-gradient(180deg, #B08954 0 55%, #4B4B4B 55% 100%);
-  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.4);
-  transform: rotate(-1deg);
-}
+/* ================= 学习概览 ================= */
+.profile-summary-card { margin-bottom: 16px; }
+.profile-summary { padding: 22px 24px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
+.profile-identity { min-width: 0; }
+.profile-name { color: var(--text); font-size: clamp(24px, 3vw, 32px); font-weight: 700; line-height: 1.2; }
+.profile-meta { margin-top: 6px; color: var(--text-2); font-size: 14px; }
+.profile-muted { color: var(--text-2); }
+.profile-amber { color: var(--amber-strong); }
+.profile-green { color: var(--green-strong); }
+.profile-divider { height: 1px; margin: 18px 0 14px; border: 0; background: var(--border); }
+.profile-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.profile-stat { min-width: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
+.profile-stat-num { font-size: clamp(24px, 2.5vw, 32px); font-weight: 700; line-height: 1.15; }
+.profile-stat-label { margin-top: 3px; color: var(--text-2); font-size: 13px; }
+.profile-mastery { margin-top: 20px; }
+.profile-section-title { margin-bottom: 10px; color: var(--text); font-size: 16px; font-weight: 650; }
+.mastery-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.mastery-point { flex: 0 0 118px; overflow: hidden; color: var(--text); font-size: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.mastery-track { position: relative; flex: 1; height: 10px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-2); }
+.mastery-fill { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width 0.35s ease; }
+.mastery-fill.tone-green { background: var(--green); }
+.mastery-fill.tone-amber { background: var(--amber); }
+.mastery-percent { flex: 0 0 46px; color: var(--text-2); font-size: 13px; text-align: right; }
+.profile-empty { margin-top: 16px; font-size: 14px; }
+.profile-message { max-width: 640px; margin-top: 18px; padding: 12px 14px; border-left: 3px solid var(--primary); border-radius: 0 var(--radius-control) var(--radius-control) 0; background: var(--primary-50); }
+.profile-message-label { margin-bottom: 3px; color: var(--primary-dark); font-size: 13px; font-weight: 650; }
+.profile-message-text { color: var(--text); font-size: 14px; line-height: 1.7; }
 
 @media (max-width: 720px) {
-  .board-frame { padding: 9px; border-radius: var(--radius-surface); }
-  .board { padding: 20px 18px 16px; }
-  .chalk-name { font-size: 31px; }
-  .board-stats { grid-template-columns: repeat(2, 1fr); }
-  .board-stat-num { font-size: 29px; }
-  .chalk-kp { flex-basis: 92px; font-size: 14px; }
+  .profile-summary { padding: 18px 16px; }
+  .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mastery-row { gap: 9px; }
+  .mastery-point { flex-basis: 92px; font-size: 13px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .chalk-fill { transition: none; }
-}
+@media (prefers-reduced-motion: reduce) { .mastery-fill { transition: none; } }
 
 /* ================= 成长记录表（课表式网格） ================= */
 .record-wrap { overflow-x: auto; }
 .record-table {
   width: 100%; min-width: 640px; border-collapse: collapse; font-size: 14px;
-  border: 2px solid #D6DCE6;
+  border: 1px solid var(--border);
 }
 .record-table th, .record-table td {
   padding: 10px 12px; text-align: left; vertical-align: middle;
-  border: 1px solid #E3E8F0;
+  border: 1px solid var(--border);
 }
 .record-table th {
   background: var(--primary-50); color: var(--primary-dark);
   font-size: 13px; font-weight: 700; white-space: nowrap;
-  border-bottom: 2px solid #C9D6F2;
+  border-bottom: 1px solid var(--border-strong);
 }
-.record-table tbody tr:nth-child(even) td { background: #FAFBFC; }
+.record-table tbody tr:nth-child(even) td { background: var(--surface-2); }
 .record-time { white-space: nowrap; color: var(--text-2); font-size: 13px; }
 .record-step { font-weight: 600; }
 </style>

@@ -1149,7 +1149,7 @@ onMounted(async () => {
 .grading-wait-screen {
   display: grid; place-items: center; min-height: 65vh;
   padding: 32px 16px; background: var(--card); color: var(--primary);
-  border-radius: var(--radius); font-size: clamp(28px, 5vw, 64px); font-weight: 500;
+  border-radius: var(--radius-surface); font-size: clamp(28px, 5vw, 64px); font-weight: 500;
 }
 /* 作业切换条（v0.9.0）：sticky 钉顶，与下方卡片拉开间距和层级 */
 .switch-bar {
@@ -1214,12 +1214,12 @@ onMounted(async () => {
   /* 移动端顶栏高 52px，切换条贴在它下方 */
   .switch-bar { top: 60px; }
 }
-.assign-info { background: var(--primary-50); border-color: #DBEAFE; box-shadow: none; }
+.assign-info { background: var(--primary-50); border-color: var(--blue-bg); box-shadow: none; }
 .assign-info .kp { color: var(--text-2); font-size: 13px; margin-top: 4px; }
 .assign-info .deadline-line { color: #B45309; font-weight: 600; }
 .assignment-grading-card { margin-top: 16px; }
 .grading-progress-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 8px; color: var(--text-2); font-size: 14px; }
-.grading-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #E8EDF5; margin: 8px 0 12px; }
+.grading-progress-track { height: 8px; overflow: hidden; border-radius: var(--radius-pill); background: #E8EDF5; margin: 8px 0 12px; }
 .grading-progress-fill { height: 100%; border-radius: inherit; background: var(--primary); transition: width .25s ease; }
 .grading-wait-hint { margin: 10px 0; color: var(--text-2); font-size: 13px; }
 .q-block { border-bottom: 1px solid #F1F3F6; padding-bottom: 12px; }
@@ -1313,8 +1313,8 @@ onMounted(async () => {
   display: inline-flex; align-items: center; justify-content: center;
 }
 .answer-cell:hover { border-color: var(--primary); color: var(--primary); }
-.answer-cell.done { background: #ECFDF5; border-color: #A7F3D0; color: #065F46; }
-.answer-cell.pending { background: var(--amber-bg); border-color: #FDE68A; color: #92400E; }
+.answer-cell.done { background: var(--green-bg); border-color: var(--green-border); color: var(--green-strong); }
+.answer-cell.pending { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber-strong); }
 .answer-cell.current { border-color: var(--primary); color: var(--primary); box-shadow: 0 0 0 2px var(--primary-50); }
 .answer-card-legend {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
@@ -1378,14 +1378,14 @@ onMounted(async () => {
 /* 待老师审核状态盒（与 PhotoGradeFlow 内同一套语义，保持双端观感一致） */
 .review-pending-box {
   display: flex; gap: 11px; align-items: flex-start;
-  background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: var(--radius-control);
+  background: var(--amber-bg); border: 1px solid var(--amber-border); border-radius: var(--radius-control);
   padding: 13px 15px; margin: 12px 4px 2px;
 }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
-.review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
-.review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
+.review-pending-title { font-size: 14.5px; font-weight: 700; color: var(--amber-strong); }
+.review-pending-sub { font-size: 13px; color: var(--amber-strong); opacity: 0.85; margin-top: 2px; }
 .submit-ok-line {
   display: flex; align-items: center; gap: 6px;
-  margin: 12px 4px 2px; font-size: 14px; color: #065F46;
+  margin: 12px 4px 2px; font-size: 14px; color: var(--green-strong);
 }
 </style>

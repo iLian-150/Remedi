@@ -628,7 +628,7 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-assignment-content { padding: 0 16px 16px; }
 .remedi-mistake-book .notebook-category { border-color: var(--border); background: var(--card); }
 .remedi-mistake-book .notebook-category.studied { border-color: var(--green-bg); background: var(--card); }
-.remedi-mistake-book .notebook-question-open { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px; border: 0; border-radius: 6px; color: var(--text); background: transparent; text-align: left; cursor: pointer; }
+.remedi-mistake-book .notebook-question-open { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px; border: 0; border-radius: var(--radius-detail); color: var(--text); background: transparent; text-align: left; cursor: pointer; }
 .remedi-mistake-book .notebook-question-open:hover, .remedi-mistake-book .notebook-question-open.active { background: var(--primary-50); }
 .remedi-mistake-book .notebook-question-open strong { font-size: 12px; }
 .remedi-mistake-book .notebook-question-open small, .remedi-mistake-book .notebook-question-detail { color: var(--text-3); font-size: 11px; }
@@ -643,7 +643,7 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-category-questions article > button:last-child { flex: 0 0 auto; grid-column: auto; grid-row: auto; margin-top: 4px; }
 .remedi-mistake-book .notebook-question-excerpt, .remedi-mistake-book .notebook-question-detail { display: -webkit-box; width: 100%; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .remedi-mistake-book .notebook-assignment-footer button { border-color: var(--primary); background: var(--primary); }
-.remedi-mistake-book .notebook-action-error { margin: 10px 0; color: #991B1B; font-size: 12px; }
+.remedi-mistake-book .notebook-action-error { margin: 10px 0; color: var(--red-strong); font-size: 12px; }
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 960px) {

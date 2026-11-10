@@ -91,7 +91,7 @@ watch(toasts, (currentToasts) => {
 
 <style scoped>
 .document-import-toasts { position: fixed; right: 24px; bottom: 24px; z-index: 500; display: flex; width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); flex-direction: column; gap: 12px; overflow: auto; padding: 2px; }
-.document-import-toast { flex: 0 0 auto; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow-lg); animation: knowledge-toast-in .18s ease both; }
+.document-import-toast { flex: 0 0 auto; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow-lg); animation: knowledge-toast-in .18s ease both; }
 .document-import-toast.is-success { border-color: var(--green); }
 .document-import-toast.is-error { border-color: var(--red); }
 .toast-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
@@ -103,11 +103,11 @@ watch(toasts, (currentToasts) => {
 .toast-toggle { width: 28px; height: 28px; padding: 5px; }
 .toast-toggle :deep(.app-icon) { transition: transform .16s ease; }
 .toast-toggle.is-expanded :deep(.app-icon) { transform: rotate(180deg); }
-.toast-close { display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; margin: -3px -3px 0 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); cursor: pointer; }
+.toast-close { display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; margin: -3px -3px 0 0; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-2); cursor: pointer; }
 .toast-close:hover { background: var(--bg); color: var(--text); }
 .toast-close:disabled { opacity: .5; cursor: wait; }
 .toast-detail { margin: 10px 0 11px; color: var(--text-2); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
-.toast-progress-track { position: relative; height: 7px; margin-top: 11px; overflow: hidden; border-radius: 999px; background: var(--gray-bg); }
+.toast-progress-track { position: relative; height: 7px; margin-top: 11px; overflow: hidden; border-radius: var(--radius-pill); background: var(--gray-bg); }
 .document-import-toast.is-collapsed { padding: 11px 14px; }
 .document-import-toast.is-collapsed .toast-heading { align-items: center; }
 .document-import-toast.is-collapsed .toast-progress-track { height: 5px; margin-top: 8px; }

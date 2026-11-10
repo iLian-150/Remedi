@@ -183,8 +183,8 @@ onMounted(async () => {
 
 .fix-progress { margin-top: 16px; }
 .fix-progress-head { display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
-.fix-bar { height: 10px; background: #EDF0F4; border-radius: 999px; overflow: hidden; }
-.fix-bar > div { height: 100%; background: var(--green); border-radius: 999px; transition: width 0.3s; }
+.fix-bar { height: 10px; background: #EDF0F4; border-radius: var(--radius-pill); overflow: hidden; }
+.fix-bar > div { height: 100%; background: var(--green); border-radius: var(--radius-pill); transition: width 0.3s; }
 .fix-progress .hint { margin-top: 6px }
 
 /* ---------- 知识点明细（只读行） ---------- */
@@ -197,7 +197,7 @@ onMounted(async () => {
 .kp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .kp-name { font-size: 15px; font-weight: 600; }
 .kp-meta { font-size: 12.5px; color: var(--text-2); }
-.kp-bar { display: block; height: 6px; background: #EDF0F4; border-radius: 999px; overflow: hidden; max-width: 340px; }
-.kp-bar > span { display: block; height: 100%; background: var(--amber); border-radius: 999px; }
+.kp-bar { display: block; height: 6px; background: #EDF0F4; border-radius: var(--radius-pill); overflow: hidden; max-width: 340px; }
+.kp-bar > span { display: block; height: 100%; background: var(--amber); border-radius: var(--radius-pill); }
 .kp-rate { font-size: 15px; font-weight: 700; color: var(--amber); min-width: 44px; text-align: right; }
 </style>

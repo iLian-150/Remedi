@@ -302,7 +302,7 @@ onBeforeUnmount(() => {
   left: 24px;
   width: 46px;
   height: 11px;
-  border-radius: 6px;
+  border-radius: var(--radius-detail);
   transform: rotate(-14deg);
   background: linear-gradient(180deg, #f4f5f7 0%, #c9ced6 42%, #969ea9 58%, #d8dde3 100%);
   box-shadow:
@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
   top: 8px;
   width: 5px;
   height: 9px;
-  border-radius: 2px;
+  border-radius: var(--radius-micro);
   background: linear-gradient(180deg, #aeb5bf, #878e99);
   box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.3);
 }
@@ -430,7 +430,7 @@ onBeforeUnmount(() => {
 
 .assign-offline {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 13px; color: #92400E;
+  font-size: 13px; color: var(--amber-strong);
   background: var(--amber-bg); border-radius: var(--radius-control);
   padding: 7px 10px; margin-bottom: 10px;
 }
@@ -514,18 +514,18 @@ onBeforeUnmount(() => {
 }
 .filter-bar {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  background: var(--primary-50); border: 1px solid #dbeafe; border-radius: var(--radius-control);
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   margin-bottom: 8px; padding: 14px 18px;
 }
 .filter-info { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 240px; flex-wrap: wrap; }
 .filter-title { font-size: 15px; font-weight: 700; }
 .filter-progress-text { font-size: 13.5px; color: var(--text-2); }
 .progress-track {
-  flex: 1; min-width: 120px; height: 8px; border-radius: 999px;
+  flex: 1; min-width: 120px; height: 8px; border-radius: var(--radius-pill);
   background: #fff; overflow: hidden;
 }
 .progress-fill {
-  height: 100%; border-radius: 999px; background: var(--primary);
+  height: 100%; border-radius: var(--radius-pill); background: var(--primary);
   transition: width 0.35s ease;
 }
 .paper-empty {
