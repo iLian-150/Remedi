@@ -207,19 +207,19 @@ onMounted(load)
 .verify-panel {
   background: var(--primary-50);
   border: 1px solid #DBEAFE;
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   padding: 16px 18px;
 }
 .vp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .vp-title { font-size: 15.5px; font-weight: 700; display: flex; align-items: center; gap: 7px; color: var(--primary-dark); }
 .vp-prompt {
   display: flex; gap: 10px; align-items: baseline;
-  background: #fff; border: 1px solid #DBEAFE; border-radius: 10px;
+  background: #fff; border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 11px 14px; margin-bottom: 12px;
 }
 .vp-prompt-label {
   font-size: 12px; font-weight: 700; color: var(--primary);
-  background: var(--primary-50); border-radius: 6px; padding: 2px 8px; flex-shrink: 0;
+  background: var(--primary-50); border-radius: var(--radius-detail); padding: 2px 8px; flex-shrink: 0;
 }
 .vp-prompt-text { font-size: 15.5px; font-weight: 600; }
 .vp-photo-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
@@ -230,7 +230,7 @@ onMounted(load)
 .diag-step {
   display: flex; gap: 9px;
   border: 1px solid var(--border); border-left: 4px solid #D1D5DB;
-  border-radius: 8px; padding: 8px 12px; margin-bottom: 7px; background: #fff;
+  border-radius: var(--radius-control); padding: 8px 12px; margin-bottom: 7px; background: #fff;
 }
 .diag-step.first-error { border-left-color: var(--red); background: #FFFBFB; }
 .diag-step.correct { border-left-color: var(--green); }
@@ -244,7 +244,7 @@ onMounted(load)
 .diag-step.correct .step-title { color: #065F46; }
 .vp-passed {
   display: flex; gap: 11px; align-items: flex-start;
-  background: var(--green-bg); border-radius: 10px; padding: 12px 14px; margin-top: 12px;
+  background: var(--green-bg); border-radius: var(--radius-control); padding: 12px 14px; margin-top: 12px;
 }
 .vp-passed-icon {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
@@ -253,6 +253,6 @@ onMounted(load)
 }
 .vp-passed-title { font-size: 14.5px; font-weight: 700; color: #065F46; }
 .vp-passed-line { font-size: 13.5px; color: #065F46; }
-.vp-failed { margin-top: 12px; background: #fff; border: 1px solid #FDE68A; border-radius: 10px; padding: 12px 14px; }
+.vp-failed { margin-top: 12px; background: #fff; border: 1px solid #FDE68A; border-radius: var(--radius-control); padding: 12px 14px; }
 .vp-failed .detail { margin-top: 7px; font-size: 14px; color: var(--text-2); }
 </style>

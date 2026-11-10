@@ -5,14 +5,11 @@
      v0.3.0 新增删除已发布作业（二次确认，后端级联删除学生提交数据）。 -->
 <template>
   <div class="page">
-    <section class="card publish-launch">
-      <h3>发布作业</h3>
-      <PublishModeCards @choose="openPublish" />
-    </section>
-
     <section class="assignment-management">
       <div class="management-heading">
-        <h3>作业管理</h3>
+        <router-link to="/teacher/assignments" class="back-link">
+          <AppIcon name="chevron-left" :size="16" /> 返回作业
+        </router-link>
         <span>最新发布在前</span>
       </div>
 
@@ -90,7 +87,7 @@
       </div>
 
       <div v-if="!assignments.length && !dateFilter" class="card">
-        <div class="empty">还没有发布过作业，可在上方发布新作业。</div>
+        <div class="empty">还没有发布过作业，<router-link to="/teacher/assignments">去发布作业</router-link></div>
       </div>
     </template>
 
@@ -121,7 +118,6 @@ import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignment } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
-import PublishModeCards from '../../components/PublishModeCards.vue'
 import api from '../../api/client'
 import { getSubjectLabel } from '../../utils/subjectLabels'
 
@@ -153,10 +149,6 @@ async function retryFigure(id: number) {
 
 function openAssignment(id: number) {
   void router.push(`/teacher/assignments/${id}/analytics`)
-}
-
-function openPublish(mode: 'online' | 'offline') {
-  void router.push({ path: '/teacher/assignments/new', query: { mode } })
 }
 
 const subjectLabel = (subject: string) => getSubjectLabel(subject)
@@ -287,14 +279,11 @@ onUnmounted(() => {
 .rail-note {
   display: flex; align-items: center; gap: 7px;
   font-size: 13.5px; color: var(--text-2);
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 10px 14px; margin-bottom: 16px;
 }
-.publish-launch { padding: 20px; }
-.publish-launch h3 { margin: 0 0 16px; }
-.assignment-management { margin-top: 24px; }
-.management-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.management-heading h3 { font-size: 18px; }
+.assignment-management { margin-top: 0; }
+.management-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .management-heading span { color: var(--text-3); font-size: 13px; }
 .assignment-card { cursor: pointer; }
 .assignment-title { color: inherit; }
@@ -304,7 +293,7 @@ onUnmounted(() => {
 @media (max-width: 760px) { .card-head-row { flex-wrap: wrap; } }
 .filter-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 12px;
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 12px 16px; margin-bottom: 16px;
 }
 .filter-title { font-size: 14.5px; font-weight: 700; }
@@ -320,7 +309,7 @@ onUnmounted(() => {
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .modal {
-  background: var(--card); border-radius: 14px; box-shadow: var(--shadow);
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-panel); box-shadow: var(--shadow-lg);
   padding: 22px 24px; width: min(440px, 100%);
 }
 .modal h3 { font-size: 16.5px; }

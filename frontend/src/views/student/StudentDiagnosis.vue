@@ -8,7 +8,7 @@
       <div>
         <p class="page-sub">查看这次作答的分步诊断与错因。</p>
       </div>
-      <router-link class="btn secondary small" to="/student/mistakes">返回错题本</router-link>
+      <router-link class="back-link" to="/student/mistakes"><AppIcon name="chevron-left" :size="16" /> 返回错题本</router-link>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -188,7 +188,7 @@ onMounted(async () => {
 .score-rows { display: flex; flex-direction: column; gap: 8px; }
 .score-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 14.5px; }
 .score-row b { color: var(--primary); font-size: 17px; }
-.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px; padding: 13px 15px; }
+.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: var(--radius-control); padding: 13px 15px; }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
 .review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
 .review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
@@ -198,7 +198,7 @@ onMounted(async () => {
 .detail { margin-top: 6px; font-size: 14px; color: var(--text-2); }
 .followup-box {
   display: flex; gap: 9px; align-items: flex-start;
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: var(--radius-control);
   padding: 11px 14px; margin-top: 4px; font-size: 14px;
 }
 .followup-icon {

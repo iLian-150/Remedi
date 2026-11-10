@@ -607,7 +607,7 @@ onMounted(() => void loadMistakes())
 </script>
 
 <style scoped>
-.remedi-mistake-book { width: 100%; height: 100dvh; min-height: 0; overflow: hidden; }
+.remedi-mistake-book { width: 100%; max-width: var(--content-frame-width); height: 100dvh; min-height: 0; margin: 0 auto; padding: 0 var(--content-frame-gutter); overflow: hidden; }
 .remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .remedi-mistake-book .mistake-board-toolbar { position: absolute; z-index: 10; top: 16px; right: 18px; }
 .remedi-mistake-book .mistake-notebook { height: 100%; min-height: 0; }
@@ -647,7 +647,7 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 960px) {
-  .remedi-mistake-book { height: calc(100dvh - 52px); }
+  .remedi-mistake-book { height: calc(100dvh - 52px); padding: 0 var(--content-frame-gutter-compact); }
   .remedi-mistake-book .mistake-notebook-content { padding: 72px 24px 20px; }
 }
 @media (max-width: 700px) {

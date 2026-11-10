@@ -6,7 +6,7 @@ const routes: RouteRecordRaw[] = [
 
   // 学生端（登录默认进入作业列表，按作业答题）
   { path: '/student/chat', component: () => import('../views/student/StudentChat.vue'), meta: { role: 'student', title: '智能批改' } },
-  { path: '/student/assignments', component: () => import('../views/student/StudentAssignments.vue'), meta: { role: 'student', title: '作业列表' } },
+  { path: '/student/assignments', component: () => import('../views/student/StudentAssignments.vue'), meta: { role: 'student', title: '作业' } },
   // 交作业：从作业列表进入（?assignment_id=），直接访问 URL 时回退为下拉选择
   { path: '/student/submit', component: () => import('../views/student/StudentSubmit.vue'), meta: { role: 'student', title: '交作业' } },
   // 错题本 canonical 路径（v0.8.2 正名，原 /student/feedback）
@@ -18,25 +18,26 @@ const routes: RouteRecordRaw[] = [
   { path: '/student/report', component: () => import('../views/student/StudentReport.vue'), meta: { role: 'student', title: '学习报告' } },
   // 学习报告科目详情（v0.6.0 从报告页拆出独立页，带返回键；?verify= 深链打开验证面板）
   { path: '/student/report/:subject', component: () => import('../views/student/StudentReportSubject.vue'), meta: { role: 'student', title: '学习报告' } },
-  { path: '/student/profile', component: () => import('../views/student/StudentProfile.vue'), meta: { role: 'student', title: '我的档案' } },
+  { path: '/student/profile', component: () => import('../views/student/StudentProfile.vue'), meta: { role: 'student', title: '学习档案' } },
   { path: '/student/corrections', component: () => import('../views/student/StudentCorrections.vue'), meta: { role: 'student', title: '订正错题' } },
 
   // 教师端（诊断详情 :id 为 error_id，契约 4.1 未提供单条查询，用列表定位）
-  { path: '/teacher/dashboard', component: () => import('../views/teacher/TeacherDashboard.vue'), meta: { role: 'teacher', title: '班级总览' } },
+  { path: '/teacher/dashboard', component: () => import('../views/teacher/TeacherDashboard.vue'), meta: { role: 'teacher', title: '总览' } },
   { path: '/teacher/submissions', component: () => import('../views/teacher/TeacherAIGradings.vue'), meta: { role: 'teacher', title: 'AI 批改' } },
   // 旧入口继续兼容，统一回到 AI 批改列表并保留提交深链。
   { path: '/teacher/reviews', redirect: (to) => ({ path: '/teacher/submissions', query: to.query }) },
   { path: '/teacher/submissions/:id', component: () => import('../views/teacher/TeacherSubmissionDetail.vue'), meta: { role: 'teacher', title: '诊断详情' } },
-  { path: '/teacher/students', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生列表' } },
+  { path: '/teacher/students', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生' } },
   { path: '/teacher/students/classes/:classroomId', component: () => import('../views/teacher/TeacherStudents.vue'), meta: { role: 'teacher', title: '学生花名册' } },
   { path: '/teacher/students/:id', component: () => import('../views/teacher/TeacherStudentPortrait.vue'), meta: { role: 'teacher', title: '学生画像' } },
   { path: '/teacher/suggestions', redirect: '/teacher/dashboard' },
-  { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' },
+  { path: '/teacher/assignments', component: () => import('../views/teacher/TeacherAssignmentHub.vue'), meta: { role: 'teacher', title: '作业' },
     beforeEnter: (to) => to.query.publish === '1' && (to.query.mode === 'online' || to.query.mode === 'offline')
       ? { path: '/teacher/assignments/new', query: { ...to.query, publish: undefined } }
       : true,
   },
   { path: '/teacher/assignments/new', component: () => import('../views/teacher/TeacherPublish.vue'), meta: { role: 'teacher', title: '发布作业' } },
+  { path: '/teacher/assignments/manage', component: () => import('../views/teacher/TeacherAssignments.vue'), meta: { role: 'teacher', title: '作业管理' } },
   { path: '/teacher/assignments/:id/edit', component: () => import('../views/teacher/TeacherAssignmentEdit.vue'), meta: { role: 'teacher', title: '编辑作业' } },
   { path: '/teacher/assignments/:id/analytics', component: () => import('../views/teacher/TeacherAssignmentAnalytics.vue'), meta: { role: 'teacher', title: '作业学情' } },
   { path: '/teacher/assignments/:id', component: () => import('../views/teacher/TeacherAssignmentDetail.vue'), meta: { role: 'teacher', title: '作业题目' } },

@@ -12,7 +12,7 @@
 <template>
   <div class="page">
     <div class="page-head subject-head">
-      <router-link to="/student/report" class="back-btn">
+      <router-link to="/student/report" class="back-link">
         <AppIcon name="chevron-left" :size="16" /> 返回学习报告
       </router-link>
       <h2>{{ subjectName }} · 学习报告</h2>
@@ -136,15 +136,6 @@ onMounted(async () => {
 
 <style scoped>
 .subject-head h2 { margin-top: 10px; }
-.back-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 13.5px; font-weight: 600; color: var(--primary);
-  text-decoration: none; padding: 6px 12px 6px 8px;
-  border: 1px solid #D7E3FA; border-radius: 999px; background: var(--primary-50);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.back-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
-
 /* 入场：卷轴铺开——内容自上而下裁剪展开，下轴杆随展开边缘同步下移、到位后隐去 */
 .scroll-unroll {
   position: relative;
@@ -156,7 +147,7 @@ onMounted(async () => {
 }
 .scroll-rod-top {
   position: relative;
-  height: 12px; border-radius: 6px;
+  height: 12px; border-radius: var(--radius-detail);
   margin: 0 -4px 16px;
   background: linear-gradient(180deg, #DCC49C 0%, #B9906A 55%, #9A7648 100%);
   box-shadow: 0 2px 5px rgba(96, 68, 32, 0.35);
@@ -174,7 +165,7 @@ onMounted(async () => {
 .scroll-rod-top::after { right: -7px; }
 .scroll-rod-bottom {
   position: absolute; left: -4px; right: -4px;
-  height: 12px; border-radius: 6px;
+  height: 12px; border-radius: var(--radius-detail);
   background: linear-gradient(180deg, #DCC49C 0%, #B9906A 55%, #9A7648 100%);
   box-shadow: 0 2px 5px rgba(96, 68, 32, 0.35);
   pointer-events: none;
@@ -188,13 +179,12 @@ onMounted(async () => {
 @media (prefers-reduced-motion: reduce) {
   .scroll-unroll { animation: none; }
   .scroll-rod-bottom { display: none; }
-  .back-btn { transition: none; }
 }
 
 .fix-progress { margin-top: 16px; }
 .fix-progress-head { display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
-.fix-bar { height: 10px; background: #EDF0F4; border-radius: 5px; overflow: hidden; }
-.fix-bar > div { height: 100%; background: var(--green); border-radius: 5px; transition: width 0.3s; }
+.fix-bar { height: 10px; background: #EDF0F4; border-radius: 999px; overflow: hidden; }
+.fix-bar > div { height: 100%; background: var(--green); border-radius: 999px; transition: width 0.3s; }
 .fix-progress .hint { margin-top: 6px }
 
 /* ---------- 知识点明细（只读行） ---------- */
@@ -207,7 +197,7 @@ onMounted(async () => {
 .kp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .kp-name { font-size: 15px; font-weight: 600; }
 .kp-meta { font-size: 12.5px; color: var(--text-2); }
-.kp-bar { display: block; height: 6px; background: #EDF0F4; border-radius: 3px; overflow: hidden; max-width: 340px; }
-.kp-bar > span { display: block; height: 100%; background: var(--amber); border-radius: 3px; }
+.kp-bar { display: block; height: 6px; background: #EDF0F4; border-radius: 999px; overflow: hidden; max-width: 340px; }
+.kp-bar > span { display: block; height: 100%; background: var(--amber); border-radius: 999px; }
 .kp-rate { font-size: 15px; font-weight: 700; color: var(--amber); min-width: 44px; text-align: right; }
 </style>

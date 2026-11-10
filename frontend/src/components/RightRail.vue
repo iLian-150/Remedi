@@ -608,7 +608,7 @@ async function markAllRead() {
 /* ---------- 错题时间线（报告页模式） ---------- */
 .tl-toggle {
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 10px 12px; cursor: pointer; font-family: var(--font);
   font-size: 13.5px; font-weight: 600; color: var(--text);
   transition: border-color 0.2s ease, background 0.2s ease;
@@ -621,7 +621,7 @@ async function markAllRead() {
 .tl-list { margin-top: 2px; }
 .tl-more {
   display: block; margin: 8px auto 0; padding: 7px 11px; border: 1px solid var(--border);
-  border-radius: 8px; background: #fff; color: var(--primary); cursor: pointer;
+  border-radius: var(--radius-detail); background: #fff; color: var(--primary); cursor: pointer;
   font: 600 12px var(--font);
 }
 .tl-more:hover { border-color: var(--primary); background: var(--primary-50); }
@@ -636,27 +636,27 @@ async function markAllRead() {
 /* ---------- 错题本复习清单 ---------- */
 .review-overview {
   display: flex; align-items: center; gap: 10px; padding: 12px;
-  border: 1px solid #DBEAFE; border-radius: 12px; background: linear-gradient(135deg, #EFF6FF, #F8FAFF);
+  border: 1px solid var(--blue-bg); border-radius: var(--radius-control); background: linear-gradient(135deg, #EFF6FF, #F8FAFF);
 }
 .review-overview-icon, .review-empty-icon {
   width: 34px; height: 34px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 10px; background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+  border-radius: var(--radius-control); background: #fff; color: var(--primary); box-shadow: var(--shadow);
 }
 .review-overview strong, .review-overview span { display: block; }
 .review-overview strong { font-size: 13.5px; }
 .review-overview div > span { margin-top: 3px; color: var(--text-3); font-size: 11.5px; line-height: 1.4; }
 .review-sec-head { margin: 17px 0 10px; }
 .review-list { display: flex; flex-direction: column; gap: 10px; }
-.review-card { padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: #fff; box-shadow: 0 2px 6px rgba(15, 23, 42, .04); }
+.review-card { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: #fff; box-shadow: var(--shadow); }
 .review-card-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.review-subject { padding: 3px 7px; border-radius: 6px; background: var(--primary-50); color: var(--primary); font-size: 11.5px; font-weight: 700; }
+.review-subject { padding: 3px 7px; border-radius: var(--radius-pill); background: var(--primary-50); color: var(--primary); font-size: 11.5px; font-weight: 700; }
 .review-error-count { color: var(--text-3); font-size: 11px; white-space: nowrap; }
 .review-card h4 { margin-top: 9px; font-size: 14px; line-height: 1.4; }
 .review-card-meta { margin-top: 4px; color: var(--text-3); font-size: 11.5px; line-height: 1.45; }
 .review-start, .review-empty button, .review-all-link {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font-family: var(--font); font-weight: 600;
 }
-.review-start { width: 100%; margin-top: 11px; padding: 8px 10px; border: 1px solid #DBEAFE; border-radius: 8px; background: var(--primary-50); color: var(--primary); font-size: 12px; }
+.review-start { width: 100%; margin-top: 11px; padding: 8px 10px; border: 1px solid var(--blue-bg); border-radius: var(--radius-detail); background: var(--primary-50); color: var(--primary); font-size: 12px; }
 .review-start:hover { border-color: var(--primary); background: #E5EEFF; }
 .review-all-link { width: 100%; padding: 7px; border: 0; background: transparent; color: var(--primary); font-size: 12px; }
 .review-all-link:hover { text-decoration: underline; }
@@ -664,7 +664,7 @@ async function markAllRead() {
 .review-empty-icon { margin-bottom: 10px; color: #0F9F7A; background: #EAFBF4; }
 .review-empty strong { font-size: 13.5px; }
 .review-empty p { margin-top: 5px; color: var(--text-3); font-size: 12px; line-height: 1.55; }
-.review-empty button { margin-top: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--primary); font-size: 12px; }
+.review-empty button { margin-top: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-detail); background: #fff; color: var(--primary); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) {
   .tl-chevron { transition: none; }
 }

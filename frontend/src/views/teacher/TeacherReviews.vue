@@ -754,7 +754,7 @@ onUnmounted(() => {
 .assign-card-thumb {
   width: 100%; height: 126px;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
-  border: 1px solid var(--border); border-radius: 10px; background: #F8FAFC;
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: #F8FAFC;
 }
 .assign-card-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .assign-card-thumb-empty { color: var(--text-3); font-size: 13px; }
@@ -768,7 +768,7 @@ onUnmounted(() => {
 .assign-card-meta { font-size: 13px; color: var(--text-2); }
 .assign-card-review-reasons { color: #9A6700; font-size: 12px; line-height: 1.45; }
 .assign-card-time { font-size: 12px; color: var(--text-3); }
-.assign-card-accuracy { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 94px; padding: 9px 12px; border-radius: 12px; background: #F8FAFC; text-align: center; }
+.assign-card-accuracy { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 94px; padding: 9px 12px; border-radius: var(--radius-control); background: #F8FAFC; text-align: center; }
 .accuracy-label { font-size: 12px; font-weight: 700; color: var(--text-2); }
 .assign-card-accuracy strong { margin-top: 1px; font-size: 34px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .assign-card-accuracy strong small { margin-left: 1px; font-size: 17px; }
@@ -808,7 +808,7 @@ onUnmounted(() => {
 .student-questions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .sq-row {
   display: flex; flex-direction: column; gap: 5px; text-align: left; width: 100%;
-  background: #fff; border: 1px solid #EDF0F4; border-radius: 10px;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-control);
   padding: 9px 11px; cursor: pointer; font-family: inherit;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -819,7 +819,7 @@ onUnmounted(() => {
 .side-title { font-size: 13px; font-weight: 700; color: var(--text-2); margin-bottom: 10px; }
 .queue-row {
   display: flex; align-items: center; gap: 8px; text-align: left;
-  background: #fff; border: 1px solid #EDF0F4; border-radius: 10px;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-control);
   padding: 11px 12px; cursor: pointer; font-family: inherit; width: 100%;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -838,8 +838,8 @@ onUnmounted(() => {
 }
 .review-modal {
   display: flex; flex-direction: column; width: min(1600px, 96vw); height: min(92vh, 1100px);
-  overflow: hidden; border: 1px solid #E5EBE6; border-radius: 18px; background: #F7F9F7;
-  box-shadow: 0 24px 90px rgba(10, 24, 18, 0.28);
+  overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-panel); background: #F7F9F7;
+  box-shadow: var(--shadow-lg);
 }
 .review-modal-header {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -847,7 +847,7 @@ onUnmounted(() => {
 }
 .review-modal-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .review-modal-mark {
-  width: 42px; height: 42px; flex: 0 0 42px; border-radius: 12px;
+  width: 42px; height: 42px; flex: 0 0 42px; border-radius: var(--radius-control);
   display: inline-flex; align-items: center; justify-content: center;
   color: #fff; background: var(--primary);
 }
@@ -870,22 +870,22 @@ onUnmounted(() => {
 .review-modal-content { display: grid; grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr); gap: 16px; min-width: 0; min-height: 0; overflow: hidden; }
 .review-modal-left, .review-modal-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow: auto; }
 .review-modal-panel {
-  flex: 0 0 auto; padding: 17px 18px; border: 1px solid #E4EAE5; border-radius: 16px;
-  background: #fff; box-shadow: 0 1px 3px rgba(18, 35, 25, 0.035);
+  flex: 0 0 auto; padding: 17px 18px; border: 1px solid var(--border); border-radius: var(--radius-surface);
+  background: #fff; box-shadow: var(--shadow);
 }
 .review-panel-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
 .review-panel-heading h3, .review-modal-panel > h3 { margin: 0; font-size: 20px; }
 .review-panel-heading > span { max-width: 55%; color: var(--text-3); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
 .review-original-image-link {
   display: flex; align-items: center; justify-content: center; min-height: 190px; max-height: 43vh;
-  overflow: hidden; border-radius: 10px; background: #F7F8F7;
+  overflow: hidden; border-radius: var(--radius-control); background: #F7F8F7;
 }
 .review-original-image-link img { display: block; width: 100%; height: 100%; max-height: 43vh; object-fit: contain; }
 .review-image-empty {
-  display: grid; place-items: center; min-height: 190px; padding: 16px; border-radius: 10px;
+  display: grid; place-items: center; min-height: 190px; padding: 16px; border-radius: var(--radius-control);
   background: #F7F8F7; color: var(--text-3); text-align: center;
 }
-.review-question-text { padding: 15px 16px; border: 1px solid #E6ECE7; border-radius: 12px; background: #FAFBFA; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.85; }
+.review-question-text { padding: 15px 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: #FAFBFA; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.85; }
 .review-homework-accuracy { border-width: 2px; }
 .review-homework-accuracy-main { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .review-homework-accuracy-main > div { display: flex; flex-direction: column; gap: 5px; }
@@ -898,11 +898,11 @@ onUnmounted(() => {
 .review-homework-accuracy.accuracy-high { border-color: #BBF7D0; }
 .review-homework-accuracy.accuracy-no-data { border-color: #E2E8F0; }
 .review-homework-reason { margin: 10px 0 0; padding-top: 9px; border-top: 1px solid rgba(148, 163, 184, 0.22); font-size: 12px; line-height: 1.5; color: var(--text-2); }
-.review-process-note { margin-bottom: 12px; padding: 12px 14px; border-left: 4px solid #D97706; border-radius: 8px; background: #FFFBEB; color: #854D0E; }
+.review-process-note { margin-bottom: 12px; padding: 12px 14px; border-left: 4px solid var(--amber); border-radius: var(--radius-control); background: #FFFBEB; color: #854D0E; }
 .review-process-note p { margin: 4px 0; }
 .review-process-note small { display: block; margin-top: 7px; color: var(--text-2); }
 .review-solution-steps { display: flex; flex-direction: column; gap: 9px; }
-.review-solution-step { padding: 12px 14px; border: 1px solid #E7EAED; border-left: 4px solid #D1D5DB; border-radius: 10px; background: #fff; }
+.review-solution-step { padding: 12px 14px; border: 1px solid var(--border); border-left: 4px solid #D1D5DB; border-radius: var(--radius-control); background: #fff; }
 .review-solution-step.is-error { border-left-color: #DC6B63; background: #FFFAF9; }
 .review-solution-step.is-correct { border-left-color: #67A77A; }
 .review-solution-step-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--text-3); font-size: 13px; }
@@ -933,13 +933,13 @@ onUnmounted(() => {
 .score-line { font-size: 14.5px; }
 .score-line b { color: var(--primary); }
 /* 最终分编辑器（v0.13.12）：大数字输入 + 分后缀 + 满分参照 + 快捷钮 */
-.score-editor { border: 1.5px solid var(--border); border-radius: 12px; padding: 13px 14px; background: var(--bg); }
+.score-editor { border: 1.5px solid var(--border); border-radius: var(--radius-control); padding: 13px 14px; background: var(--bg); }
 .score-editor-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .score-editor-row label { font-size: 14px; font-weight: 700; }
 .score-editor-row.sub { margin-top: 9px; justify-content: space-between; }
 .score-input-wrap {
   display: inline-flex; align-items: center; gap: 2px;
-  border: 1.5px solid var(--border); border-radius: 10px; background: #fff;
+  border: 1.5px solid var(--border); border-radius: var(--radius-control); background: #fff;
   padding: 0 12px 0 4px; transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .score-input-wrap:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
@@ -969,7 +969,7 @@ onUnmounted(() => {
 .process-signals li { margin: 3px 0; }
 @media (max-width: 900px) {
   .review-modal-mask { padding: 10px; }
-  .review-modal { width: 100%; height: 96vh; border-radius: 13px; }
+  .review-modal { width: 100%; height: 96vh; border-radius: var(--radius-panel); }
   .review-modal-body { grid-template-columns: 1fr; overflow: auto; }
   .review-modal-nav { max-height: 28vh; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
   .review-modal-content { grid-template-columns: 1fr; overflow: visible; }

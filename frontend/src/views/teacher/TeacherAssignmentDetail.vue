@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="detail-heading">
-      <router-link to="/teacher/assignments" class="back-link"><AppIcon name="chevron-left" :size="16" /> 返回作业管理</router-link>
+      <router-link to="/teacher/assignments/manage" class="back-link"><AppIcon name="chevron-left" :size="16" /> 返回作业管理</router-link>
       <h2>作业题目</h2>
       <router-link v-if="detail?.can_delete" :to="`/teacher/assignments/${detail.id}/edit`" class="btn small secondary inline-icon"><AppIcon name="edit" :size="15" /> 编辑作业</router-link>
     </div>
@@ -96,8 +96,6 @@ onBeforeUnmount(() => { requestGeneration++; clearPoll() })
 <style scoped>
 .detail-heading { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 .detail-heading h2 { margin: 0; }
-.back-link { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; color: var(--text-2); font-size: 13px; font-weight: 600; white-space: nowrap; }
-.back-link:hover { color: var(--primary); }
 .detail-info h3 { margin-bottom: 6px; }
 .detail-info .detail-text { margin-top: 12px; }
 .detail-text { white-space: pre-wrap; overflow-wrap: anywhere; }

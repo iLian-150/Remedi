@@ -271,7 +271,7 @@ onMounted(async () => {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.12)),
     repeating-linear-gradient(93deg, #8A5A33 0 46px, #96683D 46px 52px, #7C4F2A 52px 104px);
-  border-radius: 18px;
+  border-radius: var(--radius-surface);
   padding: 14px;
   box-shadow: var(--shadow-lg), inset 0 2px 3px rgba(255, 255, 255, 0.25), inset 0 -3px 6px rgba(0, 0, 0, 0.3);
   margin-bottom: 16px;
@@ -283,7 +283,7 @@ onMounted(async () => {
     radial-gradient(120% 90% at 30% 0%, rgba(255, 255, 255, 0.07), transparent 55%),
     repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.016) 0 26px, transparent 26px 52px),
     linear-gradient(160deg, #33584A 0%, #2E4B3F 55%, #29473B 100%);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   padding: 26px 30px 20px;
   box-shadow: inset 0 0 42px rgba(0, 0, 0, 0.35), inset 0 2px 8px rgba(0, 0, 0, 0.3);
   overflow: hidden;
@@ -374,7 +374,7 @@ onMounted(async () => {
 }
 
 @media (max-width: 720px) {
-  .board-frame { padding: 9px; border-radius: 14px; }
+  .board-frame { padding: 9px; border-radius: var(--radius-surface); }
   .board { padding: 20px 18px 16px; }
   .chalk-name { font-size: 31px; }
   .board-stats { grid-template-columns: repeat(2, 1fr); }

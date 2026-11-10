@@ -3,34 +3,36 @@
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="success" class="ok-msg">{{ success }}</div>
 
-    <section class="card grading-toolbar">
-      <label class="search-field">
-        <span>搜索</span>
-        <input
-          v-model="keyword"
-          type="text"
-          placeholder="学生、作业、题目或知识点"
-          @keydown.enter="load(0)"
-        />
-      </label>
-      <button class="btn small" :disabled="loading" @click="load(0)">查询</button>
-      <span class="toolbar-total">共 {{ total }} 份 AI 批改</span>
-    </section>
+    <section class="card grading-controls">
+      <div class="grading-toolbar">
+        <label class="search-field">
+          <span>搜索</span>
+          <input
+            v-model="keyword"
+            type="text"
+            placeholder="学生、作业、题目或知识点"
+            @keydown.enter="load(0)"
+          />
+        </label>
+        <button class="btn small" :disabled="loading" @click="load(0)">查询</button>
+        <span class="toolbar-total">共 {{ total }} 份 AI 批改</span>
+      </div>
 
-    <form class="card threshold-settings" @submit.prevent="saveThreshold">
-      <div class="threshold-copy">
-        <label for="grading-threshold">低分标记线</label>
-        <span class="threshold-note">按整份作业的 AI 得分率标记；教师审核规则不变。</span>
-      </div>
-      <div class="threshold-controls">
-        <span class="threshold-prefix">低于</span>
-        <div class="threshold-input-wrap">
-          <input id="grading-threshold" v-model="thresholdInput" type="number" min="0" max="100" step="1" aria-label="低分标记线（百分比）" required :disabled="savingThreshold || !thresholdLoaded" />
-          <span aria-hidden="true">%</span>
+      <form class="threshold-settings" @submit.prevent="saveThreshold">
+        <div class="threshold-copy">
+          <label for="grading-threshold">低分标记线</label>
+          <span class="threshold-note">按整份作业的 AI 得分率标记；教师审核规则不变。</span>
         </div>
-        <button class="btn secondary" type="submit" :disabled="savingThreshold || !thresholdLoaded">{{ savingThreshold ? '保存中…' : '保存' }}</button>
-      </div>
-    </form>
+        <div class="threshold-controls">
+          <span class="threshold-prefix">低于</span>
+          <div class="threshold-input-wrap">
+            <input id="grading-threshold" v-model="thresholdInput" type="number" min="0" max="100" step="1" aria-label="低分标记线（百分比）" required :disabled="savingThreshold || !thresholdLoaded" />
+            <span aria-hidden="true">%</span>
+          </div>
+          <button class="btn secondary" type="submit" :disabled="savingThreshold || !thresholdLoaded">{{ savingThreshold ? '保存中…' : '保存' }}</button>
+        </div>
+      </form>
+    </section>
 
     <section class="card grading-list">
       <div v-if="loading" class="loading">加载中…</div>
@@ -375,11 +377,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.grading-toolbar { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
-.search-field { display: grid; gap: 5px; width: min(460px, 100%); color: var(--text-2); font-size: 13px; }
+.grading-controls { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 24px; }
+.grading-toolbar { display: flex; min-width: 0; align-items: end; gap: 12px; flex-wrap: wrap; }
+.search-field { display: grid; flex: 1 1 280px; gap: 5px; min-width: 220px; color: var(--text-2); font-size: 13px; }
 .search-field input { width: 100%; }
 .toolbar-total { margin-left: auto; color: var(--text-2); font-size: 13px; }
-.threshold-settings { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.threshold-settings { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 0; padding: 0 0 0 24px; border: 0; border-left: 1px solid var(--border); }
 .threshold-copy { display: grid; gap: 3px; }
 .threshold-copy label { font-weight: 600; }
 .threshold-note { color: var(--text-2); font-size: 13px; }
@@ -388,7 +391,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .threshold-input-wrap { position: relative; }
 .threshold-input-wrap input {
   width: 104px; height: 42px; padding: 9px 32px 9px 12px;
-  border: 1px solid var(--border); border-radius: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
   background: var(--card); color: var(--text); font: inherit;
   font-variant-numeric: tabular-nums; appearance: textfield;
 }
@@ -418,27 +421,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .time-cell { white-space: nowrap; color: var(--text-2); font-size: 13px; }
 .pagination { display: flex; justify-content: center; align-items: center; gap: 14px; padding: 16px; color: var(--text-2); font-size: 13px; }
 .detail-mask { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 18px; background: rgba(15, 23, 42, .48); }
-.detail-modal { display: flex; flex-direction: column; width: min(1180px, 100%); max-height: min(92vh, 1000px); overflow: hidden; background: var(--bg); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-lg); }
+.detail-modal { display: flex; flex-direction: column; width: min(1180px, 100%); max-height: min(92vh, 1000px); overflow: hidden; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-panel); box-shadow: var(--shadow-lg); }
 .detail-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 17px 22px; background: var(--card); border-bottom: 1px solid var(--border); }
 .detail-header h3 { font-size: 18px; }
 .detail-header p { margin-top: 2px; color: var(--text-2); font-size: 13px; }
-.detail-close { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--text-2); font-size: 24px; line-height: 1; cursor: pointer; }
+.detail-close { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--text-2); font-size: 24px; line-height: 1; cursor: pointer; }
 .detail-body { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(0, 1.2fr); gap: 16px; min-height: 0; padding: 16px; overflow: hidden; }
-.detail-image { position: sticky; top: 0; align-self: start; min-height: 220px; max-height: calc(92vh - 100px); overflow: auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+.detail-image { position: sticky; top: 0; align-self: start; min-height: 220px; max-height: calc(92vh - 100px); overflow: auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-control); }
 .detail-image img { display: block; width: 100%; max-height: calc(92vh - 100px); object-fit: contain; }
 .image-empty { display: grid; min-height: 220px; place-items: center; color: var(--text-3); font-size: 13px; }
 .detail-content { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow: auto; padding-right: 4px; }
-.detail-panel { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+.detail-panel { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-control); }
 .panel-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-title h4 { font-size: 16px; }
 .panel-title > span { color: var(--text-3); font-size: 12px; }
 .question-text { white-space: pre-wrap; line-height: 1.8; overflow-wrap: anywhere; }
-.answer-step { margin-top: 9px; padding: 11px 13px; border: 1px solid var(--border); border-left: 4px solid #D1D5DB; border-radius: 8px; }
+.answer-step { margin-top: 9px; padding: 11px 13px; border: 1px solid var(--border); border-left: 4px solid #D1D5DB; border-radius: var(--radius-control); }
 .answer-step > div { display: flex; justify-content: space-between; color: var(--text-2); font-size: 12px; }
 .answer-step p { margin-top: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer-step.wrong { border-left-color: var(--red); background: #FFFBFB; }
 .answer-step.right { border-left-color: var(--green); }
-.process-note { margin-bottom: 12px; padding: 12px; background: var(--amber-bg); border-radius: 8px; color: #92400E; }
+.process-note { margin-bottom: 12px; padding: 12px; background: var(--amber-bg); border-radius: var(--radius-control); color: #92400E; }
 .process-note p { margin-top: 4px; }
 .process-note small { display: block; margin-top: 5px; }
 .issue-card { padding: 12px 0; border-top: 1px solid var(--border); }
@@ -459,6 +462,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .save-regrade { margin-top: 13px; }
 .detail-loading { padding: 40px; text-align: center; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 1100px) {
+  .grading-controls { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .threshold-settings { margin: 0; padding: 16px 0 0; border-top: 1px solid var(--border); border-left: 0; }
+}
 @media (max-width: 820px) {
   .page { padding: 16px; }
   .detail-mask { padding: 7px; }

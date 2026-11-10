@@ -270,13 +270,13 @@ onMounted(async () => {
   position: relative;
   width: 196px; min-height: 168px;
   display: flex; flex-direction: column; align-items: center; gap: 7px;
-  background: var(--card); border: 1px solid #E4E9F2; border-radius: 14px;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-surface);
   box-shadow: var(--shadow);
   padding: 22px 16px 16px;
   cursor: pointer; font-family: var(--font); color: var(--text);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
-.hang-wrap:hover .hang-card { transform: scale(1.045); box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14); }
+.hang-wrap:hover .hang-card { transform: scale(1.045); box-shadow: var(--shadow-md); }
 .hang-wrap:hover { animation-play-state: paused; }
 .hang-card.placeholder {
   cursor: default; filter: grayscale(0.65); opacity: 0.68;
@@ -299,10 +299,10 @@ onMounted(async () => {
 .hang-name { font-size: 19px; font-weight: 800; margin-top: 6px; }
 .hang-stats { font-size: 12.5px; color: var(--text-2); text-align: center; line-height: 1.5; }
 .hang-bar {
-  width: 100%; height: 8px; border-radius: 4px;
+  width: 100%; height: 8px; border-radius: 999px;
   background: #EDF0F4; overflow: hidden; display: block;
 }
-.hang-bar > span { display: block; height: 100%; background: var(--green); border-radius: 4px; }
+.hang-bar > span { display: block; height: 100%; background: var(--green); border-radius: 999px; }
 .hang-ratio { font-size: 12.5px; color: var(--text-2); }
 .hang-cta { font-size: 12.5px; color: var(--primary); font-weight: 600; margin-top: 2px; }
 .hang-soon {
@@ -338,7 +338,7 @@ onMounted(async () => {
 .summary-nums { font-size: 13.5px; color: var(--text-2); }
 .summary-nums b { color: var(--text); }
 .memory-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
-.memory-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: 11px; background: var(--bg); }
+.memory-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: var(--radius-control); background: var(--bg); }
 .memory-tag { min-width: 46px; color: var(--primary); font-size: 12px; font-weight: 700; }
 .memory-row > div { flex: 1; min-width: 0; }
 .memory-row b { font-size: 14px; }

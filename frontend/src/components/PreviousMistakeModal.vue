@@ -175,10 +175,10 @@ function stepStatusLabel(status: string) {
 
 <style scoped>
 .mistake-overlay { position: fixed; inset: 0; z-index: 500; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 23, 42, .58); }
-.mistake-modal { width: min(1500px, 96vw); max-height: min(88vh, 980px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: var(--bg); box-shadow: var(--shadow-lg); }
+.mistake-modal { width: min(1500px, 96vw); max-height: min(88vh, 980px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--bg); box-shadow: var(--shadow-lg); }
 .mistake-header { flex: none; display: flex; justify-content: space-between; align-items: center; padding: 15px 24px; border-bottom: 1px solid var(--border); background: var(--card); }
 .mistake-brand { display: flex; align-items: center; gap: 10px; color: var(--text); }
-.mistake-brand-mark { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid rgba(29, 78, 216, .08); border-radius: 11px; color: var(--primary); background: var(--primary-50); }
+.mistake-brand-mark { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--blue-bg); border-radius: var(--radius-control); color: var(--primary); background: var(--primary-50); }
 .mistake-brand-mark :deep(.brand-logo) { animation: none; }
 .mistake-brand-mark :deep(.bl-arc), .mistake-brand-mark :deep(.bl-check) { animation: none; }
 .mistake-brand-mark :deep(.bl-arrow) { opacity: 1; animation: none; }
@@ -190,23 +190,23 @@ function stepStatusLabel(status: string) {
 .mistake-meta span { color: var(--text-2); }
 .mistake-meta .badge-amber { color: #92400e; }
 .mistake-columns { min-height: 0; overflow: auto; display: grid; grid-template-columns: 1fr 1.15fr; gap: 14px; padding: 14px; }
-.mistake-panel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 15px; background: var(--card); }
+.mistake-panel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); }
 .mistake-panel h3 { margin: 0 0 14px; color: var(--text); font-size: 18px; }
-.mistake-question { white-space: pre-wrap; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); line-height: 1.8; }
-.mistake-original-image { display: grid; justify-items: center; gap: 7px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
-.mistake-original-image img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; border-radius: 6px; }
+.mistake-question { white-space: pre-wrap; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text); line-height: 1.8; }
+.mistake-original-image { display: grid; justify-items: center; gap: 7px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
+.mistake-original-image img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; border-radius: var(--radius-detail); }
 .mistake-work, .mistake-solution, .mistake-correction { margin-top: 20px; }
 .mistake-work h4, .mistake-solution h4, .mistake-correction h4 { margin: 0 0 9px; color: var(--text); font-size: 14px; }
 .mistake-work ol, .mistake-solution ol { margin: 0; padding-left: 24px; color: var(--text-2); line-height: 1.8; }
 .mistake-work li, .mistake-solution li { padding: 6px 8px; border-bottom: 1px solid var(--border); }
-.mistake-work li.wrong, .mistake-solution li.wrong { border-radius: 7px; background: var(--red-bg); color: #991b1b; }
+.mistake-work li.wrong, .mistake-solution li.wrong { border-radius: var(--radius-detail); background: var(--red-bg); color: #991b1b; }
 .mistake-work li b, .mistake-solution li b { display: block; margin-top: 3px; color: var(--red); font-size: 12px; font-weight: 600; }
-.mistake-error-card { padding: 14px 16px; border: 1px solid #fecaca; border-radius: 11px; background: var(--red-bg); color: #7f1d1d; line-height: 1.7; }
+.mistake-error-card { padding: 14px 16px; border: 1px solid #fecaca; border-radius: var(--radius-control); background: var(--red-bg); color: #7f1d1d; line-height: 1.7; }
 .mistake-error-title { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; color: var(--text-2); font-size: 13px; }
 .mistake-error-title strong { color: var(--red); }
 .mistake-error-card p { margin: 0; white-space: pre-wrap; }
 .mistake-step-ref, .mistake-old-step { margin-top: 10px; color: var(--text-2); font-size: 13px; }
-.mistake-correction { padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.mistake-correction { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); }
 .mistake-correction p { margin: 0 0 7px; white-space: pre-wrap; color: var(--text); line-height: 1.7; }
 .mistake-correction small { color: var(--text-3); }
 .mistake-correction .correction-note { margin-top: 8px; }

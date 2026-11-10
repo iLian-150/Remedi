@@ -1,7 +1,7 @@
 <template>
   <div class="page assignment-edit">
     <div class="edit-heading">
-      <router-link :to="`/teacher/assignments/${assignmentId}`" class="btn secondary small inline-icon"><AppIcon name="chevron-left" :size="15" /> 返回题目</router-link>
+      <router-link :to="`/teacher/assignments/${assignmentId}`" class="back-link"><AppIcon name="chevron-left" :size="16" /> 返回题目</router-link>
       <h2>编辑作业</h2>
     </div>
     <div v-if="loading" class="loading">作业加载中…</div>
@@ -128,7 +128,7 @@ async function save() {
 <style scoped>
 .edit-heading { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 .edit-heading h2 { margin: 0; }
-.assignment-edit input[type="number"], .assignment-edit input[type="datetime-local"] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; color: var(--text); background: var(--card); }
+.assignment-edit input[type="number"], .assignment-edit input[type="datetime-local"] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); font: inherit; color: var(--text); background: var(--card); }
 .assignment-edit input:disabled, .assignment-edit textarea:disabled { color: var(--text-2); background: var(--gray-bg); }
 .revision-option { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .class-fields { min-width: 0; }

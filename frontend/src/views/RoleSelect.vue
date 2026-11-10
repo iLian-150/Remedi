@@ -133,7 +133,7 @@ async function login() {
 }
 .login-brand-top { display: flex; align-items: center; gap: 15px; }
 .login-logo-badge {
-  width: 74px; height: 74px; border-radius: 22px; flex-shrink: 0;
+  width: 74px; height: 74px; border-radius: var(--radius-surface); flex-shrink: 0;
   background: #fff; border: 1px solid var(--blue-bg);
   display: flex; align-items: center; justify-content: center; color: var(--primary);
   box-shadow: var(--shadow);
@@ -162,10 +162,10 @@ async function login() {
 .login-card .full { margin-top: 4px; min-height: 48px; }
 @media (max-width: 760px) {
   .login-page { width: 100vw; max-width: 100vw; padding: 18px 14px; }
-  .login-layout { grid-template-columns: 1fr; width: min(520px, calc(100vw - 28px)); min-height: 0; max-width: 520px; border-radius: 24px; }
+  .login-layout { grid-template-columns: 1fr; width: min(520px, calc(100vw - 28px)); min-height: 0; max-width: 520px; border-radius: var(--radius-panel); }
   .login-brand { justify-content: flex-start; padding: 24px 24px 18px; }
   .login-brand-top { gap: 11px; }
-  .login-logo-badge { width: 46px; height: 46px; border-radius: 15px; box-shadow: none; }
+  .login-logo-badge { width: 46px; height: 46px; border-radius: var(--radius-control); box-shadow: none; }
   .login-logo-badge :deep(.brand-logo) { width: 30px; height: 30px; }
   .login-brand-name { font-size: 27px; }
   .login-card { padding: 26px 24px 28px; }

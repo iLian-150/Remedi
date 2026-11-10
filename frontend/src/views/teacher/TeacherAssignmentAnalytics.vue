@@ -6,7 +6,7 @@
         <p v-if="report" class="page-sub">{{ report.title }}</p>
       </div>
       <div class="head-actions">
-        <router-link class="btn small secondary" to="/teacher/assignments">返回作业</router-link>
+        <router-link class="back-link" to="/teacher/assignments/manage"><AppIcon name="chevron-left" :size="16" /> 返回作业管理</router-link>
         <router-link v-if="assignmentId" class="btn small secondary" :to="`/teacher/assignments/${assignmentId}`">查看题目</router-link>
       </div>
     </div>
@@ -82,6 +82,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { TeacherAssignmentAnalytics } from '../../api/types'
 import { AsyncEChartBar, AsyncEChartPie } from '../../components/AsyncEChart'
+import AppIcon from '../../components/icons/AppIcon.vue'
 import { useTeacherStore } from '../../stores/teacher'
 import { getSubjectLabel } from '../../utils/subjectLabels'
 import { readChartColors } from '../../utils/chartTheme'

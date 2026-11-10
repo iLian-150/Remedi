@@ -360,18 +360,18 @@ function reset() {
 
 <style scoped>
 .pgf { margin-top: 12px; }
-.pgf-preview { max-width: 300px; max-height: 340px; border-radius: 10px; border: 1px solid var(--border); display: block; margin-bottom: 10px; }
+.pgf-preview { max-width: 300px; max-height: 340px; border-radius: var(--radius-control); border: 1px solid var(--border); display: block; margin-bottom: 10px; }
 .pgf-answer-question { color: var(--text-2); font-weight: 600; white-space: pre-wrap; }
 .pgf-answer-copy { color: var(--text); line-height: 1.7; white-space: pre-wrap; }
 .pgf-auto-booked { margin: 0 0 10px; color: var(--green); font-size: 12px; font-weight: 600; }
 .pgf-status { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: var(--text-2); padding: 8px 0; }
 /* 待老师审核状态盒（v0.9.0，与对话页诊断卡同一套语义） */
-.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px; padding: 13px 15px; }
+.review-pending-box { display: flex; gap: 11px; align-items: flex-start; background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: var(--radius-control); padding: 13px 15px; }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
 .review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
 .review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
 .pgf-card {
-  background: var(--card); border: 1px solid #EDF0F4; border-radius: 12px;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-surface);
   box-shadow: var(--shadow); padding: 14px 16px; margin-top: 10px;
 }
 .pgf-card-title { font-size: 14.5px; font-weight: 700; display: flex; align-items: center; gap: 7px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -381,7 +381,7 @@ function reset() {
 .diag-step {
   display: flex; gap: 9px;
   border: 1px solid var(--border); border-left: 4px solid #D1D5DB;
-  border-radius: 8px; padding: 9px 12px; margin-bottom: 7px; background: #fff;
+  border-radius: var(--radius-control); padding: 9px 12px; margin-bottom: 7px; background: #fff;
 }
 .diag-step.first-error { border-left-color: var(--red); background: #FFFBFB; }
 .diag-step.correct { border-left-color: var(--green); }
@@ -399,7 +399,7 @@ function reset() {
 .ok-line { margin-top: 9px; font-size: 14.5px; color: #065F46; display: flex; align-items: center; gap: 6px; }
 .followup-box {
   display: flex; gap: 9px; align-items: flex-start;
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 11px 14px; margin-top: 12px; font-size: 14px;
 }
 .followup-icon {

@@ -3,10 +3,8 @@
   <div class="page students-page">
     <header class="page-head">
       <template v-if="!isRosterPage">
-        <div class="page-heading-row">
-          <div>
-            <div class="page-context"><AppIcon name="cap" :size="16" />{{ subjectLabel }}</div>
-          </div>
+        <div class="students-page-heading">
+          <h1>学生</h1>
           <button type="button" class="btn" @click="classFormOpen = !classFormOpen">
             <AppIcon :name="classFormOpen ? 'x' : 'plus'" :size="17" />
             {{ classFormOpen ? '收起' : '新建 / 关联班级' }}
@@ -14,19 +12,8 @@
         </div>
       </template>
       <template v-else>
-        <router-link to="/teacher/students" class="back-link">
-          <AppIcon name="chevron-left" :size="16" /> 班级列表
-        </router-link>
-        <div class="page-heading-row roster-page-heading">
-          <div>
-            <h2>{{ selectedClass?.name ?? '学生花名册' }}</h2>
-            <div class="page-context">
-              <AppIcon name="users" :size="16" />
-              <span>{{ selectedClass?.student_count ?? 0 }} 名学生</span>
-              <span v-if="selectedClass?.subjects?.length" class="context-divider">·</span>
-              <span v-if="selectedClass?.subjects?.length">{{ selectedClass.subjects.map(subjectName).join(' · ') }}</span>
-            </div>
-          </div>
+        <div class="students-page-heading">
+          <h1>{{ selectedClass?.name ?? '班级' }}</h1>
           <button type="button" class="btn" :disabled="!selectedClass" @click="studentFormOpen = !studentFormOpen">
             <AppIcon :name="studentFormOpen ? 'x' : 'plus'" :size="17" />
             {{ studentFormOpen ? '收起' : '添加学生' }}
@@ -77,11 +64,20 @@
       <section v-else-if="!pageError" class="card empty-classes">
         <span class="empty-icon"><AppIcon name="users" :size="22" /></span>
         <p>还没有班级</p>
-        <button type="button" class="btn secondary" @click="classFormOpen = true">新建 / 关联班级</button>
       </section>
     </template>
 
     <template v-if="!loading && isRosterPage && selectedClass">
+      <div class="roster-toolbar">
+        <router-link to="/teacher/students" class="back-link">
+          <AppIcon name="chevron-left" :size="16" /> 班级列表
+        </router-link>
+        <div class="roster-total">
+          <AppIcon name="users" :size="16" />
+          <span>{{ selectedClass.student_count ?? 0 }} 名学生</span>
+        </div>
+      </div>
+
       <form v-if="studentFormOpen" class="card entry-form student-entry-form" @submit.prevent="addStudent">
         <div class="entry-form-fields student-form-fields">
           <div class="form-row">
@@ -101,34 +97,44 @@
         </div>
       </form>
 
-      <section class="roster-section" aria-labelledby="roster-title">
-        <div class="roster-section-head">
-          <h3 id="roster-title">学生花名册</h3>
-          <span class="roster-count tnum">{{ rosterCards.length }} 人</span>
-        </div>
+      <section class="roster-section" aria-label="班级学生列表">
         <div v-if="rosterError" class="error-msg" role="alert">{{ rosterError }}</div>
-        <div v-else-if="rosterCards.length" class="student-list">
-          <article v-for="student in rosterCards" :key="student.id" class="student-row">
-            <router-link :to="`/teacher/students/${student.id}`" class="student-identity">
-              <span class="student-avatar">{{ student.name.slice(0, 1) }}</span>
-              <span class="student-name-block">
-                <strong>{{ student.name }}</strong>
-                <small class="tnum">{{ student.student_no || '暂无学号' }}</small>
-              </span>
-            </router-link>
-            <div class="student-metrics">
-              <div><strong class="tnum">{{ student.summary?.submission_count ?? 0 }}</strong><span>累计提交</span></div>
-              <div><strong class="tnum metric-errors">{{ student.summary?.error_count ?? 0 }}</strong><span>累计错误</span></div>
-            </div>
-            <div class="student-actions">
-              <button type="button" class="btn ghost small" :aria-label="`编辑${student.name}的信息`" @click="openEdit(student)">
-                <AppIcon name="edit" :size="15" /> 编辑
-              </button>
-              <button type="button" class="btn small delete-button" :aria-label="`从当前班级删除${student.name}`" @click="pendingDelete = student">
-                <AppIcon name="trash" :size="15" /> 删除
-              </button>
-            </div>
-          </article>
+        <div v-else-if="rosterCards.length" class="student-list-wrap">
+          <table class="student-list">
+            <thead>
+              <tr>
+                <th scope="col">学生</th>
+                <th scope="col">累计提交</th>
+                <th scope="col">累计错误</th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="student in rosterCards" :key="student.id">
+                <td>
+                  <router-link :to="`/teacher/students/${student.id}`" class="student-identity">
+                    <span class="student-avatar">{{ student.name.slice(0, 1) }}</span>
+                    <span class="student-name-block">
+                      <strong>{{ student.name }}</strong>
+                      <small class="tnum">{{ student.student_no || '暂无学号' }}</small>
+                    </span>
+                  </router-link>
+                </td>
+                <td class="student-metric tnum">{{ student.summary?.submission_count ?? 0 }}</td>
+                <td class="student-metric metric-errors tnum">{{ student.summary?.error_count ?? 0 }}</td>
+                <td>
+                  <div class="student-actions">
+                    <button type="button" class="btn ghost small" :aria-label="`编辑${student.name}的信息`" @click="openEdit(student)">
+                      <AppIcon name="edit" :size="15" /> 编辑
+                    </button>
+                    <button type="button" class="btn small delete-button" :aria-label="`从当前班级删除${student.name}`" @click="pendingDelete = student">
+                      <AppIcon name="trash" :size="15" /> 删除
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <div v-else class="card empty-roster">
           <span>这个班级还没有学生</span>
@@ -379,24 +385,23 @@ async function confirmDeleteStudent() {
 </script>
 
 <style scoped>
-.students-page { max-width: 1120px; }
-.page-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.page-heading-row h2 { margin-bottom: 6px; }
-.page-heading-row > .btn { flex: 0 0 auto; }
-.page-context { display: flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13px; }
-.page-context :deep(.app-icon) { color: var(--primary); }
-.context-divider { color: var(--text-3); }
-.back-link { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 13px; color: var(--text-2); font-size: 13px; font-weight: 600; }
-.back-link:hover { color: var(--primary); }
+.students-page { max-width: var(--content-frame-width); padding-top: 0; }
+.students-page .page-head { min-height: 86px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.students-page-heading { display: flex; width: 100%; min-height: 50px; align-items: center; justify-content: space-between; gap: 20px; }
+.students-page-heading h1 { min-width: 0; overflow: hidden; color: var(--text); font-size: clamp(21px, 2vw, 25px); font-weight: 720; letter-spacing: -0.035em; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.students-page-heading > .btn { flex: 0 0 auto; }
+.roster-toolbar { display: flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.roster-total { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.roster-total :deep(.app-icon) { color: var(--primary); }
 .entry-form { margin-bottom: 18px; }
 .entry-form-fields { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .entry-form .form-row { width: min(360px, 100%); margin: 0; }
 .entry-form-actions { display: flex; gap: 8px; }
 .form-note { margin-top: 10px; color: var(--text-3); font-size: 12px; }
-.class-list { display: flex; flex-direction: column; gap: 10px; max-width: 850px; }
+.class-list { display: flex; flex-direction: column; gap: 10px; }
 .class-row { display: flex; min-height: 78px; align-items: center; gap: 16px; padding: 15px 18px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
 .class-row:hover { transform: translateY(-1px); border-color: var(--border-strong); box-shadow: var(--shadow-md); }
-.class-icon, .empty-icon { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: 14px; background: var(--primary-50); color: var(--primary); }
+.class-icon, .empty-icon { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
 .class-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
 .class-main strong { overflow: hidden; color: var(--text); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .class-subjects { display: flex; flex-wrap: wrap; gap: 5px; color: var(--text-3); font-size: 12px; }
@@ -404,58 +409,56 @@ async function confirmDeleteStudent() {
 .class-count { min-width: 52px; color: var(--text-strong); font-size: 17px; font-weight: 750; text-align: right; }
 .class-count small { margin-left: 3px; color: var(--text-3); font-size: 12px; font-weight: 500; }
 .class-arrow { color: var(--text-3); }
-.empty-classes { display: flex; min-height: 230px; flex-direction: column; align-items: center; justify-content: center; gap: 13px; max-width: 850px; margin-bottom: 0; color: var(--text-2); }
+.empty-classes { display: flex; min-height: 230px; flex-direction: column; align-items: center; justify-content: center; gap: 13px; margin-bottom: 0; color: var(--text-2); }
 .empty-classes p { font-size: 14px; }
-.roster-page-heading { align-items: flex-end; }
-.roster-section { max-width: 1120px; }
-.roster-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
-.roster-section-head h3 { font-size: 16px; font-weight: 700; }
-.roster-count { color: var(--text-2); font-size: 13px; }
+.roster-section { width: 100%; }
 .student-entry-form { margin-bottom: 17px; }
 .student-form-fields .form-row { width: min(250px, 100%); }
-.student-list { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
-.student-row { display: grid; grid-template-columns: minmax(230px, 1fr) minmax(200px, .8fr) auto; align-items: center; gap: 18px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
-.student-row:last-child { border-bottom: 0; }
+.student-list-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
+.student-list { width: 100%; min-width: 700px; border-collapse: collapse; table-layout: fixed; }
+.student-list th, .student-list td { padding: 13px 18px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.student-list th { background: var(--surface-2); color: var(--text-2); font-size: 12px; font-weight: 650; text-align: left; }
+.student-list th:first-child { width: 42%; }
+.student-list th:nth-child(2), .student-list th:nth-child(3) { width: 14%; text-align: center; }
+.student-list th:last-child { width: 30%; text-align: right; }
+.student-list td:nth-child(2), .student-list td:nth-child(3) { text-align: center; }
+.student-list td:last-child { text-align: right; }
+.student-list tbody tr:last-child td { border-bottom: 0; }
+.student-list tbody tr:hover { background: var(--surface-2); }
 .student-identity { display: flex; min-width: 0; align-items: center; gap: 12px; color: var(--text); }
 .student-identity:hover .student-name-block strong { color: var(--primary); }
 .student-avatar { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--primary-50); color: var(--primary); font-size: 17px; font-weight: 700; }
 .student-name-block { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .student-name-block strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .student-name-block small { color: var(--text-3); font-size: 12px; }
-.student-metrics { display: flex; gap: 20px; }
-.student-metrics > div { display: flex; min-width: 65px; flex-direction: column; gap: 1px; }
-.student-metrics strong { color: var(--primary); font-size: 16px; line-height: 1.3; }
-.student-metrics strong.metric-errors { color: var(--red); }
-.student-metrics span { color: var(--text-3); font-size: 11px; }
+.student-metric { color: var(--primary); font-size: 15px; font-weight: 700; }
+.student-metric.metric-errors { color: var(--red); }
 .student-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .student-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
 .delete-button { border: 1px solid var(--border); background: #fff; color: var(--red); font-weight: 550; }
 .delete-button:hover { background: var(--red-bg); }
 .empty-roster { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--text-2); }
 .student-modal-mask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, .4); }
-.student-modal { width: min(440px, 100%); padding: 22px 24px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow-lg); }
+.student-modal { width: min(440px, 100%); padding: 22px 24px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--card); box-shadow: var(--shadow-lg); }
 .student-modal h3 { font-size: 16.5px; }
 .student-modal-note { margin-top: 10px; color: var(--text-2); font-size: 13px; }
 .student-edit-form { margin-top: 16px; }
 .student-edit-form .form-row { margin-bottom: 12px; }
 .student-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 @media (max-width: 760px) {
-  .page-heading-row { align-items: flex-start; }
-  .student-row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
-  .student-metrics { grid-column: 1; grid-row: 2; padding-left: 54px; }
-  .student-actions { grid-column: 2; grid-row: 1 / span 2; flex-direction: column; align-items: stretch; }
-  .student-actions .btn { justify-content: center; }
+  .students-page .page-head { min-height: 64px; }
+  .students-page-heading { min-height: 44px; gap: 12px; }
+  .students-page-heading h1 { font-size: 20px; }
 }
 @media (max-width: 480px) {
-  .page-heading-row { flex-direction: column; align-items: stretch; }
-  .page-heading-row > .btn { align-self: flex-start; }
+  .students-page-heading { gap: 8px; }
+  .students-page-heading > .btn { padding-inline: 10px; font-size: 12px; }
+  .roster-toolbar { min-height: 34px; }
   .entry-form-fields, .student-form-fields { align-items: stretch; flex-direction: column; }
   .entry-form .form-row, .student-form-fields .form-row { width: 100%; }
   .entry-form-actions { justify-content: flex-end; }
   .class-row { gap: 11px; padding: 13px; }
   .class-icon { width: 39px; height: 39px; }
-  .student-row { padding: 13px 12px; }
-  .student-metrics { gap: 13px; padding-left: 51px; }
   .student-modal { padding: 20px; }
   .student-modal-actions .btn { padding-inline: 14px; }
 }

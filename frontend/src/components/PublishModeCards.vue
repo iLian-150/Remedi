@@ -24,7 +24,7 @@ defineEmits<{ choose: [mode: 'online' | 'offline'] }>()
 .mode-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; cursor: pointer; font-family: inherit; color: var(--text); background: var(--card); border: 2px solid var(--border); border-radius: var(--radius); padding: 26px 24px; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
 .mode-card:hover { transform: translateY(-3px); box-shadow: var(--shadow); border-color: var(--primary); }
 .mode-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
-.mode-icon { width: 42px; height: 42px; border-radius: 12px; background: var(--primary-50); color: var(--primary); display: flex; align-items: center; justify-content: center; }
+.mode-icon { width: 42px; height: 42px; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); display: flex; align-items: center; justify-content: center; }
 .mode-name { font-size: 16px; font-weight: 700; }
 .mode-desc { font-size: 13px; color: var(--text-2); line-height: 1.55; }
 .mode-hint { color: var(--text-3); font-size: 13px; margin-top: 16px; }

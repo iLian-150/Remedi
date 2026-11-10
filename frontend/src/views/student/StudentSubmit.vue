@@ -1176,7 +1176,7 @@ onMounted(async () => {
 .switch-select-wrap { position: relative; flex: 1; min-width: 200px; }
 .switch-select {
   width: 100%; display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+  padding: 9px 12px; border: 1.5px solid var(--border); border-radius: var(--radius-control);
   background: #fff; font-size: 14px; color: var(--text); cursor: pointer; text-align: left;
 }
 .switch-select:hover { border-color: #BFDBFE; }
@@ -1186,12 +1186,12 @@ onMounted(async () => {
 .switch-chevron.open { transform: rotate(180deg); }
 .switch-menu {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 70;
-  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-control);
   box-shadow: var(--shadow-md); padding: 6px; max-height: 320px; overflow-y: auto;
 }
 .switch-option {
   width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
-  padding: 9px 10px; border: none; background: transparent; border-radius: 8px; cursor: pointer;
+  padding: 9px 10px; border: none; background: transparent; border-radius: var(--radius-detail); cursor: pointer;
 }
 .switch-option:hover:not(:disabled) { background: var(--primary-50); }
 .switch-option.active { background: var(--primary-50); }
@@ -1252,7 +1252,7 @@ onMounted(async () => {
 .board-note { margin: 14px 0 2px; }
 /* 大题材料块（做题板 + 线下列表共用） */
 .board-group-stem, .group-stem-banner {
-  background: var(--primary-50); border: 1px solid #DBEAFE; border-radius: 10px;
+  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
   padding: 11px 14px; margin-top: 12px;
   font-size: 14.5px; line-height: 1.7; color: var(--text);
 }
@@ -1283,7 +1283,7 @@ onMounted(async () => {
 .symbol-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .symbol-btn {
   min-width: 38px; height: 34px; padding: 0 9px;
-  border: 1.5px solid var(--border); border-radius: 8px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-detail);
   background: var(--bg); color: var(--text);
   font-size: 15px; font-weight: 600; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -1301,13 +1301,13 @@ onMounted(async () => {
 .board-nav-right { display: flex; gap: 8px; margin-left: auto; }
 .answer-card-pop {
   position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 40;
-  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-control);
   box-shadow: var(--shadow-md); padding: 14px;
   max-width: min(400px, 92vw);
 }
 .answer-card-grid { display: flex; flex-wrap: wrap; gap: 8px; max-width: 352px; }
 .answer-cell {
-  width: 36px; height: 36px; border-radius: 9px;
+  width: 36px; height: 36px; border-radius: var(--radius-control);
   border: 1.5px solid var(--border); background: #fff;
   font-size: 14px; font-weight: 600; color: var(--text-2); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -1335,7 +1335,7 @@ onMounted(async () => {
   display: flex;
   height: 208px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: #fff;
   overflow: hidden;
 }
@@ -1378,7 +1378,7 @@ onMounted(async () => {
 /* 待老师审核状态盒（与 PhotoGradeFlow 内同一套语义，保持双端观感一致） */
 .review-pending-box {
   display: flex; gap: 11px; align-items: flex-start;
-  background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: 10px;
+  background: var(--amber-bg); border: 1px solid #FDE68A; border-radius: var(--radius-control);
   padding: 13px 15px; margin: 12px 4px 2px;
 }
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }

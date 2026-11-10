@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
     radial-gradient(ellipse 90% 46% at 50% -12%, rgba(29, 78, 216, 0.035), transparent 70%),
     linear-gradient(180deg, #ffffff 0%, #fdfcf8 100%);
   border: 1px solid #e8e5dc;
-  border-radius: 5px;
+  border-radius: var(--radius-detail);
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.05),
     0 14px 34px -10px rgba(15, 23, 42, 0.18),
@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   white-space: nowrap;
-  box-shadow: 0 5px 14px -5px rgba(29, 78, 216, 0.55);
+  box-shadow: var(--shadow);
 }
 .paper-rule {
   height: 4px;
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
   position: relative;
   padding: 20px 14px 18px 8px;
   border-bottom: 1px dashed #e4e2d9;
-  border-radius: 8px;
+  border-radius: var(--radius-detail);
   content-visibility: auto;
   contain-intrinsic-size: auto 220px;
   transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
 .paper-item:last-child { border-bottom: none; }
 .paper-item:hover {
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 8px 20px -10px rgba(15, 23, 42, 0.22);
+  box-shadow: var(--shadow-md);
   transform: translateY(-1px);
 }
 .item-title {
@@ -431,7 +431,7 @@ onBeforeUnmount(() => {
 .assign-offline {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 13px; color: #92400E;
-  background: var(--amber-bg); border-radius: 8px;
+  background: var(--amber-bg); border-radius: var(--radius-control);
   padding: 7px 10px; margin-bottom: 10px;
 }
 
@@ -474,7 +474,7 @@ onBeforeUnmount(() => {
 .stamp--pending {
   --rot: -13deg;
   padding: 5px 9px;
-  border-radius: 5px;
+  border-radius: var(--radius-detail);
   border: 2px solid var(--amber);
   outline: 1px solid var(--amber);
   outline-offset: 2px;
@@ -486,7 +486,7 @@ onBeforeUnmount(() => {
 .stamp--todo {
   --rot: -5deg;
   padding: 5px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-detail);
   border: 1.6px dashed #9aa1ab;
   color: #838a94;
   font-size: 12.5px;
@@ -509,23 +509,23 @@ onBeforeUnmount(() => {
 .rail-note {
   display: flex; align-items: center; gap: 7px;
   font-size: 13.5px; color: var(--text-2);
-  background: #f8fafc; border: 1px dashed #d8dee9; border-radius: 10px;
+  background: #f8fafc; border: 1px dashed #d8dee9; border-radius: var(--radius-control);
   padding: 10px 14px; margin-bottom: 16px;
 }
 .filter-bar {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  background: var(--primary-50); border: 1px solid #dbeafe; border-radius: 10px;
+  background: var(--primary-50); border: 1px solid #dbeafe; border-radius: var(--radius-control);
   margin-bottom: 8px; padding: 14px 18px;
 }
 .filter-info { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 240px; flex-wrap: wrap; }
 .filter-title { font-size: 15px; font-weight: 700; }
 .filter-progress-text { font-size: 13.5px; color: var(--text-2); }
 .progress-track {
-  flex: 1; min-width: 120px; height: 8px; border-radius: 4px;
+  flex: 1; min-width: 120px; height: 8px; border-radius: 999px;
   background: #fff; overflow: hidden;
 }
 .progress-fill {
-  height: 100%; border-radius: 4px; background: var(--primary);
+  height: 100%; border-radius: 999px; background: var(--primary);
   transition: width 0.35s ease;
 }
 .paper-empty {

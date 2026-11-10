@@ -21,11 +21,11 @@
           class="sb-row"
           :class="{ active: s.id === store.activeSessionId, confirming: confirmId === s.id }"
         >
-          <div v-if="confirmId === s.id" class="sb-confirm" role="group" aria-label="确认删除对话">
+          <div v-if="confirmId === s.id" class="sb-confirm" role="group" aria-label="确认删除对话" :aria-busy="deletingId === s.id">
             <span class="sb-confirm-text">确认删除？</span>
             <div class="sb-confirm-actions">
-              <button class="sb-confirm-yes" type="button" @click="onRemove(s.id)">删除</button>
-              <button class="sb-confirm-no" type="button" @click="confirmId = null">取消</button>
+              <button class="sb-confirm-yes" type="button" :disabled="deletingId === s.id" @click="onRemove(s.id)">删除</button>
+              <button class="sb-confirm-no" type="button" :disabled="deletingId === s.id" @click="cancelRemove(s.id)">取消</button>
             </div>
           </div>
           <template v-else>
@@ -70,6 +70,7 @@ const store = computed(() =>
 )
 
 const confirmId = ref<number | null>(null)
+const deletingId = ref<number | null>(null)
 
 onMounted(() => {
   store.value.loadSessions()
@@ -99,13 +100,21 @@ function onSelect(id: number) {
 }
 
 async function onRemove(id: number) {
+  if (deletingId.value !== null) return
+  deletingId.value = id
   try {
     await store.value.removeSidebarSession(id)
+    if (confirmId.value === id) confirmId.value = null
   } catch (e) {
     console.error(e)
   } finally {
-    confirmId.value = null
+    deletingId.value = null
   }
+}
+
+function cancelRemove(id: number) {
+  if (deletingId.value === id) return
+  if (confirmId.value === id) confirmId.value = null
 }
 </script>
 
@@ -137,7 +146,7 @@ async function onRemove(id: number) {
 .sb-load-more:disabled { opacity: 0.6; cursor: wait; }
 .sb-error { display: flex; align-items: center; gap: 8px; color: var(--red); }
 .sb-error span { min-width: 0; }
-.sb-error button { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--primary); font: inherit; cursor: pointer; }
+.sb-error button { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius-detail); background: var(--card); color: var(--primary); font: inherit; cursor: pointer; }
 .sb-error button:disabled { opacity: 0.6; cursor: wait; }
 .sb-row {
   display: flex; align-items: center; gap: 4px;
@@ -190,6 +199,7 @@ async function onRemove(id: number) {
   border: 1px solid var(--border); background: #fff; color: var(--text-2); cursor: pointer;
   border-radius: var(--radius-detail); padding: 0 10px; font-size: 12px; font-family: var(--font); line-height: 1;
 }
+.sb-confirm-yes:disabled, .sb-confirm-no:disabled { opacity: 1; cursor: wait; }
 @media (prefers-reduced-motion: reduce) {
   .sb-trash, .sb-new-btn { transition: none; }
 }

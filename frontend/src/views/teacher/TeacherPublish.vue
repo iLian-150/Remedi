@@ -19,8 +19,7 @@
     <template v-if="!chatWorkflowCollapsed">
     <div v-if="(!embedded || step === 'form') && !chatWorkflow" class="page-head publish-head">
       <div v-if="!embedded" class="ph-main">
-        <router-link to="/teacher/assignments" class="btn secondary small inline-icon"><AppIcon name="chevron-left" :size="15" /> 返回作业管理</router-link>
-        <h2>发布作业</h2>
+        <router-link to="/teacher/assignments" class="back-link"><AppIcon name="chevron-left" :size="16" /> 返回作业入口</router-link>
       </div>
     </div>
 
@@ -129,7 +128,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" :class="{ 'picker-open': subjectPickerOpen }">
       <h3>基本信息</h3>
       <div class="form-row">
         <label for="assignment-title">作业标题 <span class="required-mark">必填</span></label>
@@ -150,10 +149,23 @@
            「允许学生修改」收在面板里（见下方 time-panel）；作业说明是独立折叠按钮 -->
       <div class="grid-3">
         <div class="form-row">
-          <label>学科</label>
-          <select v-model="subject">
-            <option v-for="option in availableSubjectOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
+          <span id="assignment-subject-label" class="subject-field-label">学科</span>
+          <div ref="subjectPickerRef" class="subject-picker">
+            <button
+              id="assignment-subject" ref="subjectPickerButtonRef" type="button" class="subject-select"
+              aria-controls="assignment-subject-menu" aria-labelledby="assignment-subject-label assignment-subject-current"
+              :aria-expanded="subjectPickerOpen" @click="toggleSubjectPicker"
+            >
+              <span id="assignment-subject-current">{{ subjectLabel }}</span>
+              <AppIcon name="chevron-down" :size="16" class="picker-chevron" :class="{ open: subjectPickerOpen }" aria-hidden="true" />
+            </button>
+            <div v-if="subjectPickerOpen" id="assignment-subject-menu" class="subject-menu" role="radiogroup" aria-labelledby="assignment-subject-label">
+              <label v-for="option in availableSubjectOptions" :key="option.value" class="subject-option" :class="{ 'is-selected': subject === option.value }">
+                <input v-model="subject" type="radio" name="assignment-subject" :value="option.value" @change="subjectPickerOpen = false" />
+                <span>{{ option.label }}</span>
+              </label>
+            </div>
+          </div>
         </div>
         <div class="form-row">
           <label>作业总分（满分）</label>
@@ -252,14 +264,31 @@
       </div>
     </div>
 
-    <div ref="classSectionRef" class="card" tabindex="-1" role="group" aria-labelledby="assignment-classes-heading" :aria-required="true" :aria-invalid="showRequiredHints && !selectedClassIds.length ? 'true' : undefined" :aria-describedby="showRequiredHints && !selectedClassIds.length ? 'assignment-classes-error' : undefined">
+    <div ref="classSectionRef" class="card" :class="{ 'picker-open': classPickerOpen }" tabindex="-1" role="group" aria-labelledby="assignment-classes-heading" :aria-required="true" :aria-invalid="showRequiredHints && !selectedClassIds.length ? 'true' : undefined" :aria-describedby="showRequiredHints && !selectedClassIds.length ? 'assignment-classes-error' : undefined">
       <h3 id="assignment-classes-heading">接收班级 <span class="required-mark">必选</span></h3>
       <p class="hint">只向所选班级发布；新建作业不会自动对其他班级学生开放。</p>
-      <div v-if="classesForSubject.length" class="recipient-classes">
-        <label v-for="room in classesForSubject" :key="room.id" class="recipient-class">
-          <input v-model="selectedClassIds" type="checkbox" :value="room.id" />
-          <span><b>{{ room.name }}</b><small>{{ room.student_count }} 名学生</small></span>
-        </label>
+      <div v-if="classesForSubject.length" ref="classPickerRef" class="recipient-picker">
+        <button
+          ref="classPickerButtonRef" type="button" class="recipient-select"
+          aria-controls="assignment-class-menu"
+          :aria-expanded="classPickerOpen" :aria-invalid="showRequiredHints && !selectedClassIds.length ? 'true' : undefined"
+          :aria-describedby="showRequiredHints && !selectedClassIds.length ? 'assignment-classes-error' : undefined"
+          @click="toggleClassPicker"
+        >
+          <span v-if="selectedClassIds.length" class="recipient-selection">
+            <span class="recipient-selection-name">{{ selectedClassSummary }}</span>
+            <small>{{ selectedStudentCount }} 名学生</small>
+          </span>
+          <span v-else class="recipient-placeholder">请选择接收班级</span>
+          <AppIcon name="chevron-down" :size="16" class="picker-chevron" :class="{ open: classPickerOpen }" aria-hidden="true" />
+        </button>
+        <div v-if="classPickerOpen" id="assignment-class-menu" class="recipient-menu" role="group" aria-label="可选接收班级">
+          <label v-for="room in classesForSubject" :key="room.id" class="recipient-option" :class="{ 'is-selected': selectedClassIds.includes(room.id) }">
+            <input v-model="selectedClassIds" type="checkbox" :value="room.id" />
+            <span class="recipient-option-info"><b>{{ room.name }}</b><small>{{ room.student_count }} 名学生</small></span>
+            <AppIcon v-if="selectedClassIds.includes(room.id)" name="check" :size="16" class="recipient-option-check" aria-hidden="true" />
+          </label>
+        </div>
       </div>
       <div v-else class="class-empty">
         还没有负责 {{ subjectLabel }} 的班级。<router-link to="/teacher/students">先到学生页建立班级</router-link>
@@ -618,13 +647,62 @@ const subject = ref<QuestionSubject>((auth.activeSubject as QuestionSubject) || 
 const availableSubjectOptions = computed(() => SUBJECT_OPTIONS.filter(
   (option) => option.value === (auth.activeSubject || 'math'),
 ))
+const subjectPickerOpen = ref(false)
+const subjectPickerRef = ref<HTMLElement | null>(null)
+const subjectPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const classrooms = ref<Classroom[]>([])
 const selectedClassIds = ref<number[]>([])
 const classSectionRef = ref<HTMLElement | null>(null)
+const classPickerOpen = ref(false)
+const classPickerRef = ref<HTMLElement | null>(null)
+const classPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const classesForSubject = computed(() => classrooms.value.filter(
   (room) => room.subjects.includes(subject.value as SubjectAgentCode),
 ))
-watch(subject, () => { selectedClassIds.value = [] })
+const selectedClassrooms = computed(() => classesForSubject.value.filter((room) => selectedClassIds.value.includes(room.id)))
+const selectedClassSummary = computed(() => {
+  const selected = selectedClassrooms.value
+  if (selected.length < 2) return selected[0]?.name ?? ''
+  if (selected.length === 2) return selected.map((room) => room.name).join('、')
+  return `${selected[0].name} 等 ${selected.length} 个班级`
+})
+const selectedStudentCount = computed(() => selectedClassrooms.value.reduce(
+  (total, room) => total + Math.max(0, Number(room.student_count) || 0), 0,
+))
+function toggleSubjectPicker() {
+  classPickerOpen.value = false
+  subjectPickerOpen.value = !subjectPickerOpen.value
+}
+function toggleClassPicker() {
+  subjectPickerOpen.value = false
+  classPickerOpen.value = !classPickerOpen.value
+}
+function onAssignmentPickerDocumentClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (!subjectPickerRef.value?.contains(target)) subjectPickerOpen.value = false
+  if (!classPickerRef.value?.contains(target)) classPickerOpen.value = false
+}
+function onAssignmentPickerDocumentKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  if (classPickerOpen.value) {
+    classPickerOpen.value = false
+    classPickerButtonRef.value?.focus()
+  } else if (subjectPickerOpen.value) {
+    subjectPickerOpen.value = false
+    subjectPickerButtonRef.value?.focus()
+  } else return
+  event.preventDefault()
+  event.stopPropagation()
+}
+onMounted(() => {
+  document.addEventListener('click', onAssignmentPickerDocumentClick)
+  document.addEventListener('keydown', onAssignmentPickerDocumentKeydown)
+})
+watch(subject, () => {
+  selectedClassIds.value = []
+  classPickerOpen.value = false
+})
 const subjectLabel = computed(() => SUBJECT_OPTIONS.find((option) => option.value === subject.value)?.label ?? '其他')
 const totalScore = ref(100)   // 评分系统：作业总分（满分），默认 100
 const blankQuestion = (): QuestionForm => ({
@@ -681,7 +759,11 @@ function removeGroupSub(g: GroupForm, index: number) {
   clearGroupFigure(g)
 }
 let figurePageActive = true
-onBeforeUnmount(() => { figurePageActive = false })
+onBeforeUnmount(() => {
+  figurePageActive = false
+  document.removeEventListener('click', onAssignmentPickerDocumentClick)
+  document.removeEventListener('keydown', onAssignmentPickerDocumentKeydown)
+})
 interface FigureJob { id: number; status: string; figure: FigureSpec | null; message: string }
 async function generateGroupFigure(g: GroupForm) {
   const questionText = groupFigurePrompt(g)
@@ -1493,7 +1575,7 @@ async function submit() {
     else {
       teacher.setAssignmentDateFilter('')
       window.dispatchEvent(new CustomEvent('assignments-changed'))
-      setTimeout(() => router.push('/teacher/assignments'), 600)
+      setTimeout(() => router.push('/teacher/assignments/manage'), 600)
     }
   } catch (e: unknown) {
     error.value = '发布失败：' + errMsg(e, '请稍后重试。')
@@ -1544,7 +1626,7 @@ onMounted(async () => {
 .error-toast {
   position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
   z-index: 200; display: flex; align-items: center; gap: 8px;
-  max-width: min(92vw, 560px); padding: 11px 16px; border-radius: 12px;
+  max-width: min(92vw, 560px); padding: 11px 16px; border-radius: var(--radius-control);
   background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA;
   box-shadow: var(--shadow-md); font-size: 14px; font-weight: 600; line-height: 1.5;
 }
@@ -1556,12 +1638,52 @@ onMounted(async () => {
 .page-head.publish-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .publish-page.is-embedded { max-width: none; width: 100%; margin: 0; padding: 18px 0 0; }
 .publish-page.is-embedded .page-head { margin-bottom: 14px; }
-.recipient-classes { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
-.recipient-class { display: inline-flex; align-items: center; gap: 9px; padding: 10px 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); cursor: pointer; }
-.recipient-class input { accent-color: var(--primary); }
-.recipient-class span { display: flex; flex-direction: column; gap: 2px; }
-.recipient-class small, .class-empty { color: var(--text-3); font-size: 12px; }
-.class-empty { padding-top: 10px; }
+.subject-field-label { display: block; margin-bottom: 7px; color: var(--text-strong); font-size: 13px; font-weight: 620; }
+.publish-page .card.picker-open { position: relative; z-index: 20; }
+.subject-picker, .recipient-picker { position: relative; width: 100%; }
+.recipient-picker { width: min(100%, 440px); margin-top: 12px; }
+.subject-select, .recipient-select {
+  width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; border: 1.5px solid var(--border-strong); border-radius: var(--radius-control);
+  background: #FBFCFF; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.subject-select { font-size: 16px; font-weight: 650; }
+.recipient-select { min-height: 56px; }
+.subject-select:hover, .recipient-select:hover,
+.subject-select[aria-expanded='true'], .recipient-select[aria-expanded='true'] { border-color: var(--primary); background: #fff; }
+.subject-select:focus-visible, .recipient-select:focus-visible {
+  outline: none; border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-50);
+}
+.recipient-select[aria-invalid='true'] { border-color: var(--red); }
+.picker-chevron { flex: 0 0 auto; color: var(--text-2); transition: transform .16s ease, color .16s ease; }
+.picker-chevron.open { color: var(--primary); transform: rotate(180deg); }
+.subject-menu, .recipient-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 80;
+  padding: 6px; overflow-y: auto; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-control); box-shadow: var(--shadow-md);
+  animation: publish-pane-in .16s ease both;
+}
+.subject-menu { max-height: min(280px, 48vh); }
+.recipient-menu { max-height: min(340px, 52vh); }
+.subject-option, .recipient-option {
+  width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border: 0; border-radius: var(--radius-detail); background: transparent;
+  color: var(--text); text-align: left; cursor: pointer; transition: background .12s ease, color .12s ease;
+}
+.subject-option:hover, .recipient-option:hover { background: var(--primary-50); }
+.subject-option.is-selected, .recipient-option.is-selected { background: var(--primary-50); color: var(--primary); }
+.subject-option input, .recipient-option input { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; accent-color: var(--primary); }
+.subject-option span { font-weight: 600; }
+.recipient-option { min-height: 52px; }
+.recipient-option-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.recipient-option-info b { font-size: 14px; font-weight: 600; }
+.recipient-option-info small, .recipient-selection small { color: var(--text-3); font-size: 12px; }
+.recipient-option-check { flex: 0 0 auto; color: var(--primary); }
+.recipient-selection { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.recipient-selection-name { max-width: 100%; overflow: hidden; color: var(--text-strong); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.recipient-placeholder { color: var(--text-3); font-size: 14px; }
+.class-empty { padding-top: 10px; color: var(--text-3); font-size: 12px; }
 /* ---------- 表单布局：按实际位置并排，不再逐行堆叠 ---------- */
 .grid-3 { display: grid; grid-template-columns: 1fr 1.1fr 1.3fr; gap: 14px; margin-bottom: 14px; }
 .grid-q-meta { display: grid; grid-template-columns: 1.5fr 1fr 1.3fr; gap: 14px; margin-bottom: 14px; }
@@ -1581,13 +1703,13 @@ onMounted(async () => {
 .time-field {
   width: 100%; display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; cursor: pointer; font-family: var(--font); font-size: 14px; color: var(--text);
-  background: #FBFCFF; border: 1.5px solid #D9E1F2; border-radius: 10px;
+  background: #FBFCFF; border: 1.5px solid var(--border-strong); border-radius: var(--radius-control);
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
 .time-field:hover, .time-field:focus-visible { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-50); outline: none; }
 .time-field-text { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .time-panel {
-  border: 1.5px solid #D9E1F2; border-radius: 12px; background: #FBFCFF;
+  border: 1.5px solid var(--border-strong); border-radius: var(--radius-surface); background: #FBFCFF;
   padding: 14px; margin-bottom: 14px; animation: publish-pane-in .25s ease both;
 }
 .time-grid { display: grid; grid-template-columns: 288px 1fr; gap: 20px; }
@@ -1596,13 +1718,13 @@ onMounted(async () => {
 .cal-title { font-weight: 700; font-size: 14.5px; }
 .cal-nav {
   width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
-  border: 1.5px solid var(--border); border-radius: 8px; background: #fff; color: var(--text); cursor: pointer;
+  border: 1.5px solid var(--border); border-radius: var(--radius-detail); background: #fff; color: var(--text); cursor: pointer;
 }
 .cal-nav:hover { border-color: var(--primary); color: var(--primary); }
 .cal-week, .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .cal-week span { text-align: center; font-size: 11.5px; color: var(--text-3); padding: 2px 0; }
 .cal-day {
-  height: 34px; border: 1px solid transparent; border-radius: 9px; background: transparent;
+  height: 34px; border: 1px solid transparent; border-radius: var(--radius-detail); background: transparent;
   cursor: pointer; font-family: var(--font); font-size: 13px; color: var(--text);
   transition: border-color .12s ease, background .12s ease, color .12s ease;
 }
@@ -1629,7 +1751,7 @@ onMounted(async () => {
 /* ---------- 输入控件统一样式（全局裸样式太素，含 number/datetime 的补齐） ---------- */
 .publish-page input[type='text'], .publish-page input[type='number'],
 .publish-page input[type='datetime-local'], .publish-page textarea, .publish-page select {
-  border: 1.5px solid #D9E1F2; border-radius: 10px; background: #FBFCFF;
+  border: 1.5px solid var(--border-strong); border-radius: var(--radius-control); background: #FBFCFF;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 .publish-page input[type='number'], .publish-page input[type='datetime-local'] {
@@ -1646,8 +1768,8 @@ onMounted(async () => {
 .publish-actions {
   position: sticky; bottom: 14px; z-index: 5;
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  background: var(--card); border: 1px solid #E4E9F2; border-radius: 14px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14); padding: 12px 14px; margin-bottom: 16px;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-surface);
+  box-shadow: var(--shadow-md); padding: 12px 14px; margin-bottom: 16px;
 }
 .publish-actions .spacer { flex: 1; }
 .recognition-error { display: inline-flex; align-items: center; gap: 5px; max-width: 440px; color: var(--red); font-size: 12px; line-height: 1.4; }
@@ -1670,7 +1792,7 @@ onMounted(async () => {
 .wb-pick-btn {
   width: 100%; display: flex; align-items: center; gap: 9px;
   padding: 10px 12px; cursor: pointer; font-family: var(--font); font-size: 14px; color: var(--text);
-  background: #FBFCFF; border: 1.5px solid #D9E1F2; border-radius: 10px;
+  background: #FBFCFF; border: 1.5px solid var(--border-strong); border-radius: var(--radius-control);
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
 .wb-pick-btn:hover, .wb-pick-btn:focus-visible { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-50); outline: none; }
@@ -1683,8 +1805,8 @@ onMounted(async () => {
 }
 .shelf-panel {
   width: min(680px, 100%); max-height: 82vh; overflow-y: auto;
-  background: var(--card); border-radius: 16px; padding: 18px;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, .3);
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 18px;
+  box-shadow: var(--shadow-lg);
 }
 .shelf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .shelf-grid { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -1697,7 +1819,7 @@ onMounted(async () => {
 /* 练习册封面缩略图（v0.6.0，现仅用于书架面板） */
 .wb-thumb {
   width: 76px; padding: 6px 6px 5px; cursor: pointer; font-family: var(--font); color: var(--text);
-  background: #fff; border: 2px solid #E4E9F2; border-radius: 10px;
+  background: #fff; border: 1px solid var(--border-strong); border-radius: var(--radius-control);
   display: flex; flex-direction: column; align-items: center; gap: 5px;
   transition: border-color 0.2s ease, transform 0.2s ease;
 }
@@ -1758,7 +1880,7 @@ onMounted(async () => {
 .symbol-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .symbol-btn {
   min-width: 38px; height: 34px; padding: 0 9px;
-  border: 1.5px solid var(--border); border-radius: 8px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-detail);
   background: var(--bg); color: var(--text);
   font-size: 15px; font-weight: 600; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;

@@ -251,7 +251,7 @@ onMounted(async () => {
 /* ---------- 书架 ---------- */
 .bookshelf {
   background: linear-gradient(180deg, #FBFCFE 0%, #F4F6FA 100%);
-  border: 1px solid #E4E9F2; border-radius: 16px;
+  border: 1px solid var(--border); border-radius: var(--radius-surface);
   padding: 30px 30px 12px;
 }
 .shelf { margin-bottom: 30px; }
@@ -302,7 +302,7 @@ onMounted(async () => {
 .book-add {
   width: 104px; height: 140px; margin: 0 auto;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  border: 2px dashed #B7C9F5; border-radius: 8px;
+  border: 2px dashed #B7C9F5; border-radius: var(--radius-control);
   background: rgba(255, 255, 255, 0.55); color: var(--primary);
   cursor: pointer; font-family: var(--font);
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.25s ease;
@@ -318,7 +318,7 @@ onMounted(async () => {
 }
 .modal-card {
   width: min(480px, 100%);
-  background: var(--card); border-radius: 16px; box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-panel); box-shadow: var(--shadow-lg);
   padding: 22px;
   animation: modal-in 0.2s ease both;
 }

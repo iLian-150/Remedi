@@ -147,7 +147,7 @@ function onNoteClick(n: CorrectionNote) {
 .wall {
   background: linear-gradient(180deg, #f5f1e6, #eee8d8);
   border: 1px solid #e3dcc4;
-  border-radius: 18px;
+  border-radius: var(--radius-surface);
   padding: 28px 22px 24px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 28px rgba(122, 102, 52, 0.07),
     0 1px 2px rgba(16, 24, 40, 0.05);
@@ -169,7 +169,7 @@ function onNoteClick(n: CorrectionNote) {
   margin: 22px auto 0;
   padding: 10px 16px;
   border: 1px solid #d8d0ba;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: rgba(255, 255, 255, 0.62);
   color: #57503c;
   font: inherit;

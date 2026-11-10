@@ -100,7 +100,7 @@ function goToday() {
   position: relative;
   border: 1px solid transparent;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   min-height: 44px;
   padding: 4px 2px 6px;
   cursor: pointer;
@@ -120,6 +120,6 @@ function goToday() {
 .cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
 .cal-count {
   font-size: 10.5px; font-weight: 700; color: var(--primary);
-  background: var(--blue-bg); border-radius: 8px; padding: 0 5px; line-height: 14px;
+  background: var(--blue-bg); border-radius: 999px; padding: 0 5px; line-height: 14px;
 }
 </style>

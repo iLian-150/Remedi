@@ -13,7 +13,7 @@
      两端都从主导航新建对话，在下方显示最近对话）；
      收起机制全角色一致，未读数改由 student store 持有，
      进入学生任何页面（路由变化）时刷新一次。
-     v0.9.0：侧栏收起改「图标轨」——不再整条消失，收起态宽 68px 只留 Logo 与导航图标
+     v0.9.0：侧栏收起改「图标轨」——不再整条消失，收起态宽 78px 只留 Logo 与导航图标
      （悬停 tooltip 显示标签）、头像与展开按钮（品牌行按钮图标随状态翻转），
      SidebarSessions / 品牌文字 / 账号文字在收起态隐藏；教师导航新增「待审核」
      （角标数读 teacher store，进教师端页面时刷新）。
@@ -116,6 +116,7 @@
 
     <!-- 右侧栏：有场景时才挂载；用 class 控制展开/收起动画 -->
     <aside
+      ref="rightRailRef"
       v-if="railMode !== 'none'"
       class="app-rail"
       :class="{ closed: !railOpen }"
@@ -287,9 +288,8 @@ const showSidebarSessions = computed(() => {
 
 const shellPageTitle = computed(() => {
   if (isChatRoute.value || route.meta.public) return ''
-  if (route.matched.some((record) => record.path === '/teacher/students/:id')) {
-    return typeof route.meta.title === 'string' ? route.meta.title : '学生画像'
-  }
+  if (route.path === '/teacher/students' || route.path.startsWith('/teacher/students/classes/')) return ''
+  if (typeof route.meta.title === 'string') return route.meta.title
   const section = navItems.value.find((item) =>
     [item.to, ...(item.activePaths ?? [])].some((path) =>
       route.path === path || route.path.startsWith(`${path}/`)
@@ -328,7 +328,7 @@ function railModeForPath(
 ): RailMode {
   if (!authenticated) return 'none'
   if (role === 'teacher') {
-    return path === '/teacher/assignments' ? 'calendar' : 'none'
+    return path === '/teacher/assignments/manage' ? 'calendar' : 'none'
   }
   if (role !== 'student' || !path.startsWith('/student/')) return 'none'
   if (path === '/student/mistakes') return 'mistakes'
@@ -349,10 +349,20 @@ const railFabLabel = computed(() => {
   return count ? `打开提醒，${count} 条未读` : '打开提醒'
 })
 const railOpen = ref(false)
+const rightRailRef = ref<HTMLElement | null>(null)
 
 function setRail(open: boolean) {
   railOpen.value = open
 }
+
+function closeAssignmentCalendarOnOutsidePointerdown(event: PointerEvent) {
+  if (!railOpen.value || auth.role !== 'teacher' || route.path !== '/teacher/assignments/manage') return
+  const target = event.target
+  if (target instanceof Node && !rightRailRef.value?.contains(target)) setRail(false)
+}
+
+document.addEventListener('pointerdown', closeAssignmentCalendarOnOutsidePointerdown)
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeAssignmentCalendarOnOutsidePointerdown))
 
 // ---------- 未读数 / 待审计数刷新（v0.8.2 / v0.9.0）：进入对应角色页面时刷新轻量计数 ----------
 // 未读数由 student store 持有，RightRail 读/写后同步回写，FAB 角标直接读 store；
