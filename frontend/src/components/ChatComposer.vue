@@ -43,7 +43,7 @@
             class="chat-text-input"
             rows="1"
             aria-label="输入内容"
-            :placeholder="singleLine ? '说说你想了解什么…' : '输入内容…'"
+            placeholder="输入内容…"
             :disabled="sending"
             @input="onInput"
             @keydown.enter.exact.prevent="emit('send')"
@@ -174,18 +174,18 @@ function formatFileSize(size: number): string {
 .send-btn:disabled { background: var(--gray-bg); color: var(--text-3); cursor: default; }
 .send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
 .chat-composer .chat-inner { max-width: 860px; }
-.chat-composer-single-line .chat-inner { max-width: 1100px; }
+.chat-composer-single-line .chat-inner { max-width: 860px; }
 .composer-panel-single-line {
   align-items: center;
   flex-direction: row;
   padding: 6px 8px 6px 22px;
   border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  box-shadow: none;
+  background: var(--card);
+  box-shadow: var(--shadow-md);
 }
 .composer-panel-single-line:focus-within {
   border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+  box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
 }
 .composer-panel-single-line .composer-entry { width: 100%; flex-direction: row; align-items: center; gap: 8px; }
 .composer-panel-single-line .chat-text-input {
