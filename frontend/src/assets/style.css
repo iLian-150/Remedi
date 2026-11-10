@@ -27,11 +27,11 @@
   --note-pink: #FFDCE8;
   --note-blue: #D6E9FF;
   --note-ink: #3F3A2A;
-  --radius-micro: 3px;
-  --radius-detail: 6px;
-  --radius-control: 10px;
-  --radius-surface: 18px;
-  --radius-panel: 24px;
+  --radius-micro: 5px;
+  --radius-detail: 10px;
+  --radius-control: 14px;
+  --radius-surface: 22px;
+  --radius-panel: 28px;
   --radius-book: var(--radius-micro) var(--radius-control) var(--radius-control) var(--radius-micro);
   --radius-pill: 999px;
   --control-inset: 4px;
