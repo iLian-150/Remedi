@@ -39,10 +39,7 @@
               <span v-if="n.stepText" class="note-step">出错步骤：{{ n.stepText }}</span>
               <span class="note-meta">{{ n.knowledgePoint }}</span>
               <span class="note-meta">{{ n.dateLabel }}</span>
-              <span class="note-foot">
-                <template v-if="n.isFixed"><AppIcon name="check" :size="13" /> 已订正 · 点一下看诊断详情</template>
-                <template v-else><AppIcon name="edit" :size="13" /> 点一下，撕下来订正</template>
-              </span>
+              <span v-if="n.isFixed" class="note-foot"><AppIcon name="check" :size="13" /> 已订正</span>
               <span v-if="n.isFixed" class="note-seal"><AppIcon name="check" :size="17" /></span>
             </button>
           </div>
