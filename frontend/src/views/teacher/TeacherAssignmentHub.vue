@@ -6,11 +6,14 @@
         <PublishModeCards @choose="openPublish" />
       </section>
 
-      <router-link to="/teacher/assignments/manage" class="card management-entry" @click="resetAssignmentFilter">
-        <span class="management-entry-icon"><AppIcon name="clipboard" :size="21" /></span>
-        <strong>作业管理</strong>
-        <AppIcon name="arrow-right" :size="18" class="management-entry-arrow" />
-      </router-link>
+      <div class="assignment-aside">
+        <router-link to="/teacher/assignments/manage" class="card management-entry" @click="resetAssignmentFilter">
+          <span class="management-entry-icon"><AppIcon name="clipboard" :size="21" /></span>
+          <strong>作业管理</strong>
+          <AppIcon name="arrow-right" :size="18" class="management-entry-arrow" />
+        </router-link>
+        <DailyAssignmentSummary />
+      </div>
     </div>
   </div>
 </template>
@@ -19,6 +22,7 @@
 import { useRouter } from 'vue-router'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import PublishModeCards from '../../components/PublishModeCards.vue'
+import DailyAssignmentSummary from '../../components/DailyAssignmentSummary.vue'
 import { useTeacherStore } from '../../stores/teacher'
 
 const router = useRouter()
@@ -35,12 +39,13 @@ function resetAssignmentFilter() {
 
 <style scoped>
 .assignment-hub { max-width: var(--content-frame-width); }
-.assignment-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 16px; }
+.assignment-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
 .publish-entry, .management-entry { min-width: 0; margin-bottom: 0; padding: 20px; }
 .entry-heading { margin-bottom: 16px; color: var(--text); font-size: 18px; font-weight: 700; }
+.assignment-aside { display: grid; min-width: 0; gap: 16px; }
 .management-entry {
-  display: flex; min-height: 196px; align-items: center; gap: 14px; padding: 24px;
-  color: var(--text); font-size: 17px; font-weight: 700;
+  display: flex; min-height: 96px; align-items: center; gap: 14px; padding: 20px 22px;
+  color: var(--text); font-size: 17px; font-weight: 700; text-decoration: none;
   transition: border-color .16s ease, box-shadow .16s ease;
 }
 .management-entry:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }

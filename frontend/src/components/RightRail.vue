@@ -4,8 +4,8 @@
      - mode="calendar"（学生/教师作业列表页）：只显示作业日历；点选日期 → 写入对应 store 的
        assignmentDateFilter，作业列表页据此筛选 + 显示当天进度；再次点同一天 = 取消筛选。
      - mode="corrections"（学生订正页，v0.9.1）：订正日历——按错题所属提交日期打点+计数；
-       点选日期 → 写入 student store 的 correctionsDateFilter，订正页据此只看那天的错题；
-       再次点同一天 = 取消筛选。数据走后端日期聚合接口，
+     点选有标记的日期 → 写入 student store 的 correctionsDateFilter，订正页据此只看那天的错题；
+       再点选中日期或空白日期/区域 = 取消筛选。数据走后端日期聚合接口，
        与订正页同口径（仅诊断产生的错题；待审核错题同步计入待订正）。
      - mode="timeline"（学生学习报告页：总览与科目详情，本次改造）：错题时间线——
        报告页右栏不再是信箱；面板默认收起，只露标题行（图标+「错题时间线」+条数+
@@ -15,7 +15,7 @@
      收起/展开由 App.vue 控制（收起态 FAB 图标随场景变：notes=邮件、mistakes=错题本、calendar/corrections=日历）。
      通知唯一来源：教师在教师端一键纠错 → 后端落库 → 这里 GET 拉取展示，学生端不本地伪造。 -->
 <template>
-  <div class="rail-inner">
+  <div class="rail-inner" @click.self="onCalendarBlank">
     <div class="rail-head">
       <span class="rail-title">
         <AppIcon :name="mode === 'notes' ? 'megaphone' : mode === 'mistakes' ? 'book' : mode === 'timeline' ? 'history' : 'calendar'" :size="17" />
@@ -132,7 +132,7 @@
 
     <!-- 日历（作业列表页=作业日历；订正页=订正日历）：选中日期与对应页面筛选共用 store 状态 -->
     <template v-else>
-      <AssignmentCalendar :marks="mode === 'corrections' ? correctionMarks : marks" :selected="dateFilter" @select="onSelectDay" />
+      <AssignmentCalendar :marks="mode === 'corrections' ? correctionMarks : marks" :selected="dateFilter" @select="onSelectDay" @blank="onCalendarBlank" />
       <p class="hint" style="margin-top: 10px">
         {{ calendarHint }}
       </p>
@@ -189,7 +189,7 @@ const dateFilter = computed(() =>
 const calendarHint = computed(() => {
   if (props.mode === 'corrections') {
     return dateFilter.value
-      ? '已按所选日期筛选订正列表，点「查看全部」或再点一次该日期可恢复全部。'
+      ? '已按日期筛选；点「查看全部」、无标记日期或空白处可恢复全部。'
       : '圆点是哪天交的作业里出了错题，点一天就只看那天的。'
   }
   return dateFilter.value
@@ -203,6 +203,7 @@ const unread = ref(0)
 const marks = ref<Record<string, number>>({})
 /** 订正日历标记（v0.9.1）：yyyy-mm-dd → 当天提交里产生的可订正错题条数 */
 const correctionMarks = ref<Record<string, number>>({})
+const correctionMarksLoaded = ref(false)
 
 /** 错题时间线只保留当前科目的已加载页，接口在数据库内投影详情字段。 */
 const timelineRows = ref<StudentMistakeTimelineItem[]>([])
@@ -311,10 +312,22 @@ function resetTimelineRows() {
 
 function onSelectDay(date: string) {
   // 再点一次已选中的日期 = 取消筛选
+  if (props.mode === 'corrections') {
+    const hasMistakes = (correctionMarks.value[date] ?? 0) > 0
+    student.setCorrectionsDateFilter(
+      date === dateFilter.value || (correctionMarksLoaded.value && !hasMistakes) ? '' : date
+    )
+    return
+  }
   const next = date === dateFilter.value ? '' : date
-  if (props.mode === 'corrections') student.setCorrectionsDateFilter(next)
-  else if (isStudent.value) student.setAssignmentDateFilter(next)
+  if (isStudent.value) student.setAssignmentDateFilter(next)
   else teacher.setAssignmentDateFilter(next)
+}
+
+function onCalendarBlank() {
+  if (props.mode === 'corrections' && dateFilter.value) {
+    student.setCorrectionsDateFilter('')
+  }
 }
 
 async function loadNotes() {
@@ -363,8 +376,10 @@ function assignmentMarks(assignments: Array<{ created_at: string }>) {
 
 /** 订正日历标记：后端仅返回按所属提交日期聚合的计数，避免下载完整错题详情。 */
 async function loadCorrectionMarks() {
+  correctionMarksLoaded.value = false
   try {
     correctionMarks.value = await student.fetchCorrectionCalendarMarks()
+    correctionMarksLoaded.value = true
   } catch (e) {
     console.error(e)
   }

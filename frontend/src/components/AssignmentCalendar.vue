@@ -1,8 +1,8 @@
 <!-- 作业日历（学生/教师双端共用，v0.2.1 新增）
      按作业 created_at（发布日期）打标记：有作业的日期显示圆点，多份显示数量角标。
-     点击某天 emit('select', 'yyyy-mm-dd')，父页面据此在下方列出当天发布的作业。 -->
+     点击某天 emit('select', 'yyyy-mm-dd')；点击日历空白处 emit('blank')。 -->
 <template>
-  <div class="cal">
+  <div class="cal" @click.self="$emit('blank')">
     <div class="cal-head">
       <button class="icon-btn" aria-label="上个月" title="上个月" @click="move(-1)"><AppIcon name="chevron-left" :size="18" /></button>
       <span class="cal-title">{{ viewYear }} 年 {{ viewMonth + 1 }} 月</span>
@@ -12,7 +12,7 @@
     <div class="cal-grid cal-week">
       <span v-for="w in WEEKDAYS" :key="w">{{ w }}</span>
     </div>
-    <div class="cal-grid">
+    <div class="cal-grid" @click.self="$emit('blank')">
       <button
         v-for="cell in cells"
         :key="cell.date"
@@ -41,7 +41,7 @@ const props = defineProps<{
   /** 当前选中日期 yyyy-mm-dd（可为空字符串） */
   selected: string
 }>()
-defineEmits<{ (e: 'select', date: string): void }>()
+defineEmits<{ (e: 'select', date: string): void; (e: 'blank'): void }>()
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 
