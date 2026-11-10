@@ -75,6 +75,7 @@ from ..api_schemas.student import (
 from ..api_schemas.teacher import (
     ClassRepairRateOut,
     ClassroomCreateIn,
+    ClassroomRenameIn,
     ClassroomOut,
     ClassroomStudentCreateIn,
     ClassroomStudentUpdateIn,
@@ -204,6 +205,41 @@ def create_or_link_classroom(
     count = db.query(ClassroomMember.student_id).filter_by(classroom_id=classroom.id).count()
     subjects = [row[0] for row in db.query(ClassroomTeacherSubject.subject).filter_by(
         classroom_id=classroom.id, teacher_id=current.id,
+    ).order_by(ClassroomTeacherSubject.subject).all()]
+    return ClassroomOut(id=classroom.id, name=classroom.name, subjects=subjects, student_count=count)
+
+
+@router.patch("/classes/{classroom_id}", response_model=ClassroomOut, summary="重命名班级")
+def rename_classroom(
+    classroom_id: int,
+    body: ClassroomRenameIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    classroom = db.query(Classroom).join(
+        ClassroomTeacherSubject, ClassroomTeacherSubject.classroom_id == Classroom.id,
+    ).filter(
+        Classroom.id == classroom_id,
+        ClassroomTeacherSubject.teacher_id == current.id,
+    ).first()
+    if classroom is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "班级不存在或你没有任课权限。")
+
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "班级名称不能为空。")
+    duplicate = db.query(Classroom.id).filter(
+        Classroom.name == name,
+        Classroom.id != classroom_id,
+    ).first()
+    if duplicate:
+        raise HTTPException(status.HTTP_409_CONFLICT, "已有同名班级，请直接关联该班级。")
+
+    classroom.name = name
+    db.commit()
+    count = db.query(ClassroomMember.student_id).filter_by(classroom_id=classroom_id).count()
+    subjects = [row[0] for row in db.query(ClassroomTeacherSubject.subject).filter_by(
+        classroom_id=classroom_id, teacher_id=current.id,
     ).order_by(ClassroomTeacherSubject.subject).all()]
     return ClassroomOut(id=classroom.id, name=classroom.name, subjects=subjects, student_count=count)
 

@@ -136,6 +136,9 @@ class ClassroomCreateIn(BaseModel):
         pattern="^(chinese|math|english|politics|history|physics|chemistry|geography|biology)$",
     )
 
+class ClassroomRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
 class ClassroomStudentCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     student_no: str = Field(min_length=1, max_length=32)
@@ -369,6 +372,7 @@ __all__ = [
     'TeacherAssignmentQuestionOut',
     'TeacherAssignmentOut',
     'ClassroomCreateIn',
+    'ClassroomRenameIn',
     'ClassroomStudentCreateIn',
     'ClassroomStudentUpdateIn',
     'ClassroomStudentOut',

@@ -42,16 +42,29 @@
                 </router-link>
               </td>
               <td class="class-count tnum"><strong>{{ room.student_count }}</strong><small>人</small></td>
-              <td class="class-actions">
-                <button
-                  type="button"
-                  class="btn ghost small"
-                  :aria-label="`从我的班级列表移除${room.name}`"
-                  :disabled="deletingClassroomId !== null"
-                  @click="openDeleteClassroom(room)"
-                >
-                  <AppIcon name="trash" :size="15" /> 移除
-                </button>
+              <td>
+                <div class="class-actions">
+                  <button
+                    type="button"
+                    class="btn ghost small"
+                    :aria-label="`重命名${room.name}`"
+                    title="重命名班级"
+                    :disabled="renamingClassroomId !== null || deletingClassroomId !== null"
+                    @click="openRenameClassroom(room)"
+                  >
+                    <AppIcon name="edit" :size="15" /><span class="class-action-label">重命名</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="btn ghost small"
+                    :aria-label="`从我的班级列表移除${room.name}`"
+                    title="移除班级"
+                    :disabled="deletingClassroomId !== null || renamingClassroomId !== null"
+                    @click="openDeleteClassroom(room)"
+                  >
+                    <AppIcon name="trash" :size="15" /><span class="class-action-label">移除</span>
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -133,6 +146,26 @@
             <button type="button" class="btn secondary" :disabled="savingClass" @click="closeClassForm">取消</button>
             <button type="submit" class="btn" :disabled="savingClass || !className.trim()">
               {{ savingClass ? '保存中…' : '建立 / 关联班级' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div v-if="pendingRenameClassroom" class="student-modal-mask" tabindex="-1" @click.self="closeRenameClassroom" @keydown.esc.stop="closeRenameClassroom">
+      <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="rename-classroom-title">
+        <h3 id="rename-classroom-title">重命名班级</h3>
+        <p class="student-modal-note">名称会同步到关联此班级的其他教师列表。</p>
+        <form class="student-edit-form" @submit.prevent="saveClassroomRename">
+          <div class="form-row">
+            <label for="rename-classroom-name">班级名称</label>
+            <input id="rename-classroom-name" v-model="renameClassroomName" type="text" maxlength="64" required />
+          </div>
+          <div v-if="renameClassroomError" class="error-msg" role="alert">{{ renameClassroomError }}</div>
+          <div class="student-modal-actions">
+            <button type="button" class="btn secondary" :disabled="renamingClassroomId !== null" @click="closeRenameClassroom">取消</button>
+            <button type="submit" class="btn" :disabled="renamingClassroomId !== null || !renameClassroomName.trim() || renameClassroomName.trim() === pendingRenameClassroom.name">
+              {{ renamingClassroomId === pendingRenameClassroom.id ? '保存中…' : '保存名称' }}
             </button>
           </div>
         </form>
@@ -248,6 +281,10 @@ const savingStudentInfo = ref(false)
 const pendingDelete = ref<ClassroomStudent | null>(null)
 const deleteError = ref('')
 const deletingStudentId = ref<number | null>(null)
+const pendingRenameClassroom = ref<Classroom | null>(null)
+const renameClassroomName = ref('')
+const renameClassroomError = ref('')
+const renamingClassroomId = ref<number | null>(null)
 const pendingDeleteClassroom = ref<Classroom | null>(null)
 const deleteClassroomError = ref('')
 const deletingClassroomId = ref<number | null>(null)
@@ -312,8 +349,10 @@ async function loadPage() {
 watch(classRouteParam, () => {
   classFormOpen.value = false
   studentFormOpen.value = false
+  pendingRenameClassroom.value = null
   classFormError.value = ''
   studentFormError.value = ''
+  renameClassroomError.value = ''
   void loadPage()
 }, { immediate: true })
 
@@ -447,6 +486,42 @@ function openDeleteClassroom(room: Classroom) {
   deleteClassroomError.value = ''
 }
 
+function openRenameClassroom(room: Classroom) {
+  pendingRenameClassroom.value = room
+  renameClassroomName.value = room.name
+  renameClassroomError.value = ''
+}
+
+function closeRenameClassroom() {
+  if (renamingClassroomId.value !== null) return
+  pendingRenameClassroom.value = null
+  renameClassroomError.value = ''
+}
+
+async function saveClassroomRename() {
+  const room = pendingRenameClassroom.value
+  const name = renameClassroomName.value.trim()
+  if (!room || !name || name === room.name) return
+  renamingClassroomId.value = room.id
+  renameClassroomError.value = ''
+  try {
+    const updated = await teacher.renameClassroom(room.id, name)
+    classrooms.value = classrooms.value.map((item) => item.id === updated.id
+      ? { ...item, name: updated.name }
+      : item)
+    if (selectedClass.value?.id === updated.id) selectedClass.value = { ...selectedClass.value, name: updated.name }
+    pendingRenameClassroom.value = null
+  } catch (e) {
+    const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+    renameClassroomError.value = typeof detail === 'string' && detail.trim()
+      ? detail.slice(0, 240)
+      : '重命名失败，请稍后重试。'
+    console.error(e)
+  } finally {
+    renamingClassroomId.value = null
+  }
+}
+
 function closeDeleteClassroom() {
   if (deletingClassroomId.value !== null) return
   pendingDeleteClassroom.value = null
@@ -494,7 +569,8 @@ async function confirmDeleteClassroom() {
 .class-list-table th:last-child { width: 18%; }
 .class-list-table td:first-child, .class-list-table td:last-child { text-align: center; }
 .class-actions .btn { display: inline-flex; align-items: center; gap: 4px; }
-.class-name-link { display: inline-flex; max-width: 100%; min-width: 0; min-height: 36px; align-items: center; justify-content: center; gap: 6px; color: var(--text); font-size: 15px; font-weight: 650; }
+.class-actions { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.class-name-link { display: inline-flex; max-width: 100%; min-width: 0; min-height: 36px; align-items: center; justify-content: center; gap: 6px; transform: translateX(-24px); color: var(--text); font-size: 15px; font-weight: 650; }
 .class-name-link strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .class-name-link :deep(.app-icon) { flex: 0 0 auto; color: var(--text-3); transition: color .16s ease, transform .16s ease; }
 .class-name-link:hover { color: var(--primary); }
@@ -552,6 +628,10 @@ async function confirmDeleteClassroom() {
   .class-list-table th:last-child { width: 22%; }
   .class-list-table th { padding: 7px 8px; }
   .class-list-table td { padding: 6px 8px; }
+  .class-name-link { transform: translateX(-8px); }
+  .class-actions { gap: 3px; }
+  .class-actions .btn { width: 32px; height: 32px; justify-content: center; padding: 0; }
+  .class-action-label { display: none; }
   .student-modal { padding: 20px; }
   .student-modal-actions .btn { padding-inline: 14px; }
 }

@@ -1413,9 +1413,9 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 响应 `200`：包含上述字段的看板汇总对象，`recent_error_types` 项结构为 `{ "name": 错因类型, "value": 数量 }`。
 
-### 4.28 GET/POST/DELETE /api/teacher/classes —— 任教学科班级
+### 4.28 GET/POST/PATCH/DELETE /api/teacher/classes —— 任教学科班级
 
-权限：教师。`GET` 只列出当前教师关联的班级及学生人数。`POST` 建立或关联班级，请求 `{ "name": "七年级一班", "subject": "math" }`；班级名按全局名称匹配，已存在时会关联到该班级。所选学科必须是当前教师登录的学科。响应为 `{ id, name, subjects, student_count }`。`DELETE /classes/{classroom_id}` 解除当前教师与该班级的所有学科关联，返回 `{ "deleted": true, "classroom_id": 1 }`；重复调用仍返回成功。其他教师的关联、学生身份、名册成员和历史作业数据保留。
+权限：教师。`GET` 只列出当前教师关联的班级及学生人数。`POST` 建立或关联班级，请求 `{ "name": "七年级一班", "subject": "math" }`；班级名按全局名称匹配，已存在时会关联到该班级。所选学科必须是当前教师登录的学科。响应为 `{ id, name, subjects, student_count }`。`PATCH /classes/{classroom_id}` 将班级重命名，请求 `{ "name": "七年级一班（数学）" }`，返回更新后的班级对象；仅关联该班级的教师可操作，名称全局共享，重命名会同步到其他关联教师，若已有同名班级则返回 `409`。`DELETE /classes/{classroom_id}` 解除当前教师与该班级的所有学科关联，返回 `{ "deleted": true, "classroom_id": 1 }`；重复调用仍返回成功。其他教师的关联、学生身份、名册成员和历史作业数据保留。
 
 ### 4.28.1 班级名册 `/api/teacher/classes/{classroom_id}/students`
 
