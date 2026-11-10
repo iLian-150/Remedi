@@ -601,7 +601,7 @@ onMounted(() => void loadMistakes())
 </script>
 
 <style scoped>
-.remedi-mistake-book { width: 100%; max-width: var(--content-frame-width); height: 100dvh; min-height: 0; margin: 0 auto; padding: 0 var(--content-frame-gutter); overflow: hidden; }
+.remedi-mistake-book { width: 100%; max-width: none; height: 100dvh; min-height: 0; margin: 0; padding: 0 var(--content-frame-gutter); overflow: hidden; }
 .remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .remedi-mistake-book .mistake-board-toolbar { position: absolute; z-index: 10; top: 16px; right: 18px; }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
@@ -639,7 +639,7 @@ onMounted(() => void loadMistakes())
 }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters.is-split .mistake-view-switch { margin-left: auto; }
 .remedi-mistake-book .mistake-notebook { height: 100%; min-height: 0; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: 1240px; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; padding: calc(64px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter); }
+.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: none; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; padding: calc(64px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter); }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
 .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { padding: 112px var(--content-frame-gutter) var(--content-frame-gutter); }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
@@ -691,8 +691,8 @@ onMounted(() => void loadMistakes())
 
 /* 错题本统一视觉：保持各视图的数据和交互，只调整层级、留白与表面样式。 */
 .remedi-mistake-book .mistakes-panel {
-  border-radius: var(--radius-panel);
-  background: var(--bg);
+  border-radius: 0;
+  background: transparent;
 }
 
 .remedi-mistake-book .mistake-board-toolbar {
@@ -754,7 +754,7 @@ onMounted(() => void loadMistakes())
 
 /* 卡片笔记 */
 .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content {
-  max-width: 1240px;
+  max-width: none;
   padding: calc(40px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter);
 }
 

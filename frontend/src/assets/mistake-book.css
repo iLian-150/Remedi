@@ -7,10 +7,10 @@
 .remedi-mistake-book .mistake-map-view .mistakes-panel.is-notebook, .remedi-mistake-book.mistake-map-view .mistakes-panel.is-notebook {
   container-type: inline-size;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
+  border: 0;
+  border-radius: 0;
   color: var(--text);
-  background: var(--card);
+  background: transparent;
 }
 
 .remedi-mistake-book .is-notebook .mistake-board-toolbar, .remedi-mistake-book.is-notebook .mistake-board-toolbar {
@@ -107,8 +107,8 @@
 
 .remedi-mistake-book .mistake-notebook-content, .remedi-mistake-book.mistake-notebook-content {
   width: 100%;
-  max-width: 1120px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   padding: 36px 36px 28px;
 }
 
