@@ -394,7 +394,7 @@ table.table tr:last-child td { border-bottom: 0; }
 .user-name { font-size: 13px; font-weight: 620; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .user-role { font-size: 11.5px; color: var(--sidebar-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shell-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
-.shell-main:has(> .remedi-mistake-book) { background: var(--card); }
+.shell-main:has(> .remedi-mistake-book) { height: 100dvh; min-height: 0; overflow: hidden; background: var(--card); }
 .shell-main:has(> .remedi-mistake-book) > .shell-page-heading { max-width: none; margin: 0; }
 .shell-page-heading {
   flex: 0 0 auto; width: 100%; max-width: var(--content-frame-width); min-height: 86px;
@@ -428,6 +428,7 @@ table.table tr:last-child td { border-bottom: 0; }
 
 @media (max-width: 960px) {
   .app-shell { flex-direction: column; }
+  .shell-main:has(> .remedi-mistake-book) { height: calc(100dvh - 52px); }
   .shell-main.is-chat-route { height: calc(100dvh - 52px); }
   .mobile-topbar {
     display: flex; align-items: center; gap: 10px;

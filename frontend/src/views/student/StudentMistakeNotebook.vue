@@ -601,7 +601,7 @@ onMounted(() => void loadMistakes())
 </script>
 
 <style scoped>
-.remedi-mistake-book { width: 100%; max-width: none; height: 100dvh; min-height: 0; margin: 0; padding: 0 var(--content-frame-gutter); overflow: hidden; }
+.remedi-mistake-book { width: 100%; max-width: none; height: auto; min-height: 0; flex: 1 1 0; margin: 0; padding: 0 var(--content-frame-gutter); overflow: hidden; }
 .remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .remedi-mistake-book .mistake-board-toolbar { position: absolute; z-index: 10; top: 16px; right: 18px; }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
