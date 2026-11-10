@@ -237,20 +237,19 @@ interface NavItem {
 }
 
 const STUDENT_NAV: NavItem[] = [
-  { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/assignments', icon: 'clipboard', label: '作业', activePaths: ['/student/assignments', '/student/submit'] },
+  { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/mistakes', icon: 'book', label: '错题本' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
   { to: '/student/profile', icon: 'chart', label: '学习档案', activePaths: ['/student/profile', '/student/report'] },
 ]
 
 const TEACHER_NAV: NavItem[] = [
-  // v0.6.0：AI 助手排第一位（教师登录默认落点仍为总览，不变）
+  { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments'] },
   { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
   { to: '/teacher/materials', icon: 'file', label: '我的资料' },
   { to: '/teacher/submissions', icon: 'check', label: 'AI 批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },
   { to: '/teacher/students', icon: 'users', label: '学生' },
-  { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments'] },
   { to: '/teacher/dashboard', icon: 'chart', label: '总览' }
 ]
 

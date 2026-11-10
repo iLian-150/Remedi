@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth'
 const routes: RouteRecordRaw[] = [
   { path: '/', component: () => import('../views/RoleSelect.vue'), meta: { public: true, title: '登录' } },
 
-  // 学生端（登录默认落地页为对话式智能批改）
+  // 学生端（登录默认进入作业列表，按作业答题）
   { path: '/student/chat', component: () => import('../views/student/StudentChat.vue'), meta: { role: 'student', title: '智能批改' } },
   { path: '/student/assignments', component: () => import('../views/student/StudentAssignments.vue'), meta: { role: 'student', title: '作业列表' } },
   // 交作业：从作业列表进入（?assignment_id=），直接访问 URL 时回退为下拉选择
@@ -57,16 +57,16 @@ const router = createRouter({
   scrollBehavior: (to, from) => (to.path === from.path ? false : { top: 0 })
 })
 
-// 路由守卫：未登录强制回登录页；角色不匹配时跳到各自首页
+// 路由守卫：未登录强制回登录页；角色不匹配时跳到各自的作业工作台
 router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta.public) {
     if (!auth.token) return true
-    return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/chat'
+    return auth.role === 'teacher' ? '/teacher/assignments' : '/student/assignments'
   }
   if (!auth.token) return '/'
   if (to.meta.role && to.meta.role !== auth.role) {
-    return auth.role === 'teacher' ? '/teacher/dashboard' : '/student/chat'
+    return auth.role === 'teacher' ? '/teacher/assignments' : '/student/assignments'
   }
   return true
 })
