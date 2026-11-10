@@ -21,7 +21,7 @@
                     <path v-for="(point, index) in activeTopic?.errorPoints" :key="`leaf-${point.key}`" class="leaf-line" :d="curve({ x: activeTopicPoint.x + (activeBranch.side === 'left' ? -74 : 74), y: activeTopicPoint.y }, { x: leafPoints[index].x + (activeBranch.side === 'left' ? 74 : -74), y: leafPoints[index].y }, activeBranch.side)" :stroke="activeBranch.color"/>
                   </template>
                 </svg>
-                <button ref="mapRoot" class="mistake-map-root" type="button" :style="pointStyle(root)" aria-label="回到思维导图中心" @click="resetMap"><span>学习脉络</span><strong>我的错题</strong><small>{{ studentName || '学习档案' }} · {{ recordCount }} 条记录</small></button>
+                <button class="mistake-map-root" type="button" :style="pointStyle(root)" aria-label="回到思维导图中心" @click="resetMap"><span>学习脉络</span><strong>我的错题</strong><small>{{ studentName || '学习档案' }} · {{ recordCount }} 条记录</small></button>
                 <button v-for="branch in branches" :key="branch.key" class="mistake-map-branch" :class="{ selected: branch.key === selectedSubjectKey }" type="button" :style="{ ...pointStyle(branch), '--accent': branch.color }" :aria-pressed="branch.key === selectedSubjectKey" @click="selectSubject(branch.key)"><span>{{ branch.label }}</span><small>{{ branch.topics.length }} 个知识点 · {{ branch.recordCount }} 条错题</small></button>
                 <template v-if="activeSubject">
                   <button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-map-topic-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(topicPoints[index]), '--accent': activeBranch?.color }" :aria-pressed="topic.key === selectedTopicKey" @click="selectTopic(topic.key)"><strong>{{ topic.label }}</strong><small>{{ topic.itemCount }} 条错题 · {{ topic.errorPoints.length }} 个错误点{{ topic.studied ? ' · 已学完' : '' }}</small></button>
@@ -87,12 +87,11 @@ type SubjectGroup = { key: string; label: string; topics: Topic[]; recordCount: 
 
 const props = defineProps<{ mode: 'mindmap' | 'network'; mistakes: StudentMistake[]; studentName?: string; split?: boolean; reversed?: boolean; fullscreen?: boolean }>()
 const emit = defineEmits<{ select: [mistake: StudentMistake] }>()
-const zoom = ref(props.mode === 'network' ? 0.85 : 1)
+const zoom = ref(props.mode === 'network' ? 0.85 : 1.4)
 const selectedSubjectKey = ref<string | null>(null)
 const selectedTopicKey = ref<string | null>(null)
 const selectedPointKey = ref<string | null>(null)
 const viewport = ref<HTMLElement | null>(null)
-const mapRoot = ref<HTMLElement | null>(null)
 const networkHub = ref<HTMLElement | null>(null)
 const isPanning = ref(false)
 let panStart: { pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null = null
@@ -185,13 +184,14 @@ const pointPoints = computed(() => activeTopic.value?.errorPoints.map((_, index)
 }) || [])
 const orbitRings = computed(() => [{ rx: 112, ry: 86 }, { rx: radii.value.subjectX, ry: radii.value.subjectY }, { rx: radii.value.topicX, ry: radii.value.topicY }, { rx: radii.value.errorX, ry: radii.value.errorY }])
 
-watch(() => props.mode, (mode) => { zoom.value = mode === 'network' ? 0.85 : 1; resetMap() })
+watch(() => props.mode, (mode) => { zoom.value = mode === 'network' ? 0.85 : 1.4; resetMap() })
 watch(() => props.mistakes.length, () => { if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) resetMap() })
 watch(() => props.mode === 'network' ? subjects.value[0]?.key ?? '' : '', (firstSubjectKey) => {
   if (firstSubjectKey && !selectedSubjectKey.value) selectedSubjectKey.value = firstSubjectKey
 }, { immediate: true })
 watch(() => [props.mode, props.split, props.mistakes.length, networkWidth.value, networkHeight.value], () => { void nextTick(() => centerNetwork('auto')) })
 watch(() => [zoom.value, selectedPointKey.value], () => { void nextTick(centerNetwork) })
+watch(() => [selectedSubjectKey.value, selectedTopicKey.value], () => { void nextTick(centerNetwork) })
 onMounted(() => { void nextTick(() => requestAnimationFrame(() => centerNetwork('auto'))) })
 
 function subjectAngle(index: number, count: number) { if (count === 1) return -Math.PI * 0.36; if (count === 2) return index === 0 ? -Math.PI : 0; return -Math.PI / 2 + index * Math.PI * 2 / count }
@@ -226,19 +226,24 @@ function stopPanning(event: PointerEvent) {
   if (viewport.value?.hasPointerCapture(pointerId)) viewport.value.releasePointerCapture(pointerId)
 }
 function zoomBy(amount: number) { zoom.value = Math.min(1.4, Math.max(props.mode === 'mindmap' ? 0.65 : 0.6, Math.round((zoom.value + amount) * 100) / 100)) }
-function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1; void nextTick(centerNetwork) }
+function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1.4; void nextTick(centerNetwork) }
 function centerNetwork(behavior: ScrollBehavior = 'smooth') {
   if (!viewport.value) return
-  // 按根节点的实际屏幕位置居中，计入画布为拖拽预留的空白区域。
+  // 按当前显示的节点整体居中，避免单侧分支展开时被挤到画布边缘。
   if (props.mode === 'mindmap') {
-    if (!mapRoot.value) return
+    const nodes = viewport.value.querySelectorAll<HTMLElement>('.mistake-map-canvas > button')
+    if (!nodes.length) return
     const viewportRect = viewport.value.getBoundingClientRect()
-    const rootRect = mapRoot.value.getBoundingClientRect()
+    const nodeRects = Array.from(nodes, (node) => node.getBoundingClientRect())
+    const contentLeft = Math.min(...nodeRects.map((rect) => rect.left))
+    const contentRight = Math.max(...nodeRects.map((rect) => rect.right))
+    const contentTop = Math.min(...nodeRects.map((rect) => rect.top))
+    const contentBottom = Math.max(...nodeRects.map((rect) => rect.bottom))
     const viewportCenterX = viewportRect.left + viewport.value.clientLeft + viewport.value.clientWidth / 2
     const viewportCenterY = viewportRect.top + viewport.value.clientTop + viewport.value.clientHeight / 2
     viewport.value.scrollTo({
-      left: viewport.value.scrollLeft + rootRect.left + rootRect.width / 2 - viewportCenterX,
-      top: viewport.value.scrollTop + rootRect.top + rootRect.height / 2 - viewportCenterY,
+      left: viewport.value.scrollLeft + (contentLeft + contentRight) / 2 - viewportCenterX,
+      top: viewport.value.scrollTop + (contentTop + contentBottom) / 2 - viewportCenterY,
       behavior,
     })
     return
@@ -266,6 +271,10 @@ function openPoint(point: ErrorPoint) { selectedPointKey.value = point.key; emit
 <style scoped>
 .mistake-map-section, .mistake-network { min-width: 0; min-height: 0; height: 100%; }
 .mistake-map-viewport-frame, .mistake-map-viewport, .mistake-network-frame, .mistake-network-viewport { height: 100%; min-height: 0; }
+.mistake-map-section { background: transparent; }
+.mistake-map-viewport { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.mistake-map-stage { min-width: 100% !important; min-height: 100% !important; background: transparent !important; }
+.mistake-map-canvas { background: transparent !important; background-image: none !important; }
 .mistake-network:not(.is-split) .mistake-network-frame, .mistake-network:not(.is-split) .mistake-network-viewport { width: 100%; height: 100%; min-height: 0; }
 .mistake-network .mistake-network-viewport { touch-action: none; }
 .mistake-network .mistake-network-viewport, .mistake-network .mistake-network-topic-nav { scrollbar-width: none; }

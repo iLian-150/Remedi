@@ -666,10 +666,12 @@ onMounted(() => void loadMistakes())
 /* ---------- 错题行布局修复（v0.13.0）：全局旧样式按「article > div + 右列按钮」的
    旧 DOM 写，把题目按钮和「查看原题」都钉在 grid 第 2 列同一格里互相重叠，
    题目还点不动。这里按现在的 DOM 改回横向 flex：题目按钮占满左侧、查看原题在右。 */
-.remedi-mistake-book .notebook-category-questions article { display: flex; align-items: flex-start; gap: 10px; }
-.remedi-mistake-book .notebook-category-questions article > .notebook-question-open { flex: 1 1 auto; min-width: 0; grid-column: auto; grid-row: auto; }
-.remedi-mistake-book .notebook-category-questions article > button:last-child { flex: 0 0 auto; grid-column: auto; grid-row: auto; margin-top: 4px; }
+.remedi-mistake-book .notebook-category-questions article { display: flex; align-items: flex-start; gap: 10px; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
+.remedi-mistake-book .notebook-category-questions article > .notebook-question-open { box-sizing: border-box; width: auto; max-width: 100%; flex: 1 1 0%; min-width: 0; overflow: hidden; grid-column: auto; grid-row: auto; }
+.remedi-mistake-book .notebook-category-questions article > .notebook-question-open > * { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.remedi-mistake-book .notebook-category-questions article > button:last-child { box-sizing: border-box; flex: 0 0 auto; grid-column: auto; grid-row: auto; margin-top: 4px; }
 .remedi-mistake-book .notebook-question-excerpt, .remedi-mistake-book .notebook-question-detail { display: -webkit-box; width: 100%; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.remedi-mistake-book .notebook-assignment-content, .remedi-mistake-book .notebook-category, .remedi-mistake-book .notebook-category-questions { box-sizing: border-box; min-width: 0; max-width: 100%; }
 .remedi-mistake-book .notebook-assignment-footer button { border-color: var(--primary); background: var(--primary); }
 .remedi-mistake-book .notebook-action-error { margin: 10px 0; color: var(--red-strong); font-size: 12px; }
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
@@ -1419,15 +1421,35 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book :deep(.mistake-map-section),
 .remedi-mistake-book :deep(.mistake-network) {
   border-radius: var(--radius-panel);
-  background: var(--bg);
+  background: transparent !important;
 }
 
-.remedi-mistake-book :deep(.mistake-map-viewport),
+.remedi-mistake-book :deep(.mistake-map-viewport) {
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .remedi-mistake-book :deep(.mistake-network-viewport) {
   border-color: var(--border);
   border-radius: var(--radius-panel);
   background: var(--surface-2);
   box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.remedi-mistake-book :deep(.mistake-map-stage),
+.remedi-mistake-book :deep(.mistake-map-canvas) {
+  background: transparent !important;
+}
+
+.remedi-mistake-book :deep(.mistake-map-stage) {
+  min-width: 100% !important;
+  min-height: 100% !important;
+}
+
+.remedi-mistake-book :deep(.mistake-map-canvas) {
+  background-image: none !important;
 }
 
 .remedi-mistake-book :deep(.mistake-map-stage),
