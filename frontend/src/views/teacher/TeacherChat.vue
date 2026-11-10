@@ -695,20 +695,21 @@ onMounted(async () => {
 
 <style scoped>
 /* 对话区保持连续、轻量的页面结构，避免多层卡片和边框分隔 */
-.tchat-shell { flex: 1; display: flex; flex-direction: column; height: 100dvh; padding: 20px 28px 22px; }
+.tchat-shell { flex: 1; display: flex; flex-direction: column; height: 100dvh; padding: clamp(16px, 2.2vw, 28px); background: var(--bg); }
 .tchat-col { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 960px; margin: 0 auto; min-height: 0; }
 .tchat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.tchat-head h2 { font-size: 24px; letter-spacing: 0.2px; }
+.tchat-head h2 { font-size: clamp(22px, 2vw, 26px); font-weight: 720; letter-spacing: -0.035em; }
 
 .tchat-panel {
-  background: transparent; display: flex; flex-direction: column;
+  background: var(--card); display: flex; flex-direction: column;
   flex: 1; min-height: 380px; overflow: hidden; position: relative;
+  border: 1px solid var(--border); border-radius: var(--radius-surface); box-shadow: var(--shadow);
 }
 /* 底部留白给悬浮输入卡让位，最后的消息不被卡片遮住 */
-.tchat-body { flex: 1; overflow-y: auto; padding: 18px 20px 118px; }
+.tchat-body { flex: 1; overflow-y: auto; padding: 18px 20px 118px; background: var(--card); }
 .tchat-body-welcome { display: flex; flex-direction: column; justify-content: center; align-items: center; padding-bottom: 118px; }
 .history-pager { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 16px; }
-.history-pager-button { border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; background: var(--card); color: var(--primary); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.history-pager-button { min-height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 7px 14px; background: var(--card); color: var(--primary-dark); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .history-pager-button:disabled { opacity: 0.55; cursor: wait; }
 .history-pager-error { color: var(--red); font-size: 12px; }
 .msg-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
@@ -722,8 +723,8 @@ onMounted(async () => {
   background: var(--primary-50); color: var(--primary);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
 }
-.bubble { border-radius: 14px; padding: 11px 16px; font-size: 14.5px; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
-.ai-bubble { background: transparent; border: 0; display: inline-flex; align-items: flex-start; gap: 8px; }
+.bubble { border-radius: var(--radius-control); padding: 11px 16px; font-size: 14.5px; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
+.ai-bubble { background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); display: inline-flex; align-items: flex-start; gap: 8px; }
 .user-bubble { background: var(--primary); color: #fff; }
 .chat-attachment-name { display: inline-flex; max-width: 100%; align-items: center; gap: 6px; margin-top: 5px; overflow-wrap: anywhere; font-size: 12px; opacity: 0.9; }
 .chat-workflow { width: 100%; min-width: 0; margin-top: 8px; padding: 4px 14px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); box-shadow: var(--shadow); }
@@ -736,6 +737,7 @@ onMounted(async () => {
 .tchat-body-welcome .msg-row { justify-content: center; width: 100%; margin-bottom: 12px; }
 .tchat-body-welcome .msg-avatar { display: none; }
 .welcome-bubble { max-width: 100%; padding: 4px 8px; color: var(--text); font-size: 24px; font-weight: 650; line-height: 1.4; text-align: center; }
+.tchat-body-welcome .ai-bubble { background: transparent; border: 0; box-shadow: none; }
 .welcome-prompts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -749,7 +751,7 @@ onMounted(async () => {
   line-height: 1.45; text-align: left; cursor: pointer;
   transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-.welcome-prompts button:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-50); }
+@media (hover: hover) { .welcome-prompts button:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-50); } }
 .welcome-prompts button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* 建议气泡（v0.6.0）：本轮回复后淡入上浮，stagger 错峰 */
@@ -768,7 +770,7 @@ onMounted(async () => {
   animation: suggest-in 0.35s ease both;
   transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-.suggest-chip:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-50); }
+@media (hover: hover) { .suggest-chip:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-50); } }
 @keyframes suggest-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -786,6 +788,7 @@ onMounted(async () => {
 }
 @media (max-width: 960px) {
   .tchat-shell { height: calc(100dvh - 52px); padding: 14px 14px 16px; }
+  .tchat-panel { min-height: 0; border-radius: 18px; }
   .bubble { max-width: 88%; }
   .msg-content { max-width: 88%; }
   .msg-content.has-workflow { width: calc(100% - 40px); max-width: none; }
@@ -795,5 +798,7 @@ onMounted(async () => {
 }
 @media (max-width: 600px) {
   .welcome-prompts { grid-template-columns: 1fr; }
+  .tchat-shell { padding: 12px 10px; }
+  .tchat-body { padding-right: 12px; padding-left: 12px; }
 }
 </style>

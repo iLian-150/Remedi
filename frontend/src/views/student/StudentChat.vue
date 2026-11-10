@@ -1443,11 +1443,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.chat-layout { position: relative; display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--card); }
+.chat-layout { position: relative; display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--bg); }
 .chat-inner { max-width: 1280px; width: 100%; margin: 0 auto; padding: 0 20px; }
-.chat-header { flex: 0 0 auto; padding: 10px 0; }
+.chat-header { flex: 0 0 auto; padding: 10px 0; border-bottom: 1px solid var(--border); background: var(--card); }
 .chat-title { display: flex; align-items: center; gap: 10px; color: var(--text); }
-.chat-title-mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(29, 78, 216, 0.08); border-radius: 12px; background: linear-gradient(145deg, #eff5ff, #e8efff); color: var(--primary); }
+.chat-title-mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid var(--blue-bg); border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
 .chat-title > strong { font-size: 15px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; }
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
@@ -1480,9 +1480,9 @@ onMounted(async () => {
 .photo-mistake-sync > span { display: flex; flex: 1; flex-direction: column; }
 .photo-mistake-sync small { margin-top: 2px; font-size: 11px; }
 .photo-mistake-sync a { flex: 0 0 auto; color: var(--primary); font-weight: 650; text-decoration: none; }
-.photo-mistake-sync a:hover { text-decoration: underline; }
+@media (hover: hover) { .photo-mistake-sync a:hover { text-decoration: underline; } }
 .related-mistake-link { display: inline-flex; align-items: center; gap: 3px; margin-top: 9px; padding: 0; border: 0; background: none; color: var(--primary); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
-.related-mistake-link:hover { text-decoration: underline; }
+@media (hover: hover) { .related-mistake-link:hover { text-decoration: underline; } }
 
 .chat-content-shell { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
 .chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 24px 24px 168px; }
@@ -1491,15 +1491,15 @@ onMounted(async () => {
 @keyframes history-loading-spin { to { transform: rotate(360deg); } }
 .history-switch-error { color: var(--red); }
 .history-switch-retry { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; background: var(--card); color: var(--primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
-.history-switch-retry:hover { background: var(--primary-50); }
+@media (hover: hover) { .history-switch-retry:hover { background: var(--primary-50); } }
 /* 底部留白给悬浮输入卡让位（v0.8.1）：最后的消息不被卡片遮住 */
-.chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 0 168px; background: var(--card); }
+.chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 0 168px; background: var(--bg); }
 .chat-body-welcome { flex: 0 0 auto; overflow: visible; padding: 0; }
 .chat-body > .chat-inner { max-width: 960px; }
 .welcome-mode .chat-body > .chat-inner { max-width: 820px; padding: 0; }
 .welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
 .welcome-home h1 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
-.welcome-briefing { margin-top: 22px; padding: 17px 19px; border: 1px solid rgba(220, 228, 240, 0.9); border-radius: 17px; background: rgba(255, 255, 255, 0.92); box-shadow: 0 10px 28px rgba(31, 49, 77, 0.045); }
+.welcome-briefing { margin-top: 22px; padding: 17px 19px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
 .welcome-briefing-heading { display: flex; align-items: center; gap: 9px; color: var(--text); }
 .welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
 .welcome-briefing-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; background: var(--primary-50); color: var(--text-2); }
@@ -1507,8 +1507,8 @@ onMounted(async () => {
 @keyframes welcome-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 /* 欢迎屏简报卡组（v0.9.0）：复用对话内简报卡的大数字+色块规格，整卡可点跳转 */
 .welcome-brief-grid { margin-top: 14px; }
-.brief-clickable { cursor: pointer; transition: box-shadow 0.2s ease, transform 0.2s ease; }
-.brief-clickable:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.brief-clickable { cursor: pointer; transition: box-shadow 0.18s ease, border-color 0.18s ease; }
+@media (hover: hover) { .brief-clickable:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); } }
 .brief-card-more { display: inline-flex; align-items: center; gap: 2px; margin-top: 10px; color: var(--primary); font-size: 12.5px; font-weight: 600; }
 .brief-weakstat { background: var(--amber-bg); }
 .brief-weakstat .brief-big { color: var(--amber); }
@@ -1535,7 +1535,7 @@ onMounted(async () => {
   animation: suggest-in 0.35s ease both;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
-.suggest-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+@media (hover: hover) { .suggest-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow); } }
 @keyframes suggest-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

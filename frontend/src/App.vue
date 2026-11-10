@@ -119,7 +119,6 @@
     <button
       v-if="(railMode === 'notes' || railMode === 'mistakes') && !railOpen"
       class="notes-fab"
-      :class="{ 'has-unread': railFabCount > 0 }"
       :aria-label="railFabLabel"
       :title="railMode === 'mistakes' ? '打开错题复习' : '打开提醒'"
       @click="setRail(true)"

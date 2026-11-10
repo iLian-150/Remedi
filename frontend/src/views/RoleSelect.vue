@@ -2,63 +2,44 @@
 <template>
   <div class="page login-page">
     <div class="login-layout">
-      <!-- 左：品牌区（桌面分栏；移动端收成顶部横幅） -->
+      <!-- 品牌区 -->
       <aside class="login-brand">
         <div class="login-brand-top">
-          <span class="login-logo-badge"><BrandLogo :size="44" /></span>
-          <div>
-            <h1 class="login-brand-name">Remedi</h1>
-            <p class="login-brand-sub">多学科智能作业批改与学习诊断系统</p>
-          </div>
+          <span class="login-logo-badge"><BrandLogo :size="46" /></span>
+          <h1 class="login-brand-name">Remedi</h1>
         </div>
-        <p class="login-tagline">批改只是入口，修复才是目的。</p>
-        <ul class="login-points">
-          <li>
-            <span class="login-point-icon"><AppIcon name="camera" :size="17" /></span>
-            <span><b>拍照批改</b> —— 拍下手写过程，逐步检查每一步</span>
-          </li>
-          <li>
-            <span class="login-point-icon"><AppIcon name="target" :size="17" /></span>
-            <span><b>错因诊断</b> —— 定位第一步错在哪，并追问你先想一想</span>
-          </li>
-          <li>
-            <span class="login-point-icon"><AppIcon name="chart" :size="17" /></span>
-            <span><b>学习记忆</b> —— 订正再验证，见证每个知识点被修复</span>
-          </li>
-        </ul>
       </aside>
 
-      <!-- 右：登录卡 -->
       <form class="card login-card" :aria-busy="loading" @submit.prevent="login">
-        <h2>欢迎回来</h2>
+        <h2>登录 Remedi</h2>
         <div class="form-row">
           <label>我是</label>
           <div class="role-btns">
-            <button type="button" :class="['btn', 'inline-icon', role === 'teacher' ? '' : 'secondary']" :disabled="loading" @click="switchRole('teacher')"><AppIcon name="cap" :size="18" /> 教师</button>
-            <button type="button" :class="['btn', 'inline-icon', role === 'student' ? '' : 'secondary']" :disabled="loading" @click="switchRole('student')"><AppIcon name="book" :size="18" /> 学生</button>
+            <button type="button" class="btn inline-icon role-choice" :class="{ selected: role === 'teacher' }" :aria-pressed="role === 'teacher'" :disabled="loading" @click="switchRole('teacher')"><AppIcon name="cap" :size="18" /> 教师</button>
+            <button type="button" class="btn inline-icon role-choice" :class="{ selected: role === 'student' }" :aria-pressed="role === 'student'" :disabled="loading" @click="switchRole('student')"><AppIcon name="book" :size="18" /> 学生</button>
           </div>
         </div>
 
         <div v-if="role === 'student'" class="form-row">
-          <label>学生姓名</label>
-          <input v-model="username" type="text" :disabled="loading" placeholder="按班级名册填写" />
+          <label for="student-name">学生姓名</label>
+          <input id="student-name" v-model="username" type="text" :disabled="loading" placeholder="按班级名册填写" autocomplete="off" />
         </div>
 
         <div v-if="role === 'student'" class="form-row">
-          <label>学号</label>
-          <input v-model="studentNo" type="text" :disabled="loading" placeholder="输入班级名册中的学号" />
+          <label for="student-number">学号</label>
+          <input id="student-number" v-model="studentNo" type="text" :disabled="loading" placeholder="输入班级名册中的学号" autocomplete="off" />
         </div>
         <div v-else class="form-row">
-          <label>任教学科</label>
-          <select v-model="teacherSubject" :disabled="loading">
+          <label for="teacher-subject">任教学科</label>
+          <select id="teacher-subject" v-model="teacherSubject" :disabled="loading">
             <option v-for="item in subjects" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </div>
 
-        <div v-if="error" class="error-msg">{{ error }}</div>
+        <div v-if="error" class="error-msg" role="alert">{{ error }}</div>
 
         <button type="submit" class="btn full" :disabled="loading">
-          {{ loading ? '登录中…' : '一键进入演示' }}
+          {{ loading ? '登录中…' : '进入系统' }}
         </button>
       </form>
     </div>
@@ -135,53 +116,59 @@ async function login() {
 </script>
 
 <style scoped>
-/* v0.4.0：登录页左右分栏（左品牌区 / 右登录卡），移动端单列 */
 .login-page {
   display: flex; align-items: center; justify-content: center;
-  min-height: 100dvh; padding: 32px 24px;
+  width: 100%; max-width: none; min-width: 0; min-height: 100dvh; padding: clamp(20px, 5vh, 48px) 24px;
 }
 .login-layout {
-  display: grid; grid-template-columns: 1.05fr 1fr;
-  width: min(960px, 100%);
-  background: var(--card); border: 1px solid #EDF0F4; border-radius: 20px;
+  display: grid; grid-template-columns: 0.9fr 1.1fr;
+  width: min(940px, 100%); min-width: 0; min-height: 540px;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-panel);
   box-shadow: var(--shadow-lg); overflow: hidden;
 }
+.login-layout > * { min-width: 0; }
 .login-brand {
-  background: linear-gradient(155deg, #2563EB 0%, var(--primary) 45%, #1E3A8A 100%);
-  color: #fff; padding: 42px 40px;
-  display: flex; flex-direction: column;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary-50); color: var(--primary-dark); padding: 42px;
 }
-.login-brand-top { display: flex; align-items: center; gap: 16px; }
+.login-brand-top { display: flex; align-items: center; gap: 15px; }
 .login-logo-badge {
-  width: 68px; height: 68px; border-radius: 18px; flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  display: flex; align-items: center; justify-content: center; color: #fff;
+  width: 74px; height: 74px; border-radius: 22px; flex-shrink: 0;
+  background: #fff; border: 1px solid var(--blue-bg);
+  display: flex; align-items: center; justify-content: center; color: var(--primary);
+  box-shadow: var(--shadow);
 }
-.login-brand-name { font-size: 34px; font-weight: 800; letter-spacing: 0.5px; line-height: 1.15; }
-.login-brand-sub { font-size: 13px; color: rgba(255, 255, 255, 0.78); }
-.login-tagline { font-size: 19px; font-weight: 700; margin: 40px 0 26px; letter-spacing: 0.3px; }
-.login-points { list-style: none; display: flex; flex-direction: column; gap: 16px; margin-top: auto; }
-.login-points li { display: flex; align-items: flex-start; gap: 11px; font-size: 14px; color: rgba(255, 255, 255, 0.88); }
-.login-points b { color: #fff; }
-.login-point-icon {
-  width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.14);
-  display: flex; align-items: center; justify-content: center; color: #fff;
-}
+.login-brand-name { font-size: clamp(34px, 4vw, 46px); font-weight: 780; letter-spacing: -0.045em; line-height: 1.1; }
 .login-card {
-  width: auto; text-align: left; margin-bottom: 0;
+  width: 100%; min-width: 0; text-align: left; margin-bottom: 0;
   border: none; box-shadow: none; border-radius: 0;
-  padding: 42px 40px;
+  padding: clamp(32px, 5vw, 58px);
   display: flex; flex-direction: column; justify-content: center;
 }
-.login-card h2 { font-size: 24px; color: var(--text); margin-bottom: 26px; }
-@media (max-width: 860px) {
-  .login-page { padding: 18px 14px; align-items: flex-start; }
-  .login-layout { grid-template-columns: 1fr; }
-  .login-brand { padding: 24px 22px; }
-  .login-tagline { margin: 20px 0 6px; font-size: 17px; }
-  .login-points { display: none; }
-  .login-card { padding: 26px 22px 30px; }
+.login-card h2 { font-size: 26px; color: var(--text); font-weight: 720; letter-spacing: -0.03em; margin-bottom: 28px; }
+.login-card .form-row { margin-bottom: 20px; }
+.login-card .form-row > label { font-size: 13px; color: var(--text-strong); }
+.role-btns {
+  display: flex; gap: var(--control-inset); padding: var(--control-inset);
+  border: 1px solid var(--border); border-radius: var(--radius-toolbar); background: var(--surface-2);
+}
+.role-btns .role-choice {
+  flex: 1; min-height: 42px; border: 1px solid transparent; border-radius: var(--radius-toolbar-control);
+  background: transparent; color: var(--text-2); box-shadow: none; transform: none;
+}
+.role-btns .role-choice.selected { background: #fff; border-color: var(--border); color: var(--primary-dark); box-shadow: var(--shadow); }
+.role-btns .role-choice:disabled { opacity: 0.6; }
+@media (hover: hover) { .role-btns .role-choice:hover:not(:disabled) { background: #fff; color: var(--primary-dark); box-shadow: var(--shadow); transform: none; } }
+.login-card .full { margin-top: 4px; min-height: 48px; }
+@media (max-width: 760px) {
+  .login-page { width: 100vw; max-width: 100vw; padding: 18px 14px; }
+  .login-layout { grid-template-columns: 1fr; width: min(520px, calc(100vw - 28px)); min-height: 0; max-width: 520px; border-radius: 24px; }
+  .login-brand { justify-content: flex-start; padding: 24px 24px 18px; }
+  .login-brand-top { gap: 11px; }
+  .login-logo-badge { width: 46px; height: 46px; border-radius: 15px; box-shadow: none; }
+  .login-logo-badge :deep(.brand-logo) { width: 30px; height: 30px; }
+  .login-brand-name { font-size: 27px; }
+  .login-card { padding: 26px 24px 28px; }
+  .login-card h2 { font-size: 23px; margin-bottom: 22px; }
 }
 </style>

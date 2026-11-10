@@ -1,6 +1,5 @@
 <!-- 品牌 Logo（v0.4.0）：闭环圆弧 + 对勾 —— 象征「诊断 → 修复」的学习闭环。
-     入场时圆弧与对勾同步描画、箭头在收尾瞬间于终点弹出落位，
-     之后整体做缓慢呼吸（scale 1 ↔ 1.045）。全部 transform/opacity 实现；
+     入场时圆弧与对勾同步描画、箭头在收尾瞬间于终点弹出落位，随后保持静止。
      prefers-reduced-motion 时静止展示完整图形。颜色走 currentColor，由父级控制。
      几何校准（2026-10-26）：旧版圆弧两端点与标称半径对不上，实际圆心偏离
      画面中心、箭头两翼全落在圆内且指向与圆周切线相反，看起来整体错位。
@@ -34,7 +33,6 @@ withDefaults(defineProps<{ size?: number }>(), { size: 40 })
 <style scoped>
 .brand-logo {
   flex-shrink: 0;
-  animation: bl-breathe 3.8s ease-in-out infinite alternate;
   transform-origin: center;
 }
 .bl-arc, .bl-check {
@@ -56,10 +54,6 @@ withDefaults(defineProps<{ size?: number }>(), { size: 40 })
   0%, 78% { opacity: 0; transform: scale(.4); }
   92% { opacity: 1; transform: scale(1.08); }
   100% { opacity: 1; transform: scale(1); }
-}
-@keyframes bl-breathe {
-  from { transform: scale(1); }
-  to { transform: scale(1.045); }
 }
 @media (prefers-reduced-motion: reduce) {
   .brand-logo, .bl-arc, .bl-arrow, .bl-check { animation: none; }
