@@ -350,17 +350,18 @@ table.table tr:last-child td { border-bottom: 0; }
 /* ---------- v0.2.0 统一侧栏外壳（Muse 式） ---------- */
 .app-shell { display: flex; min-height: 100vh; }
 .app-sidebar {
-  width: 256px;
+  width: 244px;
   flex-shrink: 0;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-panel);
   color: var(--text);
   display: flex;
   flex-direction: column;
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 20px 14px;
+  padding: 20px 16px;
   z-index: 200;
 }
 .sidebar-brand-row { position: relative; display: flex; align-items: center; gap: 11px; padding: 2px 8px 8px; }
@@ -375,7 +376,7 @@ table.table tr:last-child td { border-bottom: 0; }
   border: 1px solid var(--blue-bg);
 }
 .brand-name { font-weight: 760; font-size: 19px; color: var(--text); line-height: 1.2; letter-spacing: -0.015em; }
-.app-sidebar .sidebar-nav { margin-top: 18px; }
+.app-sidebar .sidebar-nav { gap: 3px; margin-top: 18px; }
 .sidebar-user {
   margin-top: auto;
   display: flex; align-items: center; gap: 10px;
@@ -437,6 +438,7 @@ table.table tr:last-child td { border-bottom: 0; }
   .mobile-role { margin-left: auto; font-size: 12px; color: var(--sidebar-muted); }
   .app-sidebar {
     position: fixed; left: 0; top: 0; height: 100dvh;
+    width: 244px;
     transform: translateX(-105%); transition: transform 0.2s ease;
   }
   .app-sidebar.open { transform: none; box-shadow: var(--shadow-lg); }
@@ -535,9 +537,9 @@ table.table tr:last-child td { border-bottom: 0; }
 
 /* ---------- 左侧栏收起 = 图标轨（v0.9.0 替代 v0.6.2 的整条滑出+FAB；仅桌面端，
  * 移动端抽屉不受此状态影响） ----------
- * 收起态宽 78px：只留 Logo（悬停翻为展开按钮）、导航图标与头像；
+ * 收起态宽 80px：只留 Logo（悬停翻为展开按钮）、导航图标与头像；
  * 品牌文字/导航文字/账号文字与会话区（SidebarSessions，模板层 v-if 关掉）隐藏；
- * 导航悬停时用 ::after 气泡 + title 双通道提示标签。展开态 256px 不变。
+ * 导航悬停时用 ::after 气泡 + title 双通道提示标签。展开态 244px。
  * 状态仍存 localStorage remedi-sidebar-open（App.vue 读写），全角色统一。 */
 .sidebar-collapse-btn { margin-left: auto; flex-shrink: 0; }
 .collapsed-brand-toggle {
@@ -575,12 +577,11 @@ table.table tr:last-child td { border-bottom: 0; }
   .app-sidebar {
     transition: width 0.36s cubic-bezier(0.2, 0.72, 0.25, 1);
   }
-  .app-sidebar.collapsed { width: 78px; padding: 20px 14px; }
-  .app-sidebar:not(.collapsed) { padding-right: 20px; padding-left: 14px; }
-  .app-sidebar .sidebar-brand-row { padding-left: 4px; padding-right: 4px; }
+  .app-sidebar.collapsed { width: 80px; padding: 20px 16px; }
+  .app-sidebar .sidebar-brand-row { padding-left: 0; padding-right: 0; }
   .app-sidebar .sidebar-nav a {
     position: relative; isolation: isolate;
-    width: 100%; height: 44px; padding-left: 16px;
+    width: 100%; height: 44px; gap: 10px; padding-left: 13px;
     transition: width 0.36s cubic-bezier(0.2, 0.72, 0.25, 1), color 0.16s ease;
   }
   .app-sidebar .sidebar-nav a::before {
@@ -607,7 +608,7 @@ table.table tr:last-child td { border-bottom: 0; }
     transition: max-width 0.36s cubic-bezier(0.2, 0.72, 0.25, 1), opacity 0.12s ease;
   }
   .app-sidebar .sidebar-nav .nav-label { display: inline-block; }
-  .app-sidebar:not(.collapsed) .sidebar-nav .nav-label { margin-left: 12px; }
+  .app-sidebar:not(.collapsed) .sidebar-nav .nav-label { margin-left: 14px; }
   @media (hover: hover) {
     .app-sidebar .sidebar-nav a:hover { background: transparent; }
     .app-sidebar .sidebar-nav a:hover::before { background: var(--sidebar-hover); }
@@ -631,14 +632,14 @@ table.table tr:last-child td { border-bottom: 0; }
     }
   }
   .app-sidebar.collapsed .collapsed-brand-toggle:focus-visible .collapsed-brand-flip { transform: rotateY(180deg); }
-  /* 导航背景收为 48×48 方形，图标继续锚定在展开态的位置 */
+  /* 导航背景收为 44×44 方形，图标继续锚定在展开态的位置 */
   .app-sidebar.collapsed .sidebar-nav a {
-    width: 50px; align-self: flex-start;
-    justify-content: flex-start; gap: 0; padding: 10px 16px;
+    width: 48px; align-self: flex-start;
+    justify-content: flex-start; gap: 0; padding: 10px 13px;
     background: transparent;
   }
   .app-sidebar.collapsed .sidebar-nav a::before {
-    width: 48px; height: 48px; left: 50%; top: 50%;
+    width: 44px; height: 44px; left: 50%; top: 50%;
     transform: translate(-50%, -50%);
     border-radius: var(--radius-control);
   }
@@ -667,12 +668,12 @@ table.table tr:last-child td { border-bottom: 0; }
     }
   }
   /* 账号区只留头像，头像保持与展开态相同的水平位置 */
-  .app-sidebar .sidebar-user { padding-left: 7px; }
-  .app-sidebar.collapsed .sidebar-user { justify-content: flex-start; padding: 12px 7px 2px; }
+  .app-sidebar .sidebar-user { padding-left: 8px; }
+  .app-sidebar.collapsed .sidebar-user { justify-content: flex-start; padding: 12px 8px 2px; }
   .app-sidebar.collapsed .sidebar-user .icon-btn { display: none; }
 }
 @media (max-width: 960px) {
-  /* 移动端：隐藏品牌行收起按钮，collapsed 对抽屉无任何影响（抽屉恒为 248px 全态） */
+  /* 移动端：隐藏品牌行收起按钮，collapsed 对抽屉无任何影响（抽屉宽度与桌面展开态一致） */
   .sidebar-collapse-btn { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
