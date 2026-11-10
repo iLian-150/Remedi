@@ -21,11 +21,13 @@
           class="sb-row"
           :class="{ active: s.id === store.activeSessionId, confirming: confirmId === s.id }"
         >
-          <template v-if="confirmId === s.id">
+          <div v-if="confirmId === s.id" class="sb-confirm" role="group" aria-label="确认删除对话">
             <span class="sb-confirm-text">确认删除？</span>
-            <button class="sb-confirm-yes" @click="onRemove(s.id)">删除</button>
-            <button class="sb-confirm-no" @click="confirmId = null">取消</button>
-          </template>
+            <div class="sb-confirm-actions">
+              <button class="sb-confirm-yes" type="button" @click="onRemove(s.id)">删除</button>
+              <button class="sb-confirm-no" type="button" @click="confirmId = null">取消</button>
+            </div>
+          </div>
           <template v-else>
             <button class="sb-main" :title="s.title" @click="onSelect(s.id)">
               <span class="sb-title">{{ s.title }}</span>
@@ -146,7 +148,10 @@ async function onRemove(id: number) {
   .sb-row:hover:not(.active):not(.confirming) { background: var(--sidebar-hover); border-color: var(--sidebar-border); }
 }
 .sb-row.active { background: var(--sidebar-active); border-color: var(--blue-bg); }
-.sb-row.confirming { background: var(--red-bg); border-color: #FECACA; padding: 6px 8px; }
+.sb-row.confirming {
+  align-self: flex-start; width: fit-content; max-width: 100%; min-width: 0;
+  background: var(--red-bg); border-color: #FECACA; padding: 6px 8px; gap: 8px;
+}
 .sb-main {
   display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px;
   text-align: left; background: none; border: none; cursor: pointer;
@@ -169,14 +174,21 @@ async function onRemove(id: number) {
 .sb-row.active .sb-trash, .sb-row:focus-within .sb-trash { opacity: 1; }
 @media (hover: hover) { .sb-trash:hover { color: var(--red); background: #fff; } }
 @media (hover: none) { .sb-trash { opacity: 0.8; } }
-.sb-confirm-text { flex: 1; font-size: 12.5px; font-weight: 600; color: #991B1B; white-space: nowrap; }
+.sb-confirm { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.sb-confirm-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12.5px; font-weight: 600; color: #991B1B;
+}
+.sb-confirm-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .sb-confirm-yes {
-  flex-shrink: 0; border: none; background: var(--red); color: #fff; cursor: pointer;
-  border-radius: 7px; padding: 4px 9px; font-size: 12px; font-weight: 600; font-family: var(--font);
+  display: inline-flex; min-width: 48px; min-height: 32px; align-items: center; justify-content: center;
+  border: none; background: var(--red); color: #fff; cursor: pointer;
+  border-radius: var(--radius-detail); padding: 0 10px; font-size: 12px; font-weight: 600; font-family: var(--font); line-height: 1;
 }
 .sb-confirm-no {
-  flex-shrink: 0; border: 1px solid var(--border); background: #fff; color: var(--text-2); cursor: pointer;
-  border-radius: 7px; padding: 4px 9px; font-size: 12px; font-family: var(--font);
+  display: inline-flex; min-width: 48px; min-height: 32px; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: #fff; color: var(--text-2); cursor: pointer;
+  border-radius: var(--radius-detail); padding: 0 10px; font-size: 12px; font-family: var(--font); line-height: 1;
 }
 @media (prefers-reduced-motion: reduce) {
   .sb-trash, .sb-new-btn { transition: none; }
