@@ -275,6 +275,9 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.post<Classroom>('/api/teacher/classes', { name, subject })
       return data
     },
+    async removeClassroom(classroomId: number): Promise<void> {
+      await api.delete(`/api/teacher/classes/${classroomId}`)
+    },
     async fetchClassroomStudents(classroomId: number): Promise<ClassroomStudent[]> {
       const { data } = await api.get<ClassroomStudent[]>(`/api/teacher/classes/${classroomId}/students`)
       return data

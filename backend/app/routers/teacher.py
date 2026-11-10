@@ -207,6 +207,23 @@ def create_or_link_classroom(
     return ClassroomOut(id=classroom.id, name=classroom.name, subjects=subjects, student_count=count)
 
 
+@router.delete("/classes/{classroom_id}", summary="解除当前教师与班级的关联")
+def remove_classroom(
+    classroom_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    mappings = db.query(ClassroomTeacherSubject).filter_by(
+        classroom_id=classroom_id, teacher_id=current.id,
+    ).all()
+    if not mappings:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "班级不存在或你没有任课权限。")
+    for mapping in mappings:
+        db.delete(mapping)
+    db.commit()
+    return {"deleted": True, "classroom_id": classroom_id}
+
+
 @router.get("/classes/{classroom_id}/students", response_model=List[ClassroomStudentOut], summary="读取班级学生")
 def list_classroom_students(
     classroom_id: int, db: Session = Depends(get_db), current: User = Depends(require_teacher),

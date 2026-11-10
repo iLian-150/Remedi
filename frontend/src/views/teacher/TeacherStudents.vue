@@ -30,6 +30,7 @@
             <tr>
               <th scope="col">班级名称</th>
               <th scope="col">学生人数</th>
+              <th scope="col">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -41,6 +42,17 @@
                 </router-link>
               </td>
               <td class="class-count tnum"><strong>{{ room.student_count }}</strong><small>人</small></td>
+              <td class="class-actions">
+                <button
+                  type="button"
+                  class="btn ghost small"
+                  :aria-label="`从我的班级列表移除${room.name}`"
+                  :disabled="deletingClassroomId !== null"
+                  @click="openDeleteClassroom(room)"
+                >
+                  <AppIcon name="trash" :size="15" /> 移除
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -187,6 +199,20 @@
         </div>
       </section>
     </div>
+
+    <div v-if="pendingDeleteClassroom" class="student-modal-mask" tabindex="-1" @click.self="closeDeleteClassroom" @keydown.esc.stop="closeDeleteClassroom">
+      <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="delete-classroom-title">
+        <h3 id="delete-classroom-title">移除班级关联</h3>
+        <p class="student-modal-note">确定从你的班级列表中移除“{{ pendingDeleteClassroom.name }}”吗？其他老师的关联、学生身份、名册成员和历史数据会保留。</p>
+        <div v-if="deleteClassroomError" class="error-msg" role="alert">{{ deleteClassroomError }}</div>
+        <div class="student-modal-actions">
+          <button type="button" class="btn secondary" :disabled="deletingClassroomId !== null" @click="closeDeleteClassroom">取消</button>
+          <button type="button" class="btn danger" :disabled="deletingClassroomId !== null" @click="confirmDeleteClassroom">
+            {{ deletingClassroomId === pendingDeleteClassroom.id ? '移除中…' : '确认移除' }}
+          </button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -222,6 +248,9 @@ const savingStudentInfo = ref(false)
 const pendingDelete = ref<ClassroomStudent | null>(null)
 const deleteError = ref('')
 const deletingStudentId = ref<number | null>(null)
+const pendingDeleteClassroom = ref<Classroom | null>(null)
+const deleteClassroomError = ref('')
+const deletingClassroomId = ref<number | null>(null)
 const savingClass = ref(false)
 const savingStudent = ref(false)
 const loading = ref(false)
@@ -413,6 +442,34 @@ async function confirmDeleteStudent() {
   }
 }
 
+function openDeleteClassroom(room: Classroom) {
+  pendingDeleteClassroom.value = room
+  deleteClassroomError.value = ''
+}
+
+function closeDeleteClassroom() {
+  if (deletingClassroomId.value !== null) return
+  pendingDeleteClassroom.value = null
+  deleteClassroomError.value = ''
+}
+
+async function confirmDeleteClassroom() {
+  const room = pendingDeleteClassroom.value
+  if (!room) return
+  deletingClassroomId.value = room.id
+  deleteClassroomError.value = ''
+  try {
+    await teacher.removeClassroom(room.id)
+    classrooms.value = classrooms.value.filter((item) => item.id !== room.id)
+    pendingDeleteClassroom.value = null
+  } catch (e) {
+    deleteClassroomError.value = '移除失败，请稍后重试。'
+    console.error(e)
+  } finally {
+    deletingClassroomId.value = null
+  }
+}
+
 </script>
 
 <style scoped>
@@ -429,9 +486,11 @@ async function confirmDeleteStudent() {
 .class-list-table th, .class-list-table td { text-align: center; }
 .class-list-table th { padding: 7px 18px; }
 .class-list-table td { padding: 6px 18px; }
-.class-list-table th:first-child { width: 64%; }
-.class-list-table th:last-child { width: 36%; }
+.class-list-table th:first-child { width: 58%; }
+.class-list-table th:nth-child(2) { width: 24%; }
+.class-list-table th:last-child { width: 18%; }
 .class-list-table td:first-child, .class-list-table td:last-child { text-align: center; }
+.class-actions .btn { display: inline-flex; align-items: center; gap: 4px; }
 .class-name-link { display: inline-flex; max-width: 100%; min-width: 0; min-height: 36px; align-items: center; justify-content: center; gap: 6px; color: var(--text); font-size: 15px; font-weight: 650; }
 .class-name-link strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .class-name-link :deep(.app-icon) { flex: 0 0 auto; color: var(--text-3); transition: color .16s ease, transform .16s ease; }
@@ -485,8 +544,9 @@ async function confirmDeleteStudent() {
   .students-page-heading > .btn { padding-inline: 10px; font-size: 12px; }
   .roster-toolbar { min-height: 34px; }
   .class-list-table { min-width: 0; }
-  .class-list-table th:first-child { width: 58%; }
-  .class-list-table th:last-child { width: 42%; }
+  .class-list-table th:first-child { width: 52%; }
+  .class-list-table th:nth-child(2) { width: 26%; }
+  .class-list-table th:last-child { width: 22%; }
   .class-list-table th { padding: 7px 8px; }
   .class-list-table td { padding: 6px 8px; }
   .student-modal { padding: 20px; }
