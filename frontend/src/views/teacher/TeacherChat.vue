@@ -356,7 +356,6 @@ async function sendText(raw: string, attachmentFile?: File) {
   const enteredText = raw.trim()
   if ((!enteredText && !attachmentFile) || sending.value) return
   const viewSeq = teacher.sessionView.seq
-  const sessionId = teacher.activeSessionId
   const text = enteredText || (attachmentFile ? '请阅读并分析这个文件。' : '')
   if (text.length > 2000) {
     error.value = '这条消息有点太长了（最多 2000 字），拆成两条发吧。'
@@ -388,6 +387,8 @@ async function sendText(raw: string, attachmentFile?: File) {
     const extractedAttachment = attachmentFile
       ? await teacher.extractChatAttachment(attachmentFile)
       : undefined
+    if (!isCurrentChatView(viewSeq)) return
+    const sessionId = await teacher.ensureActiveChatSession(viewSeq)
     if (!isCurrentChatView(viewSeq)) return
     let receivedCharacter = false
     const res = await teacher.agentChatStream(text, sessionId, (character) => {
@@ -487,13 +488,8 @@ async function sendImage(file: File, question: string) {
   sending.value = true
   let receivedText = false
   try {
-    let sessionId = teacher.activeSessionId
-    if (sessionId == null && teacher.sessionView.fresh) {
-      const session = await teacher.createSession()
-      if (!isCurrentChatView(viewSeq)) return
-      sessionId = session.id
-      teacher.setActiveSession(session.id)
-    }
+    const sessionId = await teacher.ensureActiveChatSession(viewSeq)
+    if (!isCurrentChatView(viewSeq)) return
     const result = await teacher.agentVisionChatStream(
       file, questionForModel, sessionId,
       (text) => {

@@ -142,6 +142,7 @@ export const useTeacherStore = defineStore('teacher', {
     sessionsLoadPromise: null as Promise<void> | null,
     sessionsRefreshPromise: null as Promise<void> | null,
     sessionCreatePromise: null as Promise<ChatSession> | null,
+    sessionCreateViewSeq: null as number | null,
     sessionsGeneration: 0,
     sessionsMutationVersion: 0,
     knowledgeImportJobs: [] as SubjectKnowledgeImportJob[],
@@ -1008,7 +1009,58 @@ export const useTeacherStore = defineStore('teacher', {
       this.activeSessionId = id
     },
     /** 侧栏「新对话」入口：切换到页面内的本地草稿，首次发送时再创建会话。 */
+    async ensureActiveChatSession(expectedViewSeq?: number): Promise<number | null> {
+      const viewSeq = expectedViewSeq ?? this.sessionView.seq
+      const assertCurrentView = () => {
+        if (viewSeq !== this.sessionView.seq) {
+          const error = new Error('对话已切换，请重新操作。')
+          error.name = 'AbortError'
+          throw error
+        }
+      }
+      assertCurrentView()
+      if (this.activeSessionId != null) return this.activeSessionId
+      if (this.sessionView.id != null || !this.sessionView.fresh) return null
+
+      if (this.sessionCreatePromise && this.sessionCreateViewSeq === viewSeq) {
+        const session = await this.sessionCreatePromise
+        assertCurrentView()
+        return session.id
+      }
+      if (this.sessionCreatePromise) {
+        this.sessionCreatePromise = null
+        this.sessionCreateViewSeq = null
+      }
+
+      const generation = this.sessionsGeneration
+      const ownerId = useAuthStore().user?.id
+      const task = (async () => {
+        const session = await this.createSession()
+        if (generation !== this.sessionsGeneration || ownerId !== useAuthStore().user?.id) {
+          const error = new Error('登录状态已变化，请重新操作。')
+          error.name = 'AbortError'
+          throw error
+        }
+        assertCurrentView()
+        this.sessionsMutationVersion += 1
+        this.sessions = [session, ...this.sessions.filter((item) => item.id !== session.id)]
+        this.activeSessionId = session.id
+        return session
+      })()
+      this.sessionCreatePromise = task
+      this.sessionCreateViewSeq = viewSeq
+      try {
+        return (await task).id
+      } finally {
+        if (this.sessionCreatePromise === task) {
+          this.sessionCreatePromise = null
+          this.sessionCreateViewSeq = null
+        }
+      }
+    },
     startSidebarSession() {
+      this.sessionCreatePromise = null
+      this.sessionCreateViewSeq = null
       this.activeSessionId = null
       this.sessionView = { id: null, fresh: true, seq: this.sessionView.seq + 1 }
     },
@@ -1054,6 +1106,7 @@ export const useTeacherStore = defineStore('teacher', {
       this.sessionsLoadPromise = null
       this.sessionsRefreshPromise = null
       this.sessionCreatePromise = null
+      this.sessionCreateViewSeq = null
       this.sessionView = { id: null, fresh: false, seq: 0 }
     },
     // 4.15 上传练习册 PDF 到知识库（v0.5.0，≤30MB）

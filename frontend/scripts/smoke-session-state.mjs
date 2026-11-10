@@ -55,6 +55,7 @@ function fixture(kind) {
       if (name === 'vue') return require('vue')
       if (name === 'axios') return require('axios')
       if (name === '../api/client') return { __esModule: true, default: api }
+      if (name === '../api/chatStream') return { streamChatReply: () => { throw new Error('Unexpected chat stream request') } }
       if (name === './auth') return { useAuthStore: () => auth }
       if (name === '../utils/visionImage') return { visionImageForModel: () => { throw new Error('Unexpected image request') } }
       throw new Error(`Unexpected module: ${name}`)
@@ -78,22 +79,25 @@ async function flush() { for (let count = 0; count < 16; count++) await Promise.
 for (const kind of ['student', 'teacher']) {
   {
     const { store, pending } = fixture(kind)
-    const first = store.startSidebarSession()
-    const second = store.startSidebarSession()
-    assert.equal(pending.length, 1)
-    pending[0].resolve({ data: session(10) })
-    assert.equal((await first).id, 10)
-    assert.equal((await second).id, 10)
-    assert.equal(store.sessions.length, 1)
-    assert.equal(store.sessionCreatePromise, null)
+    store.sessions = [session(10)]
+    store.activeSessionId = 10
+    store.startSidebarSession()
+    assert.equal(pending.length, 0)
+    assert.equal(store.sessionView.id, null)
+    assert.equal(store.sessionView.fresh, true)
     assert.equal(store.sessionView.seq, 1)
-    assert.equal((await store.startSidebarSession()).id, 10)
-    assert.equal(pending.length, 1)
+    assert.equal(store.activeSessionId, null)
+    assert.deepEqual(ids(store), [10])
+    store.startSidebarSession()
+    assert.equal(pending.length, 0)
+    assert.equal(store.sessionView.seq, 2)
     passed++
   }
   {
     const { store, pending } = fixture(kind)
-    const result = cancelled(store.startSidebarSession())
+    store.sessionsLoaded = true
+    store.startSidebarSession()
+    const result = cancelled(store.ensureActiveChatSession())
     store.clearSessionState()
     pending[0].resolve({ data: session(777) })
     await result
@@ -104,7 +108,9 @@ for (const kind of ['student', 'teacher']) {
   }
   {
     const { store, pending } = fixture(kind)
-    const result = cancelled(store.startSidebarSession())
+    store.sessionsLoaded = true
+    store.startSidebarSession()
+    const result = cancelled(store.ensureActiveChatSession())
     auth.user = { id: 2 }
     pending[0].resolve({ data: session(777) })
     await result
@@ -114,28 +120,35 @@ for (const kind of ['student', 'teacher']) {
   }
   {
     const { store, pending } = fixture(kind)
-    const old = cancelled(store.startSidebarSession())
+    store.sessionsLoaded = true
+    store.startSidebarSession()
+    const old = cancelled(store.ensureActiveChatSession())
     store.clearSessionState()
-    const fresh = store.startSidebarSession()
+    store.sessionsLoaded = true
+    store.startSidebarSession()
+    const fresh = store.ensureActiveChatSession()
     pending[0].resolve({ data: session(777) })
     await old
     assert.notEqual(store.sessionCreatePromise, null)
-    const duplicate = store.startSidebarSession()
+    const duplicate = store.ensureActiveChatSession()
     assert.equal(pending.length, 2)
     pending[1].resolve({ data: session(888) })
-    await Promise.all([fresh, duplicate])
-    assert.deepEqual(Array.from(store.sessions, item => item.id), [888])
+    assert.deepEqual(await Promise.all([fresh, duplicate]), [888, 888])
+    assert.deepEqual(ids(store), [888])
     passed++
   }
   {
     const { store, pending } = fixture(kind)
-    const first = assert.rejects(store.startSidebarSession(), /temporary failure/)
+    store.sessionsLoaded = true
+    store.startSidebarSession()
+    const first = assert.rejects(store.ensureActiveChatSession(), /temporary failure/)
     pending[0].reject(new Error('temporary failure'))
     await first
     assert.equal(store.sessionCreatePromise, null)
-    const retry = store.startSidebarSession()
+    const retry = store.ensureActiveChatSession()
     pending[1].resolve({ data: session(30) })
-    assert.equal((await retry).id, 30)
+    assert.equal(await retry, 30)
+    assert.equal(store.sessionView.seq, 1)
     passed++
   }
   {
@@ -162,7 +175,9 @@ for (const kind of ['student', 'teacher']) {
     pending[0].resolve({})
     await deletion
     assert.deepEqual(Array.from(store.sessions, item => item.id), [60])
-    assert.equal(store.activeSessionId, 60)
+    assert.equal(store.activeSessionId, null)
+    assert.equal(store.sessionView.id, null)
+    assert.equal(store.sessionView.fresh, true)
     passed++
   }
 }
@@ -222,7 +237,9 @@ for (const kind of ['student', 'teacher']) {
     const { store, pending, reads } = fixture(kind)
     const loading = store.loadSessions()
     const shared = store.loadSessions()
-    const creating = store.startSidebarSession()
+    store.startSidebarSession()
+    store.sessionsLoaded = true
+    const creating = store.ensureActiveChatSession()
     pending[0].resolve({ data: session(50) })
     await creating
     reads[0].resolve({ data: page([session(10)]) })
@@ -253,11 +270,12 @@ for (const kind of ['student', 'teacher']) {
     await flush()
     assert.equal(reads.length, 2)
     assert.deepEqual(ids(store), [40])
-    assert.equal(store.activeSessionId, 40)
+    assert.equal(store.activeSessionId, null)
     reads[1].resolve({ data: page([session(40), session(30)]) })
     await loading
     assert.deepEqual(ids(store), [40, 30])
-    assert.equal(store.sessionView.id, 40)
+    assert.equal(store.sessionView.id, null)
+    assert.equal(store.sessionView.fresh, true)
     assert.equal(store.sessionsMutationVersion, 1)
     passed++
   }
@@ -271,7 +289,13 @@ for (const kind of ['student', 'teacher']) {
     store.sessionsCursor = { before_updated_at: session(50).updated_at, before_id: 50 }
     if (operation === 'create') store.sessions[0].message_count = 1
     const loading = store.loadMoreSessions()
-    const changing = operation === 'delete' ? store.removeSidebarSession(50) : store.startSidebarSession()
+    let changing
+    if (operation === 'delete') {
+      changing = store.removeSidebarSession(50)
+    } else {
+      store.startSidebarSession()
+      changing = store.ensureActiveChatSession()
+    }
     assert.equal(pending.length, 1)
     pending[0].resolve(operation === 'delete' ? {} : { data: session(70) })
     await changing
@@ -293,7 +317,9 @@ for (const kind of ['student', 'teacher']) {
     const loading = store.loadSessions()
     const refresh = store.loadSessions(true)
     const duplicateRefresh = store.loadSessions(true)
-    const creating = store.startSidebarSession()
+    store.startSidebarSession()
+    store.sessionsLoaded = true
+    const creating = store.ensureActiveChatSession()
     pending[0].resolve({ data: session(70) })
     await creating
     reads[0].resolve({ data: page([session(10)]) })
@@ -320,7 +346,9 @@ for (const kind of ['student', 'teacher']) {
     const { store, pending, reads } = fixture(kind)
     const loading = store.loadSessions()
     const queuedRefresh = store.loadSessions(true)
-    const creating = store.startSidebarSession()
+    store.startSidebarSession()
+    store.sessionsLoaded = true
+    const creating = store.ensureActiveChatSession()
     pending[0].resolve({ data: session(70) })
     await creating
     if (invalidation === 'generation') store.clearSessionState()
@@ -380,6 +408,42 @@ for (const kind of ['student', 'teacher']) {
   }
 }
 
+// A teacher's fresh draft gets its own session; concurrent preparation is shared.
+{
+  const { store, pending } = fixture('teacher')
+  store.sessions = [session(10)]
+  store.activeSessionId = 10
+  store.sessionsLoaded = true
+  store.startSidebarSession()
+  const viewSeq = store.sessionView.seq
+  const first = store.ensureActiveChatSession(viewSeq)
+  const second = store.ensureActiveChatSession(viewSeq)
+  assert.equal(pending.length, 1)
+  pending[0].resolve({ data: session(20) })
+  assert.deepEqual(await Promise.all([first, second]), [20, 20])
+  assert.deepEqual(ids(store), [20, 10])
+  assert.equal(store.activeSessionId, 20)
+  assert.equal(store.sessionView.id, null)
+  assert.equal(store.sessionView.fresh, true)
+  assert.equal(store.sessionsMutationVersion, 1)
+  assert.equal(store.sessionCreatePromise, null)
+  passed++
+}
+{
+  const { store, pending } = fixture('teacher')
+  store.sessions = [session(10)]
+  store.activeSessionId = 10
+  store.startSidebarSession()
+  const creation = cancelled(store.ensureActiveChatSession(store.sessionView.seq))
+  store.selectSidebarSession(10)
+  pending[0].resolve({ data: session(20) })
+  await creation
+  assert.deepEqual(ids(store), [10])
+  assert.equal(store.activeSessionId, 10)
+  assert.equal(store.sessionCreatePromise, null)
+  passed++
+}
+
 // Concurrent first sends share both the initial load and the actual creation.
 for (const initiallyLoaded of [true, false]) {
   const { store, pending, reads } = fixture('student')
@@ -401,39 +465,41 @@ for (const initiallyLoaded of [true, false]) {
   passed++
 }
 
-for (const sidebarFirst of [true, false]) {
-  for (const initiallyLoaded of [true, false]) {
-    const { store, pending, reads } = fixture('student')
-    store.sessionsLoaded = initiallyLoaded
-    const ui = { messages: ['user question', 'pending response'], image: 'selected photo', sending: true }
-    // StudentChat's seq watcher clears conversation messages and the selected image.
-    const stop = watch(() => store.sessionView.seq, () => { ui.messages = []; ui.image = '' })
-    const sidebar = sidebarFirst ? store.startSidebarSession() : null
-    const sending = store.ensureActiveChatSession()
-    const joinedSidebar = sidebar ?? store.startSidebarSession()
-    if (!initiallyLoaded && !sidebarFirst) {
-      assert.equal(reads.length, 1)
-      reads[0].resolve({ data: page([]) })
-      await flush()
-    }
-    assert.equal(pending.length, 1)
-    pending[0].resolve({ data: session(50) })
-    if (!initiallyLoaded && sidebarFirst) {
-      await flush()
-      assert.equal(reads.length, 1)
-      reads[0].resolve({ data: page([session(50), session(10)]) })
-    }
-    assert.equal(await sending, 50)
-    assert.equal((await joinedSidebar).id, 50)
-    await nextTick()
-    assert.deepEqual(ids(store), !initiallyLoaded && sidebarFirst ? [50, 10] : [50])
-    assert.equal(store.activeSessionId, 50)
-    assert.equal(store.sessionView.seq, 0)
-    assert.deepEqual(ui, { messages: ['user question', 'pending response'], image: 'selected photo', sending: true })
-    assert.equal(storage.get('remedi_student_active_session_1'), '50')
-    stop()
-    passed++
+for (const initiallyLoaded of [true, false]) {
+  const { store, pending, reads } = fixture('student')
+  store.sessions = [session(10)]
+  store.activeSessionId = 10
+  store.sessionsLoaded = initiallyLoaded
+  const ui = { messages: ['old conversation'], image: 'old photo', sending: false }
+  // Starting a draft clears the previous view; creating its session keeps the new send intact.
+  const stop = watch(
+    () => store.sessionView.seq,
+    () => { ui.messages = []; ui.image = ''; ui.sending = false },
+    { flush: 'sync' }
+  )
+  store.startSidebarSession()
+  assert.deepEqual(ui, { messages: [], image: '', sending: false })
+  Object.assign(ui, { messages: ['user question', 'pending response'], image: 'selected photo', sending: true })
+  const viewSeq = store.sessionView.seq
+  const sending = store.ensureActiveChatSession(viewSeq)
+  const duplicate = store.ensureActiveChatSession(viewSeq)
+  if (!initiallyLoaded) {
+    assert.equal(reads.length, 1)
+    reads[0].resolve({ data: page([session(10)]) })
+    await flush()
   }
+  assert.equal(pending.length, 1)
+  pending[0].resolve({ data: session(50) })
+  assert.deepEqual(await Promise.all([sending, duplicate]), [50, 50])
+  await nextTick()
+  assert.deepEqual(ids(store), [50, 10])
+  assert.equal(store.activeSessionId, 50)
+  assert.equal(store.sessionView.seq, viewSeq)
+  assert.equal(store.sessionView.fresh, true)
+  assert.deepEqual(ui, { messages: ['user question', 'pending response'], image: 'selected photo', sending: true })
+  assert.equal(storage.get('remedi_student_active_session_1'), '50')
+  stop()
+  passed++
 }
 
 console.log(`PASS: ${passed} session lifecycle checks`)
