@@ -8,9 +8,10 @@
      未读数读 student store；calendar=日历形 cal-fab，无角标），点它重新展开；
      右栏在所有页面初始收起；页面导航后也会收起，用户可通过场景专属入口手动展开。
      移动端沿用抽屉式交互。
-     v0.6.2：左侧栏主导航下方显示会话区（SidebarSessions：新对话按钮和带更新时间的历史列表）；移动端沿用抽屉不受影响。
+     v0.6.2：左侧栏主导航下方显示会话区；移动端沿用抽屉不受影响。
      v0.8.2：全局侧栏成为双端唯一侧栏（学生对话页不再自带页内侧栏，统一走这里：
-     会话区双端都挂 SidebarSessions、收起机制全角色一致）；未读数改由 student store 持有，
+     两端都从主导航新建对话，在下方显示最近对话）；
+     收起机制全角色一致，未读数改由 student store 持有，
      进入学生任何页面（路由变化）时刷新一次。
      v0.9.0：侧栏收起改「图标轨」——不再整条消失，收起态宽 68px 只留 Logo 与导航图标
      （悬停 tooltip 显示标签）、头像与展开按钮（品牌行按钮图标随状态翻转），
@@ -66,6 +67,7 @@
           :aria-label="item.label"
           :active-class="item.exact || item.activePaths ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
+          @click="onNavItemClick(item)"
         >
           <span class="nav-ic" :class="`ni-${item.icon}`"><AppIcon :name="item.icon" :size="18" /></span><span class="nav-label">{{ item.label }}</span><span v-if="item.badge" class="nav-badge tnum">{{ item.badge }}</span>
         </router-link>
@@ -237,23 +239,28 @@ interface NavItem {
 }
 
 const STUDENT_NAV: NavItem[] = [
+  { to: '/student/chat', icon: 'compose', label: '新对话' },
   { to: '/student/assignments', icon: 'clipboard', label: '作业', activePaths: ['/student/assignments', '/student/submit'] },
-  { to: '/student/chat', icon: 'chat', label: '智能批改' },
   { to: '/student/mistakes', icon: 'book', label: '错题本' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
   { to: '/student/profile', icon: 'chart', label: '学习档案', activePaths: ['/student/profile', '/student/report'] },
 ]
 
 const TEACHER_NAV: NavItem[] = [
+  { to: '/teacher/chat', icon: 'compose', label: '新对话' },
+  { to: '/teacher/dashboard', icon: 'chart', label: '总览' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments'] },
-  { to: '/teacher/chat', icon: 'sparkles', label: 'AI 助手' },
-  { to: '/teacher/materials', icon: 'file', label: '我的资料' },
   { to: '/teacher/submissions', icon: 'check', label: 'AI 批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },
   { to: '/teacher/students', icon: 'users', label: '学生' },
-  { to: '/teacher/dashboard', icon: 'chart', label: '总览' }
+  { to: '/teacher/materials', icon: 'file', label: '我的资料' }
 ]
 
 const navItems = computed<NavItem[]>(() => auth.role === 'teacher' ? TEACHER_NAV : STUDENT_NAV)
+function onNavItemClick(item: NavItem) {
+  if (item.to === '/teacher/chat') teacher.startSidebarSession()
+  if (item.to === '/student/chat') student.startSidebarSession()
+}
+
 const showSidebarSessions = computed(() => {
   if (isChatRoute.value) return true
   return navItems.value.slice(1).some((item) =>

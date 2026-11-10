@@ -1,16 +1,8 @@
-<!-- 左侧栏会话区：只显示已创建的会话；新对话通过顶部按钮开始，首次发送后再出现在列表中。
+<!-- 左侧栏最近对话：只显示已创建的会话；首次发送后，新对话才会出现在列表中。
      历史记录悬停浮现删除操作；数据与动作全部走 store 的会话状态层。 -->
 <template>
   <section class="sb-sessions">
-    <button
-      class="sb-new-btn"
-      type="button"
-      :aria-label="createAcknowledged ? '已开启新对话' : '新建对话'"
-      @click="onCreate"
-    >
-      <AppIcon :name="createAcknowledged ? 'check' : 'compose'" :size="17" />
-      <span aria-live="polite">{{ createAcknowledged ? '已开启新对话' : '新建对话' }}</span>
-    </button>
+    <h2 class="sb-heading">最近对话</h2>
 
     <div class="sb-list">
       <div v-if="store.sessionsLoading && !store.sessions.length" class="sb-hint">加载中…</div>
@@ -61,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
@@ -76,15 +68,9 @@ const store = computed(() =>
 )
 
 const confirmId = ref<number | null>(null)
-const createAcknowledged = ref(false)
-let createFeedbackTimer: number | undefined
 
 onMounted(() => {
   store.value.loadSessions()
-})
-
-onUnmounted(() => {
-  if (createFeedbackTimer !== undefined) window.clearTimeout(createFeedbackTimer)
 })
 
 async function retrySessions() {
@@ -102,18 +88,6 @@ function formatSessionTime(value: string): string {
   )
   const year = date.getFullYear() === new Date().getFullYear() ? '' : `${parts.year}年`
   return `${year}${Number(parts.month)}月${Number(parts.day)}日 ${parts.hour}:${parts.minute}`
-}
-
-function onCreate() {
-  store.value.startSidebarSession()
-  confirmId.value = null
-  createAcknowledged.value = true
-  if (createFeedbackTimer !== undefined) window.clearTimeout(createFeedbackTimer)
-  createFeedbackTimer = window.setTimeout(() => {
-    createAcknowledged.value = false
-    createFeedbackTimer = undefined
-  }, 1800)
-  emit('navigate')
 }
 
 function onSelect(id: number) {
@@ -149,11 +123,7 @@ async function onRemove(id: number) {
   font-size: 14px; font-weight: 600; font-family: var(--font); cursor: pointer;
   transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
-@media (hover: hover) {
-  .sb-new-btn:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
-}
-.sb-new-btn:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 2px; }
-.sb-new-btn .app-icon { color: currentColor; }
+.sb-heading { flex-shrink: 0; padding: 7px 10px 9px; color: var(--sidebar-muted); font-size: 12px; font-weight: 650; line-height: 1.3; }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; display: flex; flex-direction: column; gap: 5px; }
 .sb-hint { font-size: 13px; color: var(--text-3); padding: 10px 10px 4px; }
 .sb-page-error { padding: 8px 10px 2px; color: var(--red); font-size: 12px; }
