@@ -14,7 +14,7 @@
 - **数据格式**：请求与响应均为 `application/json; charset=utf-8`。
 - **时间格式**：ISO 8601，如 `2026-10-06T15:40:35`（本地时间，不带时区后缀）。
 - **分页**：列表接口统一用 `limit`（默认 20，最大 100）、`offset`（默认 0），响应形如 `{"total": 42, "items": [...]}`。
-- **模型配置**：通过阿里云百炼工作空间专属 APIHost 调用文字 `Kimi-K3`、视觉 `qwen3-vl-plus`、向量 `qwen3.7-text-embedding-flash`（1024 维）及重排 `qwen3.7-text-rerank`。APIHost 由控制台确认，格式示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，工作空间与地域按实际账号替换。实际密钥只保存在服务器环境配置；配置项本身不表示真实模型调用已通过。
+- **模型配置**：通过阿里云百炼工作空间专属 APIHost 调用文字 `qwen3.8-flash`、视觉 `qwen3-vl-plus`、向量 `qwen3.7-text-embedding-flash`（1024 维）及重排 `qwen3.7-text-rerank`。APIHost 由控制台确认，格式示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，工作空间与地域按实际账号替换。实际密钥只保存在服务器环境配置；配置项本身不表示真实模型调用已通过。
 
 ### 1.1 认证方式（Mock 登录）
 
@@ -581,7 +581,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ```
 
 - `token`：回复文本块；同一回复可能有多个事件。
-- `Kimi-K3` 始终启用思考；服务端只在当前请求的工具调用循环内临时保留并回传 `reasoning_content`。隐藏推理不作为 `token` 或 `done.reply` 返回，也不写入持久化聊天消息；SSE 与历史接口的可见文本结构不变。
+- 若显式配置 `Kimi-K3`，服务端始终启用思考，并只在当前请求的工具调用循环内临时保留并回传 `reasoning_content`。隐藏推理不作为 `token` 或 `done.reply` 返回，也不写入持久化聊天消息；SSE 与历史接口的可见文本结构不变。
 - `done`：完整回复、建议追问、会话 id，以及选填的 `related_mistake`（同学科、同知识点最近一条已审核且未归档的历史错题；无匹配时为 `null`）。服务端在生成完成后将助手回复写入会话，并持久化该消息与错题的关联；用户提问已在流开始前保存。
 - `error`：流生成中断时发送 `{ "detail": "回复生成中断，请稍后重试。" }`；已经保存的用户提问仍可在历史会话中找回。
   - 学生 Agent 可读取本人未归档错题、订正状态和学科学习记忆；路由识别出学科后检索对应的专属知识库。学生只发题目时仍不会创建批改记录；明确提交数学作答时接入现有文字诊断、错题本和订正流程，图片作答由照片批改流程自动识别学科并批改。

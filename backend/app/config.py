@@ -24,8 +24,8 @@ class Settings:
     DASHSCOPE_API_KEY: str = os.getenv("DASHSCOPE_API_KEY", "").strip()
     DASHSCOPE_BASE_URL: str = os.getenv(
         "DASHSCOPE_BASE_URL", "").strip().rstrip("/")
-    DASHSCOPE_MODEL: str = os.getenv("DASHSCOPE_MODEL", "kimi-k3").strip()
-    DASHSCOPE_VISION_MODEL: str = os.getenv("DASHSCOPE_VISION_MODEL", "kimi-k3").strip()
+    DASHSCOPE_MODEL: str = os.getenv("DASHSCOPE_MODEL", "qwen3.8-flash").strip()
+    DASHSCOPE_VISION_MODEL: str = os.getenv("DASHSCOPE_VISION_MODEL", "qwen3-vl-plus").strip()
 
     # 旧提供方环境变量仅保留迁移兼容，当前调用使用上方百炼配置。
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip()

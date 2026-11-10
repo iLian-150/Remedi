@@ -36,7 +36,7 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml
 LLM_PROVIDER=bailian
 DASHSCOPE_API_KEY=
 DASHSCOPE_BASE_URL=https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
-DASHSCOPE_MODEL=kimi-k3
+DASHSCOPE_MODEL=qwen3.8-flash
 DASHSCOPE_VISION_MODEL=qwen3-vl-plus
 RAG_MILVUS_URI=http://milvus:19530
 RAG_MILVUS_COLLECTION=remedi_subject_knowledge_qwen37_flash
@@ -57,7 +57,7 @@ RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 
 模型连接验证通过后，在教师知识库点击“重建检索索引”，将已有资料同步到新集合 `remedi_subject_knowledge_qwen37_flash`。旧集合继续保留，不删除业务资料或历史向量。模型名称、向量库和 MinIO 参数已经预置，无需将真实令牌加入 Git 或镜像。
 
-`Kimi-K3` 必须启用思考，工具调用轮次在本次请求内存中保留并回传 `reasoning_content`；`enable_thinking` 和 `preserve_thinking` 始终开启。隐藏推理不进入界面、SSE 回复正文或持久化聊天记录。
+若显式配置 `Kimi-K3`，必须启用思考，工具调用轮次在本次请求内存中保留并回传 `reasoning_content`；`enable_thinking` 和 `preserve_thinking` 始终开启。隐藏推理不进入界面、SSE 回复正文或持久化聊天记录。
 
 | 环境变量 | 默认值 / 用途 |
 | --- | --- |
@@ -71,7 +71,7 @@ RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 | `RAG_RERANK_TIMEOUT_SECONDS` | `10`；模型重排请求超时（秒） |
 | `DASHSCOPE_API_KEY` | 百炼 API Key，真实值仅保存在服务器 `.env` |
 | `DASHSCOPE_BASE_URL` | 控制台工作空间专属 APIHost + `/compatible-mode/v1`；工作空间和地域按账号确定 |
-| `DASHSCOPE_MODEL` / `DASHSCOPE_VISION_MODEL` | `kimi-k3` / `qwen3-vl-plus` |
+| `DASHSCOPE_MODEL` / `DASHSCOPE_VISION_MODEL` | `qwen3.8-flash` / `qwen3-vl-plus` |
 | `RAG_MINIO_ROOT_USER` / `RAG_MINIO_ROOT_PASSWORD` | overlay 必填；独立 MinIO 账户和密码 |
 | `RAG_MILVUS_IMAGE` | `milvusdb/milvus:v2.6.25` |
 | `RAG_ETCD_IMAGE` | `quay.io/coreos/etcd:v3.5.25` |
