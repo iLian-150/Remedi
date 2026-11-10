@@ -287,6 +287,9 @@ const showSidebarSessions = computed(() => {
 
 const shellPageTitle = computed(() => {
   if (isChatRoute.value || route.meta.public) return ''
+  if (route.matched.some((record) => record.path === '/teacher/students/:id')) {
+    return typeof route.meta.title === 'string' ? route.meta.title : '学生画像'
+  }
   const section = navItems.value.find((item) =>
     [item.to, ...(item.activePaths ?? [])].some((path) =>
       route.path === path || route.path.startsWith(`${path}/`)
