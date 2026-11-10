@@ -232,14 +232,11 @@ function toCorrectionNote(item: StudentCorrectionWallItem): CorrectionNote {
     subjectName: subjectName(item.question_subject),
     assignmentId: item.assignment_id,
     assignmentTitle: item.assignment_title,
-    stem: item.question_stem || item.step_text || '',
-    stepText: item.step_text && item.step_text !== item.question_stem ? item.step_text : '',
-    knowledgePoint: item.knowledge_point,
+    questionOrder: item.question_order,
     errorType: item.error_type,
     reviewStatus: item.review_status,
     dateLabel: dateLabelOf(item),
     isFixed: item.corrected,
-    isStubborn: item.is_stubborn
   }
 }
 

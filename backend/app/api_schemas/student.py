@@ -185,6 +185,7 @@ class StudentCorrectionWallItemOut(BaseModel):
     question_subject: str
     assignment_id: int
     assignment_title: str
+    question_order: int
     question_stem: str
     review_status: str
     corrected: bool

@@ -249,6 +249,7 @@ export interface StudentCorrectionWallItem {
   question_subject: string
   assignment_id: number
   assignment_title: string
+  question_order: number
   question_stem: string
   review_status: 'pending' | 'approved'
   corrected: boolean

@@ -1,50 +1,32 @@
-<!-- 订正便利贴墙（v0.9.3）：一题一张便利贴贴在板面上错落排布。
+<!-- 订正便利贴墙：每张只显示作业、题号、错误类型和日期。
      点待订正的贴 → 先播「撕下来」动画（掀角 → 向下撕落），动画结束才 emit pick，
      由订正页切到该题的修正工作区；已订正的贴换柔和色 + 盖对勾印，点开看诊断详情。
      配色与 RightRail 便利贴统一：var(--note-yellow) / var(--note-pink) / var(--note-blue) 循环 + 墨色 var(--note-ink)。
      prefers-reduced-motion 时不播动画、点按直接 emit。 -->
 <template>
   <div class="wall">
-    <div v-if="groups.length" class="wall-groups">
-      <section v-for="(subject, subjectIndex) in groups" :key="subject.key" class="wall-subject">
-        <h3 class="wall-subject-title">{{ subject.label }}</h3>
-        <section
-          v-for="assignment in subject.assignments"
-          :key="assignment.id"
-          class="wall-assignment"
-        >
-          <header class="wall-assignment-header">
-            <h4 class="wall-assignment-title">{{ assignment.title }}</h4>
-            <span class="wall-assignment-count">{{ assignment.notes.length }} 题</span>
-          </header>
-          <div class="wall-grid">
-            <button
-              v-for="(n, i) in assignment.notes"
-              :key="n.errorId"
-              type="button"
-              class="note"
-              :class="[
-                `note-c${(subjectIndex + i) % 3}`,
-                { fixed: n.isFixed, tearing: tearingId === n.errorId },
-              ]"
-              :style="{ '--rot': `${ROTATIONS[(subjectIndex + i) % ROTATIONS.length]}deg` }"
-              :aria-label="n.isFixed ? `已订正：${n.stem}，查看诊断详情` : `撕下订正：${n.stem}`"
-              @click="onNoteClick(n)"
-            >
-              <span class="note-top">
-                <ErrorTypeBadge :type="n.errorType" />
-                <span v-if="n.isStubborn && !n.isFixed" class="note-stubborn">需要加固</span>
-              </span>
-              <span class="note-stem">{{ n.stem }}</span>
-              <span v-if="n.stepText" class="note-step">出错步骤：{{ n.stepText }}</span>
-              <span class="note-meta">{{ n.knowledgePoint }}</span>
-              <span class="note-meta">{{ n.dateLabel }}</span>
-              <span v-if="n.isFixed" class="note-foot"><AppIcon name="check" :size="13" /> 已订正</span>
-              <span v-if="n.isFixed" class="note-seal"><AppIcon name="check" :size="17" /></span>
-            </button>
-          </div>
-        </section>
-      </section>
+    <div v-if="notes.length" class="wall-grid">
+      <button
+        v-for="entry in notes"
+        :key="entry.note.errorId"
+        type="button"
+        class="note"
+        :class="[
+          `note-c${entry.index % 3}`,
+          { fixed: entry.note.isFixed, tearing: tearingId === entry.note.errorId },
+        ]"
+        :style="{ '--rot': `${ROTATIONS[entry.index % ROTATIONS.length]}deg` }"
+        :aria-label="noteAriaLabel(entry.note)"
+        :title="entry.note.assignmentTitle"
+        @click="onNoteClick(entry.note)"
+      >
+        <span class="note-assignment">{{ entry.note.assignmentTitle }}</span>
+        <strong class="note-question">第 {{ entry.note.questionOrder }} 题</strong>
+        <span class="note-top"><ErrorTypeBadge :type="entry.note.errorType" /></span>
+        <span class="note-date">{{ entry.note.dateLabel }}</span>
+        <span v-if="entry.note.isFixed" class="note-foot"><AppIcon name="check" :size="13" /> 已订正</span>
+        <span v-if="entry.note.isFixed" class="note-seal"><AppIcon name="check" :size="17" /></span>
+      </button>
     </div>
     <div v-else class="wall-empty">
       <div class="note note-c0 note-hint">
@@ -75,16 +57,11 @@ export interface CorrectionNote {
   subjectName: string
   assignmentId: number
   assignmentTitle: string
-  /** 题干摘录（一眼认出这题） */
-  stem: string
-  /** 出错步骤（与题干相同或为空时传空串，贴面不重复显示） */
-  stepText: string
-  knowledgePoint: string
+  questionOrder: number
   errorType: string
   reviewStatus?: 'pending' | 'approved'
   dateLabel: string
   isFixed: boolean
-  isStubborn: boolean
 }
 
 export interface CorrectionSubjectGroup {
@@ -99,15 +76,13 @@ const props = defineProps<{
   hasMore: boolean
   loadingMore: boolean
 }>()
-const loadedCount = computed(() =>
-  props.groups.reduce(
-    (total, subject) => total + subject.assignments.reduce(
-      (sum, assignment) => sum + assignment.notes.length,
-      0,
-    ),
-    0,
-  ),
-)
+const notes = computed(() => {
+  let index = 0
+  return props.groups.flatMap((subject) => subject.assignments.flatMap((assignment) =>
+    assignment.notes.map((note) => ({ note, index: index++ })),
+  ))
+})
+const loadedCount = computed(() => notes.value.length)
 const emit = defineEmits<{
   /** 待订正贴被撕下（动画播完）→ 父页进入该题修正工作区 */
   pick: [errorId: number]
@@ -120,6 +95,11 @@ const emit = defineEmits<{
 const ROTATIONS = [-2, 1.5, -1, 2.2, -1.5, 0.8, -2.4, 1.2]
 /** 正在撕的那张贴（撕完才 emit，期间锁住其他点按） */
 const tearingId = ref<number | null>(null)
+
+function noteAriaLabel(note: CorrectionNote) {
+  const status = note.isFixed ? '已订正，查看诊断详情' : '待订正'
+  return `${note.assignmentTitle}，第 ${note.questionOrder} 题，${note.errorType}，${note.dateLabel}，${status}`
+}
 
 function onNoteClick(n: CorrectionNote) {
   if (tearingId.value !== null) return
@@ -154,12 +134,6 @@ function onNoteClick(n: CorrectionNote) {
   grid-template-columns: repeat(auto-fill, minmax(218px, 1fr));
   gap: 30px 22px;
 }
-.wall-subject + .wall-subject { margin-top: 30px; padding-top: 24px; border-top: 1px solid rgba(63, 58, 42, 0.16); }
-.wall-subject-title { margin: 0 0 18px; color: var(--note-ink); font-size: 18px; font-weight: 750; }
-.wall-assignment + .wall-assignment { margin-top: 26px; }
-.wall-assignment-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.wall-assignment-title { min-width: 0; margin: 0; color: rgba(63, 58, 42, 0.84); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
-.wall-assignment-count { flex: none; color: rgba(63, 58, 42, 0.64); font-size: 12px; }
 .wall-more {
   display: block;
   width: min(420px, 100%);
@@ -183,7 +157,7 @@ function onNoteClick(n: CorrectionNote) {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  min-height: 178px;
+  min-height: 164px;
   padding: 20px 16px 14px;
   border: 0;
   font: inherit;
@@ -254,24 +228,11 @@ function onNoteClick(n: CorrectionNote) {
 
 /* ---------- 贴面内容 ---------- */
 .note-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.note-stubborn {
-  font-size: 11.5px; font-weight: 700; color: var(--amber-strong);
-  background: rgba(217, 119, 6, 0.16); padding: 2px 8px; border-radius: var(--radius-pill);
-}
-.note-stem {
-  font-size: 15px; font-weight: 700; line-height: 1.45;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.note-step {
-  font-size: 12.5px; color: rgba(63, 58, 42, 0.72);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.note-meta {
-  font-size: 12.5px; color: rgba(63, 58, 42, 0.78);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+.note-assignment { overflow: hidden; color: rgba(63, 58, 42, 0.72); font-size: 12px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.note-question { color: var(--note-ink); font-size: 17px; font-weight: 750; line-height: 1.35; }
+.note-date { margin-top: auto; color: rgba(63, 58, 42, 0.72); font-size: 12px; }
 .note-foot {
-  margin-top: auto;
+  margin-top: 0;
   display: flex; align-items: center; gap: 5px;
   font-size: 12.5px; font-weight: 600; color: rgba(63, 58, 42, 0.66);
 }
