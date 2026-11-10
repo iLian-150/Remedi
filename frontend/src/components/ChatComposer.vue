@@ -1,7 +1,7 @@
 <template>
-  <div class="chat-composer" :class="{ 'chat-composer-welcome': welcome }">
+  <div class="chat-composer" :class="{ 'chat-composer-welcome': welcome, 'chat-composer-single-line': singleLine }">
     <div class="chat-inner">
-      <div class="composer-panel">
+      <div class="composer-panel" :class="{ 'composer-panel-single-line': singleLine, 'composer-panel-has-file': singleLine && !!selectedFile }">
         <div v-if="selectedFile && selectedFile.type.startsWith('image/') && selectedFileUrl" class="composer-image-preview">
           <button
             class="composer-image-open"
@@ -37,49 +37,51 @@
             <AppIcon name="x" :size="15" />
           </button>
         </div>
-        <textarea
-          :value="modelValue"
-          class="chat-text-input"
-          rows="1"
-          aria-label="输入内容"
-          placeholder="输入内容…"
-          :disabled="sending"
-          @input="onInput"
-          @keydown.enter.exact.prevent="emit('send')"
-        ></textarea>
-        <div class="composer-bottom-row">
-          <input
-            ref="fileRef"
-            type="file"
-            accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.yaml,.yml,image/jpeg,image/png,image/webp"
-            hidden
-            @change="onFileChange"
-          />
-          <div class="composer-tools">
+        <div class="composer-entry">
+          <textarea
+            :value="modelValue"
+            class="chat-text-input"
+            rows="1"
+            aria-label="输入内容"
+            :placeholder="singleLine ? '说说你想了解什么…' : '输入内容…'"
+            :disabled="sending"
+            @input="onInput"
+            @keydown.enter.exact.prevent="emit('send')"
+          ></textarea>
+          <div class="composer-bottom-row">
+            <input
+              ref="fileRef"
+              type="file"
+              accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.yaml,.yml,image/jpeg,image/png,image/webp"
+              hidden
+              @change="onFileChange"
+            />
+            <div class="composer-tools">
+              <button
+                class="composer-photo-btn"
+                type="button"
+                aria-label="上传文件"
+                title="上传文件"
+                :disabled="uploadDisabled"
+                @click="fileRef?.click()"
+              >
+                <AppIcon name="file" :size="18" />
+              </button>
+              <span v-if="contextText" class="composer-context">
+                <AppIcon name="clipboard" :size="13" /> {{ contextText }}
+              </span>
+            </div>
             <button
-              class="composer-photo-btn"
+              class="btn send-btn"
               type="button"
-              aria-label="上传文件"
-              title="上传文件"
-              :disabled="uploadDisabled"
-              @click="fileRef?.click()"
+              :aria-label="selectedFile ? '发送文件' : '发送'"
+              :title="selectedFile ? '发送文件' : '发送'"
+              :disabled="sending || (!modelValue.trim() && !selectedFile)"
+              @click="emit('send')"
             >
-              <AppIcon name="file" :size="18" />
+              <AppIcon name="send" :size="17" />
             </button>
-            <span v-if="contextText" class="composer-context">
-              <AppIcon name="clipboard" :size="13" /> {{ contextText }}
-            </span>
           </div>
-          <button
-            class="btn send-btn"
-            type="button"
-            :aria-label="selectedFile ? '发送文件' : '发送'"
-            :title="selectedFile ? '发送文件' : '发送'"
-            :disabled="sending || (!modelValue.trim() && !selectedFile)"
-            @click="emit('send')"
-          >
-            <AppIcon name="send" :size="17" />
-          </button>
         </div>
       </div>
     </div>
@@ -98,6 +100,7 @@ defineProps<{
   uploadDisabled: boolean
   contextText?: string
   welcome?: boolean
+  singleLine?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -141,6 +144,7 @@ function formatFileSize(size: number): string {
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.11), 0 2px 8px rgba(15, 23, 42, 0.045);
   transition: border-color 0.18s ease, box-shadow 0.25s ease;
 }
+.composer-entry { display: flex; min-width: 0; flex-direction: column; }
 .composer-panel:focus-within {
   border-color: rgba(29, 78, 216, 0.35);
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.13), 0 2px 8px rgba(15, 23, 42, 0.06), 0 0 0 3px rgba(29, 78, 216, 0.14);
@@ -170,6 +174,36 @@ function formatFileSize(size: number): string {
 .send-btn:disabled { background: var(--gray-bg); color: var(--text-3); cursor: default; }
 .send-btn:not(:disabled) { box-shadow: 0 3px 9px rgba(29, 78, 216, 0.2); }
 .chat-composer .chat-inner { max-width: 860px; }
+.chat-composer-single-line .chat-inner { max-width: 1100px; }
+.composer-panel-single-line {
+  align-items: center;
+  flex-direction: row;
+  padding: 6px 8px 6px 22px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  box-shadow: none;
+}
+.composer-panel-single-line:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.composer-panel-single-line .composer-entry { width: 100%; flex-direction: row; align-items: center; gap: 8px; }
+.composer-panel-single-line .chat-text-input {
+  flex: 1;
+  width: auto;
+  min-height: 48px;
+  max-height: 48px;
+  padding: 0 4px;
+  background: transparent;
+  font-size: 16px;
+}
+.composer-panel-single-line .composer-bottom-row { flex-shrink: 0; margin-top: 0; gap: 4px; }
+.composer-panel-single-line .composer-tools { gap: 0; }
+.composer-panel-single-line .composer-photo-btn { width: 38px; height: 38px; border-color: transparent; background: transparent; }
+.composer-panel-single-line .composer-photo-btn:hover:not(:disabled) { background: var(--primary-50); }
+.composer-panel-single-line .send-btn { width: 42px; height: 42px; }
+.composer-panel-single-line.composer-panel-has-file { align-items: stretch; flex-direction: column; }
+.composer-panel-single-line.composer-panel-has-file .composer-entry { width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .composer-panel, .send-btn, .composer-photo-btn { transition: none; animation: none; }
   .send-btn:hover:not(:disabled) { transform: none; }
@@ -177,10 +211,15 @@ function formatFileSize(size: number): string {
 @media (max-width: 960px) {
   .chat-inner { padding-right: 14px; padding-left: 14px; }
   .composer-panel { padding: 10px 11px; }
+  .composer-panel-single-line { padding: 6px 7px 6px 16px; }
 }
 @media (max-width: 620px) {
   .composer-bottom-row { gap: 6px; }
   .composer-tools { gap: 5px; }
   .composer-context { max-width: 38vw; }
+  .composer-panel-single-line { padding-left: 13px; }
+  .composer-panel-single-line .composer-entry { gap: 4px; }
+  .composer-panel-single-line .composer-photo-btn { width: 34px; height: 34px; }
+  .composer-panel-single-line .send-btn { width: 38px; height: 38px; }
 }
 </style>

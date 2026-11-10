@@ -7,16 +7,12 @@
 <template>
   <div class="tchat-shell">
     <div class="tchat-col">
-      <div class="tchat-head">
-        <h2>AI 助手</h2>
-      </div>
-
       <div v-if="error" class="error-msg">{{ error }}</div>
       <div v-if="knowledgeImportNotice" class="ok-msg" role="status">
         <AppIcon name="check" :size="15" /> {{ knowledgeImportNotice }}
       </div>
 
-      <div class="tchat-panel">
+      <div class="tchat-panel" :class="{ 'tchat-panel-welcome': isWelcomeState }">
         <div class="tchat-body" :class="{ 'tchat-body-welcome': isWelcomeState, 'tchat-body-image-composer': selectedFile }" ref="bodyRef">
           <div v-if="historyHasMore || historyLoadingOlder || historyLoadError" class="history-pager">
             <button
@@ -111,6 +107,7 @@
           :sending="sending"
           :upload-disabled="sending"
           :welcome="isWelcomeState"
+          single-line
           @send="sendComposer"
           @file-selected="onComposerFileSelected"
           @clear-file="clearSelectedFile"
@@ -203,14 +200,7 @@ function isCurrentChatView(viewSeq: number): boolean {
 const suggestions = ref<string[]>([])
 const isWelcomeState = computed(() => !messages.value.some(msg => msg.side === 'user'))
 
-const SUBJECT_LABELS: Record<string, string> = {
-  chinese: '语文', math: '数学', english: '英语', politics: '道法', history: '历史',
-  physics: '物理', chemistry: '化学', geography: '地理', biology: '生物'
-}
-const WELCOME = () => {
-  const subject = SUBJECT_LABELS[auth.activeSubject]
-  return `${subject ? `${subject}老师` : '老师'}你好，今天想先了解哪项班级情况？`
-}
+const WELCOME = () => '你想了解什么？'
 
 function createMsg(side: 'ai' | 'user', text: string, pending = false, imageUrl?: string, imageName?: string): Msg {
   return { id: ++seq, side, text, pending, imageUrl, imageName }
@@ -696,18 +686,19 @@ onMounted(async () => {
 <style scoped>
 /* 对话区保持连续、轻量的页面结构，避免多层卡片和边框分隔 */
 .tchat-shell { flex: 1; display: flex; flex-direction: column; height: 100dvh; padding: clamp(16px, 2.2vw, 28px); background: var(--bg); }
-.tchat-col { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 960px; margin: 0 auto; min-height: 0; }
-.tchat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.tchat-head h2 { font-size: clamp(22px, 2vw, 26px); font-weight: 720; letter-spacing: -0.035em; }
+.tchat-col { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 1280px; margin: 0 auto; min-height: 0; }
 
 .tchat-panel {
   background: var(--card); display: flex; flex-direction: column;
   flex: 1; min-height: 380px; overflow: hidden; position: relative;
   border: 1px solid var(--border); border-radius: var(--radius-surface); box-shadow: var(--shadow);
 }
+.tchat-panel-welcome { justify-content: center; }
 /* 底部留白给悬浮输入卡让位，最后的消息不被卡片遮住 */
 .tchat-body { flex: 1; overflow-y: auto; padding: 18px 20px 118px; background: var(--card); }
-.tchat-body-welcome { display: flex; flex-direction: column; justify-content: center; align-items: center; padding-bottom: 118px; }
+.tchat-body-welcome { flex: 0 1 auto; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; padding: 0 24px; overflow: visible; background: transparent; }
+.tchat-panel-welcome :deep(.chat-composer) { position: relative; right: auto; bottom: auto; left: auto; width: 100%; padding: 22px clamp(20px, 4vw, 72px) 30px; }
+.tchat-panel-welcome :deep(.chat-composer .chat-inner) { max-width: 1100px; padding: 0; }
 .history-pager { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 16px; }
 .history-pager-button { min-height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 7px 14px; background: var(--card); color: var(--primary-dark); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .history-pager-button:disabled { opacity: 0.55; cursor: wait; }
@@ -736,22 +727,23 @@ onMounted(async () => {
 .message-image img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; }
 .tchat-body-welcome .msg-row { justify-content: center; width: 100%; margin-bottom: 12px; }
 .tchat-body-welcome .msg-avatar { display: none; }
-.welcome-bubble { max-width: 100%; padding: 4px 8px; color: var(--text); font-size: 24px; font-weight: 650; line-height: 1.4; text-align: center; }
+.welcome-bubble { max-width: 100%; padding: 4px 8px; color: var(--text); font-size: clamp(28px, 3vw, 40px); font-weight: 720; letter-spacing: -0.035em; line-height: 1.3; text-align: center; }
 .tchat-body-welcome .ai-bubble { background: transparent; border: 0; box-shadow: none; }
 .welcome-prompts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: min(640px, 100%);
-  margin-top: 14px;
-  gap: 8px;
+  display: flex;
+  width: min(960px, 100%);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 18px;
+  gap: 10px;
 }
 .welcome-prompts button {
-  min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px;
-  background: var(--card); color: var(--text-2); font: inherit; font-size: 14px;
-  line-height: 1.45; text-align: left; cursor: pointer;
+  min-width: 0; padding: 10px 16px; border: 1px solid transparent; border-radius: var(--radius-pill);
+  background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 14px;
+  line-height: 1.45; text-align: center; cursor: pointer;
   transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-@media (hover: hover) { .welcome-prompts button:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-50); } }
+@media (hover: hover) { .welcome-prompts button:hover:not(:disabled) { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 22%, var(--border)); background: var(--primary-50); } }
 .welcome-prompts button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* 建议气泡（v0.6.0）：本轮回复后淡入上浮，stagger 错峰 */
@@ -789,6 +781,9 @@ onMounted(async () => {
 @media (max-width: 960px) {
   .tchat-shell { height: calc(100dvh - 52px); padding: 14px 14px 16px; }
   .tchat-panel { min-height: 0; border-radius: 18px; }
+  .tchat-panel-welcome { justify-content: center; }
+  .tchat-panel-welcome :deep(.chat-composer) { padding: 20px 18px 24px; }
+  .tchat-body-welcome { padding: 0 16px; }
   .bubble { max-width: 88%; }
   .msg-content { max-width: 88%; }
   .msg-content.has-workflow { width: calc(100% - 40px); max-width: none; }
@@ -797,8 +792,11 @@ onMounted(async () => {
   .tchat-body-image-composer { padding-bottom: 220px; }
 }
 @media (max-width: 600px) {
-  .welcome-prompts { grid-template-columns: 1fr; }
+  .welcome-prompts { gap: 7px; margin-top: 14px; }
+  .welcome-prompts button { padding: 8px 12px; font-size: 13px; }
+  .welcome-bubble { font-size: clamp(25px, 8vw, 34px); }
   .tchat-shell { padding: 12px 10px; }
   .tchat-body { padding-right: 12px; padding-left: 12px; }
+  .tchat-panel-welcome :deep(.chat-composer) { padding: 16px 10px 18px; }
 }
 </style>
