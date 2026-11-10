@@ -217,8 +217,6 @@ def remove_classroom(
     mappings = db.query(ClassroomTeacherSubject).filter_by(
         classroom_id=classroom_id, teacher_id=current.id,
     ).all()
-    if not mappings:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "班级不存在或你没有任课权限。")
     for mapping in mappings:
         db.delete(mapping)
     db.commit()

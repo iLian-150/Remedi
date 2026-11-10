@@ -463,7 +463,10 @@ async function confirmDeleteClassroom() {
     classrooms.value = classrooms.value.filter((item) => item.id !== room.id)
     pendingDeleteClassroom.value = null
   } catch (e) {
-    deleteClassroomError.value = '移除失败，请稍后重试。'
+    const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+    deleteClassroomError.value = typeof detail === 'string' && detail.trim()
+      ? detail.slice(0, 240)
+      : '移除失败，请稍后重试。'
     console.error(e)
   } finally {
     deletingClassroomId.value = null

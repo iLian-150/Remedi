@@ -1415,7 +1415,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.28 GET/POST/DELETE /api/teacher/classes —— 任教学科班级
 
-权限：教师。`GET` 只列出当前教师关联的班级及学生人数。`POST` 建立或关联班级，请求 `{ "name": "七年级一班", "subject": "math" }`；班级名按全局名称匹配，已存在时会关联到该班级。所选学科必须是当前教师登录的学科。响应为 `{ id, name, subjects, student_count }`。`DELETE /classes/{classroom_id}` 解除当前教师与该班级的所有学科关联，返回 `{ "deleted": true, "classroom_id": 1 }`；其他教师的关联、学生身份、名册成员和历史作业数据保留。
+权限：教师。`GET` 只列出当前教师关联的班级及学生人数。`POST` 建立或关联班级，请求 `{ "name": "七年级一班", "subject": "math" }`；班级名按全局名称匹配，已存在时会关联到该班级。所选学科必须是当前教师登录的学科。响应为 `{ id, name, subjects, student_count }`。`DELETE /classes/{classroom_id}` 解除当前教师与该班级的所有学科关联，返回 `{ "deleted": true, "classroom_id": 1 }`；重复调用仍返回成功。其他教师的关联、学生身份、名册成员和历史作业数据保留。
 
 ### 4.28.1 班级名册 `/api/teacher/classes/{classroom_id}/students`
 
