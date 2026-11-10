@@ -42,17 +42,29 @@
 
     <aside class="app-sidebar" :class="{ open: sidebarOpen, collapsed: sidebarCollapsed }">
       <div class="sidebar-brand-row">
-        <span class="brand-badge"><BrandLogo :size="25" /></span>
+        <span class="brand-badge brand-badge-static" aria-hidden="true"><BrandLogo :size="25" /></span>
+        <button
+          type="button"
+          class="collapsed-brand-toggle"
+          aria-label="展开侧栏"
+          title="展开侧栏"
+          @click="setSidebarCollapsed(false)"
+        >
+          <span class="brand-badge collapsed-brand-flip" aria-hidden="true">
+            <span class="collapsed-brand-face collapsed-brand-logo"><BrandLogo :size="25" /></span>
+            <span class="collapsed-brand-face collapsed-brand-action"><AppIcon name="chevron-right" :size="19" /></span>
+          </span>
+        </button>
         <div class="brand-text">
           <div class="brand-name">Remedi</div>
         </div>
         <button
           class="icon-btn sidebar-collapse-btn"
-          :aria-label="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
-          :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
-          @click="setSidebarCollapsed(!sidebarCollapsed)"
+          aria-label="收起侧栏"
+          title="收起侧栏"
+          @click="setSidebarCollapsed(true)"
         >
-          <AppIcon :name="sidebarCollapsed ? 'chevron-right' : 'panel-left'" :size="19" />
+          <AppIcon name="panel-left" :size="19" />
         </button>
       </div>
 
