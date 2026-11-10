@@ -11,9 +11,6 @@
       <section class="bookshelf-panel">
         <div class="shelf-heading">
           <div class="shelf-title-line"><h3>知识库书架</h3><span class="document-count">{{ items.length }} 份资料</span></div>
-          <button class="reindex-button" :disabled="loading || mutating || !vectorEnabled || !items.length" @click="reindex">
-            <span class="refresh-symbol">↻</span>{{ reindexing ? '正在更新索引…' : '重建检索索引' }}
-          </button>
         </div>
 
         <div v-if="loading" class="shelf-loading">正在整理资料书架…</div>
@@ -211,16 +208,14 @@ const documentFile = ref<File | null>(null)
 const largeDocumentWarning = computed(() => (documentFile.value?.size ?? 0) >= 10 * 1024 * 1024)
 const fileInput = ref<HTMLInputElement | null>(null)
 const items = ref<SubjectKnowledgeItem[]>([])
-const vectorEnabled = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const importing = ref(false)
-const reindexing = ref(false)
 const deletingId = ref<number | null>(null)
 const deleteProgressDone = ref(false)
 const deleteError = ref('')
 const searching = ref(false)
-const mutating = computed(() => saving.value || importing.value || reindexing.value || deletingId.value !== null || searching.value)
+const mutating = computed(() => saving.value || importing.value || deletingId.value !== null || searching.value)
 const error = ref('')
 const notice = ref('')
 const warnings = ref<string[]>([])
@@ -307,7 +302,6 @@ async function load(expectedGeneration = generation) {
     const result = await teacher.fetchSubjectKnowledge(target)
     if (expectedGeneration !== generation || sequence !== loadSequence) return
     items.value = result.items
-    vectorEnabled.value = result.vector_enabled
   } catch (cause) {
     if (expectedGeneration === generation && sequence === loadSequence) error.value = errorMessage(cause, '知识库读取失败，请稍后刷新。')
   } finally {
@@ -425,32 +419,6 @@ async function search() {
   }
 }
 
-async function reindex() {
-  const target = subject.value
-  if (!target || mutating.value || !vectorEnabled.value) return
-  const current = generation
-  reindexing.value = true
-  clearFeedback()
-  try {
-    const result = await teacher.reindexSubjectKnowledge(target)
-    if (current !== generation) return
-    notice.value = result.vector_status === 'ready'
-      ? `索引已更新，共 ${result.documents} 份资料、${result.passage_count} 个片段。`
-      : '资料已保留，向量索引尚未完成；当前仍可使用关键词检索。'
-    warnings.value = result.warnings ?? []
-    searchResult.value = null
-    await load(current)
-  } catch (cause) {
-    if (current === generation) {
-      error.value = axios.isAxiosError(cause) && cause.code === 'ECONNABORTED'
-        ? '索引重建仍可能在处理中，请稍后用“试查资料”确认检索结果。'
-        : errorMessage(cause, '索引更新失败，请稍后重试。')
-    }
-  } finally {
-    if (current === generation) reindexing.value = false
-  }
-}
-
 function askToRemove(item: SubjectKnowledgeItem) {
   if (!mutating.value) {
     deleteError.value = ''
@@ -508,8 +476,8 @@ async function remove(item: SubjectKnowledgeItem) {
 
 watch(subject, () => {
   generation += 1
-  items.value = []; vectorEnabled.value = false
-  loading.value = false; saving.value = false; importing.value = false; reindexing.value = false; deletingId.value = null
+  items.value = []
+  loading.value = false; saving.value = false; importing.value = false; deletingId.value = null
   searching.value = false; searchResult.value = null; query.value = ''
   uploadOpen.value = false; closeDocument(); deleteConfirmDocument.value = null
   duplicateImportJob.value = null; deleteProgressDone.value = false; deleteError.value = ''
@@ -525,11 +493,9 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 <style scoped>
 .materials-page { max-width: var(--content-frame-width); margin: 0 auto; }
 .page-sub { max-width: 680px; color: var(--text-3); font-size: 14px; line-height: 1.65; }
-.reindex-button, .search-button, .save-button { border: 0; border-radius: var(--radius-control); background: var(--primary); color: #fff; font: inherit; font-weight: 700; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; }
-.reindex-button { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; padding: 10px 14px; white-space: nowrap; box-shadow: var(--shadow); }
-.reindex-button:hover:not(:disabled), .search-button:hover:not(:disabled), .save-button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); }
-.reindex-button:disabled, .search-button:disabled, .save-button:disabled { opacity: .48; cursor: default; }
-.refresh-symbol { font-size: 18px; line-height: 1; }
+.search-button, .save-button { border: 0; border-radius: var(--radius-control); background: var(--primary); color: #fff; font: inherit; font-weight: 700; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; }
+.search-button:hover:not(:disabled), .save-button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.search-button:disabled, .save-button:disabled { opacity: .48; cursor: default; }
 .feedback:empty { display: none; }
 .feedback p { margin: 0 0 12px; }
 .notice, .warning { padding: 11px 14px; border-radius: var(--radius-control); font-size: 13px; line-height: 1.6; }
@@ -647,7 +613,6 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (max-width: 720px) {
-  .reindex-button { align-self: flex-start; margin-left: 0; }
   .shelf-heading { align-items: flex-start; flex-direction: column; padding: 18px 18px 15px; }
   .shelf-scene { padding: 18px 16px 14px; }
   .books-row { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 22px 8px; }
@@ -665,7 +630,7 @@ watch(() => subject.value ? teacher.knowledgeImportVersions[subject.value] ?? 0 
   .choose-file { margin-left: 54px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .document-cover, .add-document-card, .reindex-button, .search-button, .save-button { transition: none; }
+  .document-cover, .add-document-card, .search-button, .save-button { transition: none; }
   .document-cover:hover, .add-document-slot:hover .add-document-card { transform: none; }
   .upload-dialog, .document-dialog { animation: none; }
 }

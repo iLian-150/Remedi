@@ -1,24 +1,18 @@
-<!-- 学生端：我的档案。概览、掌握度和记录沿用全站卡片与状态色。
+<!-- 学生端：我的档案。黑板呈现学习概览，记录区沿用全站表格与状态色。
      文案伦理：学生端用「需要加固的知识点」「已订正」「继续保持」，不出现贴标签术语；
      「已订正」口径 = 本机提交订正且判定正确；知识点「已修复」以学习报告为准。 -->
 <template>
   <div class="page">
-    <div class="page-head profile-page-head">
-      <router-link to="/student/report" class="btn small secondary inline-icon profile-report-link">
-        <AppIcon name="chart" :size="15" /> 学习报告
-      </router-link>
-    </div>
-
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="profile">
-      <section class="profile-summary-card">
-        <div class="profile-summary">
-          <div class="profile-identity">
-            <div class="profile-name">{{ profile.student.name }}</div>
-            <p class="profile-meta">
-              学号 <span class="tnum">{{ profile.student.student_no || '—' }}</span>
+      <section class="board-frame" aria-label="学习概览">
+        <div class="board">
+          <div class="board-identity">
+            <div class="chalk-name chalk">{{ profile.student.name }}</div>
+            <p class="chalk-meta chalk-dim">
+              学号 <span class="chalk tnum">{{ profile.student.student_no || '—' }}</span>
               · 身份 学生
               <template v-if="profile.student.created_at">
                 · {{ fmtDate(profile.student.created_at) }} 来到 Remedi
@@ -26,46 +20,53 @@
             </p>
           </div>
 
-          <div class="profile-divider"></div>
+          <div class="chalk-divider"></div>
 
-          <div class="profile-stats">
-            <div class="profile-stat">
-              <div class="profile-stat-num tnum">{{ totalAttempts }}</div>
-              <div class="profile-stat-label">累计作答</div>
+          <div class="board-stats">
+            <div class="board-stat">
+              <div class="board-stat-num chalk tnum">{{ totalAttempts }}</div>
+              <div class="board-stat-label chalk-dim">累计作答</div>
             </div>
-            <div class="profile-stat">
-              <div class="profile-stat-num tnum">{{ totalErrors }}</div>
-              <div class="profile-stat-label">累计发现问题</div>
+            <div class="board-stat">
+              <div class="board-stat-num chalk tnum">{{ totalErrors }}</div>
+              <div class="board-stat-label chalk-dim">累计发现问题</div>
             </div>
-            <div class="profile-stat">
-              <div class="profile-stat-num profile-amber tnum">{{ reinforcingCount }}</div>
-              <div class="profile-stat-label">加固中</div>
+            <div class="board-stat">
+              <div class="board-stat-num chalk chalk-yellow tnum">{{ reinforcingCount }}</div>
+              <div class="board-stat-label chalk-dim">加固中</div>
             </div>
-            <div class="profile-stat">
-              <div class="profile-stat-num profile-green tnum">{{ fixedIds.size }}</div>
-              <div class="profile-stat-label">已订正错题</div>
+            <div class="board-stat">
+              <div class="board-stat-num chalk chalk-green tnum">{{ fixedIds.size }}</div>
+              <div class="board-stat-label chalk-dim">已订正错题</div>
             </div>
           </div>
 
-          <div class="profile-mastery" v-if="profile.knowledge_points.length">
-            <p class="profile-section-title">知识点掌握度</p>
-            <div v-for="k in profile.knowledge_points" :key="k.knowledge_point" class="mastery-row">
-              <span class="mastery-point">{{ k.knowledge_point }}</span>
-              <span class="mastery-track">
+          <div class="board-mastery" v-if="profile.knowledge_points.length">
+            <p class="board-section-title chalk">知识点掌握度</p>
+            <div v-for="k in profile.knowledge_points" :key="k.knowledge_point" class="chalk-row">
+              <span class="chalk-kp chalk">{{ k.knowledge_point }}</span>
+              <span class="chalk-track">
                 <span
-                  class="mastery-fill"
+                  class="chalk-fill"
                   :class="masteryTone(k.mastery)"
                   :style="{ width: `${Math.max(4, Math.round(k.mastery * 100))}%` }"
                 ></span>
+                <span class="chalk-ticks" aria-hidden="true"></span>
               </span>
-              <span class="mastery-percent tnum">{{ Math.round(k.mastery * 100) }}%</span>
+              <span class="chalk-pct chalk tnum">{{ Math.round(k.mastery * 100) }}%</span>
             </div>
           </div>
-          <p v-else class="profile-muted profile-empty">暂无作答记录。</p>
+          <p v-else class="chalk-dim board-empty">暂无作答记录。</p>
 
-          <div class="profile-message" v-if="profile.suggestion">
-            <p class="profile-message-label">老师寄语</p>
-            <p class="profile-message-text">{{ sanitizeStudentCopy(profile.suggestion) }}</p>
+          <div class="board-message" v-if="profile.suggestion">
+            <p class="board-message-label chalk chalk-pink">老师寄语</p>
+            <p class="chalk board-message-text">{{ sanitizeStudentCopy(profile.suggestion) }}</p>
+          </div>
+
+          <div class="board-ledge" aria-hidden="true">
+            <span class="chalk-stick"></span>
+            <span class="chalk-stick short"></span>
+            <span class="board-eraser"></span>
           </div>
         </div>
       </section>
@@ -218,11 +219,11 @@ const typeOption = computed(() => ({
   ]
 }))
 
-/** 掌握度高用绿色、中等用蓝色、较低用琥珀色。 */
+/** 黑板掌握度条：高为粉笔绿，中等为粉笔白，较低为粉笔粉。 */
 function masteryTone(mastery: number): string {
   if (mastery >= 0.8) return 'tone-green'
-  if (mastery >= 0.5) return 'tone-blue'
-  return 'tone-amber'
+  if (mastery >= 0.5) return 'tone-white'
+  return 'tone-pink'
 }
 
 function fmtTime(t: string): string {
@@ -247,43 +248,100 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.profile-page-head { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
-.profile-report-link { flex-shrink: 0; }
-/* ================= 学习概览 ================= */
-.profile-summary-card { margin-bottom: 16px; }
-.profile-summary { padding: 22px 24px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
-.profile-identity { min-width: 0; }
-.profile-name { color: var(--text); font-size: clamp(24px, 3vw, 32px); font-weight: 700; line-height: 1.2; }
-.profile-meta { margin-top: 6px; color: var(--text-2); font-size: 14px; }
-.profile-muted { color: var(--text-2); }
-.profile-amber { color: var(--amber-strong); }
-.profile-green { color: var(--green-strong); }
-.profile-divider { height: 1px; margin: 18px 0 14px; border: 0; background: var(--border); }
-.profile-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.profile-stat { min-width: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
-.profile-stat-num { font-size: clamp(24px, 2.5vw, 32px); font-weight: 700; line-height: 1.15; }
-.profile-stat-label { margin-top: 3px; color: var(--text-2); font-size: 13px; }
-.profile-mastery { margin-top: 20px; }
-.profile-section-title { margin-bottom: 10px; color: var(--text); font-size: 16px; font-weight: 650; }
-.mastery-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.mastery-point { flex: 0 0 118px; overflow: hidden; color: var(--text); font-size: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.mastery-track { position: relative; flex: 1; height: 10px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-2); }
-.mastery-fill { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width 0.35s ease; }
-.mastery-fill.tone-green { background: var(--green); }
-.mastery-fill.tone-amber { background: var(--amber); }
-.mastery-percent { flex: 0 0 46px; color: var(--text-2); font-size: 13px; text-align: right; }
-.profile-empty { margin-top: 16px; font-size: 14px; }
-.profile-message { max-width: 640px; margin-top: 18px; padding: 12px 14px; border-left: 3px solid var(--primary); border-radius: 0 var(--radius-control) var(--radius-control) 0; background: var(--primary-50); }
-.profile-message-label { margin-bottom: 3px; color: var(--primary-dark); font-size: 13px; font-weight: 650; }
-.profile-message-text { color: var(--text); font-size: 14px; line-height: 1.7; }
+/* ================= 学习黑板 ================= */
+.board-frame {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.12)),
+    repeating-linear-gradient(93deg, #8A5A33 0 46px, #96683D 46px 52px, #7C4F2A 52px 104px);
+  border-radius: var(--radius-surface);
+  padding: 14px;
+  box-shadow: var(--shadow-lg), inset 0 2px 3px rgba(255, 255, 255, 0.25), inset 0 -3px 6px rgba(0, 0, 0, 0.3);
+  margin-bottom: 16px;
+}
+.board {
+  position: relative;
+  background:
+    radial-gradient(120% 90% at 30% 0%, rgba(255, 255, 255, 0.07), transparent 55%),
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.016) 0 26px, transparent 26px 52px),
+    linear-gradient(160deg, #33584A 0%, #2E4B3F 55%, #29473B 100%);
+  border-radius: var(--radius-control);
+  padding: 26px 30px 20px;
+  box-shadow: inset 0 0 42px rgba(0, 0, 0, 0.35), inset 0 2px 8px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.chalk {
+  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
+  color: #F7F3E8;
+  text-shadow: 0 0 1px rgba(247, 243, 232, 0.55), 0 0 7px rgba(247, 243, 232, 0.14);
+  letter-spacing: 0.5px;
+}
+.chalk-dim {
+  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
+  color: rgba(240, 238, 226, 0.72);
+  letter-spacing: 0.5px;
+}
+.chalk-yellow { color: #FFE58A; text-shadow: 0 0 1px rgba(255, 229, 138, 0.6), 0 0 8px rgba(255, 229, 138, 0.2); }
+.chalk-green { color: #B5E7A0; text-shadow: 0 0 1px rgba(181, 231, 160, 0.6), 0 0 8px rgba(181, 231, 160, 0.2); }
+.chalk-pink { color: #FFB7C5; text-shadow: 0 0 1px rgba(255, 183, 197, 0.6), 0 0 8px rgba(255, 183, 197, 0.2); }
+.board-identity { margin-top: 0; }
+.chalk-name { font-size: 38px; font-weight: 700; line-height: 1.15; }
+.chalk-meta { margin-top: 6px; font-size: 15px; }
+.chalk-divider { height: 0; margin: 18px 0 4px; border-top: 2px dashed rgba(247, 243, 232, 0.4); transform: rotate(-0.15deg); }
+.board-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.board-stat { min-width: 0; text-align: left; }
+.board-stat-num { font-size: clamp(26px, 2.5vw, 34px); font-weight: 700; line-height: 1.1; }
+.board-stat-label { margin-top: 2px; font-size: 13.5px; }
+.board-mastery { margin-top: 20px; }
+.board-section-title { margin-bottom: 10px; font-size: 16.5px; font-weight: 700; }
+.chalk-row { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
+.chalk-kp { flex: 0 0 118px; overflow: hidden; font-size: 15px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.chalk-track {
+  position: relative; flex: 1; height: 17px; overflow: hidden;
+  border: 2px solid rgba(247, 243, 232, 0.5);
+  border-radius: 255px 14px 225px 14px / 14px 225px 14px 255px;
+}
+.chalk-fill {
+  position: absolute; inset: 1px auto 1px 1px; border-radius: inherit;
+  background: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.16) 0 7px, transparent 7px 13px), rgba(247, 243, 232, 0.92);
+  transition: width 0.5s ease;
+}
+.chalk-fill.tone-green { background: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.16) 0 7px, transparent 7px 13px), rgba(181, 231, 160, 0.92); }
+.chalk-fill.tone-pink { background: repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.16) 0 7px, transparent 7px 13px), rgba(255, 183, 197, 0.92); }
+.chalk-ticks {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(90deg, transparent calc(25% - 1px), rgba(20, 40, 32, 0.45) 25%, transparent calc(25% + 1px)),
+    linear-gradient(90deg, transparent calc(50% - 1px), rgba(20, 40, 32, 0.45) 50%, transparent calc(50% + 1px)),
+    linear-gradient(90deg, transparent calc(75% - 1px), rgba(20, 40, 32, 0.45) 75%, transparent calc(75% + 1px));
+}
+.chalk-pct { flex: 0 0 46px; font-size: 15px; }
+.board-empty { margin-top: 16px; font-size: 15px; }
+.board-message { max-width: 640px; margin-top: 18px; transform: rotate(-0.3deg); }
+.board-message-label { margin-bottom: 3px; font-size: 14px; font-weight: 700; }
+.board-message-text { font-size: 16.5px; line-height: 1.75; }
+.board-ledge { display: flex; align-items: flex-end; gap: 8px; margin-top: 18px; }
+.chalk-stick {
+  width: 44px; height: 7px; border-radius: var(--radius-micro);
+  background: linear-gradient(180deg, #FFFFFF, #E9E4D2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); transform: rotate(-2deg);
+}
+.chalk-stick.short { width: 26px; transform: rotate(1.5deg); background: linear-gradient(180deg, #FFE58A, #F3D97B); }
+.board-eraser {
+  width: 56px; height: 15px; margin-left: auto; border-radius: var(--radius-micro);
+  background: linear-gradient(180deg, #B08954 0 55%, #4B4B4B 55% 100%);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.4); transform: rotate(-1deg);
+}
 
 @media (max-width: 720px) {
-  .profile-summary { padding: 18px 16px; }
-  .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .mastery-row { gap: 9px; }
-  .mastery-point { flex-basis: 92px; font-size: 13px; }
+  .board-frame { padding: 9px; }
+  .board { padding: 20px 18px 16px; }
+  .chalk-name { font-size: 31px; }
+  .board-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .board-stat-num { font-size: 29px; }
+  .chalk-row { gap: 9px; }
+  .chalk-kp { flex-basis: 92px; font-size: 14px; }
 }
-@media (prefers-reduced-motion: reduce) { .mastery-fill { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .chalk-fill { transition: none; } }
 
 /* ================= 成长记录表（课表式网格） ================= */
 .record-wrap { overflow-x: auto; }

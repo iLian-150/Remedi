@@ -5,18 +5,16 @@
       <template v-if="!isRosterPage">
         <div class="students-page-heading">
           <h1>学生</h1>
-          <button type="button" class="btn" @click="classFormOpen = !classFormOpen">
-            <AppIcon :name="classFormOpen ? 'x' : 'plus'" :size="17" />
-            {{ classFormOpen ? '收起' : '新建 / 关联班级' }}
+          <button type="button" class="btn" @click="openClassForm">
+            <AppIcon name="plus" :size="17" /> 新建 / 关联班级
           </button>
         </div>
       </template>
       <template v-else>
         <div class="students-page-heading">
           <h1>{{ selectedClass?.name ?? '班级' }}</h1>
-          <button type="button" class="btn" :disabled="!selectedClass" @click="studentFormOpen = !studentFormOpen">
-            <AppIcon :name="studentFormOpen ? 'x' : 'plus'" :size="17" />
-            {{ studentFormOpen ? '收起' : '添加学生' }}
+          <button type="button" class="btn" :disabled="!selectedClass" @click="openStudentForm">
+            <AppIcon name="plus" :size="17" /> 添加学生
           </button>
         </div>
       </template>
@@ -26,40 +24,26 @@
     <div v-if="loading" class="loading" role="status">加载中…</div>
 
     <template v-if="!loading && !isRosterPage">
-      <form v-if="classFormOpen" class="card entry-form" @submit.prevent="createClass">
-        <div class="entry-form-fields">
-          <div class="form-row">
-            <label for="new-class-name">班级名称</label>
-            <input id="new-class-name" v-model="className" type="text" maxlength="64" placeholder="例如：七年级一班" required />
-          </div>
-          <div class="entry-form-actions">
-            <button type="button" class="btn secondary" :disabled="savingClass" @click="classFormOpen = false">取消</button>
-            <button type="submit" class="btn" :disabled="savingClass || !className.trim()">
-              {{ savingClass ? '保存中…' : '建立 / 关联班级' }}
-            </button>
-          </div>
-        </div>
-        <p class="form-note">同名班级会关联到当前任教学科。</p>
-      </form>
-
-      <section v-if="classrooms.length" class="class-list" aria-label="班级列表">
-        <router-link
-          v-for="room in classrooms"
-          :key="room.id"
-          :to="`/teacher/students/classes/${room.id}`"
-          class="class-row"
-        >
-          <span class="class-icon"><AppIcon name="users" :size="19" /></span>
-          <span class="class-main">
-            <strong>{{ room.name }}</strong>
-            <span class="class-subjects">
-              <span v-for="subject in room.subjects" :key="subject">{{ subjectName(subject) }}</span>
-              <span v-if="!room.subjects?.length">{{ subjectLabel }}</span>
-            </span>
-          </span>
-          <span class="class-count tnum">{{ room.student_count }}<small>人</small></span>
-          <AppIcon name="chevron-right" :size="18" class="class-arrow" />
-        </router-link>
+      <section v-if="classrooms.length" class="class-list-table-wrap" aria-label="班级列表">
+        <table class="table class-list-table">
+          <thead>
+            <tr>
+              <th scope="col">班级名称</th>
+              <th scope="col">学生人数</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="room in classrooms" :key="room.id">
+              <td>
+                <router-link :to="`/teacher/students/classes/${room.id}`" class="class-name-link">
+                  <strong>{{ room.name }}</strong>
+                  <AppIcon name="chevron-right" :size="16" />
+                </router-link>
+              </td>
+              <td class="class-count tnum"><strong>{{ room.student_count }}</strong><small>人</small></td>
+            </tr>
+          </tbody>
+        </table>
       </section>
       <section v-else-if="!pageError" class="card empty-classes">
         <span class="empty-icon"><AppIcon name="users" :size="22" /></span>
@@ -78,32 +62,14 @@
         </div>
       </div>
 
-      <form v-if="studentFormOpen" class="card entry-form student-entry-form" @submit.prevent="addStudent">
-        <div class="entry-form-fields student-form-fields">
-          <div class="form-row">
-            <label for="new-student-name">学生姓名</label>
-            <input id="new-student-name" v-model="studentName" type="text" maxlength="64" autocomplete="off" required />
-          </div>
-          <div class="form-row">
-            <label for="new-student-number">学号</label>
-            <input id="new-student-number" v-model="studentNo" type="text" maxlength="32" autocomplete="off" required @keydown.enter.prevent="addStudent" />
-          </div>
-          <div class="entry-form-actions">
-            <button type="button" class="btn secondary" :disabled="savingStudent" @click="studentFormOpen = false">取消</button>
-            <button type="submit" class="btn" :disabled="savingStudent || !studentName.trim() || !studentNo.trim()">
-              {{ savingStudent ? '保存中…' : '加入班级' }}
-            </button>
-          </div>
-        </div>
-      </form>
-
       <section class="roster-section" aria-label="班级学生列表">
         <div v-if="rosterError" class="error-msg" role="alert">{{ rosterError }}</div>
         <div v-else-if="rosterCards.length" class="student-list-wrap">
           <table class="student-list">
             <thead>
               <tr>
-                <th scope="col">学生</th>
+                <th scope="col">姓名</th>
+                <th scope="col">学号</th>
                 <th scope="col">累计提交</th>
                 <th scope="col">累计错误</th>
                 <th scope="col">操作</th>
@@ -114,12 +80,10 @@
                 <td>
                   <router-link :to="`/teacher/students/${student.id}`" class="student-identity">
                     <span class="student-avatar">{{ student.name.slice(0, 1) }}</span>
-                    <span class="student-name-block">
-                      <strong>{{ student.name }}</strong>
-                      <small class="tnum">{{ student.student_no || '暂无学号' }}</small>
-                    </span>
+                    <strong>{{ student.name }}</strong>
                   </router-link>
                 </td>
+                <td class="student-number tnum">{{ student.student_no || '暂无学号' }}</td>
                 <td class="student-metric tnum">{{ student.summary?.submission_count ?? 0 }}</td>
                 <td class="student-metric metric-errors tnum">{{ student.summary?.error_count ?? 0 }}</td>
                 <td>
@@ -138,10 +102,53 @@
         </div>
         <div v-else class="card empty-roster">
           <span>这个班级还没有学生</span>
-          <button type="button" class="btn secondary small" @click="studentFormOpen = true">添加学生</button>
+          <button type="button" class="btn secondary small" @click="openStudentForm">添加学生</button>
         </div>
       </section>
     </template>
+
+    <div v-if="classFormOpen" class="student-modal-mask" tabindex="-1" @click.self="closeClassForm" @keydown.esc.stop="closeClassForm">
+      <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="new-class-title">
+        <h3 id="new-class-title">新建 / 关联班级</h3>
+        <form class="student-edit-form" @submit.prevent="createClass">
+          <div class="form-row">
+            <label for="new-class-name">班级名称</label>
+            <input id="new-class-name" v-model="className" type="text" maxlength="64" placeholder="例如：七年级一班" required />
+          </div>
+          <p class="student-modal-note">同名班级会关联到当前任教学科。</p>
+          <div v-if="classFormError" class="error-msg" role="alert">{{ classFormError }}</div>
+          <div class="student-modal-actions">
+            <button type="button" class="btn secondary" :disabled="savingClass" @click="closeClassForm">取消</button>
+            <button type="submit" class="btn" :disabled="savingClass || !className.trim()">
+              {{ savingClass ? '保存中…' : '建立 / 关联班级' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div v-if="studentFormOpen" class="student-modal-mask" tabindex="-1" @click.self="closeStudentForm" @keydown.esc.stop="closeStudentForm">
+      <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="new-student-title">
+        <h3 id="new-student-title">添加学生</h3>
+        <form class="student-edit-form" @submit.prevent="addStudent">
+          <div class="form-row">
+            <label for="new-student-name">学生姓名</label>
+            <input id="new-student-name" v-model="studentName" type="text" maxlength="64" autocomplete="off" required />
+          </div>
+          <div class="form-row">
+            <label for="new-student-number">学号</label>
+            <input id="new-student-number" v-model="studentNo" type="text" maxlength="32" autocomplete="off" required />
+          </div>
+          <div v-if="studentFormError" class="error-msg" role="alert">{{ studentFormError }}</div>
+          <div class="student-modal-actions">
+            <button type="button" class="btn secondary" :disabled="savingStudent" @click="closeStudentForm">取消</button>
+            <button type="submit" class="btn" :disabled="savingStudent || !studentName.trim() || !studentNo.trim()">
+              {{ savingStudent ? '保存中…' : '加入班级' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
 
     <div v-if="editingStudent" class="student-modal-mask" tabindex="-1" @click.self="closeEdit" @keydown.esc.stop="closeEdit">
       <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="edit-student-title">
@@ -189,7 +196,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { Classroom, ClassroomStudent, StudentSummary, SubjectAgentCode } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
-import { getSubjectLabel } from '../../utils/subjectLabels'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
@@ -203,8 +209,10 @@ const selectedClass = ref<Classroom | null>(null)
 const classFormOpen = ref(false)
 const studentFormOpen = ref(false)
 const className = ref('')
+const classFormError = ref('')
 const studentName = ref('')
 const studentNo = ref('')
+const studentFormError = ref('')
 const rosterError = ref('')
 const editingStudent = ref<ClassroomStudent | null>(null)
 const editName = ref('')
@@ -227,15 +235,10 @@ const currentClassroomId = computed(() => {
   return Number.isInteger(id) && id > 0 ? id : null
 })
 const isRosterPage = computed(() => classRouteParam.value !== undefined)
-const subjectLabel = computed(() => auth.activeSubject ? getSubjectLabel(auth.activeSubject, auth.activeSubject) : '未选择任教学科')
 const rosterCards = computed(() => classStudents.value.map((member) => ({
   ...member,
   summary: students.value.find((student) => student.id === member.id),
 })))
-
-function subjectName(subject: string): string {
-  return getSubjectLabel(subject, subject)
-}
 
 async function loadPage() {
   const sequence = ++loadSequence
@@ -277,20 +280,48 @@ async function loadPage() {
   }
 }
 
-watch(classRouteParam, () => { void loadPage() }, { immediate: true })
+watch(classRouteParam, () => {
+  classFormOpen.value = false
+  studentFormOpen.value = false
+  classFormError.value = ''
+  studentFormError.value = ''
+  void loadPage()
+}, { immediate: true })
+
+function openClassForm() {
+  classFormError.value = ''
+  classFormOpen.value = true
+}
+
+function closeClassForm() {
+  if (savingClass.value) return
+  classFormOpen.value = false
+  classFormError.value = ''
+}
+
+function openStudentForm() {
+  studentFormError.value = ''
+  studentFormOpen.value = true
+}
+
+function closeStudentForm() {
+  if (savingStudent.value) return
+  studentFormOpen.value = false
+  studentFormError.value = ''
+}
 
 async function createClass() {
   const name = className.value.trim()
   if (!name || !auth.activeSubject) return
   savingClass.value = true
-  pageError.value = ''
+  classFormError.value = ''
   try {
     const room = await teacher.createClassroom(name, auth.activeSubject as SubjectAgentCode)
     className.value = ''
     classFormOpen.value = false
     await router.push(`/teacher/students/classes/${room.id}`)
   } catch (e) {
-    pageError.value = '班级建立失败：请检查名称和当前任教学科。'
+    classFormError.value = '班级建立失败：请检查名称和当前任教学科。'
     console.error(e)
   } finally {
     savingClass.value = false
@@ -301,7 +332,7 @@ async function addStudent() {
   const room = selectedClass.value
   if (!room || !studentName.value.trim() || !studentNo.value.trim()) return
   savingStudent.value = true
-  rosterError.value = ''
+  studentFormError.value = ''
   try {
     await teacher.addClassroomStudent(room.id, {
       name: studentName.value.trim(), student_no: studentNo.value.trim()
@@ -311,7 +342,7 @@ async function addStudent() {
     studentFormOpen.value = false
     await loadPage()
   } catch (e) {
-    rosterError.value = '学生录入失败：学号可能已被其他学生使用。'
+    studentFormError.value = '学生录入失败：学号可能已被其他学生使用。'
     console.error(e)
   } finally {
     savingStudent.value = false
@@ -386,54 +417,53 @@ async function confirmDeleteStudent() {
 
 <style scoped>
 .students-page { max-width: var(--content-frame-width); padding-top: 0; }
-.students-page .page-head { min-height: 86px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.students-page .page-head { min-height: 86px; margin-bottom: var(--content-frame-gutter); display: flex; flex-direction: column; justify-content: center; gap: 8px; }
 .students-page-heading { display: flex; width: 100%; min-height: 50px; align-items: center; justify-content: space-between; gap: 20px; }
 .students-page-heading h1 { min-width: 0; overflow: hidden; color: var(--text); font-size: clamp(21px, 2vw, 25px); font-weight: 720; letter-spacing: -0.035em; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .students-page-heading > .btn { flex: 0 0 auto; }
 .roster-toolbar { display: flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .roster-total { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
 .roster-total :deep(.app-icon) { color: var(--primary); }
-.entry-form { margin-bottom: 18px; }
-.entry-form-fields { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.entry-form .form-row { width: min(360px, 100%); margin: 0; }
-.entry-form-actions { display: flex; gap: 8px; }
-.form-note { margin-top: 10px; color: var(--text-3); font-size: 12px; }
-.class-list { display: flex; flex-direction: column; gap: 10px; }
-.class-row { display: flex; min-height: 78px; align-items: center; gap: 16px; padding: 15px 18px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
-.class-row:hover { transform: translateY(-1px); border-color: var(--border-strong); box-shadow: var(--shadow-md); }
-.class-icon, .empty-icon { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
-.class-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
-.class-main strong { overflow: hidden; color: var(--text); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.class-subjects { display: flex; flex-wrap: wrap; gap: 5px; color: var(--text-3); font-size: 12px; }
-.class-subjects > span { padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-2); }
-.class-count { min-width: 52px; color: var(--text-strong); font-size: 17px; font-weight: 750; text-align: right; }
-.class-count small { margin-left: 3px; color: var(--text-3); font-size: 12px; font-weight: 500; }
-.class-arrow { color: var(--text-3); }
+.class-list-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
+.class-list-table { width: 100%; min-width: 480px; table-layout: fixed; }
+.class-list-table th, .class-list-table td { text-align: center; }
+.class-list-table th { padding: 7px 18px; }
+.class-list-table td { padding: 6px 18px; }
+.class-list-table th:first-child { width: 64%; }
+.class-list-table th:last-child { width: 36%; }
+.class-list-table td:first-child, .class-list-table td:last-child { text-align: center; }
+.class-name-link { display: inline-flex; max-width: 100%; min-width: 0; min-height: 36px; align-items: center; justify-content: center; gap: 6px; color: var(--text); font-size: 15px; font-weight: 650; }
+.class-name-link strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.class-name-link :deep(.app-icon) { flex: 0 0 auto; color: var(--text-3); transition: color .16s ease, transform .16s ease; }
+.class-name-link:hover { color: var(--primary); }
+.class-name-link:hover :deep(.app-icon) { color: var(--primary); transform: translateX(2px); }
+.class-count { color: var(--primary); font-size: 15px; font-weight: 700; }
+.class-count small { margin-left: 4px; color: var(--text-3); font-size: 12px; font-weight: 500; }
+.empty-icon { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
 .empty-classes { display: flex; min-height: 230px; flex-direction: column; align-items: center; justify-content: center; gap: 13px; margin-bottom: 0; color: var(--text-2); }
 .empty-classes p { font-size: 14px; }
 .roster-section { width: 100%; }
-.student-entry-form { margin-bottom: 17px; }
-.student-form-fields .form-row { width: min(250px, 100%); }
 .student-list-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
-.student-list { width: 100%; min-width: 700px; border-collapse: collapse; table-layout: fixed; }
-.student-list th, .student-list td { padding: 13px 18px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.student-list th { background: var(--surface-2); color: var(--text-2); font-size: 12px; font-weight: 650; text-align: left; }
-.student-list th:first-child { width: 42%; }
-.student-list th:nth-child(2), .student-list th:nth-child(3) { width: 14%; text-align: center; }
-.student-list th:last-child { width: 30%; text-align: right; }
-.student-list td:nth-child(2), .student-list td:nth-child(3) { text-align: center; }
-.student-list td:last-child { text-align: right; }
+.student-list { width: 100%; min-width: 760px; border-collapse: collapse; table-layout: fixed; }
+.student-list th, .student-list td { border-bottom: 1px solid var(--border); vertical-align: middle; }
+.student-list th { padding: 10px 14px; background: var(--surface-2); color: var(--text-2); font-size: 12px; font-weight: 650; text-align: left; }
+.student-list td { padding: 8px 14px; }
+.student-list th:first-child { width: 24%; padding-left: 56px; }
+.student-list th:nth-child(2) { width: 18%; }
+.student-list th:nth-child(3), .student-list th:nth-child(4) { width: 12%; text-align: center; }
+.student-list th:last-child { width: 34%; text-align: center; }
+.student-list td:nth-child(3), .student-list td:nth-child(4) { text-align: center; }
+.student-list td:last-child { text-align: center; }
 .student-list tbody tr:last-child td { border-bottom: 0; }
 .student-list tbody tr:hover { background: var(--surface-2); }
-.student-identity { display: flex; min-width: 0; align-items: center; gap: 12px; color: var(--text); }
-.student-identity:hover .student-name-block strong { color: var(--primary); }
-.student-avatar { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--primary-50); color: var(--primary); font-size: 17px; font-weight: 700; }
-.student-name-block { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.student-name-block strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.student-name-block small { color: var(--text-3); font-size: 12px; }
+.student-identity { display: flex; min-width: 0; align-items: center; gap: 10px; color: var(--text); }
+.student-identity:hover strong { color: var(--primary); }
+.student-avatar { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--primary-50); color: var(--primary); font-size: 14px; font-weight: 700; }
+.student-identity strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.student-number { color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
 .student-metric { color: var(--primary); font-size: 15px; font-weight: 700; }
 .student-metric.metric-errors { color: var(--red); }
-.student-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.student-actions { display: flex; align-items: center; justify-content: center; gap: 5px; }
 .student-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
 .delete-button { border: 1px solid var(--border); background: #fff; color: var(--red); font-weight: 550; }
 .delete-button:hover { background: var(--red-bg); }
@@ -445,8 +475,8 @@ async function confirmDeleteStudent() {
 .student-edit-form { margin-top: 16px; }
 .student-edit-form .form-row { margin-bottom: 12px; }
 .student-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-@media (max-width: 760px) {
-  .students-page .page-head { min-height: 64px; }
+@media (max-width: 960px) {
+  .students-page .page-head { min-height: 64px; margin-bottom: var(--content-frame-gutter-compact); }
   .students-page-heading { min-height: 44px; gap: 12px; }
   .students-page-heading h1 { font-size: 20px; }
 }
@@ -454,13 +484,13 @@ async function confirmDeleteStudent() {
   .students-page-heading { gap: 8px; }
   .students-page-heading > .btn { padding-inline: 10px; font-size: 12px; }
   .roster-toolbar { min-height: 34px; }
-  .entry-form-fields, .student-form-fields { align-items: stretch; flex-direction: column; }
-  .entry-form .form-row, .student-form-fields .form-row { width: 100%; }
-  .entry-form-actions { justify-content: flex-end; }
-  .class-row { gap: 11px; padding: 13px; }
-  .class-icon { width: 39px; height: 39px; }
+  .class-list-table { min-width: 0; }
+  .class-list-table th:first-child { width: 58%; }
+  .class-list-table th:last-child { width: 42%; }
+  .class-list-table th { padding: 7px 8px; }
+  .class-list-table td { padding: 6px 8px; }
   .student-modal { padding: 20px; }
   .student-modal-actions .btn { padding-inline: 14px; }
 }
-@media (prefers-reduced-motion: reduce) { .class-row { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .class-name-link :deep(.app-icon) { transition: none; transform: none; } }
 </style>

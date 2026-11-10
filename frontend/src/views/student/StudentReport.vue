@@ -8,10 +8,6 @@
      文案伦理：不出现「顽固」「置信度」等术语（与既有页面一致）。 -->
 <template>
   <div class="page">
-    <div class="page-head">
-      <p class="page-sub">按科目看看自己的进步轨迹：点开科目牌，进到详情里看哪个知识点还没修好、错过几次。</p>
-    </div>
-
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="loading" class="loading">加载中…</div>
 

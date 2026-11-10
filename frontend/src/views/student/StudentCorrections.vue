@@ -14,10 +14,6 @@
      对的贴变已订正样式留在墙上；已订正的贴点开跳诊断详情。 -->
 <template>
   <div class="page">
-    <div class="page-head">
-      <p class="page-sub">把错过的题重新做对，知识点就真正属于你了。</p>
-    </div>
-
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="loading" class="loading">加载错题中…</div>
 

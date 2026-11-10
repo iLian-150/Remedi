@@ -13,10 +13,6 @@
      筛选条只保留当天的进度信息。 -->
 <template>
   <div class="page">
-    <div class="page-head">
-      <p class="page-sub">完成全部题目后，点击「提交作业」开始批改。</p>
-    </div>
-
     <div v-if="error" class="error-msg">{{ error }}</div>
 
     <!-- 试卷纸面 -->
