@@ -24,7 +24,7 @@
         <div class="metric-track" role="progressbar" aria-label="作业正确率" :aria-valuenow="accuracyRate ?? undefined" aria-valuemin="0" aria-valuemax="100">
           <span :style="{ width: `${accuracyRate ?? 0}%` }" />
         </div>
-        <div class="metric-caption">{{ accuracyRate === null ? '完成批改后显示' : `已批改 ${totals.graded} 人次` }}</div>
+        <div v-if="accuracyRate !== null" class="metric-caption">已批改 {{ totals.graded }} 人次</div>
       </article>
     </div>
 
@@ -33,7 +33,6 @@
       {{ error }}
       <button type="button" class="retry-button" @click="loadSummary">重试</button>
     </p>
-    <p v-else-if="totals.assignments === 0" class="summary-status">今天还没有发布作业</p>
   </section>
 </template>
 

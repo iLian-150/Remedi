@@ -39,10 +39,10 @@ function resetAssignmentFilter() {
 
 <style scoped>
 .assignment-hub { max-width: var(--content-frame-width); }
-.assignment-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+.assignment-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 16px; }
 .publish-entry, .management-entry { min-width: 0; margin-bottom: 0; padding: 20px; }
 .entry-heading { margin-bottom: 16px; color: var(--text); font-size: 18px; font-weight: 700; }
-.assignment-aside { display: grid; min-width: 0; gap: 16px; }
+.assignment-aside { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; gap: 16px; }
 .management-entry {
   display: flex; min-height: 96px; align-items: center; gap: 14px; padding: 20px 22px;
   color: var(--text); font-size: 17px; font-weight: 700; text-decoration: none;
@@ -53,6 +53,7 @@ function resetAssignmentFilter() {
 .management-entry-icon { display: grid; width: 48px; height: 48px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
 .management-entry-arrow { margin-left: auto; color: var(--text-3); }
 .publish-entry :deep(.mode-grid) { grid-template-columns: minmax(0, 1fr); }
+.publish-entry :deep(.mode-desc) { display: none; }
 .publish-entry :deep(.mode-card) { min-height: 145px; padding: 19px 21px; border-radius: var(--radius-control); }
 @media (max-width: 900px) {
   .assignment-entry-grid { grid-template-columns: minmax(0, 1fr); }
