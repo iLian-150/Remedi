@@ -14,7 +14,7 @@
 - **数据格式**：请求与响应均为 `application/json; charset=utf-8`。
 - **时间格式**：ISO 8601，如 `2026-10-06T15:40:35`（本地时间，不带时区后缀）。
 - **分页**：列表接口统一用 `limit`（默认 20，最大 100）、`offset`（默认 0），响应形如 `{"total": 42, "items": [...]}`。
-- **模型配置**：通过阿里云百炼工作空间专属 APIHost 调用文字 `qwen3.8-flash`、视觉 `qwen3-vl-plus`、向量 `qwen3.7-text-embedding-flash`（1024 维）及重排 `qwen3.7-text-rerank`。APIHost 由控制台确认，格式示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，工作空间与地域按实际账号替换。实际密钥只保存在服务器环境配置；配置项本身不表示真实模型调用已通过。
+- **模型配置**：通过阿里云百炼工作空间专属 APIHost 调用文字和视觉 `qwen3.8-flash`、向量 `qwen3.7-text-embedding-flash`（1024 维）及重排 `qwen3.7-text-rerank`。APIHost 由控制台确认，格式示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，工作空间与地域按实际账号替换。实际密钥只保存在服务器环境配置；配置项本身不表示真实模型调用已通过。
 
 ### 1.1 认证方式（Mock 登录）
 
@@ -464,7 +464,7 @@
 
 - `question_text`：转写出的题干；`steps`：学生作答步骤（按顺序，**不含题干**）。
 - `save_image=true` 时图片只存服务器本地目录（环境变量 `UPLOAD_DIR`，默认 `backend/uploads/`），不落库；`image_url` 为静态回读路径。设为 `false` 时跳过写盘，`image_id` 与 `image_url` 返回 `null`。
-- 转写由阿里云百炼视觉模型完成，默认 `qwen3-vl-plus`（可用 `DASHSCOPE_VISION_MODEL` 覆盖）；未配置凭证或识别失败时明确返回错误，不使用 Mock 罐头转写。
+- 转写由阿里云百炼视觉模型完成，默认 `qwen3.8-flash`（可用 `DASHSCOPE_VISION_MODEL` 覆盖）；未配置凭证或识别失败时明确返回错误，不使用 Mock 罐头转写。
 - 本接口**不产生提交记录**：学生确认/编辑转写结果后，仍走 3.3 `POST /api/student/submissions`（question_id + steps）完成诊断。
 
 错误：`400`（格式不支持 / 内容为空 / 超过 10MB，detail 为中文说明）；`403`（教师调用学生接口）。

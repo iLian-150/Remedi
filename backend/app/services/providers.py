@@ -838,7 +838,7 @@ class BailianProvider(OpenAICompatibleVisionProvider):
     """百炼文本和视觉均走 DashScope OpenAI 兼容 Chat Completions。"""
 
     def __init__(self, api_key: str, base_url: str, model: str,
-                 vision_model: str = "qwen3-vl-plus"):
+                 vision_model: str = "qwen3.8-flash"):
         if not api_key or not api_key.strip():
             raise RuntimeError("未配置 DASHSCOPE_API_KEY（阿里云百炼）")
         if not base_url or not base_url.strip() or not model.strip() or not vision_model.strip():

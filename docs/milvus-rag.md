@@ -10,7 +10,7 @@
 
 原始资料与页级检查点位于 `/data/knowledge-imports`（宿主机 `/remedi/data/api/knowledge-imports`），不通过 `/api/uploads` 公网静态目录公开。文件按学科与 SHA256 去重，重复点击返回原任务，完成后重传不会重新 OCR。旧版没有文件摘要的历史资料保留，不按文件名猜测相同内容或删除。
 
-文字层使用 PyMuPDF 直接提取；扫描页、乱码页和混合页面中的图片文字使用后端运行环境中的 Tesseract（`chi_sim+eng`）。复用 PyMuPDF 图片定位与矢量绘图聚类，只把相关图形区域交给 `qwen3-vl-plus`；无法分区的扫描页在出现图形指示时使用压缩页面补充图形语义，不逐字转写整页。图形语义单独标记，模型不得补造未标注的关系。专用 OCR 不保证复杂公式完全准确，低可信度页面保留核对警告和原件。
+文字层使用 PyMuPDF 直接提取；扫描页、乱码页和混合页面中的图片文字使用后端运行环境中的 Tesseract（`chi_sim+eng`）。复用 PyMuPDF 图片定位与矢量绘图聚类，只把相关图形区域交给 `qwen3.8-flash`；无法分区的扫描页在出现图形指示时使用压缩页面补充图形语义，不逐字转写整页。图形语义单独标记，模型不得补造未标注的关系。专用 OCR 不保证复杂公式完全准确，低可信度页面保留核对警告和原件。
 
 OCR 与视觉网络请求最多同时执行 `RAG_OCR_WORKERS` 个页面（默认 2），PyMuPDF 渲染仅在导入线程执行。页面与区域完成后原子保存检查点；失败任务重试和进程重启复用已完成结果。任务进度来自后台成功页数和索引阶段。原文、片段、任务关联文档 ID 同一 SQL 事务提交后才同步 Milvus，向量故障返回待索引状态并继续提供 BM25。
 
@@ -37,7 +37,7 @@ LLM_PROVIDER=bailian
 DASHSCOPE_API_KEY=
 DASHSCOPE_BASE_URL=https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 DASHSCOPE_MODEL=qwen3.8-flash
-DASHSCOPE_VISION_MODEL=qwen3-vl-plus
+DASHSCOPE_VISION_MODEL=qwen3.8-flash
 RAG_MILVUS_URI=http://milvus:19530
 RAG_MILVUS_COLLECTION=remedi_subject_knowledge_qwen37_flash
 RAG_EMBEDDING_MODEL=qwen3.7-text-embedding-flash
@@ -71,7 +71,7 @@ RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
 | `RAG_RERANK_TIMEOUT_SECONDS` | `10`；模型重排请求超时（秒） |
 | `DASHSCOPE_API_KEY` | 百炼 API Key，真实值仅保存在服务器 `.env` |
 | `DASHSCOPE_BASE_URL` | 控制台工作空间专属 APIHost + `/compatible-mode/v1`；工作空间和地域按账号确定 |
-| `DASHSCOPE_MODEL` / `DASHSCOPE_VISION_MODEL` | `qwen3.8-flash` / `qwen3-vl-plus` |
+| `DASHSCOPE_MODEL` / `DASHSCOPE_VISION_MODEL` | `qwen3.8-flash` / `qwen3.8-flash` |
 | `RAG_MINIO_ROOT_USER` / `RAG_MINIO_ROOT_PASSWORD` | overlay 必填；独立 MinIO 账户和密码 |
 | `RAG_MILVUS_IMAGE` | `milvusdb/milvus:v2.6.25` |
 | `RAG_ETCD_IMAGE` | `quay.io/coreos/etcd:v3.5.25` |
