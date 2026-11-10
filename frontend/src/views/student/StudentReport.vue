@@ -9,7 +9,6 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <h2>学习报告</h2>
       <p class="page-sub">按科目看看自己的进步轨迹：点开科目牌，进到详情里看哪个知识点还没修好、错过几次。</p>
     </div>
 
