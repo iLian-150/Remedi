@@ -7,7 +7,7 @@
 <template>
   <div class="chat-layout">
     <!-- 单一学习入口：按消息内容自动识别处理意图与学科。 -->
-    <div class="chat-header">
+    <div v-if="!isWelcomeScreen" class="chat-header">
       <div class="chat-inner">
         <div class="chat-title">
           <span class="chat-title-mark"><BrandLogo :size="24" /></span>
@@ -287,8 +287,7 @@
       </div>
     </div>
 
-    <!-- 输入区（v0.3.0：文本聊天接学习助手 Agent + 拍照批改并存；
-         v0.8.1 恢复 v0.6.2 悬浮毛玻璃卡：悬浮在消息区底部，消息从卡下滚过） -->
+    <!-- 输入区：新对话时与教师端一起居中显示；进入对话后悬浮在消息区底部。 -->
     <ChatComposer
       v-model="chatInput"
       :selected-file="selectedFile"
@@ -297,6 +296,7 @@
       :upload-disabled="busy"
       :context-text="selectedQuestion?.stem"
       :welcome="isWelcomeScreen"
+      single-line
       @send="sendChat()"
       @file-selected="onComposerFileSelected"
       @clear-file="clearSelectedFile"
@@ -1485,7 +1485,9 @@ onMounted(async () => {
 @media (hover: hover) { .related-mistake-link:hover { text-decoration: underline; } }
 
 .chat-content-shell { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
-.chat-content-shell.welcome-mode { justify-content: center; gap: 18px; overflow-y: auto; padding: 24px 24px 168px; }
+.chat-content-shell.welcome-mode { justify-content: center; gap: 12px; overflow-y: auto; padding: 16px 0; }
+.chat-content-shell.welcome-mode :deep(.chat-composer) { position: relative; right: auto; bottom: auto; left: auto; width: 100%; padding: 22px clamp(20px, 4vw, 72px) 30px; }
+.chat-content-shell.welcome-mode :deep(.chat-composer .chat-inner) { max-width: 860px; padding: 0; }
 .history-switch-state { display: flex; min-height: min(42vh, 320px); align-items: center; justify-content: center; gap: 12px; color: var(--text-2); font-size: 14px; }
 .history-loading-spinner { width: 16px; height: 16px; flex: 0 0 16px; border: 2px solid var(--blue-bg); border-top-color: var(--primary); border-radius: 50%; animation: history-loading-spin 0.8s linear infinite; }
 @keyframes history-loading-spin { to { transform: rotate(360deg); } }
@@ -1499,14 +1501,14 @@ onMounted(async () => {
 .welcome-mode .chat-body > .chat-inner { max-width: 820px; padding: 0; }
 .welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
 .welcome-home h1 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
-.welcome-briefing { margin-top: 22px; padding: 17px 19px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
+.welcome-briefing { margin-top: 12px; padding: 13px 15px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
 .welcome-briefing-heading { display: flex; align-items: center; gap: 9px; color: var(--text); }
 .welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
 .welcome-briefing-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; background: var(--primary-50); color: var(--text-2); }
 .welcome-briefing-book { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; color: var(--primary); font-size: 12px; font-weight: 600; white-space: nowrap; }
 @keyframes welcome-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 /* 欢迎屏简报卡组（v0.9.0）：复用对话内简报卡的大数字+色块规格，整卡可点跳转 */
-.welcome-brief-grid { margin-top: 14px; }
+.welcome-brief-grid { margin-top: 8px; gap: 8px; }
 .brief-clickable { cursor: pointer; transition: box-shadow 0.18s ease, border-color 0.18s ease; }
 @media (hover: hover) { .brief-clickable:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); } }
 .brief-card-more { display: inline-flex; align-items: center; gap: 2px; margin-top: 10px; color: var(--primary); font-size: 12.5px; font-weight: 600; }
@@ -1519,7 +1521,7 @@ onMounted(async () => {
 .review-pending-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #fff; color: var(--amber); display: flex; align-items: center; justify-content: center; }
 .review-pending-title { font-size: 14.5px; font-weight: 700; color: #92400E; }
 .review-pending-sub { font-size: 13px; color: #92400E; opacity: 0.85; margin-top: 2px; }
-.welcome-briefing-done { display: flex; align-items: flex-start; gap: 10px; margin-top: 13px; border-radius: 10px; background: var(--green-bg); padding: 12px 13px; }
+.welcome-briefing-done { display: flex; align-items: flex-start; gap: 10px; margin-top: 9px; border-radius: 10px; background: var(--green-bg); padding: 10px 12px; }
 .welcome-done-mark { display: grid; width: 27px; height: 27px; flex: 0 0 27px; place-items: center; border-radius: 50%; background: var(--green); color: #fff; }
 .welcome-briefing-done strong { color: #065F46; font-size: 13px; font-weight: 650; }
 .welcome-briefing-done p { margin-top: 3px; color: var(--text-2); font-size: 11.5px; }
@@ -1632,7 +1634,8 @@ onMounted(async () => {
   .user-image-card { max-width: min(210px, 72vw); }
   .user-image img { max-width: 190px; max-height: 125px; }
   .bubble { max-width: 88%; }
-  .chat-content-shell.welcome-mode { gap: 16px; padding: 20px 18px 150px; }
+  .chat-content-shell.welcome-mode { gap: 8px; padding: 14px 0; }
+  .chat-content-shell.welcome-mode :deep(.chat-composer) { padding: 20px 18px 24px; }
 }
 
 @media (max-width: 620px) {
@@ -1640,6 +1643,7 @@ onMounted(async () => {
   .chat-inner { padding-right: 14px; padding-left: 14px; }
   .chat-title-mark { width: 32px; height: 32px; }
   .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
-  .welcome-briefing { margin-top: 17px; padding: 12px; }
+  .welcome-briefing { margin-top: 10px; padding: 11px; }
+  .chat-content-shell.welcome-mode :deep(.chat-composer) { padding: 16px 10px 18px; }
 }
 </style>
