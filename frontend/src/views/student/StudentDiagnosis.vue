@@ -6,7 +6,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>诊断详情</h2>
         <p class="page-sub">查看这次作答的分步诊断与错因。</p>
       </div>
       <router-link class="btn secondary small" to="/student/mistakes">返回错题本</router-link>

@@ -5,7 +5,6 @@
       <template v-if="!isRosterPage">
         <div class="page-heading-row">
           <div>
-            <h2>学生</h2>
             <div class="page-context"><AppIcon name="cap" :size="16" />{{ subjectLabel }}</div>
           </div>
           <button type="button" class="btn" @click="classFormOpen = !classFormOpen">

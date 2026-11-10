@@ -19,7 +19,6 @@
         <div class="mistake-notebook-content scrollbar-on-scroll">
           <header class="notebook-header">
             <div class="notebook-eyebrow"><AppIcon name="book" :size="17"/><span>温故 · 知新</span></div>
-            <h1>我的错题本<span>。</span></h1>
           </header>
 
           <div class="notebook-workspace">

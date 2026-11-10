@@ -5,8 +5,6 @@
      v0.3.0 新增删除已发布作业（二次确认，后端级联删除学生提交数据）。 -->
 <template>
   <div class="page">
-    <div class="page-head"><h2>作业</h2></div>
-
     <section class="card publish-launch">
       <h3>发布作业</h3>
       <PublishModeCards @choose="openPublish" />

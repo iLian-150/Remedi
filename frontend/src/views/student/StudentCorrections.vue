@@ -15,7 +15,6 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <h2>订正错题</h2>
       <p class="page-sub">把错过的题重新做对，知识点就真正属于你了。</p>
     </div>
 

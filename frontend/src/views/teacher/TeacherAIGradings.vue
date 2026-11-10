@@ -1,9 +1,5 @@
 <template>
   <div class="page ai-grading-page">
-    <div class="page-head">
-      <h2>AI 批改</h2>
-    </div>
-
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="success" class="ok-msg">{{ success }}</div>
 

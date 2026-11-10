@@ -104,6 +104,9 @@
     </aside>
 
     <main class="shell-main" :class="{ 'is-chat-route': isChatRoute }">
+      <header v-if="shellPageTitle" class="shell-page-heading">
+        <h1>{{ shellPageTitle }}</h1>
+      </header>
       <!-- 登录成功切换到应用外壳时，路由仍可能短暂停留在公开登录页；不要把登录表单渲染进已登录布局。 -->
       <router-view v-if="!route.meta.public" />
       <div v-else class="shell-route-loading" role="status" aria-live="polite">
@@ -280,6 +283,17 @@ const showSidebarSessions = computed(() => {
       route.path === path || route.path.startsWith(`${path}/`)
     )
   )
+})
+
+const shellPageTitle = computed(() => {
+  if (isChatRoute.value || route.meta.public) return ''
+  const section = navItems.value.find((item) =>
+    [item.to, ...(item.activePaths ?? [])].some((path) =>
+      route.path === path || route.path.startsWith(`${path}/`)
+    )
+  )
+  if (section) return section.label
+  return typeof route.meta.title === 'string' ? route.meta.title : ''
 })
 
 function onSidebarSessionNavigate() {

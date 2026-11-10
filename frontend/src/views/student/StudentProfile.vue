@@ -8,7 +8,6 @@
 <template>
   <div class="page">
     <div class="page-head profile-page-head">
-      <h2>我的档案</h2>
       <router-link to="/student/report" class="btn small secondary inline-icon profile-report-link">
         <AppIcon name="chart" :size="15" /> 学习报告
       </router-link>
@@ -264,7 +263,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.profile-page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-page-head { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
 .profile-report-link { flex-shrink: 0; }
 /* ================= 大黑板 ================= */
 .board-frame {
