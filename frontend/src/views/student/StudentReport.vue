@@ -55,6 +55,7 @@
           <div v-for="subj in report" :key="subj.subject" class="summary-item">
             <span class="summary-subject">{{ SUBJECT_TEXT[subj.subject] ?? subj.subject }}</span>
             <span class="summary-nums">
+              题目 <b class="tnum">{{ subj.question_count }}</b> 道 ·
               累计提交 <b class="tnum">{{ subj.submission_count }}</b> 次 ·
               正确率 <b class="tnum">{{ Math.round(subj.correct_rate * 100) }}%</b> ·
               知识修复进度 <b class="tnum">{{ Math.round(subj.fixed_ratio * 100) }}%</b>

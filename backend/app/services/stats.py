@@ -143,6 +143,58 @@ def _student_error_query(
     return query
 
 
+def _student_actual_question_counts(
+    db, student_id: int, visible_only: bool = False,
+    assignment_ids=None, submission_ids=None,
+):
+    """统计该生有范围内提交记录的作业中的实际题目数；未作答题也纳入分母。"""
+    scoped_submissions = (
+        db.query(Question.assignment_id)
+        .select_from(Submission)
+        .join(Question, Question.id == Submission.question_id)
+        .filter(Submission.student_id == student_id)
+    )
+    if assignment_ids is not None:
+        scoped_submissions = scoped_submissions.filter(
+            Question.assignment_id.in_(assignment_ids),
+        )
+    if submission_ids is not None:
+        scoped_submissions = scoped_submissions.filter(
+            Submission.id.in_(submission_ids),
+        )
+    if visible_only:
+        pending_review = db.query(SubmissionReview.submission_id).filter(
+            SubmissionReview.submission_id == Submission.id,
+            SubmissionReview.status == "pending",
+        ).exists()
+        scoped_submissions = scoped_submissions.filter(~pending_review)
+
+    active_assignment_ids = scoped_submissions.distinct().subquery()
+    rows = (
+        db.query(
+            Question.subject,
+            Question.knowledge_point,
+            func.count(Question.id).label("question_count"),
+        )
+        .filter(Question.assignment_id.in_(
+            db.query(active_assignment_ids.c.assignment_id),
+        ))
+        .group_by(Question.subject, Question.knowledge_point)
+        .all()
+    )
+    by_knowledge_point = {}
+    by_subject_knowledge_point = {}
+    by_subject = {}
+    for row in rows:
+        count = int(row.question_count or 0)
+        by_knowledge_point[row.knowledge_point] = (
+            by_knowledge_point.get(row.knowledge_point, 0) + count
+        )
+        by_subject_knowledge_point[(row.subject, row.knowledge_point)] = count
+        by_subject[row.subject] = by_subject.get(row.subject, 0) + count
+    return by_knowledge_point, by_subject_knowledge_point, by_subject
+
+
 def _student_profile_stats(
     db, student_id: int, visible_only: bool, assignment_ids=None, submission_ids=None,
 ):
@@ -382,8 +434,11 @@ def student_profile(
     db, student: User, visible_only: bool = False, assignment_ids=None, submission_ids=None,
 ) -> Dict:
     """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
-    # 按知识点聚合：attempts（提交数）、errors（错误数）
+    # 按知识点聚合提交数和错因数；错误率分母另按实际题目数统计。
     kp_attempts, kp_error_stats = _student_profile_stats(
+        db, student.id, visible_only, assignment_ids, submission_ids,
+    )
+    kp_question_counts, _, _ = _student_actual_question_counts(
         db, student.id, visible_only, assignment_ids, submission_ids,
     )
     kp_errors = {kp: stats[0] for kp, stats in kp_error_stats.items()}
@@ -399,12 +454,14 @@ def student_profile(
     knowledge_points = []
     for kp in sorted(set(list(kp_attempts) + list(kp_errors))):
         attempts = kp_attempts.get(kp, 0)
+        question_count = kp_question_counts.get(kp, 0)
         err_n = kp_errors.get(kp, 0)
-        # 同一提交可能产生多条 error，错误率上限截断为 1.0，掌握度下限为 0
-        rate = round(min(1.0, err_n / attempts), 3) if attempts else 0.0
+        # 同一道题的重复提交不增加分母；单题多个错误仍将比率截断至 100%。
+        rate = round(min(1.0, err_n / question_count), 3) if question_count else 0.0
         knowledge_points.append({
             "knowledge_point": kp,
             "attempts": attempts,
+            "question_count": question_count,
             "errors": err_n,
             "error_rate": rate,
             "mastery": round(1 - rate, 3),
@@ -456,6 +513,9 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     """学生首页待办简报：未完成作业 / 待订正 / 需要加固的知识点 / 最近一次批改摘要。
     全部从现有表拼装，不调 LLM（保证首页打开速度与稳定性）。"""
     kp_attempts, kp_error_stats, pending_corrections_by_kp = _student_briefing_stats(
+        db, student.id, visible_only,
+    )
+    kp_question_counts, _, _ = _student_actual_question_counts(
         db, student.id, visible_only,
     )
     latest_submission_query = db.query(
@@ -561,7 +621,7 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     pending_corrections_count = sum(pending_corrections_by_kp.values())
     pending_kps = sorted(pending_corrections_by_kp)
 
-    # 需要加固的知识点：顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点
+    # 需要加固的知识点：顽固误区涉及的知识点 ∪ 实际题目错误率 ≥ 50% 的知识点。
     # （聚合口径与 student_profile 一致；顽固的排前面）
     kp_errors = {kp: stats[0] for kp, stats in kp_error_stats.items()}
     kp_last_error_at = {kp: stats[1] for kp, stats in kp_error_stats.items()}
@@ -570,7 +630,8 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
     for kp, attempts in kp_attempts.items():
         if kp in stubborn_kps:
             continue
-        rate = kp_errors.get(kp, 0) / attempts if attempts else 0.0
+        question_count = kp_question_counts.get(kp, 0)
+        rate = kp_errors.get(kp, 0) / question_count if question_count else 0.0
         if rate >= 0.5:
             weak_points.append(kp)
 
@@ -580,6 +641,7 @@ def student_briefing(db, student: User, visible_only: bool = False) -> Dict:
         weak_point_details.append({
             "knowledge_point": kp,
             "error_count": kp_errors.get(kp, 0),
+            "question_count": kp_question_counts.get(kp, 0),
             "last_error_at": kp_last_error_at.get(kp),
         })
 
@@ -721,7 +783,10 @@ def list_students(db, steady_only: bool = False, student_ids=None, assignment_id
 # 知识修复率 fixed_ratio = fixed 知识点数 / 出过错知识点数（与本口径配套）。
 
 def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
-    """学生学习报告：按科目聚合提交/正确率/修复进度，并下钻到知识点状态。"""
+    """学生学习报告：按科目聚合题目数、提交数、正确率与修复进度。"""
+    _, question_counts_by_subject_kp, question_counts_by_subject = (
+        _student_actual_question_counts(db, student.id, visible_only)
+    )
     subject_expr = case(
         (Question.id.is_(None), "math"), else_=Question.subject,
     )
@@ -867,6 +932,7 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
         entry = by_subject.setdefault(subject, {
             "subject": subject,
             "submission_count": 0,
+            "question_count": question_counts_by_subject.get(subject, 0),
             "error_total": 0,
             "knowledge_points": [],
         })
@@ -889,15 +955,19 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
             status = "pending"
 
         attempt_count = attempts.get((row.subject, row.knowledge_point), 0)
+        question_count = question_counts_by_subject_kp.get(
+            (row.subject, row.knowledge_point), 0,
+        )
         entry = by_subject[row.subject]
         entry["error_total"] += error_count
         entry["knowledge_points"].append({
             "name": row.knowledge_point,
             "attempts": attempt_count,
+            "question_count": question_count,
             "error_count": error_count,
             "error_rate": round(
-                min(1.0, error_count / attempt_count), 3
-            ) if attempt_count else 0.0,
+                min(1.0, error_count / question_count), 3
+            ) if question_count else 0.0,
             "status": status,
             "last_error_at": row.last_error_at,
         })
@@ -906,13 +976,16 @@ def student_report(db, student: User, visible_only: bool = False) -> List[Dict]:
     for subject in sorted(by_subject):
         entry = by_subject[subject]
         kps = sorted(entry["knowledge_points"], key=lambda x: x["error_rate"], reverse=True)
-        att_total = entry["submission_count"]
+        question_total = entry["question_count"]
         err_total = entry["error_total"]
-        correct_rate = round(1 - min(1.0, err_total / att_total), 3) if att_total else 1.0
+        correct_rate = round(
+            1 - min(1.0, err_total / question_total), 3,
+        ) if question_total else 1.0
         fixed_n = sum(1 for k in kps if k["status"] == "fixed")
         result.append({
             "subject": subject,
-            "submission_count": att_total,
+            "submission_count": entry["submission_count"],
+            "question_count": question_total,
             "correct_rate": correct_rate,
             "pending_fix_count": sum(1 for k in kps if k["status"] != "fixed"),
             "fixed_ratio": round(fixed_n / len(kps), 3) if kps else 1.0,

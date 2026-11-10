@@ -13,10 +13,6 @@
 <template>
   <div class="page">
     <input ref="photoPickerRef" type="file" accept="image/*" hidden @change="onPhotoPickerChange" />
-    <div class="page-head">
-      <h2>交作业</h2>
-      <p class="page-sub">{{ headSub }}</p>
-    </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="loading" class="loading">加载中…</div>
@@ -499,11 +495,6 @@ function openRelatedMistake(mistake: RelatedMistake) {
   selectedRelatedMistake.value = mistake
 }
 
-const headSub = computed(() => {
-  if (!currentDetail.value) return '选择作业后逐题作答，全部完成后提交作业。'
-  if (isOffline.value) return '逐题拍照保存，全部完成后提交作业。'
-  return '可直接输入、使用电子手写或上传作答图片，全部完成后提交作业。'
-})
 /* ---------- 线下拍照流：点按直达图库（v0.9.2） ---------- */
 type FlowHandle = { openPicker: () => void; processFile: (file: File) => Promise<void> }
 const flowRefs = new Map<number, FlowHandle | null>()

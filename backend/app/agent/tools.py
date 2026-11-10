@@ -77,19 +77,21 @@ def briefing_to_text(briefing: dict) -> str:
 
 
 def report_to_text(report: List[dict]) -> str:
-    """把 student_report 压成紧凑文本：按科目给提交/正确率，知识点按错误率列出。"""
+    """把 student_report 压成紧凑文本：正确率按实际题目数计算。"""
     if not report:
         return "还没有任何作答记录，暂时没有学习报告数据。"
     lines = []
     for subj in report:
         lines.append(
-            f"科目 {subj['subject']}：累计提交 {subj['submission_count']} 次，"
+            f"科目 {subj['subject']}：实际题目 {subj['question_count']} 道，"
+            f"累计提交 {subj['submission_count']} 次，"
             f"正确率约 {round(subj['correct_rate'] * 100)}%，"
             f"待修复知识点 {subj['pending_fix_count']} 个，修复进度 {round(subj['fixed_ratio'] * 100)}%。"
         )
         for kp in subj["knowledge_points"]:
             lines.append(
-                f"- 知识点「{kp['name']}」：提交 {kp['attempts']} 次、出错 {kp['error_count']} 次"
+                f"- 知识点「{kp['name']}」：实际题目 {kp['question_count']} 道、"
+                f"提交 {kp['attempts']} 次、出错 {kp['error_count']} 次"
                 f"（错误率 {round(kp['error_rate'] * 100)}%），状态：{_STATUS_LABEL.get(kp['status'], kp['status'])}"
                 f"，最近出错 {_fmt_date(kp['last_error_at'])}。"
             )

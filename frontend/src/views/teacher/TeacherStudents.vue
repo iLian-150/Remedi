@@ -140,7 +140,6 @@
             <label for="new-class-name">班级名称</label>
             <input id="new-class-name" v-model="className" type="text" maxlength="64" placeholder="例如：七年级一班" required />
           </div>
-          <p class="student-modal-note">同名班级会关联到当前任教学科。</p>
           <div v-if="classFormError" class="error-msg" role="alert">{{ classFormError }}</div>
           <div class="student-modal-actions">
             <button type="button" class="btn secondary" :disabled="savingClass" @click="closeClassForm">取消</button>
@@ -198,7 +197,6 @@
     <div v-if="editingStudent" class="student-modal-mask" tabindex="-1" @click.self="closeEdit" @keydown.esc.stop="closeEdit">
       <section class="student-modal" role="dialog" aria-modal="true" aria-labelledby="edit-student-title">
         <h3 id="edit-student-title">编辑学生信息</h3>
-        <p class="student-modal-note">修改后会同步到该学生关联的班级，学生需使用新姓名和学号登录。</p>
         <form class="student-edit-form" @submit.prevent="saveStudentInfo">
           <div class="form-row">
             <label for="edit-student-name">学生姓名</label>

@@ -32,6 +32,8 @@ import type {
   TeacherAssignmentAnalytics,
   TeacherAssignmentInput,
   TeacherAIGradingPage,
+  TeacherAIGradingAssignmentPage,
+  TeacherAIGradingStudentPage,
   TeacherErrorItem,
   TeacherErrorSummary,
   SubjectAgentCode,
@@ -1185,11 +1187,35 @@ export const useTeacherStore = defineStore('teacher', {
       const { data } = await api.get<ReviewDetail>(`/api/teacher/reviews/${submissionId}`)
       return data
     },
+    async fetchAIGradingAssignments(params: {
+      limit: number
+      offset: number
+      keyword?: string
+    }): Promise<TeacherAIGradingAssignmentPage> {
+      const { data } = await api.get<TeacherAIGradingAssignmentPage>(
+        '/api/teacher/ai-gradings/assignments',
+        { params },
+      )
+      return data
+    },
+    async fetchAIGradingStudents(assignmentId: number, params: {
+      limit: number
+      offset: number
+      keyword?: string
+    }): Promise<TeacherAIGradingStudentPage> {
+      const { data } = await api.get<TeacherAIGradingStudentPage>(
+        `/api/teacher/ai-gradings/assignments/${assignmentId}/students`,
+        { params },
+      )
+      return data
+    },
     async fetchAIGradings(params: {
       limit: number
       offset: number
       keyword?: string
       submission_id?: number
+      assignment_id?: number
+      student_id?: number
     }): Promise<TeacherAIGradingPage> {
       const { data } = await api.get<TeacherAIGradingPage>('/api/teacher/ai-gradings', { params })
       return data

@@ -169,7 +169,7 @@ const kpOption = computed(() => ({
     trigger: 'axis',
     formatter: (params: Array<{ dataIndex: number }>) => {
       const d = sortedKps.value[params[0].dataIndex]
-      return `${d.knowledge_point}<br/>作答 ${d.attempts} 次 · 错误 ${d.errors} 次 · 错误率 ${Math.round(d.error_rate * 100)}%`
+      return `${d.knowledge_point}<br/>题目 ${d.question_count} 道 · 作答 ${d.attempts} 次 · 错误 ${d.errors} 次 · 错误率 ${Math.round(d.error_rate * 100)}%`
     }
   },
   grid: { left: 48, right: 24, top: 24, bottom: 48 },

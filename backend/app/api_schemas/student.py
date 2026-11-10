@@ -294,8 +294,9 @@ class CorrectionOut(BaseModel):
 
 class KnowledgePointStat(BaseModel):
     knowledge_point: str
-    attempts: int
-    errors: int
+    attempts: int             # 该知识点的提交次数（同题重复提交分别计数）
+    question_count: int        # 该生有可见提交记录的作业中，该知识点实际题目数
+    errors: int                # 累计 error 记录数
     error_rate: float
     mastery: float
 
@@ -366,6 +367,7 @@ class PendingAssignmentItem(BaseModel):
 class WeakPointDetail(BaseModel):
     knowledge_point: str
     error_count: int              # 该知识点累计出错次数
+    question_count: int           # 该生有可见提交记录的作业中，该知识点实际题目数
     last_error_at: Optional[datetime] = None   # 最近一次出错时间
 
 class BriefingOut(BaseModel):
@@ -378,17 +380,19 @@ class BriefingOut(BaseModel):
 
 class ReportKnowledgePointOut(BaseModel):
     name: str
-    attempts: int                 # 该知识点题目的提交次数
+    attempts: int                 # 该知识点题目的提交次数（同题重复提交分别计数）
+    question_count: int           # 学生涉及作业中的该知识点实际题目数
     error_count: int              # 该知识点累计错题数
-    error_rate: float             # error_count / attempts（上限 1.0，口径同学生画像）
+    error_rate: float             # error_count / question_count（上限 1.0）
     # v0.4.0 四态：pending（待修复）| stubborn（反复出错）| awaiting_verify（已订正待验证）| fixed（已修复，通过二次验证）
     status: str
     last_error_at: Optional[datetime] = None
 
 class SubjectReportOut(BaseModel):
     subject: str                  # math | english
-    submission_count: int         # 该科目提交总数
-    correct_rate: float           # 1 - 错误率（口径同学生画像 mastery）
+    submission_count: int         # 该科目提交总数（重复提交分别计数）
+    question_count: int           # 该生有可见提交记录的作业中，该科目实际题目数
+    correct_rate: float           # 1 - error_count / question_count
     pending_fix_count: int        # 未修复知识点数（status != fixed 的知识点数）
     fixed_ratio: float            # 知识修复率 = 已修复（通过二次验证）知识点 / 出过错的知识点（无错题知识点时为 1.0）
     knowledge_points: List[ReportKnowledgePointOut]

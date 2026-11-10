@@ -36,6 +36,10 @@
             <div class="stat-num tnum">{{ subj.submission_count }}</div>
             <div class="stat-label">累计提交</div>
           </div>
+          <div class="stat">
+            <div class="stat-num tnum">{{ subj.question_count }}</div>
+            <div class="stat-label">涉及题目</div>
+          </div>
           <div class="stat green">
             <div class="stat-num tnum">{{ Math.round(subj.correct_rate * 100) }}%</div>
             <div class="stat-label">正确率</div>
@@ -65,7 +69,7 @@
             <div class="kp-main">
               <span class="kp-name">{{ kp.name }}</span>
               <span class="kp-meta">
-                出错 <span class="tnum">{{ kp.error_count }}</span> 次 · 提交 <span class="tnum">{{ kp.attempts }}</span> 次
+                出错 <span class="tnum">{{ kp.error_count }}</span> 次 · 题目 <span class="tnum">{{ kp.question_count }}</span> 道 · 提交 <span class="tnum">{{ kp.attempts }}</span> 次
                 <template v-if="kp.last_error_at"> · 最近出错 {{ fmtDate(kp.last_error_at) }}</template>
               </span>
               <span class="kp-bar"><span :style="{ width: `${Math.round(kp.error_rate * 100)}%` }"></span></span>

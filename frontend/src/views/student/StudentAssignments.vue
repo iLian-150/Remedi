@@ -36,8 +36,6 @@
       <div v-if="loading" class="paper-loading">作业加载中…</div>
 
       <template v-if="!loading">
-        <p class="rail-note"><AppIcon name="calendar" :size="15" /> 作业日历在右侧栏，点选任意一天即可只看当天发布的作业。</p>
-
         <!-- 日期筛选状态栏（右侧栏日历选中某天时出现；只报当天进度，
              清筛选的按钮在试卷头右侧，避免双份入口） -->
         <div v-if="dateFilter" class="filter-bar">
@@ -501,13 +499,7 @@ onBeforeUnmount(() => {
   100% { opacity: 0.92; transform: rotate(var(--rot)) scale(1); }
 }
 
-/* ---------- 纸面上的提示条 / 筛选条 / 空状态 ---------- */
-.rail-note {
-  display: flex; align-items: center; gap: 7px;
-  font-size: 13.5px; color: var(--text-2);
-  background: #f8fafc; border: 1px dashed #d8dee9; border-radius: var(--radius-control);
-  padding: 10px 14px; margin-bottom: 16px;
-}
+/* ---------- 日期筛选条 / 空状态 ---------- */
 .filter-bar {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);

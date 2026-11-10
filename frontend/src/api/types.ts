@@ -401,6 +401,7 @@ export interface CorrectionResult {
 export interface KnowledgeStat {
   knowledge_point: string
   attempts: number
+  question_count: number
   errors: number
   error_rate: number
   mastery: number
@@ -501,6 +502,35 @@ export interface TeacherAIGradingPage {
   items: TeacherAIGradingItem[]
 }
 
+export interface TeacherAIGradingAssignmentItem {
+  assignment_id: number
+  assignment_title: string
+  student_count: number
+  answer_count: number
+  latest_submitted_at: string
+}
+
+export interface TeacherAIGradingAssignmentPage {
+  total: number
+  limit: number
+  offset: number
+  low_score_threshold: number
+  items: TeacherAIGradingAssignmentItem[]
+}
+
+export interface TeacherAIGradingStudentItem {
+  student: { id: number; name: string; student_no: string | null }
+  answer_count: number
+  latest_submitted_at: string
+}
+
+export interface TeacherAIGradingStudentPage {
+  total: number
+  limit: number
+  offset: number
+  items: TeacherAIGradingStudentItem[]
+}
+
 // 评分系统：审核详情里的评分信息（满分/AI 分/最终分/步骤对了几步）
 export interface ReviewScore {
   question_max: number
@@ -579,6 +609,7 @@ export interface PendingAssignment {
 export interface WeakPointDetail {
   knowledge_point: string
   error_count: number
+  question_count: number
   last_error_at: string | null
 }
 
@@ -816,6 +847,7 @@ export type KnowledgePointStatus = 'pending' | 'stubborn' | 'awaiting_verify' | 
 export interface ReportKnowledgePoint {
   name: string
   attempts: number
+  question_count: number
   error_count: number
   error_rate: number
   status: KnowledgePointStatus
@@ -825,6 +857,7 @@ export interface ReportKnowledgePoint {
 export interface SubjectReport {
   subject: string // 'math' | 'english'
   submission_count: number
+  question_count: number
   correct_rate: number
   pending_fix_count: number
   fixed_ratio: number

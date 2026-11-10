@@ -101,6 +101,8 @@ from ..api_schemas.teacher import (
     TeacherDashboardOut,
     TeacherAIGradingItem,
     TeacherAIGradingPage,
+    TeacherAIGradingAssignmentPage,
+    TeacherAIGradingStudentPage,
     TeacherAIRegradeIn,
     TeacherAIRegradeOut,
     TeacherGradingPreferenceIn,
@@ -1119,6 +1121,125 @@ def update_ai_grading_settings(
     return {"low_score_threshold": preference.low_score_threshold}
 
 
+def _ai_grading_keyword_filter(keyword: Optional[str]):
+    search = (keyword or "").strip()
+    if not search:
+        return None
+    pattern = f"%{search}%"
+    return or_(
+        User.name.ilike(pattern),
+        User.student_no.ilike(pattern),
+        Assignment.title.ilike(pattern),
+        Question.stem.ilike(pattern),
+        Question.knowledge_point.ilike(pattern),
+    )
+
+
+@router.get(
+    "/ai-gradings/assignments",
+    response_model=TeacherAIGradingAssignmentPage,
+    summary="教师 AI 批改作业入口",
+)
+def teacher_ai_grading_assignments(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    keyword: Optional[str] = Query(default=None, max_length=120),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    grouped = (
+        db.query(
+            Assignment.id.label("assignment_id"),
+            Assignment.title.label("assignment_title"),
+            func.count(Submission.id).label("answer_count"),
+            func.count(func.distinct(Submission.student_id)).label("student_count"),
+            func.max(Submission.submitted_at).label("latest_submitted_at"),
+        )
+        .join(Question, Question.assignment_id == Assignment.id)
+        .join(Submission, Submission.question_id == Question.id)
+        .join(User, User.id == Submission.student_id)
+        .filter(
+            Submission.status == "graded",
+            Submission.id.in_(_teacher_submission_ids(db, current)),
+        )
+    )
+    search_filter = _ai_grading_keyword_filter(keyword)
+    if search_filter is not None:
+        grouped = grouped.filter(search_filter)
+    grouped = grouped.group_by(Assignment.id, Assignment.title).subquery()
+    total = int(db.query(func.count()).select_from(grouped).scalar() or 0)
+    rows = db.query(grouped).order_by(
+        grouped.c.latest_submitted_at.desc(), grouped.c.assignment_id.desc(),
+    ).offset(offset).limit(limit).all()
+    preference = db.get(TeacherGradingPreference, current.id)
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "low_score_threshold": preference.low_score_threshold if preference else 60,
+        "items": [dict(row._mapping) for row in rows],
+    }
+
+
+@router.get(
+    "/ai-gradings/assignments/{assignment_id}/students",
+    response_model=TeacherAIGradingStudentPage,
+    summary="教师 AI 批改作业的学生入口",
+)
+def teacher_ai_grading_assignment_students(
+    assignment_id: int,
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    keyword: Optional[str] = Query(default=None, max_length=120),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    _require_teacher_assignment(db, current, assignment_id)
+    grouped = (
+        db.query(
+            User.id.label("student_id"),
+            User.name.label("student_name"),
+            User.student_no.label("student_no"),
+            func.count(Submission.id).label("answer_count"),
+            func.max(Submission.submitted_at).label("latest_submitted_at"),
+        )
+        .join(Submission, Submission.student_id == User.id)
+        .join(Question, Question.id == Submission.question_id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
+        .filter(
+            Question.assignment_id == assignment_id,
+            Submission.status == "graded",
+            Submission.id.in_(_teacher_submission_ids(db, current)),
+        )
+    )
+    search_filter = _ai_grading_keyword_filter(keyword)
+    if search_filter is not None:
+        grouped = grouped.filter(search_filter)
+    grouped = grouped.group_by(User.id, User.name, User.student_no).subquery()
+    total = int(db.query(func.count()).select_from(grouped).scalar() or 0)
+    rows = db.query(grouped).order_by(
+        grouped.c.latest_submitted_at.desc(), grouped.c.student_name.asc(),
+        grouped.c.student_id.asc(),
+    ).offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {
+                "student": {
+                    "id": row.student_id,
+                    "name": row.student_name,
+                    "student_no": row.student_no,
+                },
+                "answer_count": row.answer_count,
+                "latest_submitted_at": row.latest_submitted_at,
+            }
+            for row in rows
+        ],
+    }
+
+
 @router.get("/ai-gradings", response_model=TeacherAIGradingPage,
             summary="教师 AI 批改结果列表")
 def teacher_ai_gradings(
@@ -1126,6 +1247,8 @@ def teacher_ai_gradings(
     offset: int = Query(default=0, ge=0),
     keyword: Optional[str] = Query(default=None, max_length=120),
     submission_id: Optional[int] = Query(default=None, ge=1),
+    assignment_id: Optional[int] = Query(default=None, ge=1),
+    student_id: Optional[int] = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
@@ -1166,6 +1289,10 @@ def teacher_ai_gradings(
         ))
     if submission_id is not None:
         query = query.filter(Submission.id == submission_id)
+    if assignment_id is not None:
+        query = query.filter(Question.assignment_id == assignment_id)
+    if student_id is not None:
+        query = query.filter(Submission.student_id == student_id)
 
     total = query.order_by(None).count()
     submissions = query.order_by(

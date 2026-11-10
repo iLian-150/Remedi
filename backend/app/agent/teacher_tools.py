@@ -131,7 +131,8 @@ def profile_to_text(profile: dict, include_student_no: bool = False) -> str:
     if kps:
         worst = kps[0]
         lines.append(
-            f"最需要关注的知识点是「{worst['knowledge_point']}」：提交 {worst['attempts']} 次、"
+            f"最需要关注的知识点是「{worst['knowledge_point']}」：实际题目 {worst['question_count']} 道、"
+            f"提交 {worst['attempts']} 次、"
             f"出错 {worst['errors']} 次，错误率 {round(worst['error_rate'] * 100)}%。"
         )
         rest = "、".join(

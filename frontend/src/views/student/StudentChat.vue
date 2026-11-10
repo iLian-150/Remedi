@@ -87,7 +87,7 @@
                   <div class="brief-weak-list">
                     <p v-for="d in topWeakPointDetails" :key="d.knowledge_point" class="brief-weak-line">
                       <span class="brief-weak-name">{{ d.knowledge_point }}</span>
-                      <span class="brief-weak-meta">出错 <span class="tnum">{{ d.error_count }}</span> 次</span>
+                      <span class="brief-weak-meta">出错 <span class="tnum">{{ d.error_count }}</span> 次 · 题目 <span class="tnum">{{ d.question_count }}</span> 道</span>
                     </p>
                   </div>
                   <p class="brief-card-more">去学习报告 <AppIcon name="chevron-right" :size="13" /></p>
@@ -600,7 +600,12 @@ function briefingAllDone(b: StudentBriefing): boolean {
 /** 需加固知识点明细：优先用后端 weak_point_details，缺失时用 weak_points 名称兜底 */
 function briefWeakDetails(b: StudentBriefing): WeakPointDetail[] {
   if (b.weak_point_details?.length) return b.weak_point_details
-  return b.weak_points.map((kp) => ({ knowledge_point: kp, error_count: 0, last_error_at: null }))
+  return b.weak_points.map((kp) => ({
+    knowledge_point: kp,
+    error_count: 0,
+    question_count: 0,
+    last_error_at: null,
+  }))
 }
 
 // 简报「去完成」：选中该作业里第一道还没做的数学题。

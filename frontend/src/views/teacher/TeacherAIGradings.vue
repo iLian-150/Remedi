@@ -11,11 +11,11 @@
             v-model="keyword"
             type="text"
             placeholder="学生、作业、题目或知识点"
-            @keydown.enter="load(0)"
+            @keydown.enter="search"
           />
         </label>
-        <button class="btn small" :disabled="loading" @click="load(0)">查询</button>
-        <span class="toolbar-total">共 {{ total }} 份 AI 批改</span>
+        <button class="btn small" :disabled="loading" @click="search">查询</button>
+        <span class="toolbar-total">{{ stageCountLabel }}</span>
       </div>
 
       <form class="threshold-settings" @submit.prevent="saveThreshold">
@@ -34,16 +34,68 @@
     </section>
 
     <section class="card grading-list">
+      <header class="grading-stage-head">
+        <div class="grading-breadcrumb">
+          <button v-if="stage !== 'assignments'" type="button" @click="backToAssignments">全部作业</button>
+          <strong v-else>作业</strong>
+          <template v-if="selectedAssignment">
+            <AppIcon name="chevron-right" :size="15" />
+            <button v-if="stage === 'questions'" type="button" @click="backToStudents">{{ selectedAssignment.assignment_title }}</button>
+            <strong v-else>{{ selectedAssignment.assignment_title }}</strong>
+          </template>
+          <template v-if="selectedStudent">
+            <AppIcon name="chevron-right" :size="15" />
+            <strong>{{ selectedStudent.student.name }}</strong>
+          </template>
+        </div>
+      </header>
+
       <div v-if="loading" class="loading">加载中…</div>
-      <div v-else-if="!items.length" class="empty">暂无 AI 批改记录。</div>
+      <div v-else-if="stage === 'assignments' && !assignments.length" class="empty">暂无 AI 批改作业。</div>
+      <div v-else-if="stage === 'assignments'" class="grading-entry-grid">
+        <button
+          v-for="assignment in assignments"
+          :key="assignment.assignment_id"
+          type="button"
+          class="grading-entry assignment-entry"
+          @click="selectAssignment(assignment)"
+        >
+          <span class="grading-entry-icon"><AppIcon name="clipboard" :size="19" /></span>
+          <span class="grading-entry-main">
+            <strong>{{ assignment.assignment_title || '未命名作业' }}</strong>
+            <span>{{ assignment.student_count }} 名学生 · {{ assignment.answer_count }} 道已批改题目</span>
+          </span>
+          <span class="grading-entry-date tnum">最近提交 {{ fmtTime(assignment.latest_submitted_at) }}</span>
+          <AppIcon class="grading-entry-arrow" name="chevron-right" :size="17" />
+        </button>
+      </div>
+
+      <div v-else-if="stage === 'students' && !students.length" class="empty">这份作业暂无 AI 批改记录。</div>
+      <div v-else-if="stage === 'students'" class="grading-entry-grid student-entry-grid">
+        <button
+          v-for="entry in students"
+          :key="entry.student.id"
+          type="button"
+          class="grading-entry student-entry"
+          @click="selectStudent(entry)"
+        >
+          <span class="grading-entry-icon"><AppIcon name="users" :size="19" /></span>
+          <span class="grading-entry-main">
+            <strong>{{ entry.student.name }}</strong>
+            <span>学号 {{ entry.student.student_no || '—' }} · {{ entry.answer_count }} 道已批改题目</span>
+          </span>
+          <span class="grading-entry-date tnum">最近提交 {{ fmtTime(entry.latest_submitted_at) }}</span>
+          <AppIcon class="grading-entry-arrow" name="chevron-right" :size="17" />
+        </button>
+      </div>
+
+      <div v-else-if="!items.length" class="empty">该学生暂无已批改题目。</div>
       <div v-else class="table-scroll">
         <table class="table">
           <thead>
             <tr>
-              <th>学生 / 作业</th>
               <th>题目</th>
               <th>AI 得分</th>
-              <th>整份作业</th>
               <th>批改状态</th>
               <th>时间</th>
               <th></th>
@@ -57,10 +109,6 @@
               :class="{ 'low-score-row': item.is_low_score }"
               @click="openDetail(item.submission_id)"
             >
-              <td>
-                <strong>{{ item.student.name }}</strong>
-                <span class="table-sub">{{ item.assignment_title || '未命名作业' }}</span>
-              </td>
               <td class="question-cell">
                 <span>{{ item.question_stem || '暂无题目文本' }}</span>
                 <small>{{ item.knowledge_point || item.subject }}</small>
@@ -70,18 +118,12 @@
                 <small v-if="item.final_score !== null">教师定分 {{ fmtScore(item.final_score) }}</small>
               </td>
               <td>
-                <span v-if="item.assignment_complete" class="assignment-score tnum">
-                  {{ fmtScore(item.assignment_ai_score) }} / {{ fmtScore(item.assignment_max_score) }}
-                </span>
-                <span v-else class="table-sub">进行中</span>
-                <span v-if="item.is_low_score" class="badge badge-red low-score-badge">低于 {{ threshold }}%</span>
-              </td>
-              <td>
                 <span v-if="item.review_status === 'pending'" class="badge badge-amber">待二次批改</span>
                 <span v-else-if="item.teacher_regraded" class="badge badge-blue">教师已二次批改</span>
                 <span v-else class="badge badge-green">AI 已批改</span>
                 <span v-if="item.error_count" class="error-count">{{ item.error_count }} 处错因</span>
                 <span v-else class="table-sub">全对</span>
+                <span v-if="item.is_low_score" class="badge badge-red low-score-badge">整份作业低于 {{ threshold }}%</span>
               </td>
               <td class="time-cell tnum">{{ fmtTime(item.submitted_at) }}</td>
               <td><button type="button" class="btn small secondary" @click.stop="openDetail(item.submission_id)">查看 / 修改</button></td>
@@ -90,10 +132,10 @@
         </table>
       </div>
 
-      <div v-if="total > pageSize" class="pagination">
-        <button class="btn small secondary" :disabled="offset === 0 || loading" @click="load(offset - pageSize)">上一页</button>
-        <span class="tnum">{{ offset + 1 }}–{{ Math.min(offset + items.length, total) }} / {{ total }}</span>
-        <button class="btn small secondary" :disabled="offset + pageSize >= total || loading" @click="load(offset + pageSize)">下一页</button>
+      <div v-if="stageTotal > stagePageSize" class="pagination">
+        <button class="btn small secondary" :disabled="stageOffset === 0 || loading" @click="changePage(-1)">上一页</button>
+        <span class="tnum">{{ stageOffset + 1 }}–{{ Math.min(stageOffset + stageItemCount, stageTotal) }} / {{ stageTotal }}</span>
+        <button class="btn small secondary" :disabled="stageOffset + stagePageSize >= stageTotal || loading" @click="changePage(1)">下一页</button>
       </div>
     </section>
 
@@ -190,17 +232,32 @@
 import { computed, onMounted, onUnmounted, ref, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
-import type { ReviewDetail, TeacherAIGradingItem } from '../../api/types'
+import type {
+  ReviewDetail,
+  TeacherAIGradingAssignmentItem,
+  TeacherAIGradingItem,
+  TeacherAIGradingStudentItem,
+} from '../../api/types'
 import { ERROR_TYPES, STEP_STATUS_TEXT } from '../../api/types'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 
 const teacher = useTeacherStore()
 const route = useRoute()
+const assignmentPageSize = 12
+const studentPageSize = 24
 const pageSize = 50
+const assignments = ref<TeacherAIGradingAssignmentItem[]>([])
+const students = ref<TeacherAIGradingStudentItem[]>([])
 const items = ref<TeacherAIGradingItem[]>([])
-const total = ref(0)
-const offset = ref(0)
+const assignmentTotal = ref(0)
+const studentTotal = ref(0)
+const questionTotal = ref(0)
+const assignmentOffset = ref(0)
+const studentOffset = ref(0)
+const questionOffset = ref(0)
+const selectedAssignment = ref<TeacherAIGradingAssignmentItem | null>(null)
+const selectedStudent = ref<TeacherAIGradingStudentItem | null>(null)
 const keyword = ref('')
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -217,10 +274,24 @@ const thresholdLoaded = ref(false)
 const savingThreshold = ref(false)
 const correctingId = ref<number | null>(null)
 const correctionForms = reactive<Record<number, { type: string; note: string }>>({})
+const detailListItem = ref<TeacherAIGradingItem | null>(null)
 let listRequest = 0
 let detailRequest = 0
 
-const selectedItem = computed(() => items.value.find((item) => item.submission_id === selectedId.value) ?? null)
+const stage = computed(() => selectedStudent.value ? 'questions' : selectedAssignment.value ? 'students' : 'assignments')
+const stageTotal = computed(() => stage.value === 'assignments' ? assignmentTotal.value : stage.value === 'students' ? studentTotal.value : questionTotal.value)
+const stageOffset = computed(() => stage.value === 'assignments' ? assignmentOffset.value : stage.value === 'students' ? studentOffset.value : questionOffset.value)
+const stagePageSize = computed(() => stage.value === 'assignments' ? assignmentPageSize : stage.value === 'students' ? studentPageSize : pageSize)
+const stageItemCount = computed(() => stage.value === 'assignments' ? assignments.value.length : stage.value === 'students' ? students.value.length : items.value.length)
+const stageCountLabel = computed(() => stage.value === 'assignments'
+  ? `共 ${assignmentTotal.value} 份作业`
+  : stage.value === 'students'
+    ? `共 ${studentTotal.value} 名学生`
+    : `共 ${questionTotal.value} 道已批改题目`)
+const selectedItem = computed(() =>
+  items.value.find((item) => item.submission_id === selectedId.value)
+  ?? (detailListItem.value?.submission_id === selectedId.value ? detailListItem.value : null),
+)
 const answerSteps = computed(() => detail.value?.diagnosis.steps.filter((step) => step.status !== 'stem') ?? [])
 
 function fmtScore(score: number | null): string {
@@ -237,21 +308,20 @@ function errDetail(value: unknown): string {
   return typeof message === 'string' ? message : '请稍后重试。'
 }
 
-async function load(newOffset = offset.value, submissionId?: number) {
+async function loadAssignments(newOffset = assignmentOffset.value) {
   const request = ++listRequest
-  offset.value = newOffset
+  assignmentOffset.value = newOffset
   loading.value = true
   error.value = ''
   try {
-    const page = await teacher.fetchAIGradings({
-      limit: pageSize,
+    const page = await teacher.fetchAIGradingAssignments({
+      limit: assignmentPageSize,
       offset: newOffset,
       keyword: keyword.value.trim() || undefined,
-      submission_id: submissionId
     })
-    if (request !== listRequest) return
-    items.value = page.items
-    total.value = page.total
+    if (request !== listRequest) return false
+    assignments.value = page.items
+    assignmentTotal.value = page.total
     threshold.value = page.low_score_threshold
     if (!thresholdLoaded.value) {
       thresholdInput.value = String(page.low_score_threshold)
@@ -259,12 +329,125 @@ async function load(newOffset = offset.value, submissionId?: number) {
     }
     return true
   } catch (cause) {
-    if (request !== listRequest) return
-    error.value = `AI 批改列表加载失败：${errDetail(cause)}`
+    if (request !== listRequest) return false
+    error.value = `AI 批改作业加载失败：${errDetail(cause)}`
     return false
   } finally {
     if (request === listRequest) loading.value = false
   }
+}
+
+async function loadStudents(newOffset = studentOffset.value) {
+  if (!selectedAssignment.value) return false
+  const request = ++listRequest
+  studentOffset.value = newOffset
+  loading.value = true
+  error.value = ''
+  try {
+    const page = await teacher.fetchAIGradingStudents(selectedAssignment.value.assignment_id, {
+      limit: studentPageSize,
+      offset: newOffset,
+      keyword: keyword.value.trim() || undefined,
+    })
+    if (request !== listRequest) return false
+    students.value = page.items
+    studentTotal.value = page.total
+    return true
+  } catch (cause) {
+    if (request !== listRequest) return false
+    error.value = `学生列表加载失败：${errDetail(cause)}`
+    return false
+  } finally {
+    if (request === listRequest) loading.value = false
+  }
+}
+
+async function load(newOffset = questionOffset.value) {
+  const request = ++listRequest
+  questionOffset.value = newOffset
+  loading.value = true
+  error.value = ''
+  try {
+    const page = await teacher.fetchAIGradings({
+      limit: pageSize,
+      offset: newOffset,
+      keyword: keyword.value.trim() || undefined,
+      assignment_id: selectedAssignment.value?.assignment_id,
+      student_id: selectedStudent.value?.student.id,
+    })
+    if (request !== listRequest) return false
+    items.value = page.items
+    questionTotal.value = page.total
+    threshold.value = page.low_score_threshold
+    if (!thresholdLoaded.value) {
+      thresholdInput.value = String(page.low_score_threshold)
+      thresholdLoaded.value = true
+    }
+    return true
+  } catch (cause) {
+    if (request !== listRequest) return false
+    error.value = `题目列表加载失败：${errDetail(cause)}`
+    return false
+  } finally {
+    if (request === listRequest) loading.value = false
+  }
+}
+
+async function refreshCurrentStage(): Promise<boolean> {
+  if (stage.value === 'assignments') return loadAssignments(assignmentOffset.value)
+  if (stage.value === 'students') return loadStudents(studentOffset.value)
+  return load(questionOffset.value)
+}
+
+function search() {
+  selectedAssignment.value = null
+  selectedStudent.value = null
+  students.value = []
+  items.value = []
+  studentOffset.value = 0
+  questionOffset.value = 0
+  void loadAssignments(0)
+}
+
+function selectAssignment(assignment: TeacherAIGradingAssignmentItem) {
+  selectedAssignment.value = assignment
+  selectedStudent.value = null
+  students.value = []
+  items.value = []
+  studentOffset.value = 0
+  questionOffset.value = 0
+  void loadStudents(0)
+}
+
+function selectStudent(entry: TeacherAIGradingStudentItem) {
+  selectedStudent.value = entry
+  items.value = []
+  questionOffset.value = 0
+  void load(0)
+}
+
+function backToAssignments() {
+  if (stage.value === 'assignments') return
+  listRequest += 1
+  loading.value = false
+  selectedAssignment.value = null
+  selectedStudent.value = null
+  students.value = []
+  items.value = []
+}
+
+function backToStudents() {
+  listRequest += 1
+  loading.value = false
+  selectedStudent.value = null
+  items.value = []
+}
+
+function changePage(direction: -1 | 1) {
+  const nextOffset = Math.max(0, stageOffset.value + direction * stagePageSize.value)
+  if (stage.value === 'assignments') void loadAssignments(nextOffset)
+  else if (stage.value === 'students') void loadStudents(nextOffset)
+  else void load(nextOffset)
 }
 
 async function saveThreshold() {
@@ -280,7 +463,7 @@ async function saveThreshold() {
   try {
     await teacher.updateGradingThreshold(value)
     thresholdInput.value = String(value)
-    if (await load(offset.value)) success.value = '低分标记线已保存。'
+    if (await refreshCurrentStage()) success.value = '低分标记线已保存。'
     else error.value = '低分标记线已保存，列表刷新失败，请重新查询。'
   } catch (cause) {
     error.value = `低分标记线保存失败：${errDetail(cause)}`
@@ -292,6 +475,8 @@ async function saveThreshold() {
 async function openDetail(submissionId: number) {
   const request = ++detailRequest
   selectedId.value = submissionId
+  detailListItem.value = items.value.find((item) => item.submission_id === submissionId)
+    ?? (detailListItem.value?.submission_id === submissionId ? detailListItem.value : null)
   modalOpen.value = true
   detailLoading.value = true
   detail.value = null
@@ -300,12 +485,20 @@ async function openDetail(submissionId: number) {
     const result = await teacher.fetchReviewDetail(submissionId)
     if (request !== detailRequest || selectedId.value !== submissionId) return
     detail.value = result
-    const current = items.value.find((item) => item.submission_id === submissionId)
     finalScoreInput.value = fmtScore(result.score?.final_score ?? result.score?.ai_score ?? null)
     result.diagnosis.errors.forEach((issue) => {
       if (!correctionForms[issue.id]) correctionForms[issue.id] = { type: '', note: '' }
     })
-    if (!current) void load(0, submissionId)
+    if (!detailListItem.value) {
+      try {
+        const page = await teacher.fetchAIGradings({ limit: 1, offset: 0, submission_id: submissionId })
+        if (request === detailRequest && selectedId.value === submissionId) {
+          detailListItem.value = page.items[0] ?? null
+        }
+      } catch {
+        // 深链详情本身仍可展示；列表摘要失败时只隐藏原图预览。
+      }
+    }
   } catch (cause) {
     if (request === detailRequest) error.value = `详情加载失败：${errDetail(cause)}`
   } finally {
@@ -335,7 +528,7 @@ async function saveCorrection(errorId: number) {
     form.note = ''
     success.value = '错因已更新。'
     await openDetail(selectedId.value)
-    await load(offset.value)
+    await refreshCurrentStage()
   } catch (cause) {
     error.value = `错因保存失败：${errDetail(cause)}`
   } finally {
@@ -345,6 +538,7 @@ async function saveCorrection(errorId: number) {
 
 async function saveRegrade() {
   if (!selectedId.value || !detail.value?.score) return
+  const submissionId = selectedId.value
   const raw = String(finalScoreInput.value ?? '').trim()
   const score = Number(raw)
   const max = detail.value.score.question_max
@@ -355,10 +549,10 @@ async function saveRegrade() {
   savingRegrade.value = true
   error.value = ''
   try {
-    await teacher.regradeAIGrading(selectedId.value, score)
+    await teacher.regradeAIGrading(submissionId, score)
     success.value = '二次批改已保存，学生已收到成绩更新提醒。'
-    await load(offset.value)
-    await openDetail(selectedId.value)
+    await refreshCurrentStage()
+    await openDetail(submissionId)
   } catch (cause) {
     error.value = `二次批改保存失败：${errDetail(cause)}`
   } finally {
@@ -369,7 +563,7 @@ async function saveRegrade() {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   const preset = Number(route.query.submission_id)
-  void load(0, Number.isFinite(preset) && preset > 0 ? preset : undefined)
+  void loadAssignments(0)
   if (Number.isFinite(preset) && preset > 0) void openDetail(preset)
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
@@ -398,8 +592,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .threshold-input-wrap span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-2); pointer-events: none; }
 .threshold-controls .btn { min-height: 42px; white-space: nowrap; }
 .grading-list { padding: 0; overflow: hidden; }
+.grading-stage-head { display: flex; min-height: 62px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.grading-breadcrumb { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--text-2); font-size: 14px; }
+.grading-breadcrumb button { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.grading-breadcrumb strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 15px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.grading-entry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 390px), 1fr)); gap: 12px; padding: 18px 20px; }
+.grading-entry {
+  display: grid; min-width: 0; grid-template-columns: 42px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px;
+  padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); color: var(--text); text-align: left; cursor: pointer;
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+.grading-entry:hover { border-color: var(--border-strong); background: var(--surface-2); box-shadow: var(--shadow); }
+.grading-entry:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.grading-entry-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
+.grading-entry-main { display: grid; min-width: 0; gap: 5px; }
+.grading-entry-main strong { overflow: hidden; font-size: 14px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.grading-entry-main > span { overflow: hidden; color: var(--text-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.grading-entry-date { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.grading-entry-arrow { color: var(--text-3); }
+.grading-list > .loading, .grading-list > .empty { margin: 0; padding: 56px 20px; }
 .table-scroll { overflow-x: auto; }
-.table { min-width: 980px; }
+.grading-list .table { min-width: 760px; }
 .grading-row { cursor: pointer; }
 .grading-row td { vertical-align: top !important; }
 .grading-row:hover td { background: var(--primary-50); }
@@ -463,6 +676,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 @media (max-width: 1100px) {
   .grading-controls { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .threshold-settings { margin: 0; padding: 16px 0 0; border-top: 1px solid var(--border); border-left: 0; }
+}
+@media (max-width: 760px) {
+  .grading-entry-grid { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  .grading-entry { grid-template-columns: 38px minmax(0, 1fr) 18px; gap: 10px; padding: 12px; }
+  .grading-entry-icon { width: 38px; height: 38px; }
+  .grading-entry-date { grid-column: 2; grid-row: 2; }
+  .grading-entry-arrow { grid-column: 3; grid-row: 1 / 3; }
+  .grading-stage-head { padding-inline: 14px; }
 }
 @media (max-width: 820px) {
   .page { padding: 16px; }

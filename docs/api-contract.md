@@ -420,6 +420,7 @@
     {
       "knowledge_point": "一元一次方程",
       "attempts": 3,
+      "question_count": 3,
       "errors": 2,
       "error_rate": 0.667,
       "mastery": 0.333
@@ -439,8 +440,8 @@
 }
 ```
 
-- `error_rate = errors / attempts`（保留 3 位小数，上限截断为 1.0——一次提交可能产生多条 error）；`mastery = 1 - error_rate`。
-- `attempts`：该知识点题目的提交次数；`errors`：该知识点累计 error 记录数。
+- `error_rate = errors / question_count`（保留 3 位小数，上限截断为 1.0）；`mastery = 1 - error_rate`。
+- `attempts`：该知识点题目的提交次数；`question_count`：该生有可见提交记录的作业中，该知识点的实际题目数，同一道题重复提交只计一道，未作答题也计入；`errors`：该知识点累计 error 记录数。
 - `knowledge_points` 按 `error_rate` 降序排列，供画像图表直接展示。
 - `suggestion`：v0.9.1 起改为后端本地模板生成（依据已订正成果、最弱知识点拼装具体建议），不再调用 LLM Provider——画像是高频读接口，避免同步等大模型造成数秒级延迟。响应结构不变。教师端 4.6 查同一画像共用同一实现。
 
@@ -483,7 +484,7 @@
   "pending_corrections_knowledge_points": ["一元一次方程"],
   "weak_points": ["一元一次方程"],
   "weak_point_details": [
-    {"knowledge_point": "一元一次方程", "error_count": 2, "last_error_at": "2026-10-06T15:45:00"}
+    {"knowledge_point": "一元一次方程", "error_count": 2, "question_count": 3, "last_error_at": "2026-10-06T15:45:00"}
   ],
   "recent_feedback": "最近一次批改《解方程：2x+3=7》：移项未变号：3 移到等号另一边时没有变号"
 }
@@ -491,8 +492,8 @@
 
 - `pending_assignments`：至少有一道题该生未提交过的作业（数学题以 submissions 计、作文题以 essays 计）；`remaining_count` 为未提交题目数。
 - `pending_corrections_*`：本人 error 中尚无一条 `is_correct=true` 订正记录的条数，及涉及知识点（去重）。
-- `weak_points`：需要加固的知识点 = 顽固误区涉及的知识点 ∪ 错误率 ≥ 50% 的知识点（聚合口径同 3.10）。
-- `weak_point_details`（v0.2.1 新增，非 breaking）：与 `weak_points` 同序的明细，供简报卡片展示每个知识点的累计出错次数与最近出错时间。
+- `weak_points`：需要加固的知识点 = 顽固误区涉及的知识点 ∪ 实际题目错误率 ≥ 50% 的知识点（聚合口径同 3.10）。
+- `weak_point_details`（v0.2.1 新增，非 breaking）：与 `weak_points` 同序的明细，包含累计出错次数、实际题目数与最近出错时间。
 - `recent_feedback`：最近一次数学批改的一句话摘要（有错取引首条 error 的 detail，全对则为鼓励语）；从未提交过时为 `null`。
 
 ### 3.13 GET /api/student/report —— 我的学习报告（v0.2.1 新增）
@@ -506,6 +507,7 @@
   {
     "subject": "math",
     "submission_count": 6,
+    "question_count": 6,
     "correct_rate": 0.667,
     "pending_fix_count": 1,
     "fixed_ratio": 0.5,
@@ -513,6 +515,7 @@
       {
         "name": "一元一次方程",
         "attempts": 3,
+        "question_count": 3,
         "error_count": 2,
         "error_rate": 0.667,
         "status": "stubborn",
@@ -523,8 +526,10 @@
 ]
 ```
 
-- `correct_rate`：`1 - error_rate`，错误率口径与 3.10 学生画像一致（该科目累计 error 数 / 提交数，上限截断 1.0）。
+- `question_count`：该生有可见提交记录的作业中，该科目的实际题目数，同一道题重复提交只计一道，未作答题也计入；`submission_count` 仍是累计提交数。
+- `correct_rate`：`1 - min(1, 该科目累计 error 数 / question_count)`，分母使用实际题目数，不使用累计提交数。
 - `knowledge_points`：仅包含出过错的知识点，按 `error_rate` 降序。
+- 知识点的 `error_rate` 为 `min(1, error_count / question_count)`；其中 `attempts` 保留该知识点的累计提交数，`question_count` 为该生有可见提交记录的作业中该知识点的实际题目数。
 - `status` 口径（**v0.4.0 升级为四态**）：
   - `fixed`（已修复）= 该生已**通过该知识点的二次验证**（3.19 创建、3.21 判定通过）；
   - `awaiting_verify`（已订正待验证）= 该知识点每条错题都已有 `is_correct=true` 的订正，但尚未通过二次验证；
@@ -1475,9 +1480,17 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.31 GET /api/teacher/ai-gradings —— AI 批改统一列表
 
-权限：教师。返回当前教师有权查看的所有已完成 AI 批改提交，按提交时间倒序分页。参数：`limit` 默认 50、最大 100；`offset` 默认 0；`keyword` 可按学生、学号、作业、题目或知识点搜索；`submission_id` 可定位一份提交。
+权限：教师。返回当前教师有权查看的已完成 AI 批改题目，按提交时间倒序分页。参数：`limit` 默认 50、最大 100；`offset` 默认 0；`keyword` 可按学生、学号、作业、题目或知识点搜索；`submission_id` 可定位一份提交；`assignment_id` 与 `student_id` 可按作业和学生缩小题目范围。
 
 每项包含学生、作业、题目、AI/教师分数、错因数、作答步骤统计、原图地址及当前教师处理状态。`teacher_regraded` 表示已有教师保存的最终分；`assignment_ai_score`、`assignment_max_score` 和 `assignment_percent` 按该生该作业每题最新提交汇总；仅作业已完成或到期结算且 AI 总分率严格低于当前教师的标记线时，`is_low_score=true`。标记线默认为 60%，由 `low_score_threshold` 返回；它仅影响当前教师列表标记，不改变固定的 60% 审核规则。教师分数不覆盖 AI 原分，`assignment_score` 是采用教师分数后的当前作业总分。响应为 `{ "total", "limit", "offset", "low_score_threshold", "items": [...] }`。
+
+### 4.31.1 GET /api/teacher/ai-gradings/assignments —— AI 批改作业入口
+
+权限：教师。按当前教师有权查看的已完成 AI 批改记录汇总作业，按最近提交时间倒序分页。参数：`limit` 默认 20、最大 100；`offset` 默认 0；`keyword` 可按学生、学号、作业、题目或知识点搜索。响应包含当前教师的 `low_score_threshold`；`items` 每项包含 `assignment_id`、`assignment_title`、`student_count`、`answer_count` 和 `latest_submitted_at`。
+
+### 4.31.2 GET /api/teacher/ai-gradings/assignments/{assignment_id}/students —— 作业学生入口
+
+权限：教师，且须有该作业查看权限。按当前教师有权查看的已完成批改记录，返回该作业的学生汇总；支持 `limit`（默认 30、最大 100）、`offset` 和同口径 `keyword`。响应 `items` 每项包含 `student`（`id`、`name`、`student_no`）、`answer_count` 和 `latest_submitted_at`。进入学生后，用 4.31 的 `assignment_id`、`student_id` 查询该生已批改题目。
 
 ### PUT /api/teacher/ai-gradings/settings —— 设置低分标记线
 

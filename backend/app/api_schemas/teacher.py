@@ -338,6 +338,36 @@ class TeacherAIGradingPage(BaseModel):
     low_score_threshold: int = 60
     items: List[TeacherAIGradingItem]
 
+class TeacherAIGradingAssignmentItem(BaseModel):
+    assignment_id: int
+    assignment_title: str
+    student_count: int
+    answer_count: int
+    latest_submitted_at: datetime
+
+class TeacherAIGradingAssignmentPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    low_score_threshold: int = 60
+    items: List[TeacherAIGradingAssignmentItem]
+
+class TeacherAIGradingStudentInfo(BaseModel):
+    id: int
+    name: str
+    student_no: Optional[str] = None
+
+class TeacherAIGradingStudentItem(BaseModel):
+    student: TeacherAIGradingStudentInfo
+    answer_count: int
+    latest_submitted_at: datetime
+
+class TeacherAIGradingStudentPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List[TeacherAIGradingStudentItem]
+
 class TeacherGradingPreferenceIn(BaseModel):
     low_score_threshold: int = Field(ge=0, le=100, strict=True)
 
