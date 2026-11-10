@@ -18,8 +18,9 @@ from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_student
 from ..config import settings
-from ..services import assignment_grading as assignment_grading_svc
 from ..database import get_db
+from ..services import assignment_grading as assignment_grading_svc
+from ..services.provider_errors import log_model_failure
 from ..models import (
     Assignment,
     AssignmentClass,
@@ -2875,7 +2876,7 @@ async def photo_review(
             get_provider().diagnose_homework_image, model_data, model_content_type, context
         )
     except Exception as exc:
-        logger.exception("学生图片诊断模型调用失败（student_id=%s）", current.id)
+        log_model_failure(logger, "学生图片诊断模型调用失败（student_id=%s）", exc, current.id)
         if stored_image_path:
             failure_message = "图片识别服务暂时不可用，照片已保存在当前对话中，请稍后重新识别。"
         else:
@@ -3510,8 +3511,8 @@ async def agent_vision_chat_stream(
                 perf_counter() - stream_started_at, len(reply), student_id,
             )
             yield event("done", {"reply": reply})
-        except Exception:
-            logger.exception("学生图片视觉讲解流中断（student_id=%s）", student_id)
+        except Exception as exc:
+            log_model_failure(logger, "学生图片视觉讲解流中断（student_id=%s）", exc, student_id)
             logger.warning(
                 "图片视觉讲解流失败（耗时 %.2f 秒，已输出字符数 %d，student_id=%s）",
                 perf_counter() - stream_started_at,
@@ -3658,9 +3659,9 @@ def agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
                 "related_mistake": related_mistake,
             })
         except Exception as exc:
-            logger.exception(
+            log_model_failure(logger,
                 "学生学习助手流式回复中断（session_id=%s, safe_tools_only=%s）",
-                session.id, body.safe_tools_only,
+                exc, session.id, body.safe_tools_only,
             )
             yield event("error", {"detail": failure_detail(exc, body.safe_tools_only)})
         finally:

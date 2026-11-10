@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 .env.local
 .env
 .env.*
@@ -11,6 +13,7 @@ __pycache__/
 data/
 /runtime/
 backend/knowledge-imports/
+backend/uploads/
 backend/assignment-answer-drafts/
 
 # Node

@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from ..auth import require_teacher
 from ..config import settings
 from ..database import get_db
+from ..services.provider_errors import log_model_failure
 from ..models import (
     Assignment,
     AssignmentExt,
@@ -2725,8 +2726,8 @@ def teacher_agent_chat_stream(body: AgentChatIn, db: Session = Depends(get_db),
                 "suggestions": teacher_suggestions(text, result.get("tools_used")),
                 "session_id": session.id,
             })
-        except Exception:
-            logger.exception("教师班级数据助理流式回复中断")
+        except Exception as exc:
+            log_model_failure(logger, "教师班级数据助理流式回复中断", exc)
             yield event("error", {"detail": "模型暂时无法回复，请稍后重试。"})
         finally:
             reply_stream.close()

@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 
 from .confidence import normalize_confidence
 from .bailian_options import bailian_request_options
+from .provider_errors import log_model_failure
 
 logger = logging.getLogger(__name__)
 
@@ -233,8 +234,8 @@ class DeepSeekProvider(LLMProvider):
             data["confidence"] = normalize_confidence(data.get("confidence", 0.5), 0.5)
             return data
         except Exception as e:
-            logger.exception("LLM classify_error 调用失败")
-            raise RuntimeError("错因分类模型调用失败，请稍后重试") from e
+            log_model_failure(logger, "LLM classify_error 调用失败", e)
+            raise RuntimeError("错因分类模型调用失败，请稍后重试") from None
 
     def score_essay(self, *, text, prompt=None) -> Dict:
         try:
@@ -257,8 +258,8 @@ class DeepSeekProvider(LLMProvider):
                 "overall": data.get("overall", ""),
             }
         except Exception as e:
-            logger.exception("LLM score_essay 调用失败")
-            raise RuntimeError("作文评分模型调用失败，请稍后重试") from e
+            log_model_failure(logger, "LLM score_essay 调用失败", e)
+            raise RuntimeError("作文评分模型调用失败，请稍后重试") from None
 
     def diagnose_homework_text(self, *, subject, question_text, student_work,
                                knowledge_context="") -> Dict:
@@ -360,8 +361,8 @@ class DeepSeekProvider(LLMProvider):
                 "feedback": str(data.get("feedback", "")).strip()[:3000],
             }
         except Exception as e:
-            logger.exception("学科文字作业批改失败（subject=%s）", normalized_subject)
-            raise RuntimeError("学科作业批改失败，请稍后重试") from e
+            log_model_failure(logger, "学科文字作业批改失败（subject=%s）", e, normalized_subject)
+            raise RuntimeError("学科作业批改失败，请稍后重试") from None
 
     def generate_feedback(self, *, student_name, summary) -> str:
         try:
@@ -370,8 +371,8 @@ class DeepSeekProvider(LLMProvider):
                 f"学生：{student_name}\n学习画像：{json.dumps(summary, ensure_ascii=False, default=str)}",
             ).strip()
         except Exception as e:
-            logger.exception("LLM generate_feedback 调用失败")
-            raise RuntimeError("学习建议模型调用失败，请稍后重试") from e
+            log_model_failure(logger, "LLM generate_feedback 调用失败", e)
+            raise RuntimeError("学习建议模型调用失败，请稍后重试") from None
 
     def transcribe_image(self, image_bytes: bytes, content_type: str,
                          question_context: str = "", question_only: bool = False) -> Dict:
@@ -395,8 +396,8 @@ class DeepSeekProvider(LLMProvider):
             if 0 < len(name) <= 24:
                 return name
         except Exception as e:
-            logger.exception("知识点识别调用失败")
-            raise RuntimeError("知识点识别模型调用失败，请稍后重试") from e
+            log_model_failure(logger, "知识点识别调用失败", e)
+            raise RuntimeError("知识点识别模型调用失败，请稍后重试") from None
         raise RuntimeError("模型未返回有效的知识点名称，请稍后重试")
 
     def generate_variant_question(self, *, knowledge_point: str) -> Dict:
@@ -421,8 +422,8 @@ class DeepSeekProvider(LLMProvider):
                 "answer": str(data.get("answer", "")).strip(),
             }
         except Exception as e:
-            logger.exception("LLM generate_variant_question 调用失败")
-            raise RuntimeError("变式题生成失败，请稍后重试") from e
+            log_model_failure(logger, "LLM generate_variant_question 调用失败", e)
+            raise RuntimeError("变式题生成失败，请稍后重试") from None
 
 
 # ---------------------------------------------------------------- OpenAI 兼容视觉任务
@@ -478,8 +479,8 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                 settings.LLM_TIMEOUT_SECONDS,
             )
         except Exception as exc:
-            logger.warning("扫描页文字识别请求失败（%s）", type(exc).__name__)
-            raise RuntimeError("扫描页文字识别服务暂不可用，请稍后重试。") from exc
+            log_model_failure(logger, "扫描页文字识别请求失败", exc)
+            raise RuntimeError("扫描页文字识别服务暂不可用，请稍后重试。") from None
         return str(text or "").strip()
 
     def describe_knowledge_image(self, image_bytes: bytes, context: str = "") -> str:
@@ -496,7 +497,7 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
             )
             return str(result or "").strip()
         except Exception as exc:
-            logger.warning("教材图形解析暂不可用（%s）", type(exc).__name__)
+            log_model_failure(logger, "教材图形解析暂不可用", exc)
             raise RuntimeError("图形解析暂不可用，文字已保留，可重试补全。") from None
 
     def stream_image_answer(self, image_bytes: bytes, content_type: str,
@@ -611,8 +612,8 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                 "confidence": confidence,
             }
         except Exception as e:
-            logger.exception("LLM transcribe_image 调用失败")
-            raise RuntimeError("图片识别失败，请检查图片后重试") from e
+            log_model_failure(logger, "LLM transcribe_image 调用失败", e)
+            raise RuntimeError("图片识别失败，请检查图片后重试") from None
 
     def diagnose_homework_image(self, image_bytes: bytes, content_type: str,
                                 question_context: str = "",
@@ -735,8 +736,8 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                 "confidence": image_confidence,
             }
         except Exception as e:
-            logger.exception("视觉模型作业诊断失败")
-            raise RuntimeError("图片诊断失败，请检查图片或稍后重试") from e
+            log_model_failure(logger, "视觉模型作业诊断失败", e)
+            raise RuntimeError("图片诊断失败，请检查图片或稍后重试") from None
 
     def transcribe_group_image(self, image_bytes: bytes, content_type: str) -> Dict:
         """视觉模型识别大题（v0.13.11）：共同题干 + 全部小题一次拆出。
@@ -781,8 +782,8 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                 raise ValueError("大题识别结果为空")
             return {"stem": stem, "sub_questions": subs}
         except Exception as e:
-            logger.exception("LLM transcribe_group_image 调用失败")
-            raise RuntimeError("大题图片识别失败，请稍后重试") from e
+            log_model_failure(logger, "LLM transcribe_group_image 调用失败", e)
+            raise RuntimeError("大题图片识别失败，请稍后重试") from None
 
 
     def extract_questions_from_page(self, image_bytes: bytes, content_type: str,
@@ -827,8 +828,8 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
                     out.append({"prompt": item.strip(), "knowledge_point": ""})
             return out
         except Exception as e:
-            logger.exception("LLM 页面提题调用失败")
-            raise RuntimeError("练习册页面识别失败，请稍后重试") from e
+            log_model_failure(logger, "LLM 页面提题调用失败", e)
+            raise RuntimeError("练习册页面识别失败，请稍后重试") from None
 
 
 # ---------------------------------------------------------------- 阿里云百炼
