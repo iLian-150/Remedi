@@ -73,11 +73,11 @@
           v-for="item in navItems"
           :key="item.to"
           :to="item.to"
-          :class="{ active: item.activePaths?.some(path => route.path === path || route.path.startsWith(`${path}/`)) }"
+          :class="{ active: item.chatAction ? isNewChatActive : item.activePaths?.some(path => route.path === path || route.path.startsWith(`${path}/`)) }"
           :data-label="item.label"
           :title="sidebarCollapsed ? undefined : item.label"
           :aria-label="item.label"
-          :active-class="item.exact || item.activePaths ? '' : 'active'"
+          :active-class="item.exact || item.activePaths || item.chatAction ? '' : 'active'"
           :exact-active-class="item.exact ? 'active' : ''"
           @click="onNavItemClick(item)"
         >
@@ -224,6 +224,10 @@ onBeforeUnmount(() => {
 const isChatRoute = computed(
   () => route.path === '/student/chat' || route.path === '/teacher/chat'
 )
+const isNewChatActive = computed(() => {
+  if (!isChatRoute.value) return false
+  return auth.role === 'teacher' ? teacher.sessionView.fresh : student.sessionView.fresh
+})
 
 // ---------- 左侧栏收起状态（v0.6.2，桌面端）：localStorage 记忆，首次默认展开 ----------
 // 移动端沿用抽屉逻辑（sidebarOpen），不受此状态影响。
@@ -251,11 +255,12 @@ interface NavItem {
   label: string
   exact?: boolean
   activePaths?: string[]
+  chatAction?: boolean
   badge?: number // v0.9.0：角标数（如教师「待审核」待审数），0/缺省不显示
 }
 
 const STUDENT_NAV: NavItem[] = [
-  { to: '/student/chat', icon: 'compose', label: '新对话' },
+  { to: '/student/chat', icon: 'compose', label: '新对话', chatAction: true },
   { to: '/student/assignments', icon: 'clipboard', label: '作业', activePaths: ['/student/assignments', '/student/submit'] },
   { to: '/student/mistakes', icon: 'book', label: '错题本' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
@@ -264,7 +269,7 @@ const STUDENT_NAV: NavItem[] = [
 ]
 
 const TEACHER_NAV: NavItem[] = [
-  { to: '/teacher/chat', icon: 'compose', label: '新对话' },
+  { to: '/teacher/chat', icon: 'compose', label: '新对话', chatAction: true },
   { to: '/teacher/dashboard', icon: 'chart', label: '总览' },
   { to: '/teacher/assignments', icon: 'clipboard', label: '作业', activePaths: ['/teacher/assignments'] },
   { to: '/teacher/submissions', icon: 'check', label: 'AI 批改', activePaths: ['/teacher/submissions', '/teacher/reviews'] },

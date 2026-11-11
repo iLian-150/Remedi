@@ -19,7 +19,7 @@
           v-for="s in store.sessions"
           :key="s.id"
           class="sb-row"
-          :class="{ active: s.id === store.activeSessionId, confirming: confirmId === s.id }"
+          :class="{ active: s.id === highlightedSessionId, confirming: confirmId === s.id }"
         >
           <div v-if="confirmId === s.id" class="sb-confirm" role="group" aria-label="确认删除对话" :aria-busy="deletingId === s.id">
             <span class="sb-confirm-text">确认删除？</span>
@@ -56,6 +56,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useStudentStore } from '../stores/student'
 import { useTeacherStore } from '../stores/teacher'
@@ -64,10 +65,16 @@ import AppIcon from './icons/AppIcon.vue'
 const emit = defineEmits<{ (e: 'navigate'): void }>()
 
 const auth = useAuthStore()
+const route = useRoute()
 // 双端 store 的会话状态层结构一致，按角色取当前端的那份
 const store = computed(() =>
   auth.role === 'teacher' ? useTeacherStore() : useStudentStore()
 )
+const highlightedSessionId = computed(() => {
+  const chatPath = auth.role === 'teacher' ? '/teacher/chat' : '/student/chat'
+  const sessionView = store.value.sessionView
+  return route.path === chatPath && !sessionView.fresh ? sessionView.id : null
+})
 
 const confirmId = ref<number | null>(null)
 const deletingId = ref<number | null>(null)
