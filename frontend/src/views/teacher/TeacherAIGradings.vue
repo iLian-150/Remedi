@@ -15,7 +15,6 @@
           />
         </label>
         <button class="btn small" :disabled="loading" @click="search">查询</button>
-        <span class="toolbar-total">{{ stageCountLabel }}</span>
       </div>
 
       <form class="threshold-settings" @submit.prevent="saveThreshold">
@@ -283,11 +282,6 @@ const stageTotal = computed(() => stage.value === 'assignments' ? assignmentTota
 const stageOffset = computed(() => stage.value === 'assignments' ? assignmentOffset.value : stage.value === 'students' ? studentOffset.value : questionOffset.value)
 const stagePageSize = computed(() => stage.value === 'assignments' ? assignmentPageSize : stage.value === 'students' ? studentPageSize : pageSize)
 const stageItemCount = computed(() => stage.value === 'assignments' ? assignments.value.length : stage.value === 'students' ? students.value.length : items.value.length)
-const stageCountLabel = computed(() => stage.value === 'assignments'
-  ? `共 ${assignmentTotal.value} 份作业`
-  : stage.value === 'students'
-    ? `共 ${studentTotal.value} 名学生`
-    : `共 ${questionTotal.value} 道已批改题目`)
 const selectedItem = computed(() =>
   items.value.find((item) => item.submission_id === selectedId.value)
   ?? (detailListItem.value?.submission_id === selectedId.value ? detailListItem.value : null),
@@ -570,11 +564,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.grading-controls { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 24px; }
-.grading-toolbar { display: flex; min-width: 0; align-items: end; gap: 12px; flex-wrap: wrap; }
-.search-field { display: grid; flex: 1 1 280px; gap: 5px; min-width: 220px; color: var(--text-2); font-size: 13px; }
-.search-field input { width: 100%; }
-.toolbar-total { margin-left: auto; color: var(--text-2); font-size: 13px; }
+.grading-controls { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 20px; padding: 16px 18px; border-radius: var(--radius-surface); }
+.grading-toolbar { display: flex; min-width: 0; align-items: center; gap: 10px; flex-wrap: wrap; }
+.search-field { display: flex; flex: 1 1 280px; min-width: 220px; align-items: center; gap: 10px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.search-field input { width: 100%; min-width: 0; border-radius: var(--radius-control); }
 .threshold-settings { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 0; padding: 0 0 0 24px; border: 0; border-left: 1px solid var(--border); }
 .threshold-copy { display: grid; gap: 3px; }
 .threshold-copy label { font-weight: 600; }
@@ -674,8 +667,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .detail-loading { padding: 40px; text-align: center; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 1100px) {
-  .grading-controls { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .threshold-settings { margin: 0; padding: 16px 0 0; border-top: 1px solid var(--border); border-left: 0; }
+  .grading-controls { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .threshold-settings { margin: 0; padding: 12px 0 0; border-top: 1px solid var(--border); border-left: 0; }
 }
 @media (max-width: 760px) {
   .grading-entry-grid { grid-template-columns: minmax(0, 1fr); padding: 14px; }
@@ -695,7 +688,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .detail-content { overflow: visible; }
 }
 @media (max-width: 540px) {
-  .toolbar-total { width: 100%; margin-left: 0; }
+  .grading-toolbar .search-field { flex-basis: 100%; }
+  .grading-toolbar > .btn { margin-left: auto; }
   .threshold-settings { gap: 14px; }
   .threshold-controls { width: 100%; }
   .correction-controls { grid-template-columns: 1fr; }
