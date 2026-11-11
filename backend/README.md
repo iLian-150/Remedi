@@ -33,7 +33,7 @@ Linux/macOS 可将 `.venv\Scripts\python.exe` 替换为 `.venv/bin/python`。
 
 原生后端会把默认 Docker 地址 `http://milvus:19530` 转为本机映射地址 `http://127.0.0.1:19530`，不修改 `.env`，自定义 Milvus 地址保持原样。配置文件缺失或模型凭证不完整时，网站和健康检查仍可启动；需要模型的操作返回错误，向量检索按既有规则回退关键词检索。
 
-原生后端与旧 Docker 后端使用不同数据库时，在 `.env` 设置独立的 `RAG_NATIVE_MILVUS_COLLECTION` 前缀（例如 `remedi_subject_knowledge_qwen37_flash_native`）。加载脚本仅为原生进程覆盖集合前缀，保留 Docker 的 `RAG_MILVUS_COLLECTION`；每科仍使用 `前缀_学科`。新前缀应从当前数据库资料建立索引，不复用另一数据库的片段 ID，也不删除旧集合。
+原生后端与旧 Docker 后端使用不同数据库时，在 `.env` 设置独立的 `RAG_NATIVE_MILVUS_COLLECTION` 前缀（例如 `remedi_subject_knowledge_qwen3_embedding4b_native`）。加载脚本仅为原生进程覆盖集合前缀，保留 Docker 的 `RAG_MILVUS_COLLECTION`；每科仍使用 `前缀_学科`。新前缀应从当前数据库资料建立索引，不复用另一数据库的片段 ID，也不删除旧集合。
 
 生产环境由宝塔 Python 项目原生运行后端，工作目录为 `/remedi/backend`，监听 `127.0.0.1:5000`。Docker Compose 仅运行 Milvus、etcd 和 MinIO；向量服务说明见 [Milvus 与 RAG 部署说明](../docs/milvus-rag.md)。本地和生产环境默认不写入演示数据；仅在需要本地演示时手动运行 `seed.py`。
 
@@ -81,15 +81,15 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./remedi.db` | 数据库连接串；切 PG 改为 `postgresql+psycopg2://…` |
-| `LLM_PROVIDER` | `bailian` | 阿里云百炼；模型未配置或调用失败时明确报错，不自动切 Mock |
-| `DASHSCOPE_API_KEY` | 空 | 示例不含真实百炼 API Key；实际凭证只保存在服务器环境配置 |
-| `DASHSCOPE_BASE_URL` | 按工作空间配置 | 使用控制台工作空间专属 APIHost，并附加 `/compatible-mode/v1`，地域须与账号一致 |
-| `DASHSCOPE_MODEL` | `qwen3.8-flash` | 百炼文本问答模型 |
-| `DASHSCOPE_VISION_MODEL` | `qwen3.8-flash` | 图片识别与讲解模型 |
-| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_qwen37_flash` | 新向量模型使用独立集合，保留原集合 |
-| `RAG_EMBEDDING_MODEL` | `qwen3.7-text-embedding-flash` | 学科知识库向量化模型，通过百炼接口调用 |
+| `LLM_PROVIDER` | `openai-compatible` | OpenAI 兼容模型服务；模型未配置或调用失败时明确报错，不自动切 Mock |
+| `LLM_API_KEY` | 空 | AI Ping API Key；真实凭证只保存在服务器 `/remedi/.env` |
+| `LLM_BASE_URL` | `https://aiping.cn/api/v1` | 对话和视觉模型的 OpenAI 兼容接口地址 |
+| `LLM_MODEL` / `LLM_VISION_MODEL` | `GLM-5.3-Flash` | 对话与图片识别模型 |
+| `RAG_API_KEY` / `RAG_BASE_URL` | 空 | 留空时复用 `LLM_API_KEY` / `LLM_BASE_URL` |
+| `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_qwen3_embedding4b` | 新向量模型使用独立集合，保留原集合 |
+| `RAG_EMBEDDING_MODEL` | `Qwen3-Embedding-4B` | 学科知识库向量化模型，通过 AI Ping Embeddings 接口调用 |
 | `RAG_EMBEDDING_DIMENSIONS` | `1024` | 向量维度；变更模型或维度后按部署说明使用匹配的 Milvus 集合并重建索引 |
-| `RAG_RERANK_MODEL` | `qwen3.7-text-rerank` | 候选片段的模型重排；不可用时回退本地重排 |
+| `RAG_RERANK_MODEL` | `Qwen3-Reranker-0.6B` | 候选片段的模型重排；不可用时回退本地重排 |
 | `RAG_RERANK_TIMEOUT_SECONDS` | `10` | 模型重排请求等待上限（秒） |
 | `SEED_DEMO_DATA` | `false` | 默认关闭应用启动时的演示数据初始化；本地演示数据可通过 `seed.py` 手动生成 |
 | `LLM_TIMEOUT_SECONDS` | `120` | 对话模型等待上限（秒） |
@@ -98,9 +98,9 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 
 **注意**：不要在代码或文档里硬编码任何真实 API key，一律走环境变量。
 
-工作空间专属地址示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；从百炼控制台复制实际 APIHost，并按账号替换工作空间标识和地域。模型可用性通过实际请求验证。模型配置不完整或暂不可用时，网站、数据库与健康检查仍可启动；向量检索回退 BM25，模型重排调用失败时回退本地重排并返回安全警告。未配置凭证或将 `RAG_RERANK_MODEL` 设为空时，仅使用本地重排。知识库试查响应新增 `rerank_mode`（`model | local`），可分别确认重排方式与 `retrieval_mode`（`bm25 | hybrid`）表示的召回方式。
+AI Ping 兼容地址为 `https://aiping.cn/api/v1`。模型可用性通过实际请求验证。模型配置不完整或暂不可用时，网站、数据库与健康检查仍可启动；向量检索回退 BM25，模型重排调用失败时回退本地重排并返回安全警告。未配置凭证或将 `RAG_RERANK_MODEL` 设为空时，仅使用本地重排。知识库试查响应新增 `rerank_mode`（`model | local`），可分别确认重排方式与 `retrieval_mode`（`bm25 | hybrid`）表示的召回方式。
 
-若显式选择 `Kimi-K3`，其 `enable_thinking` 与 `preserve_thinking` 始终开启。工具调用循环仅在本次请求的内存中保留并回传 `reasoning_content`，确保后续工具轮符合模型协议；界面、SSE 回复正文及持久化聊天记录只保留可见答案。接通有效模型配置后，从教师端学科知识库重建索引，将旧资料同步到新集合 `remedi_subject_knowledge_qwen37_flash`。
+若显式选择 `Kimi-K3`，其 `enable_thinking` 与 `preserve_thinking` 始终开启。工具调用循环仅在本次请求的内存中保留并回传 `reasoning_content`，确保后续工具轮符合模型协议；界面、SSE 回复正文及持久化聊天记录只保留可见答案。接通有效模型配置后，从教师端学科知识库重建索引，将旧资料同步到新集合 `remedi_subject_knowledge_qwen3_embedding4b`。
 
 ## 目录结构
 
@@ -118,7 +118,7 @@ backend/
 │   ├── services/
 │   │   ├── mathparse.py   # 白名单 AST 数学解析，不执行输入代码
 │   │   ├── diagnosis.py   # 分步诊断、等价性判定、误区模式库、顽固判定、订正判定
-│   │   ├── providers.py   # 阿里云百炼 Provider；失败明确报错
+│   │   ├── providers.py   # AI Ping / OpenAI 兼容 Provider；失败明确报错
 │   │   ├── essays.py      # 作文评分落库
 │   │   └── stats.py       # TopN / 知识点排行 / 学生画像
 │   └── routers/
@@ -149,7 +149,7 @@ backend/
 - 找到**第一个**不等价步骤即停止（后续记 skipped），做错因分类。
 - 解析失败的步骤记 `无法解析`（置信度 0.3），流程继续、基准不变。
 
-**错因分类**（先规则后模型）：误区模式库（(a±b)² 漏交叉项 / 移项不变号 / 分配律漏乘）命中→概念混淆（0.85）；数字微调 ±1/±2/±3 后等价→计算失误（0.7）；兜底→审题遗漏（0.5）。之后由阿里云百炼模型复核；模型不可用时只保留本地规则判断，不拼接模拟回复。
+**错因分类**（先规则后模型）：误区模式库（(a±b)² 漏交叉项 / 移项不变号 / 分配律漏乘）命中→概念混淆（0.85）；数字微调 ±1/±2/±3 后等价→计算失误（0.7）；兜底→审题遗漏（0.5）。之后由配置的 AI Ping 模型复核；模型不可用时只保留本地规则判断，不拼接模拟回复。
 
 **顽固误区**：同学生同知识点过去 N 天（默认 30）内已有错误 → `is_stubborn=true`。
 
@@ -162,5 +162,5 @@ backend/
 3. **算术偏差检测只试 ±1/±2/±3 的数字微调**，复杂口算错误（如 7×8=54）识别不到。
 4. **隐式乘法与符号**：`2x` 可解析；但 `xy` 会被当作单个变量名；中文注释会被剥离，残留中文则整步记无法解析。
 5. **订正判定**只验证"订正内容与出错前一步等价"，不检查订正是否真正修复了错误类型。
-6. 当前部署不启用 Mock 作文评分；作文评分使用阿里云百炼模型，API Key 未配置或调用失败会返回模型错误。
+6. 当前部署不启用 Mock 作文评分；作文评分使用配置的 AI Ping 模型，API Key 未配置或调用失败会返回模型错误。
 7. SQLite 已启用 WAL，并会等待数据库锁最多 30 秒，以减少读写竞争；但 SQLite 仍然一次只能有一个写事务。写并发较高时应切换到 PostgreSQL（表结构已兼容，改 `DATABASE_URL` 即可）。

@@ -200,7 +200,8 @@ def _grade_job(job_id: int) -> None:
                 "group_stem": group_stems.get(question.id), "answer_text": answer.answer_text,
                 "image_hash": (hashlib.sha256(_draft_image_path(answer.image_path).read_bytes()).hexdigest()
                                if answer.image_path else None),
-                "vision_model": settings.DASHSCOPE_VISION_MODEL, "text_model": settings.DASHSCOPE_MODEL,
+                "vision_model": settings.LLM_VISION_MODEL or settings.DASHSCOPE_VISION_MODEL,
+                "text_model": settings.LLM_MODEL or settings.DASHSCOPE_MODEL,
             }
             fingerprint = hashlib.sha256(json.dumps(source, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             fingerprints[question.id] = fingerprint

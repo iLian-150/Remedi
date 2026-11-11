@@ -14,7 +14,7 @@
 - **数据格式**：请求与响应均为 `application/json; charset=utf-8`。
 - **时间格式**：ISO 8601，如 `2026-10-06T15:40:35`（本地时间，不带时区后缀）。
 - **分页**：列表接口统一用 `limit`（默认 20，最大 100）、`offset`（默认 0），响应形如 `{"total": 42, "items": [...]}`。
-- **模型配置**：通过阿里云百炼工作空间专属 APIHost 调用文字和视觉 `qwen3.8-flash`、向量 `qwen3.7-text-embedding-flash`（1024 维）及重排 `qwen3.7-text-rerank`。APIHost 由控制台确认，格式示例为 `https://<workspace-id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，工作空间与地域按实际账号替换。实际密钥只保存在服务器环境配置；配置项本身不表示真实模型调用已通过。
+- **模型配置**：通过 AI Ping OpenAI 兼容 API `https://aiping.cn/api/v1` 调用文字和视觉 `GLM-5.3-Flash`、向量 `Qwen3-Embedding-4B`（1024 维）及重排 `Qwen3-Reranker-0.6B`。实际密钥只保存在服务器 `/remedi/.env`；配置项本身不表示真实模型调用已通过。
 
 ### 1.1 认证方式（Mock 登录）
 
@@ -1435,7 +1435,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 权限：当前学科教师。`subject` 取九个 Agent 学科代码之一。`GET /knowledge/{subject}` 返回资料摘要（不含正文）、顶层 `vector_enabled`（是否配置 Milvus）及每条资料的 `passage_count`；`GET /knowledge/{subject}/{chunk_id}` 按需返回指定资料正文和摘要字段。`POST` 请求 `{ "title": "一次函数", "content": "……", "source_name": "教师整理" }` 添加文本资料；标题、正文不能仅含空白。`DELETE` 删除整条资料及关系库片段，先在短事务内锁定并校验资料，再提交本地删除；并发写入导致 SQLite 旧快照失效时返回 409，请求可重试。提交后按删除前捕获的确切片段 ID 清理 Milvus 索引；文档 ID 被新资料复用时，延迟到达的旧清理不会误删新资料向量。向量清理失败返回 `warnings`，残留向量不能引用已删除资料。
 
-新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、跨资料候选分散、模型重排及父块去重；BM25 也会匹配规范化的公式表达式，保留单字母变量及运算符关系。重排模型为 `qwen3.7-text-rerank`，默认超时 10 秒，不可用时回退本地重排并返回安全警告。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
+新增资料响应包含 `passage_count`、`vector_status`（`ready | pending | disabled`）和 `warnings`。本地资料和片段先提交，再同步 Milvus；向量故障不丢失资料，仍支持 BM25 检索。按学科过滤，采用父子分块、BM25 与向量 RRF 融合、跨资料候选分散、模型重排及父块去重；BM25 也会匹配规范化的公式表达式，保留单字母变量及运算符关系。重排模型为 `Qwen3-Reranker-0.6B`，默认超时 10 秒，不可用时回退本地重排并返回安全警告。未配置 Milvus 时仅使用 BM25；未检索到证据时不生成库内引用。
 
 - `POST /api/teacher/knowledge/{subject}/import-pdf`：multipart 必填 `file`，标题由文件名去掉 `.pdf` 后生成，来源使用原文件名。应用不设置文件大小、页数或提取字数上限；读取带文字层的 PDF，纯扫描件返回 `422` 并提示先 OCR。保存物理页码；空白/无文字页不索引且返回警告。响应除上述资料字段外新增 `page_count` 和 `indexed_pages`（均为数量）。
 - `POST /api/teacher/knowledge/{subject}/search`：请求 `{ "query": "一次函数如何判断增减性", "limit": 4 }`，query 为 1–2000 字且不能纯空白，limit 为 1–8。响应 `{ "items": [...], "retrieval_mode": "bm25 | hybrid", "rerank_mode": "model | local", "warnings": [] }`；`rerank_mode` 为 v0.13.317 新增非 breaking 字段，分别表示完成模型重排或采用本地重排，不改变 `retrieval_mode` 的召回语义。每项含 `document_id`、`title`、`source_name`、`page_number`（文本资料为 null）、`passage_id`（未建立片段的旧资料为 null）、`content`（父块）、`score`（排序分而非可信度）、`citation`（如 `[资料12-片段3]`）。已配置的重排模型调用失败或超时时，返回 `rerank_mode=local` 及安全警告；未配置凭证或关闭重排模型时直接采用本地重排。`warnings` 不包含凭证或原始上游响应。
@@ -1443,7 +1443,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 教师助手可通过 `search_teaching_knowledge` 工具检索本人任教学科；学生学科 Agent 自动使用对应学科上下文。模型回答应保留返回的引用、来源和页码，资料内指令不得改变 Agent 行为。部署配置见 [Milvus 部署说明](milvus-rag.md)。
 
-向量模型使用 `qwen3.7-text-embedding-flash`，维度为 1024，新集合为 `remedi_subject_knowledge_qwen37_flash`；切换模型后重新索引，保留旧集合和业务数据。
+向量模型使用 `Qwen3-Embedding-4B`，维度为 1024，新集合为 `remedi_subject_knowledge_qwen3_embedding4b`；切换模型后重新索引，保留旧集合和业务数据。
 
 ---
 

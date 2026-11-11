@@ -55,9 +55,10 @@ def _model() -> str:
 
 
 def _embedding_key() -> str:
-    token = settings.DASHSCOPE_API_KEY.strip()
+    token = (settings.RAG_API_KEY.strip() or settings.LLM_API_KEY.strip()
+             or settings.DASHSCOPE_API_KEY.strip())
     if not token:
-        raise RuntimeError("未配置 DASHSCOPE_API_KEY，百炼向量服务暂不可用")
+        raise RuntimeError("未配置 RAG_API_KEY 或 LLM_API_KEY，向量服务暂不可用")
     return token
 
 
@@ -65,19 +66,19 @@ def _embedding_dimensions() -> int:
     dimension = settings.RAG_EMBEDDING_DIMENSIONS
     if isinstance(dimension, bool) or not isinstance(dimension, int) or not 2 <= dimension <= 32768:
         raise RuntimeError("RAG 向量维数配置无效")
-    if _model() == "qwen3.7-text-embedding-flash" and dimension not in {256, 512, 768, 1024}:
-        raise RuntimeError("qwen3.7-text-embedding-flash 仅支持 256、512、768 或 1024 维")
     return dimension
 
 
 def _embedding_endpoint() -> str:
-    base_url = settings.DASHSCOPE_BASE_URL.strip().rstrip("/")
+    base_url = (settings.RAG_BASE_URL.strip().rstrip("/")
+                or settings.LLM_BASE_URL.strip().rstrip("/")
+                or settings.DASHSCOPE_BASE_URL.strip().rstrip("/"))
     parsed = urlsplit(base_url)
     if (
         parsed.scheme not in {"http", "https"} or not parsed.hostname
         or parsed.username or parsed.password or parsed.query or parsed.fragment
     ):
-        raise RuntimeError("百炼向量服务地址配置无效")
+        raise RuntimeError("向量服务地址配置无效")
     return base_url + "/embeddings"
 
 
@@ -125,7 +126,7 @@ def _ordered_embeddings(payload: Any, count: int, dimension: int) -> list[list[f
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed at most ten texts per Bailian request, without a local vector cache."""
+    """Embed at most ten texts per OpenAI-compatible request, without a local vector cache."""
     if not texts:
         return []
     if any(not isinstance(text, str) or not text.strip() for text in texts):
@@ -151,7 +152,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             batch_vectors = _ordered_embeddings(payload, len(batch), dimension)
             vectors.extend(batch_vectors)
         except Exception:
-            raise RuntimeError("百炼向量服务调用失败或返回格式无效") from None
+            raise RuntimeError("向量服务调用失败或返回格式无效") from None
     return vectors
 
 

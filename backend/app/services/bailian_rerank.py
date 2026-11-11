@@ -1,4 +1,4 @@
-"""Bounded Bailian text reranking, with no remote response in public errors."""
+"""Bounded OpenAI-compatible text reranking, without remote response in errors."""
 from __future__ import annotations
 
 import math
@@ -12,16 +12,18 @@ from ..config import settings
 MAX_CANDIDATES = 24
 MAX_DOCUMENT_CHARS = 1000
 MAX_QUERY_CHARS = 2000
-_PATH = "/api/v1/services/rerank/text-rerank/text-rerank"
-
-
 def configured() -> bool:
     """An unset key or disabled model keeps local reranking silent and offline."""
-    return bool(settings.DASHSCOPE_API_KEY.strip() and settings.RAG_RERANK_MODEL.strip())
+    token = (settings.RAG_API_KEY.strip() or settings.LLM_API_KEY.strip()
+             or settings.DASHSCOPE_API_KEY.strip())
+    return bool(token and settings.RAG_RERANK_MODEL.strip())
 
 
 def _endpoint() -> str:
-    parsed = urlsplit(settings.DASHSCOPE_BASE_URL.strip())
+    base_url = (settings.RAG_BASE_URL.strip().rstrip("/")
+                or settings.LLM_BASE_URL.strip().rstrip("/")
+                or settings.DASHSCOPE_BASE_URL.strip().rstrip("/"))
+    parsed = urlsplit(base_url)
     if (
         parsed.scheme not in {"http", "https"} or not parsed.hostname
         or parsed.username or parsed.password or parsed.query or parsed.fragment
@@ -29,14 +31,19 @@ def _endpoint() -> str:
         raise ValueError("invalid endpoint configuration")
     # Reading port also validates a malformed/non-numeric port before sending.
     parsed.port
-    return urlunsplit((parsed.scheme, parsed.netloc, _PATH, "", ""))
+    path = parsed.path.rstrip("/") + "/rerank"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def _scores(payload: object, count: int) -> list[float]:
     if not isinstance(payload, dict) or payload.get("code") or "error" in payload:
         raise ValueError("invalid rerank response")
-    output = payload.get("output")
-    results = output.get("results") if isinstance(output, dict) else None
+    results = payload.get("results")
+    # Keep accepting the legacy DashScope response while new deployments use
+    # the AI Ping-compatible /rerank response shape.
+    if results is None:
+        output = payload.get("output")
+        results = output.get("results") if isinstance(output, dict) else None
     if not isinstance(results, list) or len(results) != count:
         raise ValueError("incomplete rerank response")
     by_index: dict[int, float] = {}
@@ -70,9 +77,10 @@ def rerank_documents(query: str, documents: list[str]) -> list[float]:
         raise ValueError("重排问题不能为空")
     if len(documents) > MAX_CANDIDATES or any(not isinstance(text, str) or not text.strip() for text in documents):
         raise ValueError("重排候选须为 1 至 24 条非空文本")
-    token = settings.DASHSCOPE_API_KEY.strip()
+    token = (settings.RAG_API_KEY.strip() or settings.LLM_API_KEY.strip()
+             or settings.DASHSCOPE_API_KEY.strip())
     if not token:
-        raise RuntimeError("未配置 DASHSCOPE_API_KEY，百炼重排服务暂不可用")
+        raise RuntimeError("未配置 RAG_API_KEY 或 LLM_API_KEY，重排服务暂不可用")
     try:
         model = settings.RAG_RERANK_MODEL.strip()
         timeout = float(settings.RAG_RERANK_TIMEOUT_SECONDS)
@@ -84,11 +92,10 @@ def rerank_documents(query: str, documents: list[str]) -> list[float]:
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={
                 "model": model,
-                "input": {
-                    "query": query.strip()[:MAX_QUERY_CHARS],
-                    "documents": [text.strip()[:MAX_DOCUMENT_CHARS] for text in documents],
-                },
-                "parameters": {"top_n": len(documents)},
+                "query": query.strip()[:MAX_QUERY_CHARS],
+                "documents": [text.strip()[:MAX_DOCUMENT_CHARS] for text in documents],
+                "top_n": len(documents),
+                "return_documents": False,
             },
             timeout=(min(3.0, timeout), timeout),
             allow_redirects=False,
@@ -99,4 +106,4 @@ def rerank_documents(query: str, documents: list[str]) -> list[float]:
             payload = response.json()
         return _scores(payload, len(documents))
     except Exception:
-        raise RuntimeError("百炼重排服务调用失败或返回格式无效") from None
+        raise RuntimeError("重排服务调用失败或返回格式无效") from None

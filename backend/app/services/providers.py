@@ -1,6 +1,6 @@
 # LLM Provider 抽象层。
 #   - LLMProvider：抽象类，定义 classify_error / score_essay / generate_feedback
-#   - BailianProvider：统一调用阿里云百炼 OpenAI 兼容接口；未配置凭证或调用失败时明确报错，
+#   - BailianProvider：统一调用 OpenAI 兼容接口；未配置凭证或调用失败时明确报错，
 #     不返回 Mock 模拟结果。
 import base64
 import json
@@ -832,17 +832,17 @@ class OpenAICompatibleVisionProvider(DeepSeekProvider):
             raise RuntimeError("练习册页面识别失败，请稍后重试") from None
 
 
-# ---------------------------------------------------------------- 阿里云百炼
+# ---------------------------------------------------------------- OpenAI 兼容 Provider
 
 class BailianProvider(OpenAICompatibleVisionProvider):
-    """百炼文本和视觉均走 DashScope OpenAI 兼容 Chat Completions。"""
+    """文本和视觉模型均走 OpenAI 兼容 Chat Completions。"""
 
     def __init__(self, api_key: str, base_url: str, model: str,
                  vision_model: str = "qwen3.8-flash"):
         if not api_key or not api_key.strip():
-            raise RuntimeError("未配置 DASHSCOPE_API_KEY（阿里云百炼）")
+            raise RuntimeError("未配置 LLM_API_KEY（旧配置可使用 DASHSCOPE_API_KEY）")
         if not base_url or not base_url.strip() or not model.strip() or not vision_model.strip():
-            raise RuntimeError("阿里云百炼接口地址或模型名称未配置")
+            raise RuntimeError("OpenAI 兼容接口地址或模型名称未配置")
         super().__init__(api_key=api_key.strip(), base_url=base_url.strip(),
                          model=model.strip(), vision_model=vision_model.strip())
 
@@ -903,20 +903,22 @@ _provider = None
 
 
 def get_provider() -> LLMProvider:
-    """只返回百炼 Provider；缺少 Key 或调用异常时明确报错，不生成假答案。"""
+    """返回 OpenAI 兼容 Provider；缺少 Key 或调用异常时明确报错，不生成假答案。"""
     global _provider
     if _provider is not None:
         return _provider
     from ..config import settings
-    if settings.LLM_PROVIDER.strip().lower() not in {"bailian", "dashscope", "aliyun"}:
-        raise RuntimeError("LLM_PROVIDER 必须设为 bailian（阿里云百炼），当前不提供 Mock 或其他模型")
+    if settings.LLM_PROVIDER.strip().lower() not in {
+        "openai-compatible", "aiping", "ai-ping", "bailian", "dashscope", "aliyun",
+    }:
+        raise RuntimeError("LLM_PROVIDER 必须设为 OpenAI 兼容服务，当前不提供 Mock 模型")
     _provider = BailianProvider(
-        api_key=settings.DASHSCOPE_API_KEY,
-        base_url=settings.DASHSCOPE_BASE_URL,
-        model=settings.DASHSCOPE_MODEL,
-        vision_model=settings.DASHSCOPE_VISION_MODEL,
+        api_key=settings.LLM_API_KEY.strip() or settings.DASHSCOPE_API_KEY,
+        base_url=settings.LLM_BASE_URL.strip() or settings.DASHSCOPE_BASE_URL,
+        model=settings.LLM_MODEL.strip() or settings.DASHSCOPE_MODEL,
+        vision_model=settings.LLM_VISION_MODEL.strip() or settings.DASHSCOPE_VISION_MODEL,
     )
-    logger.info("LLM Provider: bailian (%s)", settings.DASHSCOPE_MODEL)
+    logger.info("LLM Provider: %s (%s)", settings.LLM_PROVIDER, settings.LLM_MODEL or settings.DASHSCOPE_MODEL)
     return _provider
 
 

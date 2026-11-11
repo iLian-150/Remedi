@@ -4,7 +4,7 @@
 #   START → agent ──(tools_condition: 有 tool_calls)──→ tools → agent（循环）
 #                 └──(无 tool_calls)──→ END
 #
-# LLM 走阿里云百炼；配置缺失或调用失败时明确报错，不生成模拟回复。
+# LLM 走配置的 OpenAI 兼容服务；配置缺失或调用失败时明确报错，不生成模拟回复。
 import logging
 from time import perf_counter
 from typing import Annotated, List, Literal, TypedDict
@@ -22,7 +22,7 @@ from .subjects import (
 )
 from ..services.learning_memory import student_memory_to_text
 from ..services.assistant_preferences import preference_context
-from ..services.bailian_options import bailian_request_options, is_kimi_k3
+from ..services.bailian_options import bailian_request_options, preserves_reasoning_content
 from .tools import build_tools, student_notebook_to_text
 from .rag_context import subject_retrieval_query as _subject_retrieval_query
 
@@ -160,13 +160,18 @@ def _build_llm(
     *, streaming: bool = True, temperature: float = 0.5,
     timeout_seconds: int | None = None,
 ):
-    """构造使用百炼 OpenAI 兼容 Chat Completions 的对话与工具模型。"""
-    if settings.LLM_PROVIDER.strip().lower() not in {"bailian", "dashscope", "aliyun"}:
-        raise RuntimeError("提问模型必须配置为阿里云百炼（bailian）")
-    if not settings.DASHSCOPE_API_KEY.strip():
-        raise RuntimeError("未配置 DASHSCOPE_API_KEY（阿里云百炼）")
-    if not settings.DASHSCOPE_BASE_URL.strip() or not settings.DASHSCOPE_MODEL.strip():
-        raise RuntimeError("阿里云百炼接口地址或模型名称未配置")
+    """构造 OpenAI 兼容 Chat Completions 对话与工具模型。"""
+    if settings.LLM_PROVIDER.strip().lower() not in {
+        "openai-compatible", "aiping", "ai-ping", "bailian", "dashscope", "aliyun",
+    }:
+        raise RuntimeError("LLM_PROVIDER 必须配置为 OpenAI 兼容服务")
+    api_key = settings.LLM_API_KEY.strip() or settings.DASHSCOPE_API_KEY.strip()
+    base_url = settings.LLM_BASE_URL.strip() or settings.DASHSCOPE_BASE_URL.strip()
+    model = settings.LLM_MODEL.strip() or settings.DASHSCOPE_MODEL.strip()
+    if not api_key:
+        raise RuntimeError("未配置 LLM_API_KEY（旧配置可使用 DASHSCOPE_API_KEY）")
+    if not base_url or not model:
+        raise RuntimeError("OpenAI 兼容接口地址或模型名称未配置")
     from langchain_openai import ChatOpenAI
 
     class TextSafeChatOpenAI(ChatOpenAI):
@@ -174,7 +179,7 @@ def _build_llm(
 
         def _create_chat_result(self, response, generation_info=None):
             result = super()._create_chat_result(response, generation_info)
-            if is_kimi_k3(self.model_name):
+            if preserves_reasoning_content(self.model_name):
                 raw = response if isinstance(response, dict) else response.model_dump()
                 for generation, choice in zip(result.generations, raw.get("choices") or []):
                     reasoning = (choice.get("message") or {}).get("reasoning_content")
@@ -185,7 +190,7 @@ def _build_llm(
         def _get_request_payload(self, input_, *, stop=None, **kwargs):
             messages = self._convert_input(input_).to_messages()
             payload = super()._get_request_payload(messages, stop=stop, **kwargs)
-            if is_kimi_k3(self.model_name):
+            if preserves_reasoning_content(self.model_name):
                 for serialized, message in zip(payload.get("messages") or [], messages):
                     if isinstance(message, AIMessage):
                         reasoning = message.additional_kwargs.get("reasoning_content")
@@ -214,24 +219,24 @@ def _build_llm(
                         safe_chunk["chunk"] = nested
                     chunk = safe_chunk
                     logger.debug(
-                        "忽略百炼流式响应中的非文本 content（%s）",
+                        "忽略流式响应中的非文本 content（%s）",
                         type(content).__name__,
                     )
             generation = super()._convert_chunk_to_generation_chunk(
                 chunk, default_chunk_class, base_generation_info
             )
-            if generation is not None and is_kimi_k3(self.model_name) and choices:
+            if generation is not None and preserves_reasoning_content(self.model_name) and choices:
                 delta = choices[0].get("delta")
                 reasoning = delta.get("reasoning_content") if isinstance(delta, dict) else None
                 if isinstance(reasoning, str):
                     generation.message.additional_kwargs["reasoning_content"] = reasoning
             return generation
 
-    options = bailian_request_options(settings.DASHSCOPE_MODEL, temperature)
+    options = bailian_request_options(model, temperature, streaming=streaming)
     return TextSafeChatOpenAI(
-        base_url=settings.DASHSCOPE_BASE_URL,
-        api_key=settings.DASHSCOPE_API_KEY,
-        model=settings.DASHSCOPE_MODEL,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
         temperature=options.pop("temperature", None),
         timeout=timeout_seconds or settings.LLM_TIMEOUT_SECONDS,
         max_retries=0,

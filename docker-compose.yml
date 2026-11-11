@@ -20,20 +20,27 @@ services:
       - CORS_ORIGINS=*
       - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Shanghai}
       - SEED_DEMO_DATA=${SEED_DEMO_DATA:-true}
-      # 百炼配置统一从服务器 .env 读取；API Key 可先留空。
-      - LLM_PROVIDER=${LLM_PROVIDER:-bailian}
+      # 对话/视觉模型配置；实际生产后端由宝塔运行，不通过 Compose 启动。
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai-compatible}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-120}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_VISION_MODEL=${LLM_VISION_MODEL:-}
+      # DashScope 变量仅为旧部署保留；RAG 默认复用 LLM 的 AI Ping Key 与 Base URL。
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL:-}
       - DASHSCOPE_MODEL=${DASHSCOPE_MODEL:-qwen3.8-flash}
       - DASHSCOPE_VISION_MODEL=${DASHSCOPE_VISION_MODEL:-qwen3.8-flash}
+      - RAG_API_KEY=${RAG_API_KEY:-}
+      - RAG_BASE_URL=${RAG_BASE_URL:-}
       - RAG_MILVUS_URI=${RAG_MILVUS_URI:-}
       - RAG_MILVUS_TOKEN=${RAG_MILVUS_TOKEN:-}
-      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge_qwen37_flash}
-      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-qwen3.7-text-embedding-flash}
+      - RAG_MILVUS_COLLECTION=${RAG_MILVUS_COLLECTION:-remedi_subject_knowledge_qwen3_embedding4b}
+      - RAG_EMBEDDING_MODEL=${RAG_EMBEDDING_MODEL:-Qwen3-Embedding-4B}
       - RAG_EMBEDDING_DIMENSIONS=${RAG_EMBEDDING_DIMENSIONS:-1024}
       - RAG_TIMEOUT_SECONDS=${RAG_TIMEOUT_SECONDS:-8}
-      - RAG_RERANK_MODEL=${RAG_RERANK_MODEL:-qwen3.7-text-rerank}
+      - RAG_RERANK_MODEL=${RAG_RERANK_MODEL:-Qwen3-Reranker-0.6B}
       - RAG_RERANK_TIMEOUT_SECONDS=${RAG_RERANK_TIMEOUT_SECONDS:-10}
       - KNOWLEDGE_IMPORT_DIR=/data/knowledge-imports
       - RAG_OCR_LANGUAGE=${RAG_OCR_LANGUAGE:-chi_sim+eng}

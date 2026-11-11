@@ -40,7 +40,7 @@ _STOP_TOKENS = {
 _SINGLE_CJK_STOP_TOKENS = frozenset(
     "的一了着过是在有和与及或而但被把让从到对为以将于向跟给就都也还又再很太最非每各某这那此彼其它我你他她们谁哪什么不题"
 )
-_RERANK_WARNING = "百炼重排暂不可用，当前使用本地排序。"
+_RERANK_WARNING = "模型重排暂不可用，当前使用本地排序。"
 _WRITE_TRANSACTION = "_remedi_rag_write_transaction"
 _SESSION_WRITE_TRANSACTION = "_remedi_session_write_transaction"
 _SEARCH_INDEX_CACHE_MAX_SUBJECTS = 2
@@ -509,7 +509,7 @@ def search_knowledge(db: Session, subject: str, query: str, limit: int = 4) -> d
             ranked = sorted(rerank_indices, key=lambda index: -scores[index])
             rerank_mode = "model"
         except Exception as exc:
-            logger.warning("百炼重排暂不可用，使用本地排序（error=%s）", type(exc).__name__)
+            logger.warning("模型重排暂不可用，使用本地排序（error=%s）", type(exc).__name__)
             warnings.append(_RERANK_WARNING)
     selected = []
     parent_keys = set()

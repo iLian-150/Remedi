@@ -14,8 +14,8 @@ class Settings:
     # 切 PostgreSQL 时改为 postgresql+psycopg2://user:pass@host/db 即可，代码零改动。
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./remedi.db")
 
-    # 百炼统一提供文字、视觉、向量与重排模型；凭证缺失时明确报错。
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "bailian").strip().lower()
+    # OpenAI 兼容服务提供文字、视觉、向量与重排模型；凭证缺失时明确报错。
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai-compatible").strip().lower()
     if LLM_PROVIDER in {"dashscope", "aliyun"}:
         LLM_PROVIDER = "bailian"
     LLM_TIMEOUT_SECONDS: int = _get_int("LLM_TIMEOUT_SECONDS", 120)
@@ -27,7 +27,13 @@ class Settings:
     DASHSCOPE_MODEL: str = os.getenv("DASHSCOPE_MODEL", "qwen3.8-flash").strip()
     DASHSCOPE_VISION_MODEL: str = os.getenv("DASHSCOPE_VISION_MODEL", "qwen3.8-flash").strip()
 
-    # 旧提供方环境变量仅保留迁移兼容，当前调用使用上方百炼配置。
+    # 对话与视觉模型可单独接入 OpenAI 兼容服务；旧部署变量仍可作为回退。
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip() or DASHSCOPE_API_KEY
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "").strip().rstrip("/") or DASHSCOPE_BASE_URL
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "").strip() or DASHSCOPE_MODEL
+    LLM_VISION_MODEL: str = os.getenv("LLM_VISION_MODEL", "").strip() or DASHSCOPE_VISION_MODEL
+
+    # 旧提供方环境变量仅保留迁移兼容。
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
@@ -44,12 +50,14 @@ class Settings:
     # Milvus 可独立用 Docker 部署；未设置 URI 时仅启用本地 BM25 检索。
     RAG_MILVUS_URI: str = os.getenv("RAG_MILVUS_URI", "").strip()
     RAG_MILVUS_TOKEN: str = os.getenv("RAG_MILVUS_TOKEN", "").strip()
+    RAG_API_KEY: str = os.getenv("RAG_API_KEY", "").strip() or LLM_API_KEY
+    RAG_BASE_URL: str = os.getenv("RAG_BASE_URL", "").strip().rstrip("/") or LLM_BASE_URL
     RAG_MILVUS_COLLECTION: str = os.getenv(
-        "RAG_MILVUS_COLLECTION", "remedi_subject_knowledge_qwen37_flash").strip()
-    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "qwen3.7-text-embedding-flash").strip()
+        "RAG_MILVUS_COLLECTION", "remedi_subject_knowledge_qwen3_embedding4b").strip()
+    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "Qwen3-Embedding-4B").strip()
     RAG_EMBEDDING_DIMENSIONS: int = _get_int("RAG_EMBEDDING_DIMENSIONS", 1024)
     RAG_TIMEOUT_SECONDS: int = max(1, min(_get_int("RAG_TIMEOUT_SECONDS", 8), 30))
-    RAG_RERANK_MODEL: str = os.getenv("RAG_RERANK_MODEL", "qwen3.7-text-rerank").strip()
+    RAG_RERANK_MODEL: str = os.getenv("RAG_RERANK_MODEL", "Qwen3-Reranker-0.6B").strip()
     RAG_RERANK_TIMEOUT_SECONDS: int = max(1, min(_get_int("RAG_RERANK_TIMEOUT_SECONDS", 10), 30))
 
     # 拍照上传的图片本地存放目录（默认 backend/uploads/）。只存文件，不落库。

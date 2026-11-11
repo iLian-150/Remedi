@@ -70,7 +70,7 @@ def reply_stream(db: Session, context: dict, history: list, text: str, *, studen
         HumanMessage(content=row.content) if row.role == "user" else AIMessage(content=row.content)
         for row in history
     ], HumanMessage(content=text)]
-    # 复用百炼模型适配和推理字段过滤，不开放主页 Agent 的数据写入工具。
+    # 复用模型适配和推理字段过滤，不开放主页 Agent 的数据写入工具。
     stream = _build_llm(streaming=True).stream(messages)
     try:
         for chunk in stream:

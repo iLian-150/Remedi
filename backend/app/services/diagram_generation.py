@@ -52,7 +52,7 @@ def generate_figure(subject: str, question_text: str) -> tuple[FigureSpec | None
     }, ensure_ascii=False)
     try:
         provider = get_provider()
-        # _chat 是现有百炼文字模型通道，复用其凭证、模型设置及超时配置。
+        # _chat 复用当前文字模型配置、凭证及超时设置。
         raw = provider._chat(
             _SYSTEM_PROMPT,
             "判断是否需要教学图形，并按约定 JSON 返回。题目数据：" + material,
