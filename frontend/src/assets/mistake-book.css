@@ -113,31 +113,36 @@
 }
 
 .remedi-mistake-book .mistake-notebook.is-split, .remedi-mistake-book.mistake-notebook.is-split {
-  display: grid;
-  height: calc(100dvh - 88px);
-  min-height: 420px;
-  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
-  grid-template-areas: "notes assistant";
+  display: flex;
+  min-height: calc(100dvh - 88px);
+  flex-direction: column;
   gap: 12px;
 }
 
-.remedi-mistake-book .mistake-notebook.is-split.is-reversed, .remedi-mistake-book.mistake-notebook.is-split.is-reversed { grid-template-areas: "assistant notes"; }
+.remedi-mistake-book .mistake-notebook.is-split.is-reversed, .remedi-mistake-book.mistake-notebook.is-split.is-reversed { flex-direction: column-reverse; }
 .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content, .remedi-mistake-book.mistake-notebook.is-split .mistake-notebook-content {
-  grid-area: notes;
+  width: 100%;
+  flex: 0 0 auto;
   min-width: 0;
-  min-height: 0;
+  min-height: auto;
   max-width: none;
   margin: 0;
-  overflow-y: auto;
+  overflow: visible;
   padding: 74px 28px 24px;
 }
-.remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant, .remedi-mistake-book.mistake-notebook.is-split .mistake-point-assistant { grid-area: assistant; animation: notebook-assistant-enter .22s ease-out both; }
+.remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant, .remedi-mistake-book.mistake-notebook.is-split .mistake-point-assistant {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  flex: 0 0 auto;
+  overflow: visible;
+  animation: notebook-assistant-enter .22s ease-out both;
+}
 .remedi-mistake-book .mistake-notebook.is-split.is-assistant-fullscreen, .remedi-mistake-book.mistake-notebook.is-split.is-assistant-fullscreen {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "assistant";
+  min-height: calc(100dvh - 88px);
 }
 .remedi-mistake-book .mistake-notebook.is-assistant-fullscreen .mistake-notebook-content, .remedi-mistake-book.mistake-notebook.is-assistant-fullscreen .mistake-notebook-content { display: none; }
-.remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-split) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-split) .mistake-board-toolbar { right: calc(40% + 18px); }
+.remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-split) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-split) .mistake-board-toolbar { right: 18px; }
 .remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-split.is-reversed) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-split.is-reversed) .mistake-board-toolbar { right: 18px; }
 .remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-assistant-fullscreen) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-assistant-fullscreen) .mistake-board-toolbar {
   left: 50%;
@@ -147,7 +152,9 @@
 
 .remedi-mistake-book .notebook-category-questions article > .notebook-question-open, .remedi-mistake-book.notebook-category-questions article > .notebook-question-open {
   display: flex;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
@@ -340,8 +347,8 @@
 .remedi-mistake-book .notebook-assignment-progress, .remedi-mistake-book.notebook-assignment-progress { color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .remedi-mistake-book .notebook-assignment-state, .remedi-mistake-book.notebook-assignment-state { padding: 5px 8px; border-radius: var(--radius-detail); color: var(--text-2); background: var(--amber-bg); font-size: 10px; white-space: nowrap; }
 .remedi-mistake-book .notebook-assignment-state.ready, .remedi-mistake-book.notebook-assignment-state.ready { color: var(--text); background: var(--bg); }
-.remedi-mistake-book .notebook-assignment-content, .remedi-mistake-book.notebook-assignment-content { display: flex; flex-direction: column; gap: 10px; padding: 0 17px 16px 48px; }
-.remedi-mistake-book .notebook-category, .remedi-mistake-book.notebook-category { padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
+.remedi-mistake-book .notebook-assignment-content, .remedi-mistake-book.notebook-assignment-content { display: flex; min-width: 0; flex-direction: column; gap: 10px; padding: 0 17px 16px 48px; }
+.remedi-mistake-book .notebook-category, .remedi-mistake-book.notebook-category { width: 100%; min-width: 0; max-width: 100%; padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
 .remedi-mistake-book .notebook-category.studied, .remedi-mistake-book.notebook-category.studied { border-color: var(--border); background: var(--card); }
 .remedi-mistake-book .notebook-category-head, .remedi-mistake-book.notebook-category-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .remedi-mistake-book .notebook-category-head > div, .remedi-mistake-book.notebook-category-head > div { display: flex; min-width: 0; align-items: center; gap: 9px; }
@@ -358,15 +365,17 @@
 .remedi-mistake-book .notebook-repeat-note button, .remedi-mistake-book.notebook-repeat-note button { padding: 3px 6px; border: 1px solid var(--amber-bg); border-radius: var(--radius-detail); color: var(--text); background: var(--card); font: inherit; }
 .remedi-mistake-book .notebook-repeat-note button:hover, .remedi-mistake-book.notebook-repeat-note button:hover { border-color: var(--amber-bg); background: var(--card); }
 .remedi-mistake-book .notebook-category-questions, .remedi-mistake-book.notebook-category-questions { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
-.remedi-mistake-book .notebook-category-questions article, .remedi-mistake-book.notebook-category-questions article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 8px 0 0; border-top: 1px solid var(--bg); }
+.remedi-mistake-book .notebook-category-questions article, .remedi-mistake-book.notebook-category-questions article { display: grid; width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 8px 0 0; border-top: 1px solid var(--bg); }
 .remedi-mistake-book .notebook-category-questions article > div, .remedi-mistake-book.notebook-category-questions article > div { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 5px 8px; }
 .remedi-mistake-book .notebook-category-questions article strong, .remedi-mistake-book.notebook-category-questions article strong { color: var(--text); font-size: 10px; font-weight: 500; }
 .remedi-mistake-book .notebook-category-questions article small, .remedi-mistake-book.notebook-category-questions article small { color: var(--text-2); font-size: 9px; }
-.remedi-mistake-book .markdown-content.notebook-question-excerpt, .remedi-mistake-book.markdown-content.notebook-question-excerpt { grid-column: 1; max-height: 38px; overflow: hidden; color: var(--text-2); font-size: 10px; line-height: 1.7; }
+.remedi-mistake-book .markdown-content.notebook-question-excerpt, .remedi-mistake-book.markdown-content.notebook-question-excerpt { grid-column: 1; min-width: 0; max-width: 100%; max-height: 38px; overflow: hidden; color: var(--text-2); font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
 .remedi-mistake-book .notebook-question-excerpt > :first-child, .remedi-mistake-book.notebook-question-excerpt > :first-child { margin-top: 0; }
 .remedi-mistake-book .notebook-question-excerpt > :last-child, .remedi-mistake-book.notebook-question-excerpt > :last-child { margin-bottom: 0; }
 .remedi-mistake-book .notebook-question-excerpt p, .remedi-mistake-book.notebook-question-excerpt p { margin: 0; }
 .remedi-mistake-book .notebook-category-questions article > button, .remedi-mistake-book.notebook-category-questions article > button { display: inline-flex; grid-column: 2; grid-row: 1 / span 2; align-items: center; gap: 4px; padding: 5px; border: 0; border-radius: var(--radius-detail); color: var(--text); background: transparent; font-size: 10px; white-space: nowrap; }
+.remedi-mistake-book .notebook-category-questions article > .notebook-question-open, .remedi-mistake-book.notebook-category-questions article > .notebook-question-open { grid-column: 1; grid-row: 1 / span 2; overflow-wrap: anywhere; }
+.remedi-mistake-book .notebook-question-open > span, .remedi-mistake-book.notebook-question-open > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
 .remedi-mistake-book .notebook-category-questions article > button:hover, .remedi-mistake-book.notebook-category-questions article > button:hover { background: var(--bg); }
 .remedi-mistake-book .notebook-category-questions article > button svg, .remedi-mistake-book.notebook-category-questions article > button svg { width: 13px; height: 13px; }
 .remedi-mistake-book .notebook-assignment-footer, .remedi-mistake-book.notebook-assignment-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 5px; color: var(--text-2); font-size: 11px; }
@@ -437,8 +446,7 @@
 @container (max-width: 850px) {
   .remedi-mistake-book .mistake-notebook.is-split, .remedi-mistake-book.mistake-notebook.is-split {
     display: flex;
-    height: calc(100dvh - 124px);
-    min-height: 520px;
+    min-height: 0;
     flex-direction: column;
     gap: 9px;
   }
@@ -446,12 +454,13 @@
   .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content, .remedi-mistake-book.mistake-notebook.is-split .mistake-notebook-content {
     width: 100%;
     max-width: none;
-    flex: 0 0 42%;
-    height: 42%;
-    min-height: 230px;
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
     padding: 66px 20px 18px;
   }
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant, .remedi-mistake-book.mistake-notebook.is-split .mistake-point-assistant, .remedi-mistake-book .mistake-notebook.is-assistant-fullscreen .mistake-point-assistant, .remedi-mistake-book.mistake-notebook.is-assistant-fullscreen .mistake-point-assistant { min-height: 0; flex: 1; }
+  .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant, .remedi-mistake-book.mistake-notebook.is-split .mistake-point-assistant, .remedi-mistake-book .mistake-notebook.is-assistant-fullscreen .mistake-point-assistant, .remedi-mistake-book.mistake-notebook.is-assistant-fullscreen .mistake-point-assistant { min-height: 0; height: auto; flex: 0 0 auto; }
   .remedi-mistake-book .mistake-notebook.is-assistant-fullscreen, .remedi-mistake-book.mistake-notebook.is-assistant-fullscreen { min-height: 0; }
   .remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-assistant-fullscreen) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-assistant-fullscreen) .mistake-board-toolbar { display: none; }
 }

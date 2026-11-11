@@ -23,7 +23,7 @@
       <p v-if="loadError" class="notebook-action-error" role="alert">{{ loadError }}</p>
 
       <section v-if="view === 'notebook'" class="mistake-notebook" :class="{ 'is-split': Boolean(selectedMistake), 'is-reversed': assistantOnLeft, 'is-assistant-fullscreen': assistantFullscreen }" aria-label="按作业复习错题本" :aria-busy="loading">
-        <div class="mistake-notebook-content scrollbar-on-scroll">
+        <div class="mistake-notebook-content">
           <div class="notebook-workspace">
             <div class="notebook-results-note" role="status" aria-live="polite"><span>{{ loading ? '正在整理你的错题…' : `共 ${visibleAssignments.length} 份${filtersApplied ? '符合条件的' : '待复习'}作业` }}</span><button v-if="filtersApplied" type="button" @click="resetFilters">重置筛选</button></div>
             <p v-if="actionError && !removedAssignment" class="notebook-action-error" role="alert">{{ actionError }}</p>
@@ -638,8 +638,8 @@ onMounted(() => void loadMistakes())
   justify-content: flex-start;
 }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters.is-split .mistake-view-switch { margin-left: auto; }
-.remedi-mistake-book .mistake-notebook { height: 100%; min-height: 0; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: none; height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; padding: calc(64px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter); }
+.remedi-mistake-book .mistake-notebook { height: auto; min-height: 0; }
+.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: none; height: auto; overflow: visible; overscroll-behavior-y: auto; padding: calc(64px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter); }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
 .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { padding: 112px var(--content-frame-gutter) var(--content-frame-gutter); }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
@@ -677,7 +677,7 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 960px) {
-  .remedi-mistake-book { height: calc(100dvh - 52px); padding: 0 var(--content-frame-gutter-compact); }
+  .remedi-mistake-book { height: auto; min-height: 0; padding: 0 var(--content-frame-gutter-compact); }
   .remedi-mistake-book .mistake-notebook-content { padding: 72px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact); }
 }
 @media (max-width: 700px) {
@@ -687,8 +687,8 @@ onMounted(() => void loadMistakes())
   .remedi-mistake-book .mistake-board-refresh { display: none; }
   .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { padding: 66px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact); }
   .remedi-mistake-book .mistake-notebook.is-split { display: flex; flex-direction: column; }
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 48%; padding: 66px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact); }
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant { flex: 1; }
+  .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 auto; height: auto; padding: 66px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact); }
+  .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant { height: auto; flex: 0 0 auto; }
 }
 
 /* 错题本统一视觉：保持各视图的数据和交互，只调整层级、留白与表面样式。 */
@@ -1857,5 +1857,27 @@ onMounted(() => void loadMistakes())
     transition: none;
     animation: none;
   }
+}
+
+/* 卡片错题本跟随主页面自然增高，列表与讲解共用浏览器页面滚动。 */
+.remedi-mistake-book:has(> .mistakes-panel.is-notebook) {
+  height: auto;
+  min-height: 0;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.remedi-mistake-book:has(> .mistakes-panel.is-notebook) > .mistakes-panel {
+  height: auto;
+  min-height: calc(100dvh - 86px);
+  overflow: visible;
+}
+.remedi-mistake-book:has(> .mistakes-panel.is-notebook) .mistake-notebook {
+  height: auto;
+  min-height: calc(100dvh - 88px);
+}
+.remedi-mistake-book:has(> .mistakes-panel.is-notebook) .mistake-notebook-content {
+  height: auto;
+  overflow: visible;
+  overscroll-behavior: auto;
 }
 </style>

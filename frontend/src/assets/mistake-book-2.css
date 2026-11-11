@@ -1803,3 +1803,36 @@
   .remedi-mistake-book .mistake-point-composer-inner, .remedi-mistake-book.mistake-point-composer-inner { gap: 5px; padding: 5px; }
   .remedi-mistake-book .mistake-point-composer button, .remedi-mistake-book.mistake-point-composer button { min-width: 52px; padding: 0 9px; }
 }
+
+/* 错题本卡片视图使用整页文档滚动，讲解内容随页面自然展开。 */
+.remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant,
+.remedi-mistake-book.mistake-notebook.is-split .mistake-point-assistant {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+.remedi-mistake-book .mistake-notebook.is-split .mistake-point-summary,
+.remedi-mistake-book.mistake-notebook.is-split .mistake-point-summary {
+  max-height: none;
+  overflow: visible;
+}
+.remedi-mistake-book .mistake-notebook.is-split .mistake-point-summary-body,
+.remedi-mistake-book.mistake-notebook.is-split .mistake-point-summary-body {
+  min-width: 0;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.remedi-mistake-book .mistake-notebook.is-split .mistake-point-transcript,
+.remedi-mistake-book.mistake-notebook.is-split .mistake-point-transcript {
+  min-width: 0;
+  flex: 0 0 auto;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  overscroll-behavior: auto;
+}
+.remedi-mistake-book .mistake-notebook.is-split .mistake-point-message,
+.remedi-mistake-book.mistake-notebook.is-split .mistake-point-message {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
