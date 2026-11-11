@@ -354,7 +354,7 @@ table.table tr:last-child td { border-bottom: 0; }
   flex-shrink: 0;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
-  border-radius: var(--radius-panel);
+  border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
   color: var(--text);
   display: flex;
   flex-direction: column;
@@ -442,6 +442,7 @@ table.table tr:last-child td { border-bottom: 0; }
   .app-sidebar {
     position: fixed; left: 0; top: 0; height: 100dvh;
     width: 244px;
+    border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
     transform: translateX(-105%); transition: transform 0.2s ease;
   }
   .app-sidebar.open { transform: none; box-shadow: var(--shadow-lg); }

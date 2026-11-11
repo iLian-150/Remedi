@@ -47,6 +47,7 @@
             <strong>{{ selectedStudent.student.name }}</strong>
           </template>
         </div>
+        <span class="grading-stage-count tnum">{{ stageCountLabel }}</span>
       </header>
 
       <div v-if="loading" class="loading">加载中…</div>
@@ -282,6 +283,11 @@ const stageTotal = computed(() => stage.value === 'assignments' ? assignmentTota
 const stageOffset = computed(() => stage.value === 'assignments' ? assignmentOffset.value : stage.value === 'students' ? studentOffset.value : questionOffset.value)
 const stagePageSize = computed(() => stage.value === 'assignments' ? assignmentPageSize : stage.value === 'students' ? studentPageSize : pageSize)
 const stageItemCount = computed(() => stage.value === 'assignments' ? assignments.value.length : stage.value === 'students' ? students.value.length : items.value.length)
+const stageCountLabel = computed(() => stage.value === 'assignments'
+  ? `共 ${assignmentTotal.value} 份作业`
+  : stage.value === 'students'
+    ? `共 ${studentTotal.value} 名学生`
+    : `共 ${questionTotal.value} 道已批改题目`)
 const selectedItem = computed(() =>
   items.value.find((item) => item.submission_id === selectedId.value)
   ?? (detailListItem.value?.submission_id === selectedId.value ? detailListItem.value : null),
@@ -564,7 +570,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.grading-controls { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 20px; padding: 16px 18px; border-radius: var(--radius-surface); }
+.grading-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 24px; padding: 18px 20px; border-radius: var(--radius-surface); }
 .grading-toolbar { display: flex; min-width: 0; align-items: center; gap: 10px; flex-wrap: wrap; }
 .search-field { display: flex; flex: 1 1 280px; min-width: 220px; align-items: center; gap: 10px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
 .search-field input { width: 100%; min-width: 0; border-radius: var(--radius-control); }
@@ -585,18 +591,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .threshold-input-wrap span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-2); pointer-events: none; }
 .threshold-controls .btn { min-height: 42px; white-space: nowrap; }
 .grading-list { padding: 0; overflow: hidden; }
-.grading-stage-head { display: flex; min-height: 62px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.grading-stage-head { display: flex; min-width: 0; min-height: 62px; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
 .grading-breadcrumb { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--text-2); font-size: 14px; }
 .grading-breadcrumb button { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .grading-breadcrumb strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 15px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
-.grading-entry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 390px), 1fr)); gap: 12px; padding: 18px 20px; }
+.grading-stage-count { flex: 0 0 auto; color: var(--text-3); font-size: 12px; }
+.grading-entry-grid { display: grid; grid-template-columns: minmax(0, 1fr); padding: 0; }
 .grading-entry {
-  display: grid; min-width: 0; grid-template-columns: 42px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px;
-  padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); color: var(--text); text-align: left; cursor: pointer;
-  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+  display: grid; min-width: 0; min-height: 68px; grid-template-columns: 42px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px;
+  padding: 10px 20px; border: 0; border-radius: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer;
+  transition: background-color .16s ease;
 }
-.grading-entry:hover { border-color: var(--border-strong); background: var(--surface-2); box-shadow: var(--shadow); }
-.grading-entry:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.grading-entry + .grading-entry { border-top: 1px solid var(--border); }
+.grading-entry:focus-visible { position: relative; z-index: 1; outline: 2px solid var(--primary); outline-offset: -3px; }
+@media (hover: hover) { .grading-entry:hover { background: var(--surface-2); } }
 .grading-entry-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
 .grading-entry-main { display: grid; min-width: 0; gap: 5px; }
 .grading-entry-main strong { overflow: hidden; font-size: 14px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
@@ -609,8 +617,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .grading-row { cursor: pointer; }
 .grading-row td { vertical-align: top !important; }
 .grading-row:hover td { background: var(--primary-50); }
-.low-score-row td { background: #FFF7F7; }
-.low-score-row:hover td { background: #FEECEC; }
+.low-score-row td { background: color-mix(in srgb, var(--red-bg) 38%, var(--card)); }
+.low-score-row:hover td { background: color-mix(in srgb, var(--red-bg) 72%, var(--card)); }
 .table-sub { display: block; margin-top: 4px; color: var(--text-3); font-size: 12px; }
 .question-cell { max-width: 330px; }
 .question-cell > span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -671,8 +679,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .threshold-settings { margin: 0; padding: 12px 0 0; border-top: 1px solid var(--border); border-left: 0; }
 }
 @media (max-width: 760px) {
-  .grading-entry-grid { grid-template-columns: minmax(0, 1fr); padding: 14px; }
-  .grading-entry { grid-template-columns: 38px minmax(0, 1fr) 18px; gap: 10px; padding: 12px; }
+  .grading-entry { min-height: 68px; grid-template-columns: 38px minmax(0, 1fr) 18px; gap: 10px; padding: 12px 14px; }
   .grading-entry-icon { width: 38px; height: 38px; }
   .grading-entry-date { grid-column: 2; grid-row: 2; }
   .grading-entry-arrow { grid-column: 3; grid-row: 1 / 3; }
