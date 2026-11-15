@@ -39,6 +39,32 @@ flowchart TD
 
 `draft → queued → processing → completed` 是常见路径。若后台处理遇到异常，任务自动回到队列并设置下一次尝试时间；已成功题目的检查点可在重试时复用。浏览器负责提交答案和查询状态，不负责维持批改任务。
 
+## 教师 AI 发布作业 → 学生答题 → 多 Agent 学科批改
+
+![教师 AI 发布作业、学生答题与多 Agent 学科批改流程图](技术图/teacher_ai_student_multi_agent_grading.png)
+
+教师可先让 AI 助手根据要求整理题目草稿，再检查题目和班级并手动确认发布。学生逐题作答后提交整份作业；服务端将批改任务持久化，由后台 worker 按题目学科选择对应 Agent 处理。一次只为每道题选择一个匹配学科的 Agent，不是多个模型并行投票；学生离开页面或退出账号不会取消后台任务。
+
+```mermaid
+flowchart LR
+    T[教师描述作业要求] --> Draft[AI 助手生成作业草稿]
+    Draft --> Review[教师检查题目与班级]
+    Review --> Publish[教师确认并发布]
+    Publish --> SQLAssignment[(作业与题目写入 SQL)]
+    SQLAssignment --> StudentView[学生查看作业]
+    StudentView --> Answer[逐题作答\n文字或图片]
+    Answer --> Submit[提交整份作业]
+    Submit --> Job[(SQL 保存答案与批改任务)]
+    Job --> Worker[后台 worker 逐题处理]
+    Worker --> Route[按题目学科路由]
+    Route --> Agent[调用对应学科 Agent]
+    Knowledge[对应学科知识库] --> Agent
+    Agent --> Result[生成判断、理由与评分]
+    Result --> Save[保存评分、步骤与错因]
+    Save --> StudentResult[学生查看结果与错题订正]
+    Save --> TeacherResult[教师查看本次作业学情]
+```
+
 ## 多 Agent 学科批改
 
 ![Remedi 多 Agent 学科批改流程图](技术图/multi_agent_grading.png)
