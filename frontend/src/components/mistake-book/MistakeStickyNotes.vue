@@ -6,11 +6,14 @@
     :aria-busy="loading"
   >
     <div class="sticky-notes-inner scrollbar-on-scroll">
-      <nav v-if="screen !== 'subjects'" class="sticky-notes-breadcrumb" aria-label="便利贴层级">
-        <button type="button" @click="goToSubjects">全部科目</button><span aria-hidden="true">/</span>
-        <template v-if="screen === 'detail'"><button type="button" @click="goToCategories">{{ displaySubject(selectedSubject!.key) }}</button><span aria-hidden="true">/</span><span aria-current="page">{{ selectedCategory!.label }}</span></template>
-        <span v-else aria-current="page">{{ displaySubject(selectedSubject!.key) }}</span>
-      </nav>
+      <div v-if="screen !== 'subjects'" class="sticky-notes-topline">
+        <nav class="sticky-notes-breadcrumb" aria-label="便利贴层级">
+          <button type="button" @click="goToSubjects">全部科目</button><span aria-hidden="true">/</span>
+          <template v-if="screen === 'detail'"><button type="button" @click="goToCategories">{{ displaySubject(selectedSubject!.key) }}</button><span aria-hidden="true">/</span><span aria-current="page">{{ selectedCategory!.label }}</span></template>
+          <span v-else aria-current="page">{{ displaySubject(selectedSubject!.key) }}</span>
+        </nav>
+        <div v-if="screen === 'detail'" class="sticky-detail-summary"><span>这类错误的作业记录</span><strong>{{ completedAssignmentCount }}<small> / {{ assignments.length }} 份已学完</small></strong></div>
+      </div>
 
       <div v-if="loading" class="sticky-notes-grid" aria-hidden="true">
         <div v-for="index in 4" :key="index" class="sticky-note sticky-note-skeleton" :style="noteStyle(index)" />
@@ -41,7 +44,6 @@
         </button>
       </div>
       <div v-else class="sticky-notes-detail" :aria-label="`${selectedCategory!.label}错题`">
-        <div class="sticky-detail-summary"><span>这类错误的作业记录</span><strong>{{ completedAssignmentCount }}<small> / {{ assignments.length }} 份已学完</small></strong></div>
         <div class="sticky-assignment-list">
           <article v-for="(assignment, assignmentIndex) in visibleAssignments" :key="`${assignment.assignmentId}:${assignment.categoryKey}`" class="sticky-assignment" :class="[`sticky-note-${categoryColors[assignmentIndex % categoryColors.length]}`, { 'is-studied': assignment.studied }]">
             <div class="sticky-assignment-head">
@@ -247,6 +249,10 @@ function toggleStudied(assignment: StickyAssignment) {
 <style scoped>
 .mistake-sticky-notes:not(.is-split) { height: 100%; min-height: 0; }
 .mistake-sticky-notes:not(.is-split) .sticky-notes-inner { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; }
+.mistake-sticky-notes .sticky-notes-topline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; margin-top: 25px; }
+.mistake-sticky-notes .sticky-notes-topline .sticky-notes-breadcrumb { flex: 0 0 auto; margin-top: 0; }
+.mistake-sticky-notes .sticky-notes-topline .sticky-detail-summary { flex: 1 1 540px; min-width: 0; max-width: 540px; align-items: center; padding-bottom: 0; border-bottom: 0; }
+.mistake-sticky-notes .sticky-notes-detail { margin-top: 0; }
 .sticky-question-diagnosis { display: -webkit-box; max-height: 40px; margin-top: 7px; overflow: hidden; color: inherit; opacity: .72; font-size: 11px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .sticky-assignment-questions > article { min-width: 0; }
 .sticky-list-more { display: block; min-height: 36px; margin: -12px auto 21px; padding: 7px 14px; border: 1px solid rgba(31, 41, 55, .18); border-radius: var(--radius-control); color: var(--green); background: rgba(255, 255, 255, .68); cursor: pointer; font-size: 12px; font-weight: 600; }
