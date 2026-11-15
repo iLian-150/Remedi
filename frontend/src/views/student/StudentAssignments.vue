@@ -18,13 +18,48 @@
     <!-- 试卷纸面 -->
     <div class="paper">
       <div class="staple" aria-hidden="true"></div>
+      <div ref="subjectPickerRef" class="paper-subject-filter">
+        <button
+          id="assignment-subject-filter"
+          ref="subjectPickerButtonRef"
+          type="button"
+          class="paper-subject-trigger"
+          aria-controls="assignment-subject-menu"
+          :aria-label="`科目筛选：${selectedSubjectLabel}`"
+          :aria-expanded="subjectPickerOpen"
+          @click="subjectPickerOpen = !subjectPickerOpen"
+        >
+          <span>{{ selectedSubjectLabel }}</span>
+          <AppIcon name="chevron-right" :size="13" :class="{ 'is-open': subjectPickerOpen }" aria-hidden="true" />
+        </button>
+        <Transition name="subject-drawer">
+          <div v-if="subjectPickerOpen" id="assignment-subject-menu" class="paper-subject-menu" role="group" aria-label="选择科目">
+            <button
+              type="button"
+              class="paper-subject-option"
+              :class="{ 'is-selected': subjectFilter === '' }"
+              :aria-pressed="subjectFilter === ''"
+              @click="selectSubject('')"
+            >全部</button>
+            <button
+              v-for="subject in subjectOptions"
+              :key="subject"
+              type="button"
+              class="paper-subject-option"
+              :class="{ 'is-selected': subjectFilter === subject }"
+              :aria-pressed="subjectFilter === subject"
+              @click="selectSubject(subject)"
+            >{{ getSubjectLabel(subject) }}</button>
+          </div>
+        </Transition>
+      </div>
       <span class="binding-word" aria-hidden="true">装订线</span>
 
       <div class="paper-head">
         <span class="paper-head-left"></span>
         <h3 class="paper-title">我的作业</h3>
         <div class="paper-head-right">
-          <span v-if="!loading" class="paper-count tnum">共 {{ assignments.length }} 份</span>
+          <span v-if="!loading" class="paper-count tnum">共 {{ visibleAssignments.length }} 份</span>
           <!-- 筛选生效时：试卷头右侧的主色按钮，一眼可见、随时清筛选 -->
           <button v-if="dateFilter" class="btn filter-clear-btn" @click="clearFilter">
             <AppIcon name="chevron-left" :size="15" />返回查看全部作业
@@ -50,9 +85,9 @@
 
         <!-- 试卷正文：key 随筛选变化 → 轻翻页过渡；盖章只在首次加载（intro）时播 -->
         <div :key="dateFilter || 'all'" class="paper-body">
-          <template v-if="assignments.length">
+          <template v-if="visibleAssignments.length">
             <section
-              v-for="(a, i) in assignments"
+              v-for="(a, i) in visibleAssignments"
               :key="a.id"
               class="paper-item"
               :style="{ '--i': i }"
@@ -94,6 +129,10 @@
             </section>
           </template>
 
+          <div v-else-if="assignments.length" class="paper-empty">
+            所选科目下暂无作业。
+          </div>
+
           <div v-else-if="dateFilter" class="paper-empty">
             这一天没有发布的作业，点上方「返回查看全部作业」看全部。
           </div>
@@ -110,12 +149,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useStudentStore } from '../../stores/student'
-import type { Assignment } from '../../api/types'
+import type { Assignment, QuestionSubject } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import { getSubjectLabel } from '../../utils/subjectLabels'
 
 const student = useStudentStore()
 
 const assignments = ref<Assignment[]>([])
+const subjectFilter = ref<QuestionSubject | ''>('')
+const subjectPickerOpen = ref(false)
+const subjectPickerRef = ref<HTMLElement | null>(null)
+const subjectPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const loading = ref(false)
 const error = ref('')
 const submittingAssignments = ref<Set<number>>(new Set())
@@ -126,6 +170,41 @@ const intro = ref(true)
 
 /** 右侧栏日历选中的发布日期（yyyy-mm-dd，空 = 不筛选）——与日历共用 store 状态 */
 const dateFilter = computed(() => student.assignmentDateFilter)
+const selectedSubjectLabel = computed(() => subjectFilter.value ? getSubjectLabel(subjectFilter.value) : '全部')
+
+const subjectOptions = computed(() => {
+  const subjects = new Set<QuestionSubject>(
+    assignments.value.flatMap((assignment) => assignment.questions?.map((question) => question.subject) ?? [])
+  )
+  if (subjectFilter.value) subjects.add(subjectFilter.value)
+  return [...subjects].sort((a, b) => getSubjectLabel(a).localeCompare(getSubjectLabel(b), 'zh-CN'))
+})
+
+const visibleAssignments = computed(() => {
+  if (!subjectFilter.value) return assignments.value
+  return assignments.value.filter((assignment) =>
+    assignment.questions?.some((question) => question.subject === subjectFilter.value)
+  )
+})
+
+function selectSubject(subject: QuestionSubject | '') {
+  subjectFilter.value = subject
+  subjectPickerOpen.value = false
+  subjectPickerButtonRef.value?.focus()
+}
+
+function onSubjectPickerDocumentClick(event: MouseEvent) {
+  const target = event.target
+  if (target instanceof Node && !subjectPickerRef.value?.contains(target)) subjectPickerOpen.value = false
+}
+
+function onSubjectPickerDocumentKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !subjectPickerOpen.value) return
+  subjectPickerOpen.value = false
+  subjectPickerButtonRef.value?.focus()
+  event.preventDefault()
+  event.stopPropagation()
+}
 
 watch(dateFilter, () => {
   intro.value = false
@@ -142,7 +221,7 @@ const dateFilterLabel = computed(() => {
 const dayProgress = computed(() => {
   let done = 0
   let total = 0
-  for (const assignment of assignments.value) {
+  for (const assignment of visibleAssignments.value) {
     total++
     if (assignment.question_count > 0 && doneCount(assignment) >= assignment.question_count) {
       done++
@@ -243,10 +322,16 @@ async function loadAssignments(showLoading = true) {
   }
 }
 
-onMounted(() => { void loadAssignments() })
+onMounted(() => {
+  document.addEventListener('click', onSubjectPickerDocumentClick)
+  document.addEventListener('keydown', onSubjectPickerDocumentKeydown)
+  void loadAssignments()
+})
 onBeforeUnmount(() => {
   assignmentLoadGeneration++
   if (gradingPollHandle !== null) window.clearInterval(gradingPollHandle)
+  document.removeEventListener('click', onSubjectPickerDocumentClick)
+  document.removeEventListener('keydown', onSubjectPickerDocumentKeydown)
 })
 </script>
 
@@ -263,7 +348,7 @@ onBeforeUnmount(() => {
     0 1px 2px rgba(15, 23, 42, 0.05),
     0 14px 34px -10px rgba(15, 23, 42, 0.18),
     0 36px 68px -28px rgba(15, 23, 42, 0.14);
-  padding: 26px 30px 30px 66px;
+  padding: 26px 30px 30px 82px;
   margin-bottom: 16px;
   animation: paper-in 0.5s ease-out both;
 }
@@ -273,7 +358,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 42px;
+  left: 58px;
   border-left: 2px dashed #d5d8de;
 }
 .paper::after {
@@ -281,7 +366,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 48px;
+  left: 64px;
   border-left: 1px solid rgba(220, 38, 38, 0.16);
 }
 @keyframes paper-in {
@@ -293,7 +378,7 @@ onBeforeUnmount(() => {
 .staple {
   position: absolute;
   top: -7px;
-  left: 24px;
+  left: 40px;
   width: 46px;
   height: 11px;
   border-radius: var(--radius-detail);
@@ -322,7 +407,7 @@ onBeforeUnmount(() => {
 /* 装订线竖排小字 */
 .binding-word {
   position: absolute;
-  left: 13px;
+  left: 25px;
   top: 50%;
   transform: translateY(-50%);
   writing-mode: vertical-rl;
@@ -330,6 +415,86 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: #c2c8d0;
   user-select: none;
+}
+.paper-subject-filter {
+  position: absolute;
+  top: 14px;
+  left: 6px;
+  z-index: 6;
+}
+.paper-subject-trigger {
+  width: 52px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 5px 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: border-color .16s ease, background-color .16s ease, color .16s ease;
+}
+.paper-subject-trigger:hover,
+.paper-subject-trigger[aria-expanded='true'] {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.paper-subject-trigger:focus-visible,
+.paper-subject-option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.paper-subject-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paper-subject-trigger :deep(svg) { flex: 0 0 auto; transition: transform .16s ease; }
+.paper-subject-trigger :deep(svg.is-open) { transform: rotate(180deg); }
+.paper-subject-menu {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  width: 168px;
+  max-height: min(280px, 48vh);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+.paper-subject-option {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.paper-subject-option:hover,
+.paper-subject-option.is-selected {
+  background: var(--primary-50);
+  color: var(--primary);
+}
+.subject-drawer-enter-active,
+.subject-drawer-leave-active { transition: opacity .14s ease, transform .14s ease; }
+.subject-drawer-enter-from,
+.subject-drawer-leave-to { opacity: 0; transform: translateX(-6px); }
+@media (prefers-reduced-motion: reduce) {
+  .subject-drawer-enter-active,
+  .subject-drawer-leave-active { transition: none; }
 }
 
 /* 试卷头：居中标题 + 右侧计数，下面一道粗细双线 */
@@ -533,11 +698,13 @@ onBeforeUnmount(() => {
 
 /* ---------- 移动端 ---------- */
 @media (max-width: 640px) {
-  .paper { padding: 20px 16px 22px 46px; }
-  .paper::before { left: 27px; }
-  .paper::after { left: 33px; }
-  .binding-word { left: 5px; font-size: 10px; letter-spacing: 7px; }
-  .staple { left: 12px; width: 40px; }
+  .paper { padding: 20px 16px 22px 72px; }
+  .paper::before { left: 52px; }
+  .paper::after { left: 58px; }
+  .binding-word { left: 28px; font-size: 10px; letter-spacing: 7px; }
+  .paper-subject-filter { left: 0; }
+  .paper-subject-menu { width: min(168px, calc(100vw - 116px)); }
+  .staple { left: 37px; width: 40px; }
   .paper-title { font-size: 18px; letter-spacing: 4px; }
   /* 移动端：试卷头改纵排居中，清筛选按钮落在标题下方一行，够得着、不挤印章 */
   .paper-head { display: flex; flex-direction: column; align-items: center; gap: 8px; }
