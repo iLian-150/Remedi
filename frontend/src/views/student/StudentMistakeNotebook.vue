@@ -85,9 +85,17 @@ import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getSubjectLabel } from '../../utils/subjectLabels'
 import '../../assets/mistake-book.css'
 
-const MistakePointAssistant = defineAsyncComponent(
-  () => import('../../components/mistake-book/MistakePointAssistant.vue'),
-)
+let mistakePointAssistantPromise: Promise<typeof import('../../components/mistake-book/MistakePointAssistant.vue')> | undefined
+function loadMistakePointAssistant() {
+  if (!mistakePointAssistantPromise) {
+    mistakePointAssistantPromise = import('../../components/mistake-book/MistakePointAssistant.vue').catch((error) => {
+      mistakePointAssistantPromise = undefined
+      throw error
+    })
+  }
+  return mistakePointAssistantPromise
+}
+const MistakePointAssistant = defineAsyncComponent(loadMistakePointAssistant)
 const MistakeRelationshipMap = defineAsyncComponent(
   () => import('../../components/mistake-book/MistakeRelationshipMap.vue'),
 )
@@ -599,7 +607,12 @@ function openRequestedReview() {
 
 watch(() => route.query.review, openRequestedReview)
 
-onMounted(() => void loadMistakes())
+onMounted(() => {
+  void loadMistakes().finally(() => {
+    // 错题加载完成后预热聊天组件，避免第一次打开右侧问答时等待异步代码块。
+    void loadMistakePointAssistant().catch(() => undefined)
+  })
+})
 onBeforeUnmount(() => {
   viewRequestId++
   student.setMistakePageTitle('')
