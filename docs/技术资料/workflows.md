@@ -2,7 +2,7 @@
 
 ## 教师发布作业 → 学生答题 → 后台 AI 批改
 
-![教师发布作业、学生答题与 AI 批改流程图](workflow.png)
+![教师发布作业、学生答题与 AI 批改流程图](技术图/workflow.png)
 
 ```mermaid
 flowchart TD

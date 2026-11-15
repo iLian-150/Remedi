@@ -4,7 +4,7 @@
 
 教师端和学生端由同一个 Vue 单页前端提供，根据登录身份展示相应功能。前端经 `/api` 调用 FastAPI；作业、批改任务、错题和学习数据以 SQL 数据库为主记录。上传的作答图片、知识库原文件等放在配置的文件目录中。后台批改与知识导入由 FastAPI 应用启动的进程内 worker 执行。
 
-![Remedi 项目架构图](architecture.png)
+![Remedi 项目架构图](技术图/architecture.png)
 
 ```mermaid
 flowchart LR
