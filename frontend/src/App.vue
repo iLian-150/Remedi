@@ -293,7 +293,7 @@ const showSidebarSessions = computed(() => {
 })
 
 const shellPageTitle = computed(() => {
-  if (route.meta.public || route.path === '/teacher/chat') return ''
+  if (route.meta.public || route.path === '/teacher/chat' || route.path === '/student/mistakes') return ''
   if (route.path === '/teacher/students' || route.path.startsWith('/teacher/students/classes/')) return ''
   if (isStudentChat.value) {
     const sessionId = student.sessionView.id ?? student.activeSessionId

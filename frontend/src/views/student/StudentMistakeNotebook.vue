@@ -1,6 +1,7 @@
 <template>
   <div class="page mistake-map-view remedi-mistake-book">
     <main class="mistakes-panel" :class="`is-${view}`" aria-label="学生错题本">
+      <header class="mistake-book-heading"><h1>{{ student.mistakePageTitle || '错题本' }}</h1></header>
       <div class="mistake-board-toolbar" :class="{ 'with-notebook-filters': view === 'notebook' }" role="toolbar" aria-label="错题本视图操作">
         <div v-if="view === 'notebook'" class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
           <button v-for="option in statusOptions" :key="option.key" type="button" :class="{ selected: status === option.key }" :aria-pressed="status === option.key" @click="status = option.key">{{ option.label }}<small>{{ option.count }}</small></button>
@@ -649,7 +650,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   box-shadow: none;
 }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { margin-right: 390px; }
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { margin-right: 0; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book .mistake-network-viewport { height: 100%; min-height: 0; }
@@ -686,7 +687,7 @@ onBeforeUnmount(() => {
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 1150px) {
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters { padding-top: 56px; }
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters { padding-top: 8px; }
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs,
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { width: 100%; flex-basis: 100%; margin-right: 0; }
 }
@@ -694,21 +695,55 @@ onBeforeUnmount(() => {
   .remedi-mistake-book .mistake-board-toolbar:not(.with-notebook-filters) { top: 10px; right: 10px; }
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch { top: 10px; right: 58px; }
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh { top: 10px; right: 10px; }
+  .remedi-mistake-book .mistakes-panel:not(.is-notebook) > .mistake-book-heading { top: 10px; left: 12px; }
 }
 @media (max-width: 700px) {
   .remedi-mistake-book .mistake-board-toolbar { top: 10px; right: 10px; left: 10px; justify-content: center; }
   .remedi-mistake-book .mistake-view-switch { max-width: calc(100vw - 72px); overflow-x: auto; }
   .remedi-mistake-book .mistake-view-switch button { min-width: auto; padding-inline: 9px; }
   .remedi-mistake-book .mistake-board-refresh { display: none; }
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-board-toolbar.with-notebook-filters .mistake-view-switch,
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh { position: static; }
   .remedi-mistake-book .mistake-notebook.is-split { display: flex; flex-direction: column; }
   .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 auto; }
   .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant { height: auto; flex: 0 0 auto; }
 }
 
 /* 错题本统一视觉：保持各视图的数据和交互，只调整层级、留白与表面样式。 */
+.page.mistake-map-view.remedi-mistake-book {
+  padding-top: 12px;
+  padding-bottom: 16px;
+}
+
 .remedi-mistake-book .mistakes-panel {
-  border-radius: 0;
-  background: transparent;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.remedi-mistake-book .mistake-book-heading {
+  position: absolute;
+  z-index: 12;
+  top: 16px;
+  left: 18px;
+  margin: 0;
+}
+
+.remedi-mistake-book .mistake-book-heading h1 {
+  color: var(--text);
+  font-size: clamp(21px, 2vw, 25px);
+  font-weight: 720;
+  letter-spacing: -.035em;
+  line-height: 1.2;
+}
+
+.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-book-heading {
+  position: relative;
+  top: auto;
+  left: auto;
+  margin: 0 0 12px;
 }
 
 .remedi-mistake-book .mistake-board-toolbar {
