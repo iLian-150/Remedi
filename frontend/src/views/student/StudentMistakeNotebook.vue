@@ -742,6 +742,7 @@ onBeforeUnmount(() => {
 
 .remedi-mistake-book .mistakes-panel.is-notebook > .mistake-book-heading {
   position: relative;
+  z-index: auto;
   top: auto;
   left: auto;
   margin: 0 0 12px;
