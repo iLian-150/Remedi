@@ -187,7 +187,7 @@ test('pending login is single-flight, snapshots identity and navigates by return
   await login
   assert.equal(sessions.length, 1)
   assert.equal(sessions[0][1].role, 'student')
-  assert.equal(redirects[0], '/student/chat')
+  assert.equal(redirects[0], '/student/assignments')
   assert.equal(state.loading.value, false)
 })
 
@@ -204,7 +204,7 @@ test('a rejected request releases the form and allows a successful retry', async
   assert.equal(state.loading.value, false)
   await state.login()
   assert.equal(requests.length, 2)
-  assert.equal(redirects[0], '/student/chat')
+  assert.equal(redirects[0], '/student/assignments')
   assert.equal(state.error.value, '')
 })
 

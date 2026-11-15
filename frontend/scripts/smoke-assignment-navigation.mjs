@@ -32,12 +32,31 @@ assert.equal(target.query.mode, 'offline')
 assert.equal(target.query.workbook_id, '42')
 const list = router.resolve('/teacher/assignments?publish=1')
 assert.equal(list.matched[0].beforeEnter(list), true)
-assert.equal(list.meta.title, '作业管理')
+assert.equal(list.meta.title, '作业')
+const management = router.resolve('/teacher/assignments/manage')
+assert.equal(management.matched.length, 1)
+assert.equal(management.matched[0].path, '/teacher/assignments/manage')
+assert.equal(management.meta.title, '作业管理')
 // Mount the real list and cards to verify both choices are immediately visible and navigate.
 const vue = require('vue')
+const subjectLabelsModule = { exports: {} }
+const subjectLabelsCode = ts.transpileModule(
+  readFileSync(new URL('../src/utils/subjectLabels.ts', import.meta.url), 'utf8'),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } },
+).outputText
+vm.runInNewContext(subjectLabelsCode, { module: subjectLabelsModule, exports: subjectLabelsModule.exports })
 const clicked = []
 const teacher = { assignmentDateFilter: '', fetchTeacherAssignments: async () => [], setAssignmentDateFilter: () => {} }
 const fakeWindow = { addEventListener: () => {}, removeEventListener: () => {}, setInterval: () => 1, clearInterval: () => {}, setTimeout: () => 1 }
+const documentListeners = new Map()
+const fakeDocument = {
+  addEventListener: (name, handler) => documentListeners.set(name, handler),
+  removeEventListener: (name, handler) => {
+    assert.equal(documentListeners.get(name), handler)
+    documentListeners.delete(name)
+  },
+}
+class FakeNode {}
 function component(path, resolveImport) {
   const text = readFileSync(new URL(path, import.meta.url), 'utf8')
   const descriptor = parse(text, { filename: path }).descriptor
@@ -53,7 +72,7 @@ const cards = component('../src/components/PublishModeCards.vue', (name) => {
   if (name.endsWith('AppIcon.vue')) return { __esModule: true, default: icon }
   throw new Error(`Unexpected import: ${name}`)
 })
-const listPage = component('../src/views/teacher/TeacherAssignments.vue', (name) => {
+const listPage = component('../src/views/teacher/TeacherAssignmentHub.vue', (name) => {
   if (name === 'vue-router') return { useRouter: () => ({ push: (target) => clicked.push(target) }) }
   if (name === '../../stores/teacher') return { useTeacherStore: () => teacher }
   if (name === '../../api/client') return { __esModule: true, default: { get: async () => ({ data: [] }) } }
@@ -71,12 +90,17 @@ const renderer = vue.createRenderer({
   parentNode: (node) => node.parent, nextSibling: (node) => node.parent?.children[node.parent.children.indexOf(node) + 1] ?? null,
 })
 const root = makeNode('root')
-const app = renderer.createApp(listPage).component('router-link', { render: () => null })
+const app = renderer.createApp(listPage).component('router-link', {
+  props: ['to'],
+  setup: (props, { slots }) => () => vue.h('a', { href: props.to }, slots.default?.()),
+})
 app.mount(root)
 await vue.nextTick()
 const nodes = (node) => [node, ...node.children.flatMap(nodes)]
 const textOf = (node) => nodes(node).map((item) => item.text).join(' ')
 assert.match(textOf(root), /作业管理/)
+const managementLink = nodes(root).find((node) => node.type === 'a' && node.props.href === '/teacher/assignments/manage')
+assert.ok(managementLink, '作业管理入口应指向独立管理页面')
 assert.doesNotMatch(textOf(root), /开始发布/)
 for (const [label, mode] of [['线上作业', 'online'], ['线下作业', 'offline']]) {
   const button = nodes(root).find((node) => node.type === 'button' && textOf(node).includes(label))
@@ -98,7 +122,7 @@ assert.doesNotMatch(descriptor.template.content, /重新选择发布方式|class
 const formScript = compileScript(descriptor, { id: 'publish-form' }).content
 const formJs = ts.transpileModule(formScript, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText
 const formModule = { exports: {} }
-vm.runInNewContext(formJs, { module: formModule, exports: formModule.exports, window: formWindow, console, setTimeout, clearTimeout,
+vm.runInNewContext(formJs, { module: formModule, exports: formModule.exports, window: formWindow, document: fakeDocument, Node: FakeNode, console, setTimeout, clearTimeout,
   require: (name) => {
     if (name === 'vue') return vue
     if (name === 'vue-router') return { useRoute: () => formRoute, useRouter: () => ({ replace: ({ query }) => { formRoute.query = query; return Promise.resolve() }, push: () => {} }), onBeforeRouteLeave: (guard) => { leaveGuard = guard } }
@@ -106,6 +130,7 @@ vm.runInNewContext(formJs, { module: formModule, exports: formModule.exports, wi
     if (name === '../../stores/auth') return { useAuthStore: () => ({ activeSubject: 'math' }) }
     if (name === '../../api/client') return { __esModule: true, default: {} }
     if (name === '../../utils/recognizedMath') return { formatRecognizedMath: (text) => text }
+    if (name === '../../utils/subjectLabels') return subjectLabelsModule.exports
     if (name.endsWith('.vue')) return { __esModule: true, default: icon }
     throw new Error(`Unexpected form import: ${name}`)
   } })
@@ -148,10 +173,11 @@ const assignmentStore = {
 const assignmentDescriptor = parse(readFileSync(new URL('../src/views/student/StudentAssignments.vue', import.meta.url), 'utf8'), { filename: 'StudentAssignments.vue' }).descriptor
 const assignmentCode = ts.transpileModule(compileScript(assignmentDescriptor, { id: 'student-progress' }).content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText
 const assignmentModule = { exports: {} }
-vm.runInNewContext(assignmentCode, { module: assignmentModule, exports: assignmentModule.exports, window: fakeWindow, console,
+vm.runInNewContext(assignmentCode, { module: assignmentModule, exports: assignmentModule.exports, window: fakeWindow, document: fakeDocument, Node: FakeNode, console,
   require: (name) => {
     if (name === 'vue') return vue
     if (name === '../../stores/student') return { useStudentStore: () => assignmentStore }
+    if (name === '../../utils/subjectLabels') return subjectLabelsModule.exports
     if (name.endsWith('AppIcon.vue')) return { __esModule: true, default: icon }
     throw new Error(`Unexpected student assignment import: ${name}`)
   } })
@@ -169,5 +195,35 @@ assert.equal(assignmentListState.canSubmitStagedAssignment(stagedAssignment), tr
 await assignmentListState.submitStagedAssignment(stagedAssignment)
 assert.equal(submitCalls, 1)
 assert.equal(assignmentListState.stampOf({ ...stagedAssignment, grading_status: gradingStatus }).text, '批改中')
+// Subject filtering must keep list counts and daily progress aligned, including empty results.
+const mathAssignment = { ...stagedAssignment, id: 72, staged_count: 0, questions: [{ subject: 'math' }] }
+const chineseAssignment = { ...stagedAssignment, questions: [{ subject: 'chinese' }] }
+assignmentListState.assignments = [chineseAssignment, mathAssignment]
+let focusCalls = 0
+assignmentListState.subjectPickerButtonRef = { focus: () => focusCalls++ }
+assignmentListState.selectSubject('math')
+assert.deepEqual(Array.from(assignmentListState.visibleAssignments, (item) => item.id), [72])
+assert.equal(assignmentListState.selectedSubjectLabel, '数学')
+assert.equal(assignmentListState.dayProgress.total, 1)
+assert.equal(assignmentListState.dayProgress.done, 0)
+assignmentListState.selectSubject('chinese')
+assert.equal(assignmentListState.dayProgress.done, 1)
+assignmentListState.selectSubject('physics')
+assert.equal(assignmentListState.visibleAssignments.length, 0)
+assert.ok(assignmentListState.subjectOptions.includes('physics'))
+assignmentListState.selectSubject('')
+assert.equal(assignmentListState.visibleAssignments.length, 2)
+assert.equal(assignmentListState.dayProgress.total, 2)
+assignmentListState.subjectPickerOpen = true
+let prevented = false
+documentListeners.get('keydown')({ key: 'Escape', preventDefault: () => { prevented = true }, stopPropagation: () => {} })
+assert.equal(assignmentListState.subjectPickerOpen, false)
+assert.equal(prevented, true)
+assert.equal(focusCalls, 5)
+assignmentListState.subjectPickerOpen = true
+assignmentListState.subjectPickerRef = { contains: () => false }
+documentListeners.get('click')({ target: new FakeNode() })
+assert.equal(assignmentListState.subjectPickerOpen, false)
 assignmentListApp.unmount()
+assert.equal(documentListeners.size, 0)
 console.log('作业发布入口和旧链接检查通过')
