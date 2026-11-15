@@ -358,6 +358,20 @@
   font-weight: 600;
 }
 
+.remedi-mistake-book .mistake-map-topic-node, .remedi-mistake-book.mistake-map-topic-node {
+  min-height: 64px;
+}
+
+.remedi-mistake-book .mistake-map-topic-node strong, .remedi-mistake-book.mistake-map-topic-node strong {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .remedi-mistake-book .mistake-map-topic-node small, .remedi-mistake-book.mistake-map-topic-node small, .remedi-mistake-book .mistake-map-leaf-node small, .remedi-mistake-book.mistake-map-leaf-node small {
   color: var(--text-3);
   font-size: 10px;
@@ -1092,6 +1106,14 @@
 .remedi-mistake-book .mistake-network-node.topic-node, .remedi-mistake-book.mistake-network-node.topic-node {
   width: 168px;
   animation: network-node-in .22s ease both;
+}
+
+.remedi-mistake-book .mistake-network-node.topic-node strong, .remedi-mistake-book.mistake-network-node.topic-node strong {
+  display: -webkit-box;
+  line-height: 1.35;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .remedi-mistake-book .mistake-network-node.topic-node:hover, .remedi-mistake-book.mistake-network-node.topic-node:hover, .remedi-mistake-book .mistake-network-node.topic-node.selected, .remedi-mistake-book.mistake-network-node.topic-node.selected {
