@@ -111,30 +111,30 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.daily-summary { min-width: 0; margin-bottom: 0; padding: 20px; }
+.daily-summary { display: flex; min-width: 0; min-height: 0; flex-direction: column; margin-bottom: 0; padding: 20px; }
 .summary-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .summary-title { display: flex; min-width: 0; align-items: center; gap: 9px; }
 .summary-title h2 { color: var(--text); font-size: 16px; font-weight: 700; }
 .summary-title-icon { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); background: var(--primary-50); color: var(--primary); }
 .summary-date { color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
-.metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.metric { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
-.metric-label { color: var(--text-2); font-size: 13px; font-weight: 600; }
-.metric-value { min-height: 43px; margin: 3px 0 8px; color: var(--text); font-size: clamp(24px, 2vw, 30px); font-variant-numeric: tabular-nums; font-weight: 750; letter-spacing: -0.04em; line-height: 1.35; }
-.metric-accuracy .metric-value { font-size: clamp(21px, 1.75vw, 27px); letter-spacing: -0.025em; }
-.metric-track { height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--border); }
+.metric-grid { display: grid; min-height: 0; flex: 1 1 auto; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr); align-items: stretch; gap: 12px; }
+.metric { display: flex; min-width: 0; min-height: 180px; flex-direction: column; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
+.metric-label { color: var(--text-2); font-size: 14px; font-weight: 650; }
+.metric-value { display: flex; min-height: 64px; flex: 1 1 auto; align-items: center; margin: 8px 0 14px; color: var(--text); font-size: clamp(28px, 2.35vw, 36px); font-variant-numeric: tabular-nums; font-weight: 750; letter-spacing: -0.04em; line-height: 1.25; }
+.metric-accuracy .metric-value { font-size: clamp(24px, 2vw, 32px); letter-spacing: -0.025em; }
+.metric-track { height: 8px; flex: 0 0 8px; margin-top: auto; overflow: hidden; border-radius: var(--radius-pill); background: var(--border); }
 .metric-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .25s ease; }
 .metric-accuracy .metric-track span { background: var(--green); }
-.metric-caption { overflow: hidden; margin-top: 9px; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.metric-caption { overflow: hidden; min-height: 18px; margin-top: 11px; color: var(--text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .summary-status { margin-top: 14px; color: var(--text-2); font-size: 12px; }
 .summary-error { color: var(--red-strong); }
 .retry-button { margin-left: 8px; padding: 0; border: 0; background: transparent; color: var(--primary); cursor: pointer; font: inherit; font-weight: 650; }
 .retry-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-detail); }
 @media (max-width: 560px) {
   .daily-summary { padding: 16px; }
-  .metric-grid { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  .metric-grid { flex: 0 0 auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; gap: 9px; }
   .metric { padding: 12px; }
-  .metric-value { min-height: 0; margin-bottom: 6px; }
+  .metric-value { min-height: 42px; margin-bottom: 10px; }
   .summary-header { align-items: flex-start; }
 }
 @media (prefers-reduced-motion: reduce) { .metric-track span { transition: none; } }
