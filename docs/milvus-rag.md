@@ -1,6 +1,6 @@
-# 学科 RAG 与 Milvus 部署
+# 学科 RAG 与 Milvus 本地配置
 
-> **生产架构**：宝塔 Nginx 在 `5001` 提供 `/remedi/frontend/dist`，宝塔 Python 项目在 `127.0.0.1:5000` 运行 FastAPI。Docker Compose 只运行 Milvus、etcd 和 MinIO；本文的容器命令仅用于这些向量服务，不构建或重启应用前后端。完整发布流程见 [DEPLOY.md](../DEPLOY.md)。
+> 本项目采用本地开发流程：前端由 Vite 启动，后端由本地 Python 虚拟环境启动。需要向量检索时，Docker Compose 只启动 Milvus、etcd 和 MinIO。
 
 学科资料和可追溯片段由 Remedi 数据库保存。Milvus 提供稠密向量召回，与本地 BM25 候选按排名融合，再使用 `Qwen3-Reranker-0.6B` 重排。向量仅写入 Milvus，不在应用目录或业务数据库保存本地向量。Milvus、AI Ping 向量模型超时或索引暂不可用时，资料检索继续使用本地 BM25；模型重排失败时使用本地重排，并返回不含凭证或上游响应的安全警告。
 
@@ -8,7 +8,7 @@
 
 文件上传完成后，`POST /api/teacher/knowledge/{subject}/import` 返回 `202` 与任务对象。后台工作线程独立处理，浏览器关闭弹窗、切页或刷新不影响任务。`GET /api/teacher/knowledge/import-jobs` 查询有权限学科的任务；`POST /api/teacher/knowledge/import-jobs/{id}/retry` 重试失败任务，`.../{id}/dismiss` 保存关闭通知。完成和失败通知不自动消失。
 
-原始资料与页级检查点位于 `/data/knowledge-imports`（宿主机 `/remedi/data/api/knowledge-imports`），不通过 `/api/uploads` 公网静态目录公开。文件按学科与 SHA256 去重，重复点击返回原任务，完成后重传不会重新 OCR。旧版没有文件摘要的历史资料保留，不按文件名猜测相同内容或删除。
+原始资料与页级检查点由 `KNOWLEDGE_IMPORT_DIR` 指定，不通过 `/api/uploads` 静态目录公开。文件按学科与 SHA256 去重，重复点击返回原任务，完成后重传不会重新 OCR。旧版没有文件摘要的历史资料保留，不按文件名猜测相同内容或删除。
 
 文字层使用 PyMuPDF 直接提取；扫描页、乱码页和混合页面中的图片文字使用后端运行环境中的 Tesseract（`chi_sim+eng`）。复用 PyMuPDF 图片定位与矢量绘图聚类，只把相关图形区域交给 `GLM-5.3-Flash`；无法分区的扫描页在出现图形指示时使用压缩页面补充图形语义，不逐字转写整页。图形语义单独标记，模型不得补造未标注的关系。专用 OCR 不保证复杂公式完全准确，低可信度页面保留核对警告和原件。
 
@@ -20,42 +20,31 @@ OCR 与视觉网络请求最多同时执行 `RAG_OCR_WORKERS` 个页面（默认
 
 升级后由后端维护脚本或后端 Python 环境调用 `subject_rag.migrate_subject_vectors(db, subject)`。该操作将旧共享集合中仍属于当前 SQL 文档的向量复制到对应集合，校验片段 ID、文档 ID、学科、向量模型和维度；不调用 OCR、不重新计算已有向量、不删除旧集合。检查返回的 `migrated`、`missing`、`vector_status`。若旧向量缺失，可针对该科重建索引，直接使用 SQL 中的片段，不重新 OCR。
 
-## 镜像与 ARM64
+## 本地服务版本
 
 默认固定 `milvusdb/milvus:v2.6.25`，Python 依赖为 `pymilvus>=2.6.17,<2.7`，遵循 [Milvus 2.6.25 发布兼容表](https://github.com/milvus-io/milvus/releases/tag/v2.6.25)。etcd 使用 `quay.io/coreos/etcd:v3.5.25`；MinIO 使用 [Milvus 官方 Compose](https://github.com/milvus-io/milvus/blob/master/deployments/docker/standalone/docker-compose.yml)采用的 `milvusdb/minio:RELEASE.2024-12-18T13-15-44Z`。
 
-2026-10-22 核查官方 registry metadata，这三个固定 tag 都包含原生 `linux/arm64`，可以在 `aarch64` 服务器直接运行，无需 QEMU 或设置 `platform: linux/amd64`。Milvus/MinIO 的 [Docker Hub](https://hub.docker.com/r/milvusdb/milvus/tags?name=v2.6.25) 和 [etcd manifest](https://quay.io/repository/coreos/etcd?tab=tags&tag=v3.5.25) 可用于再次核对；旧 `minio/minio` 的历史 tag 不作为部署依赖。
 
-## 配置统一放在 .env
+## 本地配置
 
-部署目录为 `/remedi`。后端文字、视觉、向量化和重排统一通过 AI Ping 调用；配置放在服务器本地 `.env`，不要提交真实凭证。下面仅列出后端与向量服务相关配置，Key 为空示例：
+Docker Compose 从仓库根目录的 `.env` 读取 Milvus 容器所需的 MinIO 账户。该文件已被 Git 忽略：
 
 ```dotenv
-COMPOSE_PROJECT_NAME=remedi
-COMPOSE_FILE=docker-compose.yml:docker-compose.milvus.yml
-LLM_PROVIDER=openai-compatible
-LLM_API_KEY=
-LLM_BASE_URL=https://aiping.cn/api/v1
-LLM_MODEL=GLM-5.3-Flash
-LLM_VISION_MODEL=GLM-5.3-Flash
-RAG_API_KEY=
-RAG_BASE_URL=
-RAG_MILVUS_URI=http://milvus:19530
-RAG_MILVUS_COLLECTION=remedi_subject_knowledge_qwen3_embedding4b
-RAG_EMBEDDING_MODEL=Qwen3-Embedding-4B
-RAG_EMBEDDING_DIMENSIONS=1024
-RAG_TIMEOUT_SECONDS=8
-RAG_RERANK_MODEL=Qwen3-Reranker-0.6B
-RAG_RERANK_TIMEOUT_SECONDS=10
-RAG_MINIO_ROOT_USER=remedi-rag
-RAG_MINIO_ROOT_PASSWORD=replace-with-a-long-random-password
+RAG_MINIO_ROOT_USER=remedi-local
+RAG_MINIO_ROOT_PASSWORD=replace-with-a-local-password
 ```
 
-`COMPOSE_FILE` 的冒号分隔方式适用于 Linux 服务器。它用于合并基础 Compose 与 Milvus 服务配置；生产中只操作 Milvus、etcd、MinIO 等向量服务，不通过 Compose 启动前后端。修改后端模型配置后，在宝塔重启 Remedi Python 项目。`RAG_API_KEY` 和 `RAG_BASE_URL` 留空时，后端自动复用 `LLM_API_KEY` 和 `LLM_BASE_URL`。所有凭证通过服务器 `.env` 提供，不需要把秘密复制到 Compose 文件。
+FastAPI 直接从启动进程的环境变量读取配置，不会自动读取 `.env`。PowerShell 中可在启动后端的终端设置本次会话变量：
 
-实际 API Key 仅保存在服务器环境配置，不在文档展示。数据库健康检查不实例化模型，网站、后端和 BM25 资料检索可独立启动；模型调用失败不会生成模拟答案。
+```powershell
+$env:RAG_MILVUS_URI = 'http://127.0.0.1:19530'
+$env:LLM_API_KEY = '<本地 AI Ping API Key>'
+$env:LLM_BASE_URL = 'https://aiping.cn/api/v1'
+```
 
-AI Ping 的 OpenAI 兼容地址为 `https://aiping.cn/api/v1`，向量化使用 `/embeddings`，重排使用 `/rerank`。问答、向量化和重排的可用性需分别通过实际调用验证。修改 API 地址时，仅更新 `/remedi/.env` 中对应的设置，保留其他配置，然后在宝塔面板重启 Remedi Python 项目；无需重建 Milvus。
+不要把真实 API Key 写入仓库文件。数据库和健康检查不依赖模型；向量服务不可用时仍可使用 BM25，重排失败时回退本地重排。
+
+AI Ping 的 OpenAI 兼容地址为 `https://aiping.cn/api/v1`，向量化使用 `/embeddings`，重排使用 `/rerank`。问答、向量化和重排的可用性需分别通过实际调用验证。`RAG_API_KEY` 和 `RAG_BASE_URL` 留空时，后端复用 `LLM_API_KEY` 和 `LLM_BASE_URL`。
 
 模型连接验证通过后，在教师知识库点击“重建检索索引”，将已有资料同步到新集合 `remedi_subject_knowledge_qwen3_embedding4b`。旧集合继续保留，不删除业务资料或历史向量。模型名称、向量库和 MinIO 参数已经预置，无需将真实令牌加入 Git 或镜像。
 
@@ -63,7 +52,7 @@ AI Ping 的 OpenAI 兼容地址为 `https://aiping.cn/api/v1`，向量化使用 
 
 | 环境变量 | 默认值 / 用途 |
 | --- | --- |
-| `RAG_MILVUS_URI` | 应用默认空；默认 `http://milvus:19530` 在宝塔原生后端中映射为 `http://127.0.0.1:19530` |
+| `RAG_MILVUS_URI` | 默认空；本地 Python 后端连接 Compose 时设置为 `http://127.0.0.1:19530` |
 | `RAG_MILVUS_TOKEN` | 空；外部实例启用鉴权时填写对应 token |
 | `RAG_MILVUS_COLLECTION` | `remedi_subject_knowledge_qwen3_embedding4b` |
 | `RAG_EMBEDDING_MODEL` | `Qwen3-Embedding-4B` |
@@ -71,7 +60,7 @@ AI Ping 的 OpenAI 兼容地址为 `https://aiping.cn/api/v1`，向量化使用 
 | `RAG_TIMEOUT_SECONDS` | `8`；单次网络操作超时，上限 30 秒 |
 | `RAG_RERANK_MODEL` | `Qwen3-Reranker-0.6B`；不可用时使用本地重排 |
 | `RAG_RERANK_TIMEOUT_SECONDS` | `10`；模型重排请求超时（秒） |
-| `LLM_API_KEY` | AI Ping API Key，真实值仅保存在服务器 `.env` |
+| `LLM_API_KEY` | AI Ping API Key，仅通过本地后端进程环境变量提供 |
 | `LLM_BASE_URL` | `https://aiping.cn/api/v1` |
 | `RAG_API_KEY` / `RAG_BASE_URL` | 可留空，默认复用 LLM 凭证与地址 |
 | `LLM_MODEL` / `LLM_VISION_MODEL` | `GLM-5.3-Flash` / `GLM-5.3-Flash` |
@@ -86,54 +75,28 @@ BM25 和 Milvus 的早期候选会在截断前按资料来源分散，避免一�
 
 删除资料时，先捕获其片段 ID 并提交本地删除，再仅清理这些确切的 Milvus 主键。SQLite 文档 ID 被后续上传复用时，延迟到达的旧删除不会误删新资料向量。清理失败仍保留安全警告，查询时继续核验 SQL 中片段的存活状态和学科。
 
-## 启动与数据位置
+## 本地启动与数据位置
 
-```bash
-cd /remedi
-docker compose config --quiet
-docker compose up -d milvus
-bash deploy/enable_project_network.sh
-docker compose ps milvus milvus-etcd milvus-minio
-curl --fail http://127.0.0.1:9091/healthz
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.milvus.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.milvus.yml up -d milvus
+docker compose -f docker-compose.yml -f docker-compose.milvus.yml ps milvus milvus-etcd milvus-minio
+curl.exe --fail http://127.0.0.1:9091/healthz
 ```
 
-只启动向量服务。持久化目录位于 `/remedi/data`：
+该命令只启动 Milvus、etcd 和 MinIO，不启动 Compose 中的 `api` 或 `web`。向量数据保存在仓库根目录的 `data/`：
 
 | 宿主机目录 | 用途 |
 | --- | --- | --- |
-| `/remedi/data/api` | 原生后端业务数据库与上传文件 |
-| `/remedi/data/etcd` | etcd 容器中的 Milvus 元数据 |
-| `/remedi/data/minio` | MinIO 容器中的向量对象存储 |
-| `/remedi/data/milvus` | Milvus 容器中的向量服务数据 |
+| `data/etcd` | etcd 中的 Milvus 元数据 |
+| `data/minio` | MinIO 中的向量对象存储 |
+| `data/milvus` | Milvus 向量服务数据 |
 
-`/remedi/data/api` 由宿主机上的 Python 后端使用，不是 API 容器挂载点。不要删除历史 Compose 卷定义或清理这些数据目录。切换业务数据库或目录时，应先确认目标包含需要保留的数据。
+本地业务数据库和上传目录由后端配置决定。保留 `data/` 中的向量服务数据；不要用 `docker compose down -v` 清理数据。
 
-MinIO 镜像自带的 `/data` 默认卷也绑定到 `/remedi/data/minio`；服务实际使用 `/minio_data`，两处均在项目目录内，避免运行中容器额外创建匿名数据卷。
+MinIO 镜像自带的 `/data` 默认卷也绑定到 `data/minio`；服务实际使用 `/minio_data`，避免运行中容器额外创建匿名数据卷。
 
-Milvus 19530 和健康检查 9091 只绑定宿主机 `127.0.0.1`；etcd、MinIO 不发布宿主机端口。后端启动不依赖 Milvus 就绪，启动期间可使用 BM25。第一次建集合或加载超过超时后可重试。若后端连接不到 Compose 网络中的 Milvus，可设置 `RAG_MILVUS_URI=http://127.0.0.1:19530` 使用本机映射端口。
-
-前端由宝塔 Nginx 在 `5001` 提供，Nginx 将 `/api` 代理到 `127.0.0.1:5000`。后端 Swagger 文档仅供运维诊断，地址为本机 `http://127.0.0.1:5000/docs`。Milvus、etcd 和 MinIO 不需要开放公网端口。
-
-## 本地修改后的发布
-
-提交并普通 push 到 GitHub `main` 后，通过项目部署脚本在服务器 `/remedi` 拉取代码并核对提交：
-
-```powershell
-git push origin main
-.\.venv\Scripts\python.exe deploy/pull_server.py
-```
-
-仓库为私有仓库，脚本从本地 Git 凭证管理器读取凭证，经 SSH 标准输入仅供本次 `git pull --ff-only origin main` 使用；凭证不写入服务器文件、Git 配置或日志。脚本校验服务器没有已跟踪文件改动，并核对服务器提交与本地提交一致。仅文档改动无需构建或重启；前端、后端和 Milvus 变更的操作分别参照 [部署指南](../DEPLOY.md)。
-
-仅当 Milvus、etcd、MinIO 或其 Compose 配置确有变更时，才按需更新这些容器。例如：
-
-```bash
-cd /remedi
-docker compose up -d milvus
-docker compose ps milvus milvus-etcd milvus-minio
-```
-
-服务器重启或 Compose 网络重建后，如 Milvus 网络连通性受影响，可先运行 `docker compose up -d milvus`，再按需运行 `deploy/enable_project_network.sh`。该脚本只处理 Remedi 项目网络，不会启动或重建前后端应用。
+Milvus `19530` 和健康检查 `9091` 只绑定本机回环地址；etcd、MinIO 不发布宿主机端口。后端启动不依赖 Milvus 就绪，启动期间可使用 BM25。首次建集合或加载超时后可重试。
 
 ## 将已有资料同步到 Milvus
 
@@ -162,17 +125,15 @@ Content-Type: application/json
 
 检查响应的 `retrieval_mode`、`rerank_mode` 和 `warnings`，分别确认召回、重排和降级情况。`rerank_mode` 为新增字段，取 `model` 或 `local`；没有候选或模型重排未完成时，不会声称使用模型重排。
 
-## 检查与维护
+## 本地检查与维护
 
 启用后上传数学资料、重建数学索引，用资料中的问题查询，再用其他学科查询，确认没有跨学科引用。删除资料后查询其独有内容，确认不再引用；Milvus 暂停时确认问答回退 BM25，恢复后重建失败的索引。重排模型不可用时，应得到 `rerank_mode=local` 与安全警告，仍可取得有来源的资料。
 
 ```bash
-cd /remedi
-docker compose logs --tail=100 milvus milvus-etcd milvus-minio
-docker compose up -d milvus
+docker compose -f docker-compose.yml -f docker-compose.milvus.yml logs --tail=100 milvus milvus-etcd milvus-minio
 ```
 
-仅在向量服务停止或配置更新时才执行启动命令。常规更新保留 `.env` 的 `COMPOSE_FILE` 和整个 `data/`；不要使用 `down -v` 清理业务或索引数据。外部 Milvus 可直接配置 URI/token；若开启 Milvus 鉴权，同时配置服务端鉴权和 `RAG_MILVUS_TOKEN`。
+外部 Milvus 可直接配置 URI/token；若开启 Milvus 鉴权，同时设置 `RAG_MILVUS_TOKEN`。
 
 ## 本地契约验证
 

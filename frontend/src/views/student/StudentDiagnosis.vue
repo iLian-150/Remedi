@@ -1,13 +1,10 @@
 <!-- 学生端：诊断详情（单次提交的分步诊断）
-     数学：分步诊断（首次出错步骤高亮）、错因三色徽标、鼓励性文案。
+     数学：分步诊断（首次出错步骤高亮）、错因与知识点状态徽标。
      支持 ?submission_id= 预选某次提交（学习报告的错题时间线从这里跳进来）。
      文案伦理：学生端不出现「顽固误区」「疑似」「置信度」等术语。 -->
 <template>
   <div class="page">
     <div class="page-head">
-      <div>
-        <p class="page-sub">查看这次作答的分步诊断与错因。</p>
-      </div>
       <router-link class="back-link" to="/student/mistakes"><AppIcon name="chevron-left" :size="16" /> 返回错题本</router-link>
     </div>
 
@@ -43,7 +40,6 @@
             <b class="tnum">{{ fmtScore(mathDetail.score.assignment_score) }} / {{ fmtScore(mathDetail.score.assignment_total ?? 0) }} 分</b>
           </p>
         </div>
-        <p class="hint" style="margin-top: 8px">分数是当前批改结果；订正和二次验证能帮你把知识点真正修好，分数也会在重新提交后更新。</p>
       </div>
 
       <div class="card">
@@ -63,16 +59,12 @@
 
       <div class="card" v-if="mathDetail.errors.length">
         <h3>发现的问题</h3>
-        <p class="card-sub">别灰心，看清楚问题就是进步的开始。</p>
         <div v-for="e in mathDetail.errors" :key="e.id" class="error-item">
           <p>
             <ErrorTypeBadge :type="e.error_type" />
             <span class="badge badge-blue">{{ e.knowledge_point }}</span>
             <span v-if="e.is_stubborn" class="badge badge-amber">需要加固的知识点</span>
-            <span v-else class="badge badge-green">已注意，继续保持</span>
-          </p>
-          <p class="encourage">
-            {{ e.is_stubborn ? '这个知识点还需要再加固一下，多练几道同类题会有帮助。' : '这是一次偶发的小失误，下次细心一点就好。' }}
+            <span v-else class="badge badge-green">偶发失误</span>
           </p>
           <p v-if="e.detail" class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
           <div class="toolbar" style="margin-top: 8px; margin-bottom: 0">
@@ -86,7 +78,7 @@
         </div>
       </div>
       <div class="card" v-else>
-        <div class="empty">这次全对，继续保持！</div>
+        <div class="empty">本次作答全部正确。</div>
       </div>
     </template>
 
@@ -194,7 +186,6 @@ onMounted(async () => {
 .review-pending-sub { font-size: 13px; color: var(--amber-strong); opacity: 0.85; margin-top: 2px; }
 .error-item { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #F1F3F6; }
 .error-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-.encourage { margin-top: 8px; font-size: 14px; color: var(--text); }
 .detail { margin-top: 6px; font-size: 14px; color: var(--text-2); }
 .followup-box {
   display: flex; gap: 9px; align-items: flex-start;

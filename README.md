@@ -29,16 +29,15 @@ npm run dev
 
 Vite 默认把 `/api` 请求代理到 `http://localhost:8000`。详见 [前端说明](frontend/README.md) 与 [后端说明](backend/README.md)。
 
-## 生产架构
+## 本地验证
 
-生产环境运行在 `/remedi`：宝塔 Nginx 提供前端静态文件（端口 `5001`），宝塔 Python 项目运行 FastAPI（`127.0.0.1:5000`）；Docker Compose 仅运行 Milvus、etcd 和 MinIO。请按[部署指南](DEPLOY.md)发布，勿使用旧的全栈 Docker 部署方式。
+前端构建和现有 smoke 脚本见[验证入口](docs/validation.md)。本项目当前只进行本地开发与验证，不包含服务器部署流程。
 
 ## 文档
 
-- [部署指南](DEPLOY.md)
 - [接口契约](docs/api-contract.md)
 - [数据表设计与当前表清单](docs/schema-design.md)
-- [学科 RAG 与 Milvus](docs/milvus-rag.md)
+- [学科 RAG 与 Milvus 本地配置](docs/milvus-rag.md)
 - [校园服务台业务流程](docs/campus-service-workflow.md)
 - [前端设计规范](docs/frontend-design-guidelines.md)
 - [v0.5 历史规格](docs/v0.5-spec.md)

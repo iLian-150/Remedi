@@ -344,6 +344,9 @@ class TeacherAIGradingAssignmentItem(BaseModel):
     student_count: int
     answer_count: int
     latest_submitted_at: datetime
+    published_at: datetime
+    recipient_student_count: int
+    submission_percent: int
 
 class TeacherAIGradingAssignmentPage(BaseModel):
     total: int

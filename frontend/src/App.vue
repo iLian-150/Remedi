@@ -105,7 +105,7 @@
 
     <main class="shell-main" :class="{ 'is-chat-route': isChatRoute }">
       <header v-if="shellPageTitle" class="shell-page-heading">
-        <h1>{{ shellPageTitle }}</h1>
+        <h1 :title="isStudentChat ? shellPageTitle : undefined">{{ shellPageTitle }}</h1>
       </header>
       <!-- 登录成功切换到应用外壳时，路由仍可能短暂停留在公开登录页；不要把登录表单渲染进已登录布局。 -->
       <router-view v-if="!route.meta.public" />
@@ -182,6 +182,7 @@ import RightRail from './components/RightRail.vue'
 import SidebarSessions from './components/SidebarSessions.vue'
 import DocumentImportToast from './components/DocumentImportToast.vue'
 import AppUpdateNotice from './components/AppUpdateNotice.vue'
+import { getSubjectLabel } from './utils/subjectLabels'
 
 const auth = useAuthStore()
 const student = useStudentStore()
@@ -221,9 +222,8 @@ onBeforeUnmount(() => {
 })
 
 // ---------- 对话与各角色功能页面共享侧栏会话区 ----------
-const isChatRoute = computed(
-  () => route.path === '/student/chat' || route.path === '/teacher/chat'
-)
+const isStudentChat = computed(() => route.path === '/student/chat')
+const isChatRoute = computed(() => isStudentChat.value || route.path === '/teacher/chat')
 const isNewChatActive = computed(() => {
   if (!isChatRoute.value) return false
   return auth.role === 'teacher' ? teacher.sessionView.fresh : student.sessionView.fresh
@@ -293,16 +293,29 @@ const showSidebarSessions = computed(() => {
 })
 
 const shellPageTitle = computed(() => {
-  if (isChatRoute.value || route.meta.public) return ''
+  if (route.meta.public || route.path === '/teacher/chat') return ''
   if (route.path === '/teacher/students' || route.path.startsWith('/teacher/students/classes/')) return ''
+  if (isStudentChat.value) {
+    const sessionId = student.sessionView.id ?? student.activeSessionId
+    const title = student.sessions.find(session => session.id === sessionId)?.title.trim()
+    if (title) return title
+  }
+  const subject = route.params.subject
+  if (route.path.startsWith('/student/report/') && typeof subject === 'string') {
+    return `${getSubjectLabel(subject, subject)} · 学习报告`
+  }
+  if (route.path === '/student/corrections' && student.correctionPageTitle) {
+    return student.correctionPageTitle
+  }
+  if (route.path === '/student/mistakes' && student.mistakePageTitle) {
+    return student.mistakePageTitle
+  }
   if (typeof route.meta.title === 'string') return route.meta.title
-  const section = navItems.value.find((item) =>
+  return navItems.value.find((item) =>
     [item.to, ...(item.activePaths ?? [])].some((path) =>
       route.path === path || route.path.startsWith(`${path}/`)
     )
-  )
-  if (section) return section.label
-  return typeof route.meta.title === 'string' ? route.meta.title : ''
+  )?.label ?? ''
 })
 
 function onSidebarSessionNavigate() {

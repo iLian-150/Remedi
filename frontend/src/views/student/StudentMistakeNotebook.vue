@@ -1,7 +1,7 @@
 <template>
-  <div class="mistake-map-view remedi-mistake-book">
+  <div class="page mistake-map-view remedi-mistake-book">
     <main class="mistakes-panel" :class="`is-${view}`" aria-label="学生错题本">
-      <div class="mistake-board-toolbar" :class="{ 'with-notebook-filters': view === 'notebook', 'is-split': view === 'notebook' && Boolean(selectedMistake), 'is-reversed': assistantOnLeft }" role="toolbar" aria-label="错题本视图操作">
+      <div class="mistake-board-toolbar" :class="{ 'with-notebook-filters': view === 'notebook' }" role="toolbar" aria-label="错题本视图操作">
         <div v-if="view === 'notebook'" class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
           <button v-for="option in statusOptions" :key="option.key" type="button" :class="{ selected: status === option.key }" :aria-pressed="status === option.key" @click="status = option.key">{{ option.label }}<small>{{ option.count }}</small></button>
         </div>
@@ -59,7 +59,7 @@
         <MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/>
       </section>
 
-      <MistakeStickyNotes v-else-if="view === 'sticky'" :mistakes="allMistakes" :loading="loading" :student-name="studentName" :split="Boolean(selectedMistake)" :reversed="assistantOnLeft" :fullscreen="assistantFullscreen" :working-key="workingKey" @select-mistake="openAssistant" @study-category="toggleCategoryByPayload" @archive-assignment="archiveById" @start-assignment="router.push('/student/assignments')" @review="openOriginalQuestion($event)">
+      <MistakeStickyNotes v-else-if="view === 'sticky'" :mistakes="allMistakes" :loading="loading" :split="Boolean(selectedMistake)" :reversed="assistantOnLeft" :fullscreen="assistantFullscreen" :working-key="workingKey" @select-mistake="openAssistant" @study-category="toggleCategoryByPayload" @archive-assignment="archiveById" @start-assignment="router.push('/student/assignments')" @review="openOriginalQuestion($event)">
         <template #assistant><MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/></template>
       </MistakeStickyNotes>
 
@@ -72,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
@@ -369,6 +369,7 @@ function setView(next: NotebookView) {
   const activate = () => {
     if (requestId !== viewRequestId) return
     view.value = next
+    student.setMistakePageTitle(next === 'sticky' ? '错题便利贴' : '')
     closeAssistant()
     actionError.value = ''
   }
@@ -598,15 +599,19 @@ function openRequestedReview() {
 watch(() => route.query.review, openRequestedReview)
 
 onMounted(() => void loadMistakes())
+onBeforeUnmount(() => {
+  viewRequestId++
+  student.setMistakePageTitle('')
+})
 </script>
 
 <style scoped>
-.remedi-mistake-book { width: 100%; max-width: none; height: auto; min-height: 0; flex: 1 1 0; margin: 0; padding: 0 var(--content-frame-gutter); overflow: hidden; }
+.remedi-mistake-book { min-height: 0; flex: 1 1 0; overflow: hidden; }
 .remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .remedi-mistake-book .mistake-board-toolbar { position: absolute; z-index: 10; top: 16px; right: 18px; }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
-  left: 18px;
-  right: 18px;
+  position: static;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
   padding: 8px 10px;
@@ -623,25 +628,29 @@ onMounted(() => void loadMistakes())
   gap: 8px;
   margin-left: 0;
 }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search { width: auto; min-width: 150px; flex: 1 1 240px; }
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search { width: auto; min-width: 0; flex: 1 1 240px; }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort select { width: 160px; }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch {
+  position: absolute;
+  z-index: 11;
+  top: 16px;
+  right: 66px;
   flex: 0 0 auto;
   padding: 3px;
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh { flex: 0 0 auto; box-shadow: none; }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters.is-split {
-  flex-wrap: wrap;
-  justify-content: flex-start;
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh {
+  position: absolute;
+  z-index: 11;
+  top: 16px;
+  right: 18px;
+  flex: 0 0 auto;
+  box-shadow: none;
 }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters.is-split .mistake-view-switch { margin-left: auto; }
-.remedi-mistake-book .mistake-notebook { height: auto; min-height: 0; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { display: block; max-width: none; height: auto; overflow: visible; overscroll-behavior-y: auto; padding: calc(64px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter); }
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { margin-right: 390px; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
-.remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { padding: 112px var(--content-frame-gutter) var(--content-frame-gutter); }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book .mistake-network-viewport { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-network-topic-nav { top: 62px; }
@@ -676,18 +685,23 @@ onMounted(() => void loadMistakes())
 .remedi-mistake-book .notebook-action-error { margin: 10px 0; color: var(--red-strong); font-size: 12px; }
 .remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
 @keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
-@media (max-width: 960px) {
-  .remedi-mistake-book { height: auto; min-height: 0; padding: 0 var(--content-frame-gutter-compact); }
-  .remedi-mistake-book .mistake-notebook-content { padding: 72px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact); }
+@media (max-width: 1150px) {
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters { padding-top: 56px; }
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs,
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { width: 100%; flex-basis: 100%; margin-right: 0; }
+}
+@media (max-width: 760px) {
+  .remedi-mistake-book .mistake-board-toolbar:not(.with-notebook-filters) { top: 10px; right: 10px; }
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch { top: 10px; right: 58px; }
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh { top: 10px; right: 10px; }
 }
 @media (max-width: 700px) {
   .remedi-mistake-book .mistake-board-toolbar { top: 10px; right: 10px; left: 10px; justify-content: center; }
   .remedi-mistake-book .mistake-view-switch { max-width: calc(100vw - 72px); overflow-x: auto; }
   .remedi-mistake-book .mistake-view-switch button { min-width: auto; padding-inline: 9px; }
   .remedi-mistake-book .mistake-board-refresh { display: none; }
-  .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content { padding: 66px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact); }
   .remedi-mistake-book .mistake-notebook.is-split { display: flex; flex-direction: column; }
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 auto; height: auto; padding: 66px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact); }
+  .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 auto; }
   .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant { height: auto; flex: 0 0 auto; }
 }
 
@@ -755,11 +769,6 @@ onMounted(() => void loadMistakes())
 }
 
 /* 卡片笔记 */
-.remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content {
-  max-width: none;
-  padding: calc(40px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter);
-}
-
 .remedi-mistake-book .notebook-workspace {
   min-width: 0;
 }
@@ -1109,37 +1118,9 @@ onMounted(() => void loadMistakes())
   min-height: 0;
 }
 
-.remedi-mistake-book :deep(.sticky-notes-inner) {
-  max-width: 1320px;
-  padding: calc(40px + var(--content-frame-gutter)) var(--content-frame-gutter) var(--content-frame-gutter);
-}
-
-.remedi-mistake-book :deep(.sticky-notes-header) {
-  max-width: 720px;
-}
-
-.remedi-mistake-book :deep(.sticky-notes-kicker) {
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0;
-}
-
-.remedi-mistake-book :deep(.sticky-notes-kicker span) {
-  color: var(--primary);
-}
-
-.remedi-mistake-book :deep(.sticky-notes-header h1) {
-  margin: 11px 0 6px;
-  color: var(--text);
-  font-size: clamp(27px, 2.6vw, 35px);
-  font-weight: 730;
-  letter-spacing: -.04em;
-}
-
-.remedi-mistake-book :deep(.sticky-notes-header p) {
-  color: var(--text-2);
-  font-size: 13px;
+.remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
+  max-width: none;
+  padding: calc(40px + var(--content-frame-gutter)) 0 0;
 }
 
 .remedi-mistake-book :deep(.sticky-notes-breadcrumb) {
@@ -1649,8 +1630,8 @@ onMounted(() => void loadMistakes())
     align-items: center;
   }
 
-  .remedi-mistake-book :deep(.sticky-notes-inner) {
-    padding: 72px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact);
+  .remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
+    padding-top: 72px;
   }
 }
 
@@ -1681,10 +1662,6 @@ onMounted(() => void loadMistakes())
   .remedi-mistake-book .mistake-board-refresh {
     width: 36px;
     height: 36px;
-  }
-
-  .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content {
-    padding: 66px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact);
   }
 
   .remedi-mistake-book .notebook-filterbar {
@@ -1761,12 +1738,8 @@ onMounted(() => void loadMistakes())
     width: 100%;
   }
 
-  .remedi-mistake-book :deep(.sticky-notes-inner) {
-    padding: 66px var(--content-frame-gutter-compact) var(--content-frame-gutter-compact);
-  }
-
-  .remedi-mistake-book :deep(.sticky-notes-header h1) {
-    font-size: 27px;
+  .remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
+    padding-top: 66px;
   }
 
   .remedi-mistake-book :deep(.sticky-notes-grid) {
@@ -1788,41 +1761,21 @@ onMounted(() => void loadMistakes())
   }
 }
 
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters.is-split.is-reversed {
-  left: calc(40% + 18px);
-}
-
-@media (max-width: 1150px) {
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
-
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch {
-    margin-left: auto;
-  }
-
-  .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content {
-    padding-top: 112px;
-  }
-
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content {
-    padding-top: 164px;
-  }
-}
-
 @media (max-width: 700px) {
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
-    right: 10px;
-    left: 10px;
+    justify-content: flex-start;
     gap: 8px;
-    padding: 8px;
+    padding: 56px 8px 8px;
   }
 
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch {
     order: 1;
+    top: 10px;
+    left: 50%;
+    right: auto;
     max-width: calc(100% - 48px);
     margin-left: 0;
+    transform: translateX(-50%);
   }
 
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh {
@@ -1837,14 +1790,6 @@ onMounted(() => void loadMistakes())
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools {
     order: 3;
     width: 100%;
-  }
-
-  .remedi-mistake-book .mistake-notebook:not(.is-split) .mistake-notebook-content {
-    padding-top: 164px;
-  }
-
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content {
-    padding-top: 164px;
   }
 }
 
@@ -1868,15 +1813,16 @@ onMounted(() => void loadMistakes())
 }
 .remedi-mistake-book:has(> .mistakes-panel.is-notebook) > .mistakes-panel {
   height: auto;
-  min-height: calc(100dvh - 86px);
+  min-height: 0;
   overflow: visible;
 }
-.remedi-mistake-book:has(> .mistakes-panel.is-notebook) .mistake-notebook {
+.remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook {
   height: auto;
-  min-height: calc(100dvh - 88px);
+  min-height: 0;
 }
-.remedi-mistake-book:has(> .mistakes-panel.is-notebook) .mistake-notebook-content {
+.remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content {
   height: auto;
+  padding: 0;
   overflow: visible;
   overscroll-behavior: auto;
 }

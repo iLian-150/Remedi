@@ -87,8 +87,12 @@
       <div v-else class="review-empty">
         <span class="review-empty-icon"><AppIcon name="check" :size="19" /></span>
         <strong>{{ reviewSummary.hasRecords ? '目前没有待巩固类别' : '错题本还没有记录' }}</strong>
-        <p>{{ reviewSummary.hasRecords ? '所有错误类别都已标记学会，继续保持。' : '完成作业诊断后，错题和复习进度会显示在这里。' }}</p>
-        <button type="button" @click="router.push('/student/mistakes')">查看错题本<AppIcon name="arrow-right" :size="12" /></button>
+        <button
+          type="button"
+          @click="router.push(reviewSummary.hasRecords ? '/student/mistakes' : '/student/assignments')"
+        >
+          {{ reviewSummary.hasRecords ? '查看错题本' : '去做作业' }}<AppIcon name="arrow-right" :size="12" />
+        </button>
       </div>
     </template>
 
@@ -103,7 +107,7 @@
       </button>
       <div v-if="tlExpanded" class="tl-body">
         <div v-if="tlLoading" class="loading" style="padding: 18px 0">加载错题时间线…</div>
-        <p v-else-if="!timelineRows.length" class="hint" style="padding: 6px 0">还没有错题记录，继续保持。</p>
+        <p v-else-if="!timelineRows.length" class="hint" style="padding: 6px 0">暂无错题记录。</p>
         <div v-else class="tl-list">
           <div class="timeline">
             <div
@@ -678,7 +682,6 @@ async function markAllRead() {
 .review-empty { display: flex; flex-direction: column; align-items: center; padding: 24px 12px; text-align: center; }
 .review-empty-icon { margin-bottom: 10px; color: #0F9F7A; background: #EAFBF4; }
 .review-empty strong { font-size: 13.5px; }
-.review-empty p { margin-top: 5px; color: var(--text-3); font-size: 12px; line-height: 1.55; }
 .review-empty button { margin-top: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-detail); background: #fff; color: var(--primary); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) {
   .tl-chevron { transition: none; }

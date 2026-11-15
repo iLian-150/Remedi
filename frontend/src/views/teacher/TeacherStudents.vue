@@ -30,7 +30,7 @@
             <tr>
               <th scope="col">班级名称</th>
               <th scope="col">学生人数</th>
-              <th scope="col">操作</th>
+              <th scope="col"><span class="class-actions-heading">操作</span></th>
             </tr>
           </thead>
           <tbody>
@@ -558,17 +558,19 @@ async function confirmDeleteClassroom() {
 .roster-total { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13px; white-space: nowrap; }
 .roster-total :deep(.app-icon) { color: var(--primary); }
 .class-list-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
-.class-list-table { width: 100%; min-width: 480px; table-layout: fixed; }
+.class-list-table { --class-actions-track: 152px; width: 100%; min-width: 480px; table-layout: fixed; }
 .class-list-table th, .class-list-table td { text-align: center; }
 .class-list-table th { padding: 7px 18px; }
 .class-list-table td { padding: 6px 18px; }
-.class-list-table th:first-child { width: 58%; }
-.class-list-table th:nth-child(2) { width: 24%; }
-.class-list-table th:last-child { width: 18%; }
-.class-list-table td:first-child, .class-list-table td:last-child { text-align: center; }
+.class-list-table th:first-child { width: 50%; padding-left: 24px; text-align: left; }
+.class-list-table th:nth-child(2) { width: 22%; }
+.class-list-table th:last-child { width: 28%; padding-right: 24px; text-align: left; }
+.class-list-table td:first-child { padding-left: 24px; text-align: left; }
+.class-list-table td:last-child { padding-right: 24px; text-align: right; }
+.class-actions-heading { display: block; width: var(--class-actions-track); margin-left: auto; text-align: left; }
 .class-actions .btn { display: inline-flex; align-items: center; gap: 4px; }
-.class-actions { display: flex; align-items: center; justify-content: center; gap: 4px; }
-.class-name-link { display: inline-flex; max-width: 100%; min-width: 0; min-height: 36px; align-items: center; justify-content: center; gap: 6px; transform: translateX(-24px); color: var(--text); font-size: 15px; font-weight: 650; }
+.class-actions { display: flex; width: var(--class-actions-track); align-items: center; justify-content: flex-start; gap: 4px; margin-left: auto; }
+.class-name-link { display: inline-flex; max-width: 100%; min-width: 0; min-height: 36px; align-items: center; justify-content: flex-start; gap: 6px; color: var(--text); font-size: 15px; font-weight: 650; }
 .class-name-link strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .class-name-link :deep(.app-icon) { flex: 0 0 auto; color: var(--text-3); transition: color .16s ease, transform .16s ease; }
 .class-name-link:hover { color: var(--primary); }
@@ -616,20 +618,24 @@ async function confirmDeleteClassroom() {
   .students-page-heading { min-height: 44px; gap: 12px; }
   .students-page-heading h1 { font-size: 20px; }
 }
+@media (max-width: 720px) {
+  .class-list-table { --class-actions-track: 67px; }
+  .class-actions { gap: 3px; }
+  .class-actions .btn { width: 32px; height: 32px; justify-content: center; padding: 0; }
+  .class-action-label { display: none; }
+}
 @media (max-width: 480px) {
   .students-page-heading { gap: 8px; }
   .students-page-heading > .btn { padding-inline: 10px; font-size: 12px; }
   .roster-toolbar { min-height: 34px; }
   .class-list-table { min-width: 0; }
-  .class-list-table th:first-child { width: 52%; }
+  .class-list-table th:first-child { width: 52%; padding-left: 10px; }
   .class-list-table th:nth-child(2) { width: 26%; }
-  .class-list-table th:last-child { width: 22%; }
+  .class-list-table th:last-child { width: 22%; padding-right: 10px; }
   .class-list-table th { padding: 7px 8px; }
   .class-list-table td { padding: 6px 8px; }
-  .class-name-link { transform: translateX(-8px); }
-  .class-actions { gap: 3px; }
-  .class-actions .btn { width: 32px; height: 32px; justify-content: center; padding: 0; }
-  .class-action-label { display: none; }
+  .class-list-table th:first-child, .class-list-table td:first-child { padding-left: 10px; }
+  .class-list-table th:last-child, .class-list-table td:last-child { padding-right: 10px; }
   .student-modal { padding: 20px; }
   .student-modal-actions .btn { padding-inline: 14px; }
 }

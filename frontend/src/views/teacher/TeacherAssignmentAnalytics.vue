@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head analytics-head">
       <div>
-        <h2>作业学情</h2>
         <p v-if="report" class="page-sub">{{ report.title }}</p>
       </div>
       <div class="head-actions">

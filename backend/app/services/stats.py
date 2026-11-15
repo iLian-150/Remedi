@@ -10,6 +10,7 @@ from ..models import (
     StudentMistakeArchive, Submission, SubmissionReview, User, Verification,
     Workbook,
 )
+from .knowledge_analysis import student_knowledge_analysis
 
 
 def top_error_questions(
@@ -293,6 +294,7 @@ def _student_stubborn_errors(
         .outerjoin(Step, Step.id == Error.step_id)
         .with_entities(
             Error.id.label("id"),
+            Error.submission_id.label("submission_id"),
             Error.knowledge_point.label("knowledge_point"),
             Error.error_type.label("error_type"),
             Step.text.label("step_text"),
@@ -433,8 +435,11 @@ def _profile_suggestion(student: User, knowledge_points: List[Dict],
 def student_profile(
     db, student: User, visible_only: bool = False, assignment_ids=None, submission_ids=None,
 ) -> Dict:
-    """学生画像：知识点掌握度、顽固误区、最近错误、学习建议。"""
-    # 按知识点聚合提交数和错因数；错误率分母另按实际题目数统计。
+    """双端共用的学生画像，保留旧版知识点和建议字段的口径。"""
+    analysis, record_metadata = student_knowledge_analysis(
+        db, student.id, visible_only, assignment_ids, submission_ids,
+    )
+    # 旧版 knowledge_points 继续使用实际题目数，双端分析区读取 knowledge_analysis。
     kp_attempts, kp_error_stats = _student_profile_stats(
         db, student.id, visible_only, assignment_ids, submission_ids,
     )
@@ -476,10 +481,12 @@ def student_profile(
     for e in stubborn_list:
         stubborn_errors.append({
             "id": e.id,
+            "submission_id": e.submission_id,
             "knowledge_point": e.knowledge_point,
             "error_type": e.error_type,
             "step_text": e.step_text,
             "created_at": e.created_at,
+            **record_metadata.get(e.id, {}),
         })
 
     recent_errors = _student_error_query(
@@ -490,7 +497,8 @@ def student_profile(
         Error.created_at.desc(), Error.id.desc(),
     ).limit(5).all()
     recent_errors = [
-        present_error(error, db, error.step) for error in recent_errors
+        {**present_error(error, db, error.step), **record_metadata.get(error.id, {})}
+        for error in recent_errors
     ]
 
     # v0.9.1：建议改本地模板拼装（见 _profile_suggestion），画像接口不再同步等 LLM
@@ -506,6 +514,7 @@ def student_profile(
         "stubborn_errors": stubborn_errors,
         "recent_errors": recent_errors,
         "suggestion": suggestion,
+        "knowledge_analysis": analysis,
     }
 
 
@@ -1049,6 +1058,7 @@ def awaiting_verification_knowledge_points(db, student: User,
     ).filter(
         Verification.student_id == student.id,
         Verification.status == "passed",
+        Verification.knowledge_point == Error.knowledge_point,
         Submission.student_id == student.id,
     )
     if visible_only:
@@ -1071,7 +1081,7 @@ def awaiting_verification_knowledge_points(db, student: User,
             "source_error_id": values["source_error_id"],
         }
         for (subject, knowledge_point), values in sorted(by_key.items())
-        if values["total"] == values["corrected"]
+        if knowledge_point.strip() and values["total"] == values["corrected"]
         and (subject, knowledge_point) not in passed_keys
     ]
 

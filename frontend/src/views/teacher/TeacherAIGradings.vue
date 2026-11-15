@@ -63,9 +63,24 @@
           <span class="grading-entry-icon"><AppIcon name="clipboard" :size="19" /></span>
           <span class="grading-entry-main">
             <strong>{{ assignment.assignment_title || '未命名作业' }}</strong>
-            <span>{{ assignment.student_count }} 名学生 · {{ assignment.answer_count }} 道已批改题目</span>
+            <span class="grading-entry-progress">
+              <span class="grading-progress-meta">
+                <span>{{ assignment.recipient_student_count }} 名学生</span>
+                <strong>已提交 {{ assignment.submission_percent }}%</strong>
+              </span>
+              <span
+                class="grading-progress-track"
+                role="progressbar"
+                :aria-label="`${assignment.assignment_title || '作业'}已提交进度`"
+                :aria-valuenow="assignment.submission_percent"
+                aria-valuemin="0"
+                aria-valuemax="100"
+              >
+                <span :style="{ width: `${assignment.submission_percent}%` }"></span>
+              </span>
+            </span>
           </span>
-          <span class="grading-entry-date tnum">最近提交 {{ fmtTime(assignment.latest_submitted_at) }}</span>
+          <span class="grading-entry-date tnum">发布于 {{ fmtTime(assignment.published_at) }}</span>
           <AppIcon class="grading-entry-arrow" name="chevron-right" :size="17" />
         </button>
       </div>
@@ -609,6 +624,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .grading-entry-main { display: grid; min-width: 0; gap: 5px; }
 .grading-entry-main strong { overflow: hidden; font-size: 14px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
 .grading-entry-main > span { overflow: hidden; color: var(--text-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.grading-entry-main > .grading-entry-progress { display: grid; gap: 5px; overflow: visible; white-space: normal; }
+.grading-progress-meta { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-2); font-size: 12px; }
+.grading-progress-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grading-progress-meta > strong { flex: 0 0 auto; color: var(--primary); font-size: 12px; font-weight: 650; }
+.grading-progress-track { display: block; width: 100%; height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--border); }
+.grading-progress-track > span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .2s ease; }
 .grading-entry-date { color: var(--text-3); font-size: 11px; white-space: nowrap; }
 .grading-entry-arrow { color: var(--text-3); }
 .grading-list > .loading, .grading-list > .empty { margin: 0; padding: 56px 20px; }
@@ -701,5 +722,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .threshold-controls { width: 100%; }
   .correction-controls { grid-template-columns: 1fr; }
   .detail-header { padding: 13px 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .grading-entry, .grading-progress-track > span { transition: none; }
 }
 </style>

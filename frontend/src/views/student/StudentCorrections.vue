@@ -1,79 +1,156 @@
-<!-- 学生端：订正错题
-     从订正墙分页接口取诊断错题摘要（自主收录题没有诊断记录，不在此列），
-     针对某条 error 提交订正，后端自动判定正误（is_correct：true/false/null）。
-     v0.4.0 口径：订正成功只是「已订正」；响应带 can_verify 时在结果区给出
-     入口，页内打开变式题面板（VerifyPanel）做二次验证，通过验证该知识点才
-     算「已修复」（原先跳学习报告页验证，本次改造随报告纯化迁回本页；墙上方
-     另有「待验证的知识点」汇总入口，使用轻量名单接口读取待验证知识点）。
-     已订正状态以服务端最新订正记录为准。
-     v0.9.0 曾在页内加订正日历；v0.9.1 日历迁入右侧栏（右栏在订正页切换为
-     「订正日历」模式），选中日期经 store.correctionsDateFilter 与本页共享：
-     本页顶部出现筛选状态条，「查看全部」清除；学生直接查看错题并进行订正。
-     v0.9.3：选错题从下拉改成「便利贴墙」（CorrectionStickyWall）——一题一贴，
-     点待订正的贴撕下后进入原修正工作区（三张卡与提交逻辑不变），返回后刚订正
-     对的贴变已订正样式留在墙上；已订正的贴点开跳诊断详情。 -->
+<!-- 学生端订正：先读取轻量作业目录，进入作业后再分页读取错题；订正判定、
+     已订正详情、变式验证沿用既有流程。右侧订正日历通过 store.correctionsDateFilter
+     同步筛选目录和题目列表。 -->
 <template>
   <div class="page">
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="loading" class="loading">加载错题中…</div>
 
     <template v-else>
-      <p class="rail-note"><AppIcon name="calendar" :size="15" /> 订正日历在右侧栏，点选任意一天即可只看那天的错题。</p>
-
       <!-- 日期筛选状态栏（v0.9.1）：右侧栏订正日历选中某天时出现，与作业列表页同构 -->
       <div v-if="selectedDate" class="card filter-bar">
         <div class="filter-info">
           <span class="filter-title">正在看 {{ selectedDateLabel }} 的订正</span>
-          <span class="filter-progress-text tnum">共 {{ totalMistakeCount }} 条 · 待订正 {{ pendingCount }} 条</span>
+          <span class="filter-progress-text tnum">共 {{ correctionTotals.total }} 条 · 待订正 {{ correctionTotals.pending }} 条</span>
         </div>
         <button class="btn secondary small" @click="clearDateFilter">查看全部</button>
       </div>
 
-      <!-- 待验证的知识点（KP 维度入口）：错题都订正好了、还没做变式题验证的
-           知识点汇总在这里，点按钮页内展开变式题面板完成验证 -->
-      <div v-if="view === 'wall' && awaitingVerifyKps.length" class="card verify-kp-card">
-        <h3><AppIcon name="target" :size="18" /> 待验证的知识点</h3>
-        <p class="card-sub">这些知识点的错题已经全部订正好，再做对一道同类变式题，就能完成验证、真正修复。</p>
-        <div v-for="kp in awaitingVerifyKps" :key="`${kp.subject}:${kp.knowledge_point}`" class="verify-kp-row">
-          <span class="badge badge-blue">{{ subjectName(kp.subject) }} · {{ kp.knowledge_point }}</span>
-          <button class="btn small" @click="verifyTarget = kp">做一道变式题，完成这个知识点的验证</button>
+      <template v-if="view === 'assignments'">
+        <div class="correction-index-toolbar">
+          <div class="correction-status-tabs" role="group" aria-label="作业订正状态">
+            <button
+              type="button"
+              :aria-pressed="assignmentStatus === 'pending'"
+              :class="{ active: assignmentStatus === 'pending' }"
+              @click="assignmentStatus = 'pending'"
+            >待订正 <span class="tnum">{{ pendingAssignments.length }}</span></button>
+            <button
+              type="button"
+              :aria-pressed="assignmentStatus === 'completed'"
+              :class="{ active: assignmentStatus === 'completed' }"
+              @click="assignmentStatus = 'completed'"
+            >已完成 <span class="tnum">{{ completedAssignments.length }}</span></button>
+          </div>
+          <button
+            v-if="awaitingVerifyKps.length"
+            type="button"
+            class="verify-index-action"
+            :aria-expanded="awaitingVerifyExpanded"
+            @click="awaitingVerifyExpanded = !awaitingVerifyExpanded"
+          >
+            <AppIcon name="target" :size="16" /> 待验证 <span class="tnum">{{ awaitingVerifyKps.length }}</span>
+          </button>
         </div>
-        <VerifyPanel
-          v-if="verifyTarget"
-          :key="`wall-${verifyTarget.subject}-${verifyTarget.knowledge_point}`"
-          :knowledge-point="verifyTarget.knowledge_point"
-          :subject="verifyTarget.subject"
-          :source-error-id="verifyTarget.source_error_id"
-          class="verify-panel-inline"
-          @passed="onVerifyPassed"
-          @close="verifyTarget = null"
-        />
-      </div>
 
-      <!-- 便利贴墙（v0.9.3）：一题一贴，点待订正的贴撕下后进修正工作区；
-           已订正的贴点开跳诊断详情。空态时墙上只留一张提示贴。 -->
-      <CorrectionStickyWall
-        v-if="view === 'wall'"
-        :groups="wallGroups"
-        :total-count="totalMistakeCount"
-        :has-more="hasMoreMistakes"
-        :loading-more="loadingMoreMistakes"
-        @pick="onPickNote"
-        @view="onViewNote"
-        @show-more="loadMoreCorrectionWall"
-      >
-        <template #empty>
-          <template v-if="!selectedDate && !totalMistakeCount">
-            太棒了，目前没有需要订正的题目，去 <router-link to="/student/assignments" class="empty-link">作业列表</router-link> 继续挑战吧。
+        <section class="correction-ledger" aria-label="订正作业目录">
+          <div class="correction-ledger-head" aria-hidden="true">
+            <span>作业</span>
+            <span>订正进度</span>
+            <span>发布日期</span>
+            <span></span>
+          </div>
+          <div v-if="assignmentLoading" class="ledger-empty">正在整理作业目录…</div>
+          <template v-else-if="visibleAssignments.length">
+            <button
+              v-for="(assignment, index) in visibleAssignments"
+              :key="assignment.assignment_id"
+              type="button"
+              class="correction-assignment-row"
+              :aria-label="`${assignment.assignment_title}，已订正 ${assignment.total_count - assignment.pending_count} / ${assignment.total_count} 条，进入错题列表`"
+              @click="openAssignment(assignment)"
+            >
+              <span class="assignment-index-cell">
+                <span class="assignment-index-number tnum">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span class="assignment-index-copy">
+                  <span class="assignment-subject-index">{{ assignmentSubjectLabel(assignment) }}</span>
+                  <strong>{{ assignment.assignment_title }}</strong>
+                </span>
+              </span>
+              <span class="assignment-progress-cell">
+                <span class="assignment-progress-copy tnum">
+                  <span>已订正 <strong>{{ assignment.total_count - assignment.pending_count }}/{{ assignment.total_count }}</strong></span>
+                  <span v-if="assignment.pending_count" class="assignment-pending-count">待订正 {{ assignment.pending_count }}</span>
+                  <span v-else class="assignment-complete-count">已完成</span>
+                </span>
+                <span class="assignment-progress-track" :class="{ complete: assignment.pending_count === 0 }" aria-hidden="true">
+                  <span :style="{ width: `${assignmentProgress(assignment)}%` }"></span>
+                </span>
+              </span>
+              <time class="assignment-latest-time" :datetime="assignment.published_at">{{ correctionDateLabel(assignment.published_at) }}</time>
+              <AppIcon name="chevron-right" :size="17" class="assignment-row-arrow" />
+            </button>
           </template>
-          <template v-else>这一天没有需要订正的错题，换一天看看，或者点上方「查看全部」。</template>
-        </template>
-      </CorrectionStickyWall>
+          <div v-else-if="!error" class="ledger-empty">
+            <template v-if="!assignmentSummaries.length && !selectedDate">
+              暂无需要订正的题目，<router-link to="/student/assignments" class="empty-link">去做作业</router-link>。
+            </template>
+            <template v-else-if="!assignmentSummaries.length">这一天没有错题。</template>
+            <template v-else-if="assignmentStatus === 'pending'">没有待订正的作业。</template>
+            <template v-else>还没有已完成的作业。</template>
+          </div>
+        </section>
 
-      <template v-if="view === 'work' && selectedError">
+        <section v-if="awaitingVerifyExpanded && awaitingVerifyKps.length" class="verify-index-panel">
+          <div v-for="kp in awaitingVerifyKps" :key="`${kp.subject}:${kp.knowledge_point}`" class="verify-kp-row">
+            <span>{{ subjectName(kp.subject) }} · {{ kp.knowledge_point }}</span>
+            <button class="btn small" :aria-label="`验证${subjectName(kp.subject)}${kp.knowledge_point}`" @click="startVerification(kp)">开始验证</button>
+          </div>
+          <VerifyPanel
+            v-if="verifyTarget"
+            :key="`index-${verifyTarget.subject}-${verifyTarget.knowledge_point}`"
+            :knowledge-point="verifyTarget.knowledge_point"
+            :subject="verifyTarget.subject"
+            :source-error-id="verifyTarget.source_error_id"
+            class="verify-panel-inline"
+            @passed="onVerifyPassed"
+            @close="verifyTarget = null"
+          />
+        </section>
+      </template>
+
+      <template v-else-if="view === 'questions'">
+        <header class="correction-inner-header">
+          <button class="back-link" @click="backToAssignments">
+            <AppIcon name="chevron-left" :size="16" /> 返回作业
+          </button>
+        </header>
+        <section class="correction-question-list" :aria-label="`${selectedAssignmentSummary?.assignment_title ?? '作业'}错题列表`">
+          <button
+            v-for="item in mistakes"
+            :key="item.id"
+            type="button"
+            class="correction-question-row"
+            :aria-label="`第 ${item.question_order} 题，${item.corrected ? '已订正，查看诊断' : '待订正'}：${item.question_stem}`"
+            @click="openError(item)"
+          >
+            <span class="question-number tnum">{{ String(item.question_order).padStart(2, '0') }}</span>
+            <span class="question-row-content">
+              <strong>{{ item.question_stem || `第 ${item.question_order} 题` }}</strong>
+              <span class="question-row-meta">
+                <ErrorTypeBadge :type="item.error_type" />
+                <span v-if="item.knowledge_point">{{ item.knowledge_point }}</span>
+                <time :datetime="mistakeDateKey(item)">{{ dateLabelOf(item) }}</time>
+              </span>
+            </span>
+            <span class="question-row-status" :class="{ complete: item.corrected }">{{ item.corrected ? '已订正' : '待订正' }}</span>
+            <AppIcon name="chevron-right" :size="17" class="assignment-row-arrow" />
+          </button>
+          <div v-if="!mistakes.length && !error" class="ledger-empty">这份作业暂时没有错题。</div>
+          <button
+            v-if="hasMoreMistakes"
+            type="button"
+            class="load-more-corrections"
+            :disabled="loadingMoreMistakes"
+            @click="loadMoreCorrectionWall"
+          >{{ loadingMoreMistakes ? '正在加载…' : `继续显示错题（${mistakes.length} / ${selectedAssignmentSummary?.total_count ?? mistakes.length}）` }}</button>
+        </section>
+      </template>
+
+      <template v-else-if="view === 'work' && selectedError">
         <div class="work-bar">
-          <button class="back-link" @click="backToWall">
-            <AppIcon name="chevron-left" :size="16" /> 返回便利贴墙
+          <button class="back-link" @click="backToQuestions">
+            <AppIcon name="chevron-left" :size="16" /> 返回作业错题
           </button>
         </div>
         <div class="card">
@@ -124,26 +201,17 @@
           <h3>判定结果</h3>
           <p v-if="result.is_correct === true"><span class="badge badge-green">订正成功</span></p>
           <p v-else-if="result.is_correct === false"><span class="badge badge-amber">再想一想</span></p>
-          <p v-else><span class="badge badge-gray">暂时无法自动判定</span></p>
-          <p class="note">
-            {{
-              result.is_correct === true
-                ? '做得好，这条错题订正对了。'
-                : result.is_correct === false
-                  ? '这次还不太对，再看看解析，换个思路试一次。'
-                  : '暂时无法自动判定，请将这条订正内容交给老师确认。'
-            }}
-          </p>
+          <p v-else><span class="badge badge-gray">待老师确认</span></p>
+          <p v-if="result.is_correct === null" class="note">请把订正内容交给老师确认。</p>
           <p class="note hint">{{ result.note }}</p>
           <!-- 订正成功且该知识点待验证 → 页内打开变式题面板完成验证（通过才算已修复） -->
           <div v-if="result.can_verify && !justVerified" class="verify-cta">
-            <p>再做对一道同类题验证一下，这个知识点就真正修复啦。</p>
             <button class="btn small inline-icon" @click="openResultVerify">
-              <AppIcon name="target" :size="15" /> 做一道变式题，完成这个知识点的验证
+              <AppIcon name="target" :size="15" /> 做变式题
             </button>
           </div>
           <p v-else-if="result.can_verify && justVerified" class="verify-done-note">
-            <AppIcon name="check" :size="15" /> 这个知识点的验证已经完成了，它真正修复啦。
+            <AppIcon name="check" :size="15" /> 验证通过
           </p>
           <VerifyPanel
             v-if="verifyTarget"
@@ -156,8 +224,8 @@
             @close="verifyTarget = null"
           />
           <div class="result-actions">
-            <button class="btn secondary small inline-icon" @click="backToWall">
-              <AppIcon name="chevron-left" :size="15" /> 回到便利贴墙
+            <button class="btn secondary small inline-icon" @click="backToQuestions">
+              <AppIcon name="chevron-left" :size="15" /> 返回作业错题
             </button>
           </div>
         </div>
@@ -167,35 +235,43 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { AwaitingVerificationKnowledgePoint, CorrectionResult, StepDiagnosis, StudentCorrectionWallItem } from '../../api/types'
+import type {
+  AwaitingVerificationKnowledgePoint,
+  CorrectionResult,
+  StepDiagnosis,
+  StudentCorrectionAssignmentSummary,
+  StudentCorrectionWallItem,
+} from '../../api/types'
 import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getSubjectLabel } from '../../utils/subjectLabels'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import VerifyPanel from '../../components/VerifyPanel.vue'
-import CorrectionStickyWall, {
-  type CorrectionNote,
-  type CorrectionSubjectGroup,
-} from '../../components/CorrectionStickyWall.vue'
 
 const student = useStudentStore()
 const route = useRoute()
 const router = useRouter()
+const requestedErrorId = Number(route.query.error_id)
+const includeErrorId = Number.isSafeInteger(requestedErrorId) && requestedErrorId > 0 ? requestedErrorId : undefined
+if (includeErrorId) student.setCorrectionsDateFilter('')
 
-/** 当前已加载的订正墙页；服务端只返回墙面和工作区直接使用的字段。 */
+/** 作业目录使用轻量汇总；进入作业后才分页读取错题详情。 */
+const assignmentSummaries = ref<StudentCorrectionAssignmentSummary[]>([])
+const assignmentLoading = ref(false)
+const assignmentStatus = ref<'pending' | 'completed'>('pending')
+const awaitingVerifyExpanded = ref(false)
+let assignmentRequestGeneration = 0
 const mistakes = ref<StudentCorrectionWallItem[]>([])
 const selectedErrorId = ref<number | ''>('')
-/** 当前视图：wall 便利贴墙 / work 修正工作区（点贴撕下后进入，v0.9.3） */
-const view = ref<'wall' | 'work'>('wall')
+const selectedAssignmentId = ref<number | null>(null)
+const view = ref<'assignments' | 'questions' | 'work'>('assignments')
 /** 订正日历选中的日期（yyyy-mm-dd，空 = 全部）：v0.9.1 起由右侧栏订正日历写入
  * store.correctionsDateFilter，本页只读消费（筛选状态条与列表都据此响应） */
 const selectedDate = computed(() => student.correctionsDateFilter)
-const wallNotePageSize = 40
-const totalMistakeCount = ref(0)
-const pendingCount = ref(0)
+const correctionPageSize = 40
 const hasMoreMistakes = ref(false)
 const loadingMoreMistakes = ref(false)
 const correctionCursor = ref<{ created_at: string; id: number } | null>(null)
@@ -206,6 +282,27 @@ const result = ref<CorrectionResult | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
+
+const selectedAssignmentSummary = computed(() =>
+  assignmentSummaries.value.find(item => item.assignment_id === selectedAssignmentId.value) ?? null,
+)
+const pendingAssignments = computed(() => assignmentSummaries.value.filter(item => item.pending_count > 0))
+const completedAssignments = computed(() => assignmentSummaries.value.filter(item => item.pending_count === 0))
+const visibleAssignments = computed(() =>
+  assignmentStatus.value === 'pending' ? pendingAssignments.value : completedAssignments.value,
+)
+const correctionTotals = computed(() => {
+  if (selectedAssignmentSummary.value) {
+    return {
+      total: selectedAssignmentSummary.value.total_count,
+      pending: selectedAssignmentSummary.value.pending_count,
+    }
+  }
+  return assignmentSummaries.value.reduce((totals, item) => ({
+    total: totals.total + item.total_count,
+    pending: totals.pending + item.pending_count,
+  }), { total: 0, pending: 0 })
+})
 
 /** 错题所属提交的日期键：优先后端 submitted_at，缺失时用错题产生时间兜底 */
 function mistakeDateKey(item: StudentCorrectionWallItem): string {
@@ -218,76 +315,66 @@ const selectedDateLabel = computed(() => {
   return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`
 })
 
-/** 贴面日期文案：如「10月7日」 */
+/** 错题日期文案：如「10月7日」 */
 function dateLabelOf(item: StudentCorrectionWallItem): string {
   const [, m, d] = mistakeDateKey(item).split('-')
   return `${Number(m)}月${Number(d)}日`
 }
 
-function toCorrectionNote(item: StudentCorrectionWallItem): CorrectionNote {
-  return {
-    errorId: item.id,
-    submissionId: item.submission_id,
-    subject: item.question_subject || 'other',
-    subjectName: subjectName(item.question_subject),
-    assignmentId: item.assignment_id,
-    assignmentTitle: item.assignment_title,
-    questionOrder: item.question_order,
-    errorType: item.error_type,
-    reviewStatus: item.review_status,
-    dateLabel: dateLabelOf(item),
-    isFixed: item.corrected,
-  }
+function assignmentSubjectLabel(assignment: StudentCorrectionAssignmentSummary): string {
+  return [...new Set(assignment.subjects)].map(subjectName).join(' / ') || '综合'
 }
 
-/** 便利贴墙数据按分页增量维护，避免每次追加时重新转换全部已加载记录。 */
-const wallNotes = ref<CorrectionNote[]>([])
-const correctionNotesById = new Map<number, CorrectionNote>()
-const wallGroups = computed<CorrectionSubjectGroup[]>(() => {
-  const subjects = new Map<string, {
-    key: string
-    label: string
-    assignments: Map<number, { id: number; title: string; notes: CorrectionNote[] }>
-  }>()
+function assignmentProgress(assignment: StudentCorrectionAssignmentSummary): number {
+  return assignment.total_count > 0
+    ? Math.round(((assignment.total_count - assignment.pending_count) / assignment.total_count) * 100)
+    : 0
+}
 
-  for (const note of wallNotes.value) {
-    let subject = subjects.get(note.subject)
-    if (!subject) {
-      subject = { key: note.subject, label: note.subjectName, assignments: new Map() }
-      subjects.set(note.subject, subject)
-    }
+function correctionDateLabel(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : `${date.getMonth() + 1}月${date.getDate()}日`
+}
 
-    let assignment = subject.assignments.get(note.assignmentId)
-    if (!assignment) {
-      assignment = { id: note.assignmentId, title: note.assignmentTitle, notes: [] }
-      subject.assignments.set(note.assignmentId, assignment)
-    }
-    assignment.notes.push(note)
+function openAssignment(assignment: StudentCorrectionAssignmentSummary) {
+  selectedAssignmentId.value = assignment.assignment_id
+  student.setCorrectionPageTitle(assignment.assignment_title)
+  selectedErrorId.value = ''
+  view.value = 'questions'
+  onSelect()
+  void loadCorrectionWall(true)
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function openError(item: StudentCorrectionWallItem) {
+  if (item.corrected) {
+    onViewNote(item.submission_id)
+    return
   }
-
-  return [...subjects.values()].map(subject => ({
-    key: subject.key,
-    label: subject.label,
-    assignments: [...subject.assignments.values()],
-  }))
-})
-
-/** 点待订正的贴（撕下动画播完）→ 进入该题修正工作区 */
-function onPickNote(errorId: number) {
-  selectedErrorId.value = errorId
+  selectedErrorId.value = item.id
   onSelect()
   view.value = 'work'
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-/** 点已订正的贴 → 沿用全站口径跳诊断详情 */
 function onViewNote(submissionId: number) {
   router.push({ path: '/student/diagnosis', query: { submission_id: submissionId } })
 }
 
-/** 返回便利贴墙（订正状态由当前页的服务端记录同步更新） */
-function backToWall() {
-  view.value = 'wall'
+function backToAssignments() {
+  assignmentStatus.value = selectedAssignmentSummary.value?.pending_count === 0 ? 'completed' : 'pending'
+  student.setCorrectionPageTitle('')
+  selectedAssignmentId.value = null
+  selectedErrorId.value = ''
+  view.value = 'assignments'
+  onSelect()
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function backToQuestions() {
+  selectedErrorId.value = ''
+  view.value = 'questions'
+  onSelect()
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -295,18 +382,36 @@ function clearDateFilter() {
   student.setCorrectionsDateFilter('')
 }
 
-async function loadCorrectionWall(reset = true, includeId?: number) {
+async function loadAssignmentSummaries() {
   const submittedOn = selectedDate.value || undefined
+  const generation = ++assignmentRequestGeneration
+  assignmentLoading.value = true
+  error.value = ''
+  try {
+    const summaries = await student.fetchCorrectionAssignmentSummaries(submittedOn)
+    if (generation !== assignmentRequestGeneration || selectedDate.value !== (submittedOn ?? '')) return
+    assignmentSummaries.value = summaries
+  } catch (e) {
+    if (generation === assignmentRequestGeneration) {
+      error.value = '作业目录加载失败，请确认后端已启动。'
+      console.error(e)
+    }
+  } finally {
+    if (generation === assignmentRequestGeneration) assignmentLoading.value = false
+  }
+}
+
+async function loadCorrectionWall(reset = true, includeId?: number, assignmentIdOverride?: number | null) {
+  const submittedOn = selectedDate.value || undefined
+  const requestedAssignmentId = assignmentIdOverride === undefined
+    ? selectedAssignmentId.value ?? undefined
+    : assignmentIdOverride ?? undefined
   let cursor: { created_at: string; id: number } | null = null
   let generation = correctionRequestGeneration
   if (reset) {
     generation = ++correctionRequestGeneration
     mistakes.value = []
     loadedMistakesById.clear()
-    wallNotes.value = []
-    correctionNotesById.clear()
-    totalMistakeCount.value = 0
-    pendingCount.value = 0
     hasMoreMistakes.value = false
     correctionCursor.value = null
     loading.value = true
@@ -321,37 +426,35 @@ async function loadCorrectionWall(reset = true, includeId?: number) {
   try {
     const page = await student.fetchCorrectionWallPage({
       date: submittedOn,
-      limit: wallNotePageSize,
+      assignmentId: requestedAssignmentId,
+      limit: correctionPageSize,
       beforeCreatedAt: cursor?.created_at,
       beforeId: cursor?.id,
       includeId: reset ? includeId : undefined,
     })
-    if (generation !== correctionRequestGeneration || selectedDate.value !== (submittedOn ?? '')) return
+    if (generation !== correctionRequestGeneration
+      || selectedDate.value !== (submittedOn ?? '')
+      || selectedAssignmentId.value !== (requestedAssignmentId ?? null)) return
 
     if (reset) {
       mistakes.value = page.items
       loadedMistakesById.clear()
       for (const item of mistakes.value) loadedMistakesById.set(item.id, item)
-      // 首屏可能额外包含深链错题，先统一排序；后续页由联合游标保证顺序。
+      // 首屏可能额外包含深链错题，按时间恢复顺序；后续页由联合游标保证顺序。
       mistakes.value.sort((a, b) =>
         b.created_at.localeCompare(a.created_at) || b.id - a.id,
       )
-      wallNotes.value = mistakes.value.map(toCorrectionNote)
-      correctionNotesById.clear()
-      for (const note of wallNotes.value) correctionNotesById.set(note.errorId, note)
     } else {
       for (const item of page.items) {
         if (loadedMistakesById.has(item.id)) continue
         mistakes.value.push(item)
         const loadedItem = mistakes.value[mistakes.value.length - 1]
         loadedMistakesById.set(loadedItem.id, loadedItem)
-        wallNotes.value.push(toCorrectionNote(loadedItem))
-        const loadedNote = wallNotes.value[wallNotes.value.length - 1]
-        correctionNotesById.set(loadedNote.errorId, loadedNote)
       }
     }
-    if (page.total_count != null) totalMistakeCount.value = page.total_count
-    if (page.pending_count != null) pendingCount.value = page.pending_count
+    const summary = assignmentSummaries.value.find(item => item.assignment_id === requestedAssignmentId)
+    if (summary && page.total_count != null) summary.total_count = page.total_count
+    if (summary && page.pending_count != null) summary.pending_count = page.pending_count
     hasMoreMistakes.value = page.has_more
     correctionCursor.value = page.next_cursor
     if (reset) syncSelection()
@@ -375,18 +478,28 @@ function loadMoreCorrectionWall() {
   return loadCorrectionWall(false)
 }
 
-// 右栏日历点选（含再点同一天取消）→ 后端只返回对应日期的订正卡片；
-// 工作区带上当前 ID，筛选掉当前题时回到便利贴墙。
-watch(selectedDate, () => {
+// 右栏日历点选后刷新作业目录；作业内页面也同步按日期重新读取错题。
+watch(selectedDate, async () => {
+  const assignmentId = selectedAssignmentId.value
   const includeId = view.value === 'work' && typeof selectedErrorId.value === 'number'
     ? selectedErrorId.value
     : undefined
-  void loadCorrectionWall(true, includeId)
+  await loadAssignmentSummaries()
+  if (assignmentId === null) return
+  if (!assignmentSummaries.value.some(item => item.assignment_id === assignmentId)) {
+    selectedAssignmentId.value = null
+    student.setCorrectionPageTitle('')
+    selectedErrorId.value = ''
+    view.value = 'assignments'
+    onSelect()
+    return
+  }
+  void loadCorrectionWall(true, includeId, assignmentId)
 })
 
 function syncSelection() {
   if (view.value === 'work' && !loadedMistakesById.has(Number(selectedErrorId.value))) {
-    view.value = 'wall'
+    view.value = selectedAssignmentId.value === null ? 'assignments' : 'questions'
     selectedErrorId.value = ''
     onSelect()
   }
@@ -453,12 +566,20 @@ const justVerified = ref(false)
 /** 待验证知识点名单按学科区分，避免同名知识点串用验证记录。 */
 const awaitingVerifyKps = ref<AwaitingVerificationKnowledgePoint[]>([])
 
-async function loadAwaitingVerifyKps() {
+async function loadAwaitingVerifyKps(requestedErrorId?: number) {
   try {
     awaitingVerifyKps.value = await student.fetchAwaitingVerificationKps()
+    if (requestedErrorId) {
+      verifyTarget.value = awaitingVerifyKps.value.find(kp => kp.source_error_id === requestedErrorId) ?? null
+    }
   } catch (e) {
     console.error(e)
   }
+}
+
+function startVerification(kp: AwaitingVerificationKnowledgePoint) {
+  awaitingVerifyExpanded.value = true
+  verifyTarget.value = kp
 }
 
 /** 结果区入口：为刚订正对的这条错题所属知识点打开变式题面板 */
@@ -484,6 +605,7 @@ function onSelect() {
   content.value = ''
   result.value = null
   justVerified.value = false
+  verifyTarget.value = null
 }
 
 async function submit() {
@@ -503,9 +625,8 @@ async function submit() {
       const fixedMistake = loadedMistakesById.get(Number(selectedErrorId.value))
       if (fixedMistake && !fixedMistake.corrected) {
         fixedMistake.corrected = true
-        const note = correctionNotesById.get(fixedMistake.id)
-        if (note) note.isFixed = true
-        pendingCount.value = Math.max(0, pendingCount.value - 1)
+        const summary = assignmentSummaries.value.find(item => item.assignment_id === fixedMistake.assignment_id)
+        if (summary) summary.pending_count = Math.max(0, summary.pending_count - 1)
       }
     }
   } catch (e) {
@@ -522,28 +643,31 @@ function errDetail(e: unknown): string {
 }
 
 onMounted(async () => {
-  const requestedId = Number(route.query.error_id)
-  const includeId = Number.isSafeInteger(requestedId) && requestedId > 0 ? requestedId : undefined
-  await loadCorrectionWall(true, includeId)
-  // 待验证知识点名单（墙上方 KP 维度入口的数据来源，失败不挡页面）
-  void loadAwaitingVerifyKps()
-  // 深链错误 ID 通过轻量接口额外带回，避免为了定位一题下载完整错题本。
-  if (includeId && loadedMistakesById.has(includeId)) {
-    selectedErrorId.value = includeId
-    view.value = 'work'
+  student.setCorrectionPageTitle('')
+  const verifyId = Number(route.query.verify_error_id)
+  // 待验证知识点名单独立加载；接口失败不阻挡作业目录。
+  void loadAwaitingVerifyKps(Number.isSafeInteger(verifyId) && verifyId > 0 ? verifyId : undefined)
+  if (verifyId > 0) awaitingVerifyExpanded.value = true
+  await loadAssignmentSummaries()
+  if (includeErrorId) {
+    // 深链只额外读取目标错题，随后直接打开对应作业的订正工作区。
+    await loadCorrectionWall(true, includeErrorId, null)
+    const includedError = loadedMistakesById.get(includeErrorId)
+    if (includedError) {
+      selectedAssignmentId.value = includedError.assignment_id
+      student.setCorrectionPageTitle(includedError.assignment_title)
+      selectedErrorId.value = includeErrorId
+      view.value = 'work'
+    }
   }
 })
+
+onBeforeUnmount(() => student.setCorrectionPageTitle(''))
 
 </script>
 
 <style scoped>
-/* 右栏提示与筛选状态条：与作业列表页同构（v0.9.1） */
-.rail-note {
-  display: flex; align-items: center; gap: 7px;
-  font-size: 13.5px; color: var(--text-2);
-  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
-  padding: 10px 14px; margin-bottom: 16px;
-}
+/* 日期筛选状态 */
 .filter-bar {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   margin-bottom: 16px; padding: 14px 18px;
@@ -551,6 +675,104 @@ onMounted(async () => {
 .filter-info { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 240px; flex-wrap: wrap; }
 .filter-title { font-size: 15px; font-weight: 700; }
 .filter-progress-text { font-size: 13.5px; color: var(--text-2); }
+.correction-index-toolbar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+  margin: 18px 0 10px;
+}
+.correction-status-tabs { display: flex; align-items: center; gap: 22px; }
+.correction-status-tabs button {
+  display: inline-flex; align-items: center; gap: 7px; padding: 9px 2px;
+  border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.correction-status-tabs button.active { border-bottom-color: var(--primary); color: var(--primary-dark); }
+.correction-status-tabs button span { color: var(--text-3); font-size: 12px; }
+.correction-status-tabs button.active span { color: var(--primary); }
+.verify-index-action {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 7px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card);
+  color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.verify-index-action:hover, .verify-index-action[aria-expanded="true"] { border-color: var(--border-strong); color: var(--primary); }
+.correction-ledger, .correction-question-list {
+  overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface);
+  background: var(--card); box-shadow: var(--shadow);
+}
+.correction-ledger-head, .correction-assignment-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(210px, 280px) 112px 20px;
+  align-items: center; gap: 20px; padding: 13px 18px;
+}
+.correction-ledger-head {
+  background: var(--primary-50); border-bottom: 1px solid var(--border);
+  color: var(--text-2); font-size: 12px; font-weight: 650;
+}
+.correction-ledger-head span:nth-child(2) { text-align: left; }
+.correction-ledger-head span:nth-child(3) { text-align: right; }
+.correction-assignment-row {
+  width: 100%; border: 0; border-bottom: 1px solid var(--border); background: var(--card);
+  color: var(--text); text-align: left; font: inherit; cursor: pointer;
+  transition: background-color .15s ease;
+}
+.correction-assignment-row:last-child { border-bottom: 0; }
+.correction-assignment-row:hover { background: color-mix(in srgb, var(--primary-50) 55%, white); }
+.assignment-index-cell { display: flex; align-items: center; min-width: 0; gap: 13px; }
+.assignment-index-number {
+  flex: 0 0 34px; color: var(--text-3); font-size: 12px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.assignment-index-copy {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0;
+  padding-left: 12px; border-left: 2px solid var(--border-strong);
+}
+.assignment-subject-index { overflow: hidden; max-width: 100%; color: var(--primary); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.assignment-index-copy strong {
+  overflow: hidden; max-width: 100%; color: var(--text-strong); font-size: 15px;
+  font-weight: 650; text-overflow: ellipsis; white-space: nowrap;
+}
+.assignment-progress-cell { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.assignment-progress-copy { display: flex; justify-content: space-between; gap: 8px; color: var(--text-2); font-size: 12px; }
+.assignment-progress-copy strong { color: var(--text-strong); font-weight: 650; }
+.assignment-pending-count { color: var(--primary); white-space: nowrap; }
+.assignment-complete-count { color: var(--green-strong); white-space: nowrap; }
+.assignment-progress-track { display: block; height: 5px; overflow: hidden; border-radius: var(--radius-pill); background: var(--border); }
+.assignment-progress-track > span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .2s ease; }
+.assignment-progress-track.complete > span { background: var(--green); }
+.assignment-latest-time { color: var(--text-3); font-size: 12px; text-align: right; white-space: nowrap; }
+.assignment-row-arrow { justify-self: end; color: var(--text-3); }
+.ledger-empty { padding: 34px 18px; color: var(--text-2); font-size: 14px; text-align: center; }
+.verify-index-panel { margin-top: 10px; padding: 12px 18px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); }
+.verify-kp-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text-2); font-size: 13px; }
+.verify-kp-row:last-of-type { border-bottom: 0; }
+.correction-inner-header { display: flex; align-items: flex-start; margin: 0 0 18px; }
+.correction-question-row {
+  width: 100%; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto 20px;
+  align-items: center; gap: 16px; padding: 16px 18px; border: 0; border-bottom: 1px solid var(--border);
+  background: var(--card); color: var(--text); text-align: left; font: inherit; cursor: pointer;
+  transition: background-color .15s ease;
+}
+.correction-question-row:last-of-type { border-bottom: 0; }
+.correction-question-row:hover { background: color-mix(in srgb, var(--primary-50) 55%, white); }
+.question-number {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg);
+  color: var(--primary); font-size: 12px; font-weight: 700;
+}
+.question-row-content { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.question-row-content > strong {
+  display: -webkit-box; overflow: hidden; color: var(--text-strong); font-size: 14px; font-weight: 600;
+  line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.question-row-meta { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--text-3); font-size: 12px; }
+.question-row-meta > span:not(.badge) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-row-meta time { margin-left: auto; white-space: nowrap; }
+.question-row-status { color: var(--primary); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.question-row-status.complete { color: var(--green-strong); }
+.load-more-corrections {
+  display: block; width: 100%; padding: 13px 18px; border: 0;
+  background: var(--card); color: var(--primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.load-more-corrections:hover { background: var(--primary-50); }
+.load-more-corrections:disabled { color: var(--text-3); cursor: wait; }
 .step-text { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .detail { font-size: 14px; color: var(--text-2); }
 /* v0.13.9：题目回顾完整版——原题 / 原作答（错步原地标红）/ 正确答案 / 标准过程 */
@@ -579,14 +801,34 @@ onMounted(async () => {
   display: flex; align-items: center; gap: 7px;
   margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--green);
 }
-.verify-kp-card .card-sub { font-size: 13.5px; color: var(--text-2); margin: -4px 0 10px; }
-.verify-kp-row {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 8px 0; border-bottom: 1px solid #F1F3F6;
-}
-.verify-kp-row:last-of-type { border-bottom: none; }
-/* 修正工作区的返回入口与判定结果里的回墙按钮（v0.9.3） */
-.work-bar { margin-bottom: 16px; }
+.work-bar { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 16px; }
 .result-actions { margin-top: 14px; }
 .empty-link { color: var(--primary); font-weight: 600; }
+
+@media (max-width: 760px) {
+  .correction-ledger-head { display: none; }
+  .correction-assignment-row {
+    grid-template-columns: minmax(0, 1fr) 20px;
+    grid-template-areas: "assignment arrow" "progress date";
+    gap: 10px 12px; padding: 14px;
+  }
+  .assignment-index-cell { grid-area: assignment; }
+  .assignment-progress-cell { grid-area: progress; padding-left: 47px; }
+  .assignment-latest-time { grid-area: date; font-size: 11px; }
+  .assignment-row-arrow { grid-area: arrow; }
+  .correction-question-row { grid-template-columns: 38px minmax(0, 1fr) 18px; gap: 10px; padding: 14px; }
+  .question-row-status { grid-column: 2; justify-self: start; grid-row: 2; }
+  .question-row-meta time { display: none; }
+  .question-row-content { grid-column: 2; grid-row: 1; }
+  .correction-question-row > .assignment-row-arrow { grid-column: 3; grid-row: 1; }
+}
+@media (max-width: 480px) {
+  .correction-index-toolbar { align-items: flex-start; }
+  .correction-status-tabs { gap: 14px; }
+  .correction-status-tabs button { font-size: 13px; }
+  .verify-index-action { min-height: 34px; padding: 5px 8px; font-size: 12px; }
+  .assignment-progress-copy { font-size: 11px; }
+  .assignment-index-copy strong { font-size: 14px; }
+  .question-row-meta { gap: 6px; }
+}
 </style>

@@ -14,7 +14,7 @@
 - **数据格式**：请求与响应均为 `application/json; charset=utf-8`。
 - **时间格式**：ISO 8601，如 `2026-10-06T15:40:35`（本地时间，不带时区后缀）。
 - **分页**：列表接口统一用 `limit`（默认 20，最大 100）、`offset`（默认 0），响应形如 `{"total": 42, "items": [...]}`。
-- **模型配置**：通过 AI Ping OpenAI 兼容 API `https://aiping.cn/api/v1` 调用文字和视觉 `GLM-5.3-Flash`、向量 `Qwen3-Embedding-4B`（1024 维）及重排 `Qwen3-Reranker-0.6B`。实际密钥只保存在服务器 `/remedi/.env`；配置项本身不表示真实模型调用已通过。
+- **模型配置**：通过 AI Ping OpenAI 兼容 API `https://aiping.cn/api/v1` 调用文字和视觉 `GLM-5.3-Flash`、向量 `Qwen3-Embedding-4B`（1024 维）及重排 `Qwen3-Reranker-0.6B`。真实密钥仅通过本地运行进程的环境变量提供，不写入仓库；配置项本身不表示真实模型调用已通过。
 
 ### 1.1 认证方式（Mock 登录）
 
@@ -429,20 +429,38 @@
   "stubborn_errors": [
     {
       "id": 9,
+      "submission_id": 13,
+      "subject": "math",
       "knowledge_point": "一元一次方程",
       "error_type": "概念混淆",
       "step_text": "2x=7+3",
-      "created_at": "2026-10-06T15:45:00"
+      "created_at": "2026-10-06T15:45:00",
+      "corrected": false
     }
   ],
   "recent_errors": ["...同上结构，最多 5 条..."],
-  "suggestion": "你在「一元一次方程」上存在顽固误区（30 天内重复出错 2 次），主要问题是移项变号规则。建议先重看移项规则，再做 3 道针对性练习。"
+  "suggestion": "先订正一元一次方程的错题，再做一道变式题。",
+  "knowledge_analysis": {
+    "graded_question_count": 3,
+    "wrong_question_count": 2,
+    "corrected_count": 1,
+    "pending_correction_count": 1,
+    "points": [{
+      "subject": "math", "knowledge_point": "一元一次方程",
+      "question_count": 3, "attempts": 3, "wrong_question_count": 2,
+      "error_count": 2, "corrected_count": 1, "review_count": 0,
+      "patterns": [{"error_type": "概念混淆", "question_count": 2, "pending_question_count": 1}],
+      "status": "pending", "next_error_id": 9
+    }],
+    "error_types": [{"error_type": "概念混淆", "count": 2}]
+  }
 }
 ```
 
-- `error_rate = errors / question_count`（保留 3 位小数，上限截断为 1.0）；`mastery = 1 - error_rate`。
-- `attempts`：该知识点题目的提交次数；`question_count`：该生有可见提交记录的作业中，该知识点的实际题目数，同一道题重复提交只计一道，未作答题也计入；`errors`：该知识点累计 error 记录数。
-- `knowledge_points` 按 `error_rate` 降序排列，供画像图表直接展示。
+- 学生档案、教师画像和教师 Agent 使用 `knowledge_analysis`。按学科和知识点分组，`question_count` 只计有批改结果的题目，每题计一次。`attempts` 保留批改次数，`wrong_question_count` 计出现过可判定错误的题目，无法解析的步骤单独计入待核对。
+- `patterns` 记录同一错因出现的题数及仍有同类错因待订正的题数。`stubborn` 表示同类未订正错因至少涉及两道不同的题。其他状态为 `pending`（待订正）、`needs_review`（待核对）、`awaiting_verify`（数学待验证）、`fixed`（已修复）、`corrected`（已订正，暂无验证入口）、`clear`（未发现错题）和 `unclassified`（未归类）。
+- `corrected_count` 统计已有正确订正的错因记录。知识点全部订正，且最后一次出错后通过同学科、同知识点的验证，才是 `fixed`。`next_error_id` 用于进入订正、验证或诊断详情。两组学习记录均包含 `subject` 和 `corrected`。
+- `knowledge_points` 保留旧版统计口径，`question_count` 包括涉及作业中未作答的题目，`errors` 为错因记录数，`error_rate` 为二者比率，上限为 1，`mastery = 1 - error_rate`。
 - `suggestion`：v0.9.1 起改为后端本地模板生成（依据已订正成果、最弱知识点拼装具体建议），不再调用 LLM Provider——画像是高频读接口，避免同步等大模型造成数秒级延迟。响应结构不变。教师端 4.6 查同一画像共用同一实现。
 
 ### 3.11 POST /api/student/photo-transcribe —— 拍照转写作业 ⭐（v0.2.0 新增）
@@ -925,11 +943,11 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 }
 ```
 
-### 3.40 GET /api/student/corrections/wall —— 分页读取订正便利贴
+### 3.40 GET /api/student/corrections/wall —— 分页读取订正错题
 
-权限：学生。只返回当前学生的诊断错题，包含已归档和待教师复核记录，不包含自主收录题目。默认每页 40 条，`limit` 范围为 1–100。可选 `submitted_on` 按错题所属提交日期筛选，日期优先使用 `submitted_at`，缺失时回退到错题产生时间。使用 `before_created_at` 与 `before_id` 作为联合游标，两个游标参数必须同时提供。`include_id` 可在首屏额外带回指定错题供深链定位，不影响常规分页游标和计数。
+权限：学生。只返回当前学生的诊断错题，包含已归档和待教师复核记录，不包含自主收录题目。默认每页 40 条，`limit` 范围为 1–100。可选 `submitted_on` 按错题所属提交日期筛选，日期优先使用 `submitted_at`，缺失时回退到错题产生时间；可选 `assignment_id` 限定单份作业。使用 `before_created_at` 与 `before_id` 作为联合游标，两个游标参数必须同时提供。`include_id` 可在首屏额外带回指定错题供深链定位，不影响常规分页游标和计数。
 
-响应 `200`：`items` 只含便利贴和订正工作区所需字段；`total_count` 与 `pending_count` 在首屏提供，后续页为 `null`；`has_more` 与 `next_cursor` 表示是否存在下一页及其游标。
+响应 `200`：`items` 只含订正错题列表和工作区所需字段；`total_count` 与 `pending_count` 在首屏提供，后续页为 `null`；`has_more` 与 `next_cursor` 表示是否存在下一页及其游标。
 
 ```json
 {
@@ -964,7 +982,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 3.41 GET /api/student/corrections/awaiting-verification-knowledge-points —— 待二次验证的知识点名单
 
-权限：学生。按学习报告相同口径筛选本人可见错题：同一学科下该知识点的所有错题均已有正确订正，且该学科/知识点尚无通过的二次验证记录；待教师复核的提交不参与判断。每项返回 `subject`、`knowledge_point`、`source_error_id`，供订正页按学科创建验证。
+权限：学生。数学知识点的可见错题均已有正确订正，且最新错题后尚未通过二次验证时列入名单。待教师复核的提交不参与判断。每项返回 `subject`、`knowledge_point`、`source_error_id`，供订正页创建变式题验证。
 
 响应 `200`：
 
@@ -1020,6 +1038,12 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 ### 3.44 GET /api/student/learning-memory —— 我的学科学习记忆
 
 权限：学生。返回从本人错题、订正和变式验证汇总的学科/知识点记忆：错误数、订正成功数、订正成功率、验证通过率、当前状态和摘要。待教师审核的错因暂不进入长期记忆，批准后会更新。学生 Agent 可结合该记忆和本人错题本回答问题。
+
+### 3.45 GET /api/student/corrections/assignments —— 订正作业目录
+
+权限：学生。按作业汇总当前学生的诊断错题数量、待订正数量和学科，并返回作业发布时间；包含已归档和待教师复核记录，不包含自主收录题目。可选 `submitted_on` 按错题所属提交日期筛选，日期优先使用 `submitted_at`，缺失时回退到错题产生时间。结果按作业发布时间倒序排列，不返回题目或订正正文。
+
+响应 `200`：作业摘要数组，每项包含 `assignment_id`、`assignment_title`、`subjects`、`total_count`、`pending_count` 和作业发布时间 `published_at`；无错题时返回空数组。
 
 ---
 
@@ -1152,7 +1176,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.6 GET /api/teacher/students/{student_id}/profile —— 学生画像查询
 
-权限：教师。响应结构同 3.10（`student` 为目标学生）。
+权限：教师。响应结构同 3.10（`student` 为目标学生）。统计和诊断只使用当前教师授权的提交，包含可见的待复核提交。
 
 ### 4.7 POST /api/teacher/assignments —— 发布作业（v0.2.0 新增）
 
@@ -1441,7 +1465,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 - `POST /api/teacher/knowledge/{subject}/search`：请求 `{ "query": "一次函数如何判断增减性", "limit": 4 }`，query 为 1–2000 字且不能纯空白，limit 为 1–8。响应 `{ "items": [...], "retrieval_mode": "bm25 | hybrid", "rerank_mode": "model | local", "warnings": [] }`；`rerank_mode` 为 v0.13.317 新增非 breaking 字段，分别表示完成模型重排或采用本地重排，不改变 `retrieval_mode` 的召回语义。每项含 `document_id`、`title`、`source_name`、`page_number`（文本资料为 null）、`passage_id`（未建立片段的旧资料为 null）、`content`（父块）、`score`（排序分而非可信度）、`citation`（如 `[资料12-片段3]`）。已配置的重排模型调用失败或超时时，返回 `rerank_mode=local` 及安全警告；未配置凭证或关闭重排模型时直接采用本地重排。`warnings` 不包含凭证或原始上游响应。
 - `POST /api/teacher/knowledge/{subject}/reindex`：将该学科全部资料同步到 Milvus，复用已有片段 ID 和 PDF 页码。响应 `documents`、`passage_count`、`vector_status`、`warnings`。同步为幂等 upsert；失败后可重试。
 
-教师助手可通过 `search_teaching_knowledge` 工具检索本人任教学科；学生学科 Agent 自动使用对应学科上下文。模型回答应保留返回的引用、来源和页码，资料内指令不得改变 Agent 行为。部署配置见 [Milvus 部署说明](milvus-rag.md)。
+教师助手可通过 `search_teaching_knowledge` 工具检索本人任教学科；学生学科 Agent 自动使用对应学科上下文。模型回答应保留返回的引用、来源和页码，资料内指令不得改变 Agent 行为。本地向量配置见 [学科 RAG 与 Milvus](milvus-rag.md)。
 
 向量模型使用 `Qwen3-Embedding-4B`，维度为 1024，新集合为 `remedi_subject_knowledge_qwen3_embedding4b`；切换模型后重新索引，保留旧集合和业务数据。
 
@@ -1486,7 +1510,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 4.31.1 GET /api/teacher/ai-gradings/assignments —— AI 批改作业入口
 
-权限：教师。按当前教师有权查看的已完成 AI 批改记录汇总作业，按最近提交时间倒序分页。参数：`limit` 默认 20、最大 100；`offset` 默认 0；`keyword` 可按学生、学号、作业、题目或知识点搜索。响应包含当前教师的 `low_score_threshold`；`items` 每项包含 `assignment_id`、`assignment_title`、`student_count`、`answer_count` 和 `latest_submitted_at`。
+权限：教师。按当前教师有权查看的已完成 AI 批改记录汇总作业，按最近提交时间倒序分页。参数：`limit` 默认 20、最大 100；`offset` 默认 0；`keyword` 可按学生、学号、作业、题目或知识点搜索。响应包含当前教师的 `low_score_threshold`；`items` 每项包含 `assignment_id`、`assignment_title`、`student_count`、`answer_count`、`latest_submitted_at`、`published_at`、`recipient_student_count` 和 `submission_percent`。提交进度按教师有权查看的目标学生计算，学生完成作业内全部题目后计为已提交；无目标学生时百分比为 0。
 
 ### 4.31.2 GET /api/teacher/ai-gradings/assignments/{assignment_id}/students —— 作业学生入口
 
@@ -1845,6 +1869,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 | v0.13.279 | 2026-10-17 | 错题复习侧栏改用按类别聚合的摘要接口，避免传输完整错题详情和订正内容。 |
 | v0.13.280 | 2026-10-17 | 交作业页按题目读取最新提交状态和成绩，消除 100 条历史上限并减少重复记录传输。 |
 | v0.13.281 | 2026-10-17 | 诊断页深链直接读取目标提交详情，修复目标早于最近 100 条时误显示最新提交的问题。 |
+| v0.13.282 | 2026-11-15 | 订正错题增加按作业汇总的轻量目录接口，错题列表可按作业分页读取。 |
 | v0.13.282 | 2026-10-17 | 错题时间线首屏可合并读取总数，展开时复用一趟请求并避免再次计数。 |
 | v0.13.283 | 2026-10-17 | 错题时间线用窗口计数合并首屏总数与分页查询，减少一次数据库往返。 |
 | v0.13.284 | 2026-10-17 | 错题本移出与撤销优先更新本地数据，减少整本错题的重复加载。 |

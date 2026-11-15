@@ -1,6 +1,5 @@
-# Remedi MVP 一键部署
-# 用法：docker compose up -d --build
-# 前端：http://服务器公网IP:5001；后端：http://服务器公网IP:5000
+# 历史全栈 Compose 配置；本地开发请分别使用 Vite 与 FastAPI。
+# 如需本地向量检索，只启动 docker-compose.milvus.yml 中的 Milvus 相关服务。
 
 services:
   api:
@@ -20,7 +19,7 @@ services:
       - CORS_ORIGINS=*
       - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Shanghai}
       - SEED_DEMO_DATA=${SEED_DEMO_DATA:-true}
-      # 对话/视觉模型配置；实际生产后端由宝塔运行，不通过 Compose 启动。
+      # Compose 环境变量来自仓库根目录的本地 .env；不要在其中提交真实凭证。
       - LLM_PROVIDER=${LLM_PROVIDER:-openai-compatible}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-120}
       - LLM_API_KEY=${LLM_API_KEY:-}

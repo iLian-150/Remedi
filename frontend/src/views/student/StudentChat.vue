@@ -19,7 +19,7 @@
           <button type="button" class="history-switch-retry" @click="retrySelectedHistory">重试</button>
         </section>
         <section v-else-if="isWelcomeScreen" class="welcome-home">
-          <h1>{{ auth.name || '同学' }}，今天想聊点什么？</h1>
+          <h2>{{ auth.name || '同学' }}，今天想聊点什么？</h2>
 
           <div v-if="welcomeBriefing" class="welcome-briefing">
             <div class="welcome-briefing-heading">
@@ -31,8 +31,7 @@
             <div v-if="briefingIsAllDone" class="welcome-briefing-done">
               <span class="welcome-done-mark"><AppIcon name="check" :size="17" /></span>
               <div>
-                <strong>太棒了，{{ auth.name }}！全部完成</strong>
-                <p>作业和订正都完成了，暂时没有需要加固的知识点。可以把最近的题目独立重做一遍，巩固一下。</p>
+                <strong>作业与订正已完成</strong>
               </div>
             </div>
 
@@ -217,10 +216,7 @@
                 <p>
                   <ErrorTypeBadge :type="e.error_type" />
                   <span v-if="e.is_stubborn" class="badge badge-amber">需要加固的知识点</span>
-                  <span v-else class="badge badge-green">已注意，继续保持</span>
-                </p>
-                <p class="encourage">
-                  {{ e.is_stubborn ? '这个知识点还需要再加固一下，多练几道同类题会有帮助。' : '这是一次偶发的小失误，下次细心一点就好。' }}
+                  <span v-else class="badge badge-green">偶发失误</span>
                 </p>
                 <p v-if="e.detail" class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
                 <div class="toolbar" style="margin-top: 8px; margin-bottom: 0">
@@ -228,7 +224,7 @@
                 </div>
               </div>
             </template>
-            <p v-else class="ok-line"><AppIcon name="check" :size="16" /> 太棒了，这道题全部正确，继续保持！</p>
+            <p v-else class="ok-line"><AppIcon name="check" :size="16" /> 本次作答全部正确。</p>
 
             <!-- 追问（v0.4.0）：先想一想，再看解析 -->
             <div v-if="msg.result.follow_up_question" class="followup-box">
@@ -1435,7 +1431,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.chat-layout { position: relative; display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--bg); }
+.chat-layout { position: relative; display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: var(--bg); }
 .chat-inner { max-width: var(--content-frame-width); width: 100%; margin: 0 auto; padding: 0 var(--content-frame-gutter); }
 .photo-capture-action { margin-top: 10px; }
 .photo-capture-action > span { color: var(--green); font-size: 12px; font-weight: 600; }
@@ -1489,8 +1485,8 @@ onMounted(async () => {
 .chat-body > .chat-inner { max-width: 960px; }
 .welcome-mode .chat-body > .chat-inner { max-width: calc(860px + 2 * var(--welcome-content-inline-padding)); padding: 0 var(--welcome-content-inline-padding); }
 .welcome-home { padding: 0 2px; animation: welcome-in 0.32s ease both; }
-.welcome-home h1 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
-.welcome-briefing { margin-top: 20px; padding: 13px 15px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: var(--shadow); }
+.welcome-home h2 { color: var(--text); font-size: clamp(30px, 3vw, 40px); font-weight: 680; line-height: 1.25; letter-spacing: -0.035em; }
+.welcome-briefing { margin-top: 20px; padding: 13px 15px; border: 1px solid var(--border); border-radius: var(--radius-soft); background: var(--card); box-shadow: var(--shadow); }
 .welcome-briefing-heading { display: flex; align-items: center; gap: 9px; color: var(--text); }
 .welcome-briefing-heading strong { font-size: 13px; font-weight: 650; }
 .welcome-briefing-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: var(--radius-detail); background: var(--primary-50); color: var(--text-2); }
@@ -1513,7 +1509,6 @@ onMounted(async () => {
 .welcome-briefing-done { display: flex; align-items: flex-start; gap: 10px; margin-top: 9px; border-radius: var(--radius-control); background: var(--green-bg); padding: 10px 12px; }
 .welcome-done-mark { display: grid; width: 27px; height: 27px; flex: 0 0 27px; place-items: center; border-radius: 50%; background: var(--green); color: #fff; }
 .welcome-briefing-done strong { color: var(--green-strong); font-size: 13px; font-weight: 650; }
-.welcome-briefing-done p { margin-top: 3px; color: var(--text-2); font-size: 11.5px; }
 
 /* 建议气泡（v0.6.0）：只挂最新一轮回复，淡入上浮 stagger */
 .suggest-row { display: flex; gap: 8px; flex-wrap: wrap; margin: -4px 0 16px; }
@@ -1590,7 +1585,6 @@ onMounted(async () => {
 .diag-step.first-error .step-title { color: var(--red-strong); }
 .diag-step.correct .step-title { color: var(--green-strong); }
 .error-item { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-.encourage { margin-top: 8px; font-size: 14px; }
 .detail { margin-top: 6px; font-size: 14px; color: var(--text-2); }
 .ok-line { margin-top: 10px; font-size: 14.5px; color: var(--green-strong); display: flex; align-items: center; gap: 6px; }
 .followup-box {
@@ -1614,7 +1608,6 @@ onMounted(async () => {
 }
 
 @media (max-width: 960px) {
-  .chat-layout { height: calc(100dvh - 52px); }
   .chat-inner { padding-right: var(--content-frame-gutter-compact); padding-left: var(--content-frame-gutter-compact); }
   .chat-body > .chat-inner,
   .chat-content-shell:not(.welcome-mode) :deep(.chat-composer .chat-inner) { padding-right: var(--content-frame-gutter-compact); padding-left: var(--content-frame-gutter-compact); }
@@ -1629,7 +1622,7 @@ onMounted(async () => {
 @media (max-width: 620px) {
   .chat-inner { padding-right: var(--content-frame-gutter-compact); padding-left: var(--content-frame-gutter-compact); }
   .chat-content-shell.welcome-mode { --welcome-content-inline-padding: 10px; }
-  .welcome-home h1 { font-size: clamp(27px, 7.5vw, 34px); }
+  .welcome-home h2 { font-size: clamp(27px, 7.5vw, 34px); }
   .welcome-briefing { margin-top: 16px; padding: 11px; }
   .chat-content-shell.welcome-mode :deep(.chat-composer) { padding: 16px var(--welcome-content-inline-padding) 18px; }
 }

@@ -272,6 +272,15 @@ export interface StudentCorrectionWallPage {
   next_cursor: { created_at: string; id: number } | null
 }
 
+export interface StudentCorrectionAssignmentSummary {
+  assignment_id: number
+  assignment_title: string
+  subjects: string[]
+  total_count: number
+  pending_count: number
+  published_at: string
+}
+
 export interface RelatedMistake {
   id: number
   submission_id: number
@@ -409,18 +418,47 @@ export interface KnowledgeStat {
 
 export interface StubbornErrorBrief {
   id: number
+  submission_id: number
+  subject: string
   knowledge_point: string
   error_type: string
   step_text: string | null
   created_at: string
+  corrected: boolean
+}
+
+export type ProfileKnowledgeStatus = KnowledgePointStatus | 'needs_review' | 'corrected' | 'clear' | 'unclassified'
+
+export interface ProfileKnowledgePoint {
+  subject: string
+  knowledge_point: string
+  question_count: number
+  attempts: number
+  wrong_question_count: number
+  error_count: number
+  corrected_count: number
+  review_count: number
+  patterns: { error_type: string; question_count: number; pending_question_count: number }[]
+  status: ProfileKnowledgeStatus
+  next_error_id: number | null
+}
+
+export interface ProfileKnowledgeAnalysis {
+  graded_question_count: number
+  wrong_question_count: number
+  corrected_count: number
+  pending_correction_count: number
+  points: ProfileKnowledgePoint[]
+  error_types: { error_type: string; count: number }[]
 }
 
 export interface StudentProfile {
   student: { id: number; name: string; student_no: string; role?: string; created_at?: string | null }
   knowledge_points: KnowledgeStat[]
   stubborn_errors: StubbornErrorBrief[]
-  recent_errors: GradingError[]
+  recent_errors: (GradingError & { subject: string; corrected: boolean })[]
   suggestion: string
+  knowledge_analysis: ProfileKnowledgeAnalysis
 }
 
 // ---------- 教师端 ----------
@@ -508,6 +546,9 @@ export interface TeacherAIGradingAssignmentItem {
   student_count: number
   answer_count: number
   latest_submitted_at: string
+  published_at: string
+  recipient_student_count: number
+  submission_percent: number
 }
 
 export interface TeacherAIGradingAssignmentPage {

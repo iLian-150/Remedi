@@ -45,7 +45,7 @@
         </div>
       </div>
       <p v-if="!report.length" class="hint" style="margin-bottom: 16px">
-        还没有作答记录，先去 <router-link to="/student/chat" style="color: var(--primary)">智能批改</router-link> 拍一张作业照片，报告就会慢慢长出来。
+        暂无学习记录，<router-link to="/student/assignments" style="color: var(--primary)">去做作业</router-link>。
       </p>
 
       <!-- 简要汇总（v0.6.0）：真实科目的关键数字一览，详情进科目页看 -->
@@ -53,7 +53,7 @@
         <h3><AppIcon name="chart" :size="18" /> 我的进步概览</h3>
         <div class="summary-grid">
           <div v-for="subj in report" :key="subj.subject" class="summary-item">
-            <span class="summary-subject">{{ SUBJECT_TEXT[subj.subject] ?? subj.subject }}</span>
+            <span class="summary-subject">{{ subjectLabel(subj.subject) }}</span>
             <span class="summary-nums">
               题目 <b class="tnum">{{ subj.question_count }}</b> 道 ·
               累计提交 <b class="tnum">{{ subj.submission_count }}</b> 次 ·
@@ -68,7 +68,7 @@
         <h3><AppIcon name="sparkles" :size="18" /> 学习记忆</h3>
         <div v-if="learningMemory.length" class="memory-list">
           <div v-for="item in learningMemory" :key="`${item.subject}:${item.knowledge_point}`" class="memory-row">
-            <span class="memory-tag">{{ SUBJECT_TEXT[item.subject] ?? item.subject }}</span>
+            <span class="memory-tag">{{ subjectLabel(item.subject) }}</span>
             <div><b>{{ item.knowledge_point }}</b><p>{{ item.summary }}</p></div>
             <span class="memory-state" :class="`state-${item.state}`">{{ memoryStateLabel(item.state) }}</span>
           </div>
@@ -87,7 +87,7 @@
           <EChart :option="scoreChartOption" style="height: 280px" />
           <div class="summary-grid" style="margin-top: 12px">
             <div v-for="s in scoreData.subjects" :key="s.subject" class="summary-item">
-              <span class="summary-subject">{{ SUBJECT_TEXT[s.subject] ?? s.subject }}</span>
+              <span class="summary-subject">{{ subjectLabel(s.subject) }}</span>
               <span class="hang-bar score-subject-bar"><span :style="{ width: `${Math.round(s.avg_rate * 100)}%` }"></span></span>
               <span class="summary-nums">平均得分率 <b class="tnum">{{ Math.round(s.avg_rate * 100) }}%</b> · {{ s.assignment_count }} 份作业</span>
             </div>
@@ -115,11 +115,12 @@ import { useStudentStore } from '../../stores/student'
 import type { ReportScores, StudentLearningMemory, SubjectReport } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import { AsyncEChartLine as EChart } from '../../components/AsyncEChart'
+import { getSubjectLabel } from '../../utils/subjectLabels'
 
 const student = useStudentStore()
 const router = useRouter()
 
-const SUBJECT_TEXT: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学' }
+const subjectLabel = (subject: string) => getSubjectLabel(subject)
 
 const report = ref<SubjectReport[]>([])
 const scoreData = ref<ReportScores | null>(null)
@@ -138,7 +139,7 @@ function escapeHtml(value: string): string {
 }
 
 function formatSubjects(subjects: string[]): string {
-  return subjects.map((subject) => SUBJECT_TEXT[subject] ?? subject).join('、')
+  return subjects.map(subjectLabel).join('、')
 }
 
 function memoryStateLabel(state: StudentLearningMemory['state']): string {
@@ -158,7 +159,7 @@ const scoreChartOption = computed(() => {
         const it = items[params[0]?.dataIndex ?? 0]
         if (!it) return ''
         const subjects = it.subjects.length > 1
-          ? `<br/>科目 ${it.subjects.map((subject) => escapeHtml(SUBJECT_TEXT[subject] ?? subject)).join('、')}`
+          ? `<br/>科目 ${it.subjects.map((subject) => escapeHtml(subjectLabel(subject))).join('、')}`
           : ''
         return `${escapeHtml(it.assignment_title)}${subjects}<br/>得分 ${fmtScore(it.score)} / ${fmtScore(it.max_score)} 分 · 得分率 ${Math.round(it.rate * 100)}%`
       }
@@ -251,8 +252,9 @@ onMounted(async () => {
 <style scoped>
 /* ---------- 科目悬挂卡 ---------- */
 .hang-row {
+  --hang-string-height: 32px;
   display: flex; gap: 18px; flex-wrap: wrap;
-  padding: 38px 4px 8px; margin-bottom: 14px;
+  padding: var(--hang-string-height) 0 8px; margin-bottom: 14px;
 }
 .hang-wrap {
   transform-origin: top center;
@@ -280,8 +282,8 @@ onMounted(async () => {
 }
 .hang-wrap:hover .hang-card.placeholder { transform: none; box-shadow: var(--shadow); }
 .hang-string {
-  position: absolute; top: -32px; left: 50%;
-  width: 2px; height: 32px; margin-left: -1px;
+  position: absolute; bottom: 100%; left: 50%;
+  width: 2px; height: var(--hang-string-height); margin-left: -1px;
   background: linear-gradient(#C7CEDA, #9AA7BC);
   border-radius: var(--radius-micro);
 }

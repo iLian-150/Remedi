@@ -23,5 +23,6 @@ export const SUBJECT_OPTIONS = (Object.keys(SUBJECT_LABELS) as QuestionSubject[]
 
 export function getSubjectLabel(subject: string | null | undefined, fallback = '其他'): string {
   if (!subject) return fallback
-  return SUBJECT_LABELS[subject as QuestionSubject] ?? fallback
+  const normalizedSubject = subject.trim().toLowerCase()
+  return SUBJECT_LABELS[normalizedSubject as QuestionSubject] ?? fallback
 }

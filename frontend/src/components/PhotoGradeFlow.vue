@@ -97,10 +97,7 @@
           <p>
             <ErrorTypeBadge :type="e.error_type" />
             <span v-if="e.is_stubborn" class="badge badge-amber">需要加固的知识点</span>
-            <span v-else class="badge badge-green">已注意，继续保持</span>
-          </p>
-          <p class="encourage">
-            {{ e.is_stubborn ? '这个知识点还需要再加固一下，多练几道同类题会有帮助。' : '这是一次偶发的小失误，下次细心一点就好。' }}
+            <span v-else class="badge badge-green">偶发失误</span>
           </p>
           <p v-if="e.detail" class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(e.detail) }}</p>
           <div class="toolbar" style="margin-top: 8px; margin-bottom: 0">
@@ -108,7 +105,7 @@
           </div>
         </div>
       </template>
-      <p v-else class="ok-line"><AppIcon name="check" :size="15" /> 太棒了，这道题全部正确，继续保持！</p>
+      <p v-else class="ok-line"><AppIcon name="check" :size="15" /> 本次作答全部正确。</p>
 
       <!-- 追问（v0.4.0）：先想一想，再看解析 -->
       <div v-if="result.follow_up_question" class="followup-box">
@@ -394,7 +391,6 @@ function reset() {
 .diag-step.first-error .step-title { color: var(--red-strong); }
 .diag-step.correct .step-title { color: var(--green-strong); }
 .error-item { margin-top: 12px; padding-top: 11px; border-top: 1px solid #F1F3F6; }
-.encourage { margin-top: 7px; font-size: 14px; }
 .detail { margin-top: 5px; font-size: 14px; color: var(--text-2); }
 .ok-line { margin-top: 9px; font-size: 14.5px; color: var(--green-strong); display: flex; align-items: center; gap: 6px; }
 .followup-box {

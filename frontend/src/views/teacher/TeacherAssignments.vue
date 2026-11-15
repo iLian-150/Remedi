@@ -18,68 +18,55 @@
     <div v-if="loading" class="loading">作业加载中…</div>
 
     <template v-if="!loading">
-      <p class="rail-note"><AppIcon name="calendar" :size="15" /> 可用右侧日历筛选发布日期。</p>
-
       <!-- 日期筛选状态栏（右侧栏日历选中某天时出现） -->
       <div v-if="dateFilter" class="filter-bar">
         <span class="filter-title">{{ dateFilterLabel }} 发布的作业 · 共 {{ assignments.length }} 份</span>
         <button class="btn secondary small" @click="clearFilter">返回查看全部作业</button>
       </div>
 
-      <!-- 作业（全部或按所选日期筛选后） -->
-      <div v-for="a in assignments" :key="a.id" class="card assignment-card" @click="openAssignment(a.id)">
-        <div class="card-head-row">
-          <div>
-            <h3>
-              <router-link :to="`/teacher/assignments/${a.id}/analytics`" class="assignment-title" @click.stop>{{ a.title }}</router-link>
-              <span v-if="a.mode === 'offline'" class="badge badge-amber" style="margin-left: 6px">线下练习</span>
-            </h3>
-            <p class="card-sub" style="margin-bottom: 0">
-              {{ fmtTime(a.created_at) }} 发布 · 共 {{ a.questions.length }} 题
+      <!-- 作业摘要列表：题目内容进入题目详情页查看 -->
+      <div v-if="assignments.length" class="card assignment-list">
+        <article v-for="a in assignments" :key="a.id" class="assignment-row">
+          <div class="assignment-main">
+            <div class="assignment-title-line">
+              <router-link :to="`/teacher/assignments/${a.id}/analytics`" class="assignment-title">{{ a.title }}</router-link>
+              <span class="badge" :class="a.mode === 'offline' ? 'badge-amber' : 'badge-blue'">
+                {{ a.mode === 'offline' ? '线下练习' : '线上作业' }}
+              </span>
+            </div>
+            <div class="assignment-meta">
+              <span>{{ fmtTime(a.created_at) }} 发布</span>
+              <span>{{ a.questions.length }} 道题</span>
+              <span>{{ a.class_ids.length }} 个班级</span>
               <template v-if="a.mode === 'offline'">
-                <template v-if="a.workbook_title"> · {{ a.workbook_title }}</template>
-                <template v-if="a.page_range"> · {{ a.page_range }}</template>
-                <template v-if="a.deadline"> · 截止 {{ fmtTime(a.deadline) }}</template>
+                <span v-if="a.workbook_title">{{ a.workbook_title }}</span>
+                <span v-if="a.page_range">{{ a.page_range }}</span>
+                <span v-if="a.deadline">截止 {{ fmtTime(a.deadline) }}</span>
               </template>
-            </p>
+            </div>
+            <div v-for="job in figureJobs.filter(item => item.assignment_id === a.id && item.status !== 'completed')" :key="job.id" class="figure-job" role="status">
+              <template v-if="job.status === 'failed'">
+                <span>图形生成失败</span>
+                <button class="btn small secondary" :disabled="retryingJob === job.id" @click="retryFigure(job.id)">重试</button>
+              </template>
+              <template v-else>
+                <span>图形生成中，完成后自动显示给学生</span>
+                <IndeterminateProgress label="图形生成中" />
+              </template>
+            </div>
           </div>
           <div class="head-actions">
-            <router-link class="btn small" :to="`/teacher/assignments/${a.id}/analytics`" @click.stop>查看学情</router-link>
-            <router-link class="btn small secondary" :to="`/teacher/assignments/${a.id}`" @click.stop>查看题目</router-link>
-            <router-link v-if="a.can_delete" class="btn small secondary inline-icon" :to="`/teacher/assignments/${a.id}/edit`" @click.stop><AppIcon name="edit" :size="15" /> 编辑作业</router-link>
-            <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click.stop="remind(a)">
+            <router-link class="btn small" :to="`/teacher/assignments/${a.id}/analytics`">查看学情</router-link>
+            <router-link class="btn small secondary" :to="`/teacher/assignments/${a.id}`">查看题目</router-link>
+            <router-link v-if="a.can_delete" class="btn small secondary inline-icon" :to="`/teacher/assignments/${a.id}/edit`"><AppIcon name="edit" :size="15" /> 编辑作业</router-link>
+            <button class="btn small secondary inline-icon" :disabled="remindingId === a.id" @click="remind(a)">
               <AppIcon name="megaphone" :size="15" /> {{ remindingId === a.id ? '提醒中…' : '提醒未交' }}
             </button>
-            <button v-if="a.can_delete" class="btn small danger-outline inline-icon" @click.stop="askDelete(a)">
+            <button v-if="a.can_delete" class="btn small danger-outline inline-icon" @click="askDelete(a)">
               <AppIcon name="trash" :size="15" /> 删除
             </button>
           </div>
-        </div>
-        <div v-for="job in figureJobs.filter(item => item.assignment_id === a.id && item.status !== 'completed')" :key="job.id" class="figure-job" role="status">
-          <template v-if="job.status === 'failed'">
-            <span>图形生成失败</span>
-            <button class="btn small secondary" :disabled="retryingJob === job.id" @click.stop="retryFigure(job.id)">重试</button>
-          </template>
-          <template v-else>
-            <span>图形生成中，完成后自动显示给学生</span>
-            <IndeterminateProgress label="图形生成中" />
-          </template>
-        </div>
-        <table class="table">
-          <thead>
-            <tr><th style="width: 72px">题型</th><th>题干</th><th style="width: 130px">知识点</th><th style="width: 96px">已提交</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="q in a.questions" :key="q.id">
-              <td>
-                <span class="badge" :class="q.subject === 'math' ? 'badge-blue' : 'badge-gray'">{{ subjectLabel(q.subject) }}</span>
-              </td>
-              <td>{{ q.prompt }}</td>
-              <td>{{ q.knowledge_point }}</td>
-              <td class="num tnum">{{ q.submission_count }} 人</td>
-            </tr>
-          </tbody>
-        </table>
+        </article>
       </div>
 
       <div v-if="!assignments.length && dateFilter" class="card">
@@ -113,16 +100,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useTeacherStore } from '../../stores/teacher'
 import type { TeacherAssignment } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import IndeterminateProgress from '../../components/IndeterminateProgress.vue'
 import api from '../../api/client'
-import { getSubjectLabel } from '../../utils/subjectLabels'
 
 const teacher = useTeacherStore()
-const router = useRouter()
 const assignments = ref<TeacherAssignment[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -146,12 +130,6 @@ async function retryFigure(id: number) {
   } catch { error.value = '图形重试失败，请稍后再试。' }
   finally { retryingJob.value = null }
 }
-
-function openAssignment(id: number) {
-  void router.push(`/teacher/assignments/${id}/analytics`)
-}
-
-const subjectLabel = (subject: string) => getSubjectLabel(subject)
 
 /** 右侧栏日历选中的发布日期（yyyy-mm-dd，空 = 不筛选）——与日历共用 store 状态 */
 const dateFilter = computed(() => teacher.assignmentDateFilter)
@@ -276,21 +254,23 @@ onUnmounted(() => {
 .figure-job { margin: 12px 0; color: var(--text-2); font-size: 13px; }
 .figure-job .btn { margin-left: 10px; }
 .figure-job :deep(.progress-track) { max-width: 360px; margin-top: 5px; }
-.rail-note {
-  display: flex; align-items: center; gap: 7px;
-  font-size: 13.5px; color: var(--text-2);
-  background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);
-  padding: 10px 14px; margin-bottom: 16px;
-}
 .assignment-management { margin-top: 0; }
 .management-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .management-heading span { color: var(--text-3); font-size: 13px; }
-.assignment-card { cursor: pointer; }
-.assignment-title { color: inherit; }
+.assignment-list { padding: 0; overflow: hidden; }
+.assignment-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; }
+.assignment-row + .assignment-row { border-top: 1px solid var(--border); }
+.assignment-main { flex: 1 1 auto; min-width: 0; }
+.assignment-title-line { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.assignment-title { min-width: 0; overflow: hidden; color: var(--text); font-size: 16px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
 .assignment-title:hover { color: var(--primary); }
-.card-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
-@media (max-width: 760px) { .card-head-row { flex-wrap: wrap; } }
+.assignment-title-line .badge { flex: 0 0 auto; margin: 0; }
+.assignment-meta { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-top: 6px; color: var(--text-2); font-size: 12px; }
+.head-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 1100px) {
+  .assignment-row { flex-direction: column; align-items: stretch; gap: 14px; }
+  .head-actions { justify-content: flex-start; }
+}
 .filter-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
   background: var(--primary-50); border: 1px solid var(--blue-bg); border-radius: var(--radius-control);

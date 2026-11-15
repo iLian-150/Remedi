@@ -5,8 +5,7 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <h2>诊断详情</h2>
-      <p class="page-sub">AI 诊断的完整信息；分类存疑时可一键纠错。</p>
+      <router-link to="/teacher/submissions" class="back-link"><AppIcon name="chevron-left" :size="16" /> 返回 AI 批改</router-link>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>

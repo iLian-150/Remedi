@@ -6,12 +6,6 @@
     :aria-busy="loading"
   >
     <div class="sticky-notes-inner scrollbar-on-scroll">
-      <header class="sticky-notes-header">
-        <div class="sticky-notes-kicker"><span aria-hidden="true"><AppIcon name="sparkles" :size="15"/></span>{{ studentName ? `${studentName} · 学习记录` : '把错因贴在眼前' }}</div>
-        <h1>{{ selectedCategory ? selectedCategory.label : selectedSubject ? displaySubject(selectedSubject.key) : '错题便利贴' }}</h1>
-        <p>{{ screen === 'subjects' ? '选一个科目，从最需要复习的错误类别开始。' : screen === 'categories' ? '每张便利贴是一类错误；同类错题会放在一起。' : `${selectedCategory!.itemCount} 道错题，来自 ${selectedCategory!.assignmentCount} 份作业。` }}</p>
-      </header>
-
       <nav v-if="screen !== 'subjects'" class="sticky-notes-breadcrumb" aria-label="便利贴层级">
         <button type="button" @click="goToSubjects">全部科目</button><span aria-hidden="true">/</span>
         <template v-if="screen === 'detail'"><button type="button" @click="goToCategories">{{ displaySubject(selectedSubject!.key) }}</button><span aria-hidden="true">/</span><span aria-current="page">{{ selectedCategory!.label }}</span></template>
@@ -93,7 +87,6 @@ type AssignmentProgress = { completed: number; total: number; complete: boolean 
 const props = defineProps<{
   mistakes: StudentMistake[]
   loading: boolean
-  studentName?: string
   split?: boolean
   reversed?: boolean
   fullscreen?: boolean

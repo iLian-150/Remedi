@@ -1,6 +1,6 @@
 """Public request and response models for the student API domain."""
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -210,6 +210,14 @@ class StudentCorrectionWallPageOut(BaseModel):
     has_more: bool
     next_cursor: Optional[StudentCorrectionWallCursorOut] = None
 
+class StudentCorrectionAssignmentSummaryOut(BaseModel):
+    assignment_id: int
+    assignment_title: str
+    subjects: List[str]
+    total_count: int
+    pending_count: int
+    published_at: datetime
+
 class RelatedMistakeOut(BaseModel):
     id: int
     submission_id: int
@@ -302,17 +310,57 @@ class KnowledgePointStat(BaseModel):
 
 class StubbornErrorBrief(BaseModel):
     id: int
+    submission_id: int
     knowledge_point: str
     error_type: str
     step_text: Optional[str] = None
     created_at: datetime
+    subject: str = "other"
+    corrected: bool = False
+
+class ProfileErrorOut(ErrorOut):
+    subject: str = "other"
+    corrected: bool = False
+
+class KnowledgePointPatternOut(BaseModel):
+    error_type: str
+    question_count: int
+    pending_question_count: int
+
+class ProfileKnowledgePointOut(BaseModel):
+    subject: str
+    knowledge_point: str
+    question_count: int
+    attempts: int
+    wrong_question_count: int
+    error_count: int
+    corrected_count: int
+    review_count: int
+    patterns: List[KnowledgePointPatternOut]
+    status: Literal[
+        "stubborn", "pending", "needs_review", "awaiting_verify", "fixed", "corrected", "clear", "unclassified",
+    ]
+    next_error_id: Optional[int] = None
+
+class ProfileErrorTypeOut(BaseModel):
+    error_type: str
+    count: int
+
+class ProfileKnowledgeAnalysisOut(BaseModel):
+    graded_question_count: int
+    wrong_question_count: int
+    corrected_count: int
+    pending_correction_count: int
+    points: List[ProfileKnowledgePointOut]
+    error_types: List[ProfileErrorTypeOut]
 
 class ProfileOut(BaseModel):
     student: UserOut
     knowledge_points: List[KnowledgePointStat]
     stubborn_errors: List[StubbornErrorBrief]
-    recent_errors: List[ErrorOut]
+    recent_errors: List[ProfileErrorOut]
     suggestion: str
+    knowledge_analysis: ProfileKnowledgeAnalysisOut
 
 class PhotoTranscribeOut(BaseModel):
     image_id: Optional[str] = None  # save_image=false 时不写盘
@@ -458,6 +506,7 @@ __all__ = [
     'StudentCorrectionWallItemOut',
     'StudentCorrectionWallCursorOut',
     'StudentCorrectionWallPageOut',
+    'StudentCorrectionAssignmentSummaryOut',
     'RelatedMistakeOut',
     'MistakeCategoryStudyIn',
     'MistakeAssignmentArchiveIn',

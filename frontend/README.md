@@ -21,15 +21,17 @@ npm run dev
 | `VITE_API_BASE_URL` | API 基地址；留空时使用相对路径 `/api` | 空 |
 | `VITE_BACKEND_TARGET` | Vite 开发代理的后端地址 | `http://localhost:8000` |
 
-不要把凭证或服务端密钥写入 `VITE_` 变量；这些变量会被打包到浏览器代码中。生产环境的 `/api` 路由由 Nginx 转发到 FastAPI，无需为前端单独暴露 API 密钥。
+不要把凭证或服务端密钥写入 `VITE_` 变量；这些变量会被打包到浏览器代码中。前端只通过本地 Vite 代理访问后端，不需要在浏览器中保存 API 密钥。
 
-## 构建与生产部署
+## 本地构建与验证
 
 ```bash
 npm run build
 ```
 
-产物输出到 `frontend/dist`。生产服务器由宝塔 Nginx 提供该目录中的静态文件，`/api` 转发到 `http://127.0.0.1:5000`。部署步骤见[生产部署指南](../DEPLOY.md)。
+构建产物输出到 `frontend/dist`，仅供本地预览或检查。本项目不在此流程中发布到服务器。
+
+前端 smoke 脚本及后端验证入口见[验证说明](../docs/validation.md)。
 
 ## 页面与代码
 

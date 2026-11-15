@@ -30,6 +30,7 @@ import type {
   PhotoTranscribeResult,
   RelatedMistake,
   StudentBriefing,
+  StudentCorrectionAssignmentSummary,
   StudentCorrectionWallPage,
   StudentMistakeCount,
   StudentMistakeReviewSummary,
@@ -283,6 +284,10 @@ export const useStudentStore = defineStore('student', {
     /** 订正页的错题日期筛选（v0.9.1）：空 = 全部；由右侧栏「订正日历」写入、订正页消费
      * （v0.9.0 曾在订正页页内放日历，v0.9.1 迁入右栏，与作业日历同构） */
     correctionsDateFilter: '',
+    /** 订正页当前作业标题：作业目录内部导航时同步到全局页面标题。 */
+    correctionPageTitle: '',
+    /** 错题便利贴视图临时显示在全局页面标题的位置。 */
+    mistakePageTitle: '',
     /** 提醒未读数（v0.8.2）：单一事实来源——App.vue 路由变化时刷新、RightRail 读写后回写，
      *  右栏收起态的提醒 FAB 角标直接读这里，不再靠 RightRail 的 emit 传递 */
     unreadCount: 0,
@@ -319,6 +324,12 @@ export const useStudentStore = defineStore('student', {
     },
     setCorrectionsDateFilter(date: string) {
       this.correctionsDateFilter = date
+    },
+    setCorrectionPageTitle(title: string) {
+      this.correctionPageTitle = title
+    },
+    setMistakePageTitle(title: string) {
+      this.mistakePageTitle = title
     },
     // 3.1 作业列表
     fetchAssignments(
@@ -477,8 +488,16 @@ export const useStudentStore = defineStore('student', {
       )
       return data
     },
+    async fetchCorrectionAssignmentSummaries(date?: string): Promise<StudentCorrectionAssignmentSummary[]> {
+      const { data } = await api.get<StudentCorrectionAssignmentSummary[]>(
+        '/api/student/corrections/assignments',
+        { params: { submitted_on: date } },
+      )
+      return data
+    },
     async fetchCorrectionWallPage(options: {
       date?: string
+      assignmentId?: number
       limit?: number
       beforeCreatedAt?: string
       beforeId?: number
@@ -487,6 +506,7 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<StudentCorrectionWallPage>('/api/student/corrections/wall', {
         params: {
           submitted_on: options.date,
+          assignment_id: options.assignmentId,
           limit: options.limit,
           before_created_at: options.beforeCreatedAt,
           before_id: options.beforeId,

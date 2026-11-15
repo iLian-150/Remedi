@@ -13,11 +13,6 @@
   background: transparent;
 }
 
-.remedi-mistake-book .is-notebook .mistake-board-toolbar, .remedi-mistake-book.is-notebook .mistake-board-toolbar {
-  top: 16px;
-  right: 18px;
-}
-
 .remedi-mistake-book .is-notebook .mistake-view-switch, .remedi-mistake-book.is-notebook .mistake-view-switch, .remedi-mistake-book .is-notebook .mistake-board-refresh, .remedi-mistake-book.is-notebook .mistake-board-refresh {
   border-color: var(--border);
   background: var(--card);
@@ -89,9 +84,8 @@
   position: relative;
   top: auto;
   left: auto;
-  width: calc(100% - 72px);
-  max-width: 1048px;
-  margin: 88px auto -12px;
+  max-width: 100%;
+  margin: 12px 0 0;
   border-color: var(--border);
   background: var(--bg);
   box-shadow: none;
@@ -142,14 +136,6 @@
   min-height: calc(100dvh - 88px);
 }
 .remedi-mistake-book .mistake-notebook.is-assistant-fullscreen .mistake-notebook-content, .remedi-mistake-book.mistake-notebook.is-assistant-fullscreen .mistake-notebook-content { display: none; }
-.remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-split) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-split) .mistake-board-toolbar { right: 18px; }
-.remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-split.is-reversed) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-split.is-reversed) .mistake-board-toolbar { right: 18px; }
-.remedi-mistake-book .mistakes-panel.is-notebook:has(.mistake-notebook.is-assistant-fullscreen) .mistake-board-toolbar, .remedi-mistake-book.mistakes-panel.is-notebook:has(.mistake-notebook.is-assistant-fullscreen) .mistake-board-toolbar {
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-}
-
 .remedi-mistake-book .notebook-category-questions article > .notebook-question-open, .remedi-mistake-book.notebook-category-questions article > .notebook-question-open {
   display: flex;
   width: 100%;
@@ -394,7 +380,6 @@
 }
 
 @container (max-width: 930px) {
-  .remedi-mistake-book .is-notebook .mistake-removal-notice, .remedi-mistake-book.is-notebook .mistake-removal-notice { width: calc(100% - 56px); margin: 18px auto 0; }
   .remedi-mistake-book .mistake-notebook-content, .remedi-mistake-book.mistake-notebook-content { padding: 25px 28px 28px; }
   .remedi-mistake-book .notebook-header, .remedi-mistake-book.notebook-header { padding-right: 0; }
 }
@@ -406,7 +391,7 @@
 }
 
 @container (max-width: 570px) {
-  .remedi-mistake-book .is-notebook .mistake-removal-notice, .remedi-mistake-book.is-notebook .mistake-removal-notice { width: calc(100% - 36px); flex-wrap: wrap; gap: 5px; }
+  .remedi-mistake-book .is-notebook .mistake-removal-notice, .remedi-mistake-book.is-notebook .mistake-removal-notice { flex-wrap: wrap; gap: 5px; }
   .remedi-mistake-book .is-notebook .mistake-removal-notice > span, .remedi-mistake-book.is-notebook .mistake-removal-notice > span { flex: 1 1 100%; }
   .remedi-mistake-book .mistake-notebook-content, .remedi-mistake-book.mistake-notebook-content { padding: 18px 18px 24px; }
   .remedi-mistake-book .notebook-eyebrow, .remedi-mistake-book.notebook-eyebrow { display: none; }
@@ -437,10 +422,6 @@
   .remedi-mistake-book .mistake-notebook-content, .remedi-mistake-book.mistake-notebook-content { padding-right: 14px; padding-left: 14px; }
   .remedi-mistake-book .notebook-card, .remedi-mistake-book.notebook-card { padding-right: 14px; padding-left: 14px; }
   .remedi-mistake-book .notebook-card-footer, .remedi-mistake-book.notebook-card-footer { gap: 5px; }
-}
-
-@media (max-width: 760px) {
-  .remedi-mistake-book .is-notebook .mistake-board-toolbar, .remedi-mistake-book.is-notebook .mistake-board-toolbar { top: 10px; right: 10px; }
 }
 
 @container (max-width: 850px) {

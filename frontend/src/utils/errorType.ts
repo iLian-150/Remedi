@@ -40,7 +40,7 @@ export function errorTypePalette(): string[] {
 }
 
 // ---------- 学生端文案伦理 ----------
-// 「顽固误区」「疑似」等术语仅教师端可见；学生端一律用鼓励性文案。
+// 「顽固误区」「疑似」等模型内部术语仅教师端可见；学生端使用易懂的中性文案。
 // 后端返回的 suggestion / grammar issue 文案可能含术语，前端展示前统一净化。
 const STUDENT_COPY_RULES: Array<[RegExp, string]> = [
   [/顽固误区/g, '需要加固的知识点'],

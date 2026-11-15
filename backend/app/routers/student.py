@@ -78,6 +78,7 @@ from ..api_schemas.student import (
     SubmissionBrief,
     SubmissionCreate,
     SubmissionQuestionStatusOut,
+    StudentCorrectionAssignmentSummaryOut,
     StudentCorrectionWallPageOut,
     StudentLearningMemoryOut,
     StudentMistakeCountOut,
@@ -102,6 +103,7 @@ from ..api_schemas.chat import (
     NotificationUnreadCountOut,
 )
 from ..api_schemas.verification import (
+    AwaitingVerificationKnowledgePointOut,
     VerificationCreate,
     VerificationOut,
     VerificationSubmitIn,
@@ -1746,10 +1748,90 @@ def correction_calendar_marks(db: Session = Depends(get_db),
     }
 
 
+@router.get("/corrections/assignments", response_model=List[StudentCorrectionAssignmentSummaryOut],
+            summary="按作业汇总订正进度")
+def correction_assignment_summaries(
+    submitted_on: Optional[date] = Query(default=None),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    """返回当前学生有错题的作业目录及订正进度，不读取错题详情。"""
+    latest_correction = (
+        db.query(Correction.is_correct)
+        .filter(
+            Correction.error_id == Error.id,
+            Correction.student_id == current.id,
+        )
+        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
+        .limit(1)
+        .correlate(Error)
+        .scalar_subquery()
+    )
+    query = (
+        db.query(
+            Assignment.id.label("assignment_id"),
+            Assignment.title.label("assignment_title"),
+            Assignment.created_at.label("published_at"),
+            Question.subject.label("subject"),
+            func.count(Error.id).label("total_count"),
+            func.coalesce(func.sum(case((latest_correction.is_(True), 0), else_=1)), 0).label("pending_count"),
+        )
+        .join(Question, Question.assignment_id == Assignment.id)
+        .join(Submission, Submission.question_id == Question.id)
+        .join(Error, Error.submission_id == Submission.id)
+        .filter(Submission.student_id == current.id)
+    )
+    if submitted_on is not None:
+        submitted_start = datetime.combine(submitted_on, datetime.min.time())
+        submitted_end = submitted_start + timedelta(days=1)
+        query = query.filter(or_(
+            and_(
+                Submission.submitted_at.isnot(None),
+                Submission.submitted_at >= submitted_start,
+                Submission.submitted_at < submitted_end,
+            ),
+            and_(
+                Submission.submitted_at.is_(None),
+                Error.created_at >= submitted_start,
+                Error.created_at < submitted_end,
+            ),
+        ))
+
+    rows = query.group_by(
+        Assignment.id, Assignment.title, Assignment.created_at, Question.subject,
+    ).order_by(
+        Assignment.created_at.desc(),
+        Assignment.id.desc(),
+    ).all()
+    summaries = {}
+    for row in rows:
+        summary = summaries.setdefault(row.assignment_id, {
+            "assignment_id": row.assignment_id,
+            "assignment_title": row.assignment_title,
+            "subjects": set(),
+            "total_count": 0,
+            "pending_count": 0,
+            "published_at": row.published_at,
+        })
+        if row.subject:
+            summary["subjects"].add(row.subject)
+        summary["total_count"] += int(row.total_count or 0)
+        summary["pending_count"] += int(row.pending_count or 0)
+    return [
+        {**summary, "subjects": sorted(summary["subjects"])}
+        for summary in sorted(
+            summaries.values(),
+            key=lambda item: (item["published_at"], item["assignment_id"]),
+            reverse=True,
+        )
+    ]
+
+
 @router.get("/corrections/wall", response_model=StudentCorrectionWallPageOut,
-            summary="分页读取订正便利贴")
+            summary="分页读取作业内订正错题")
 def correction_wall_page(
     submitted_on: Optional[date] = Query(default=None),
+    assignment_id: Optional[int] = Query(default=None, ge=1),
     limit: int = Query(default=40, ge=1, le=100),
     before_created_at: Optional[datetime] = Query(default=None),
     before_id: Optional[int] = Query(default=None, ge=1),
@@ -1757,7 +1839,7 @@ def correction_wall_page(
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
-    """按需返回订正墙卡片字段，不组装完整错题本条目。"""
+    """按需返回作业内订正列表字段，不组装完整错题本条目。"""
     if (before_created_at is None) != (before_id is None):
         raise HTTPException(
             status_code=422,
@@ -1819,8 +1901,11 @@ def correction_wall_page(
         )
         .select_from(Error)
         .join(Submission, Submission.id == Error.submission_id)
+        .join(Question, Question.id == Submission.question_id)
         .filter(Submission.student_id == current.id)
     )
+    if assignment_id is not None:
+        count_query = count_query.filter(Question.assignment_id == assignment_id)
     if submitted_date_filter is not None:
         count_query = count_query.filter(submitted_date_filter)
     total_count = None
@@ -1859,6 +1944,8 @@ def correction_wall_page(
     )
     if submitted_date_filter is not None:
         base_query = base_query.filter(submitted_date_filter)
+    if assignment_id is not None:
+        base_query = base_query.filter(Question.assignment_id == assignment_id)
 
     page_query = base_query
     if before_created_at is not None and before_id is not None:
@@ -1917,13 +2004,16 @@ def correction_wall_page(
 
 
 @router.get("/corrections/awaiting-verification-knowledge-points",
-            response_model=List[str], summary="待二次验证的知识点名单")
+            response_model=List[AwaitingVerificationKnowledgePointOut], summary="待二次验证的知识点名单")
 def correction_awaiting_verification_knowledge_points(
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
-    """只返回订正页入口所需的待验证知识点名称。"""
-    return awaiting_verification_knowledge_points(db, current, visible_only=True)
+    """返回可用数学变式题验证的知识点及来源错题。"""
+    return [
+        item for item in awaiting_verification_knowledge_points(db, current, visible_only=True)
+        if item["subject"] == "math"
+    ]
 
 
 @router.get("/mistakes/timeline", response_model=StudentMistakeTimelinePageOut,
@@ -2457,8 +2547,11 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
     db.add(c)
     db.flush()
     out = CorrectionOut.model_validate(c)
-    # v0.4.0：订正成功 → 提示可去做二次验证（通过验证才算知识点已修复）
-    out.can_verify = is_correct is True
+    # 现有变式题生成及判定服务只支持数学。
+    out.can_verify = (
+        is_correct is True and bool(knowledge_point.strip())
+        and sub.question is not None and sub.question.subject == "math"
+    )
     out.knowledge_point = knowledge_point
     refresh_student_learning_memory(
         db, current.id,

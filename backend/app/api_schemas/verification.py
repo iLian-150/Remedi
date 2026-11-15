@@ -5,6 +5,12 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class AwaitingVerificationKnowledgePointOut(BaseModel):
+    subject: str
+    knowledge_point: str
+    source_error_id: int
+
+
 class VerificationCreate(BaseModel):
     knowledge_point: str = Field(min_length=1, max_length=64)
     source_error_id: Optional[int] = None   # 触发验证的错题，可空（后端默认取该知识点最近错题）
@@ -54,6 +60,7 @@ class VerificationSubmitOut(BaseModel):
     steps: List[VerificationStepOut]
 
 __all__ = [
+    'AwaitingVerificationKnowledgePointOut',
     'VerificationCreate',
     'VerificationOut',
     'VerificationSubmitIn',

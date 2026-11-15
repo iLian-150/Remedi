@@ -3,7 +3,7 @@
      页头带「← 返回学习报告」按钮。
      本次改造（报告纯化）：本页只呈现数据——科目总览 + 知识点明细（四态徽标为只读
      状态，不带任何操作）；二次验证/变式题入口已移出报告，迁到订正页（订正成功后
-     页内打开变式题面板；订正页便利贴墙上方另有「待验证的知识点」入口）。
+     页内打开变式题面板；订正作业目录可展开待验证入口）。
      错题时间线已移入右侧栏（报告路由下右栏为「错题时间线」模式，点条目跳诊断
      详情页），本页不再内嵌时间线，避免双份。
      入场动画：卷轴铺开——内容自上而下裁剪展开，下轴杆随展开边缘同步下移后
@@ -11,18 +11,18 @@
      文案伦理：学生端用「待修复 / 反复出错 / 已订正待验证 / 已修复」，不出现「顽固」「置信度」。 -->
 <template>
   <div class="page">
-    <div class="page-head subject-head">
+    <div class="page-head">
       <router-link to="/student/report" class="back-link">
         <AppIcon name="chevron-left" :size="16" /> 返回学习报告
       </router-link>
-      <h2>{{ subjectName }} · 学习报告</h2>
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
     <div v-if="loading" class="loading">加载中…</div>
 
     <div v-else-if="!subj" class="card">
-      <div class="empty">这个科目暂时还没有学习记录，先去作答几道题，报告就会慢慢长出来。</div>
+      <div class="empty">暂无学习记录</div>
+      <div class="empty-action"><router-link to="/student/assignments" class="btn">去做作业</router-link></div>
     </div>
 
     <div v-else class="scroll-unroll">
@@ -55,15 +55,16 @@
             <span class="tnum">{{ Math.round(subj.fixed_ratio * 100) }}%</span>
           </div>
           <div class="fix-bar"><div :style="{ width: `${Math.round(subj.fixed_ratio * 100)}%` }"></div></div>
-          <p class="hint">订正好错题、再做对一道同类题通过验证，才算真正修复——这里是已修复知识点占出过错知识点的比例。</p>
         </div>
       </div>
 
       <!-- 二级：知识点明细（纯数据呈现；逐条错题去右侧栏「错题时间线」看） -->
       <div class="card">
-        <h3><AppIcon name="target" :size="18" /> 知识点明细</h3>
-        <p class="card-sub">按错误率从高到低排。每个知识点错过几次、现在是什么状态都写在这里；想逐条翻错题，打开右侧栏的「错题时间线」。</p>
-        <div v-if="!subj.knowledge_points.length" class="empty">这个科目暂时没有错题记录，继续保持。</div>
+        <div class="kp-section-heading">
+          <h3><AppIcon name="target" :size="18" /> 知识点明细</h3>
+          <span>错误率 ↓</span>
+        </div>
+        <div v-if="!subj.knowledge_points.length" class="empty">暂无错题记录</div>
         <div v-for="kp in subj.knowledge_points" :key="kp.name" class="kp-block">
           <div class="kp-row">
             <div class="kp-main">
@@ -91,11 +92,11 @@ import { useRoute } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
 import type { KnowledgePointStatus, SubjectReport } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import { getSubjectLabel } from '../../utils/subjectLabels'
 
 const student = useStudentStore()
 const route = useRoute()
 
-const SUBJECT_TEXT: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学' }
 // v0.4.0 四态文案（只读状态呈现）：fixed 专指「订正 + 通过二次验证」，与后端新口径一致
 const STATUS_TEXT: Record<KnowledgePointStatus, string> = {
   pending: '待修复',
@@ -111,7 +112,7 @@ const STATUS_BADGE: Record<KnowledgePointStatus, string> = {
 }
 
 const subject = computed(() => String(route.params.subject || 'math'))
-const subjectName = computed(() => SUBJECT_TEXT[subject.value] ?? subject.value)
+const subjectName = computed(() => getSubjectLabel(subject.value, subject.value))
 
 const report = ref<SubjectReport[]>([])
 const loading = ref(false)
@@ -139,7 +140,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.subject-head h2 { margin-top: 10px; }
+.empty-action { display: flex; justify-content: center; margin-top: 12px; }
 /* 入场：卷轴铺开——内容自上而下裁剪展开，下轴杆随展开边缘同步下移、到位后隐去 */
 .scroll-unroll {
   position: relative;
@@ -192,6 +193,9 @@ onMounted(async () => {
 .fix-progress .hint { margin-top: 6px }
 
 /* ---------- 知识点明细（只读行） ---------- */
+.kp-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kp-section-heading h3 { margin-bottom: 0; }
+.kp-section-heading > span { color: var(--text-3); font-size: 12px; white-space: nowrap; }
 .kp-block { border-bottom: 1px solid #F1F3F6; }
 .kp-block:last-child { border-bottom: none; }
 .kp-row {

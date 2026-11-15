@@ -137,7 +137,7 @@ from ..services.stats import (
     student_profile,
     top_error_questions,
 )
-from ..services.teacher_stats import students_not_fully_submitted
+from ..services.teacher_stats import assignment_status, students_not_fully_submitted
 from ..services.teacher_attention import students_needing_attention
 from ..services.teacher_scope import (
     teacher_assignment_ids as _scoped_teacher_assignment_ids,
@@ -1151,6 +1151,7 @@ def teacher_ai_grading_assignments(
         db.query(
             Assignment.id.label("assignment_id"),
             Assignment.title.label("assignment_title"),
+            Assignment.created_at.label("published_at"),
             func.count(Submission.id).label("answer_count"),
             func.count(func.distinct(Submission.student_id)).label("student_count"),
             func.max(Submission.submitted_at).label("latest_submitted_at"),
@@ -1166,18 +1167,60 @@ def teacher_ai_grading_assignments(
     search_filter = _ai_grading_keyword_filter(keyword)
     if search_filter is not None:
         grouped = grouped.filter(search_filter)
-    grouped = grouped.group_by(Assignment.id, Assignment.title).subquery()
+    grouped = grouped.group_by(
+        Assignment.id, Assignment.title, Assignment.created_at,
+    ).subquery()
     total = int(db.query(func.count()).select_from(grouped).scalar() or 0)
     rows = db.query(grouped).order_by(
         grouped.c.latest_submitted_at.desc(), grouped.c.assignment_id.desc(),
     ).offset(offset).limit(limit).all()
     preference = db.get(TeacherGradingPreference, current.id)
+    assignment_ids = [row.assignment_id for row in rows]
+    assignment_by_id = {
+        assignment.id: assignment
+        for assignment in db.query(Assignment).filter(
+            Assignment.id.in_(assignment_ids),
+        ).all()
+    } if assignment_ids else {}
+    teacher_student_ids = [
+        row[0] for row in _teacher_student_ids(db, current).all()
+    ]
+    items = []
+    for row in rows:
+        assignment = assignment_by_id[row.assignment_id]
+        question_student_pairs = _scoped_teacher_assignment_question_student_pairs(
+            db, current, assignment.id,
+        )
+        legacy_question_ids = None
+        if question_student_pairs is None:
+            legacy_question_ids = [
+                question_id for question_id, in _scoped_teacher_assignment_question_ids(
+                    db, current, [assignment.id],
+                ).all()
+            ]
+        progress = assignment_status(
+            db,
+            assignment,
+            student_ids=teacher_student_ids if question_student_pairs is None else None,
+            question_student_pairs=question_student_pairs,
+            question_ids=legacy_question_ids,
+        )
+        recipient_count = int(progress["student_total"])
+        completed_count = len(progress["done_all"])
+        items.append({
+            **dict(row._mapping),
+            "recipient_student_count": recipient_count,
+            "submission_percent": (
+                (completed_count * 100 + recipient_count // 2) // recipient_count
+                if recipient_count else 0
+            ),
+        })
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
         "low_score_threshold": preference.low_score_threshold if preference else 60,
-        "items": [dict(row._mapping) for row in rows],
+        "items": items,
     }
 
 

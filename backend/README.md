@@ -4,7 +4,7 @@
 
 技术栈：Python 3.11+ + FastAPI + SQLAlchemy + SQLite（表结构按 PostgreSQL 兼容设计）+ sympy + pydantic。
 
-知识库 PDF 导入使用 PyMuPDF 1.x（`pymupdf>=1.24.3,<2`）。扫描版文档的文字识别还需要在后端运行主机安装 Tesseract OCR 和 `chi_sim`、`eng` 语言数据；没有 OCR 时，含可提取文字层的 PDF 仍可导入，扫描页会失败并保留可重试任务。
+知识库 PDF 导入使用 PyMuPDF 1.x（`pymupdf>=1.24.3,<2`）。本地电脑需要安装 Tesseract OCR 和 `chi_sim`、`eng` 语言数据才能识别扫描页；没有 OCR 时，含可提取文字层的 PDF 仍可导入，扫描页会失败并保留可重试任务。
 
 ## 快速开始
 
@@ -26,20 +26,9 @@ Linux/macOS 可将 `.venv\Scripts\python.exe` 替换为 `.venv/bin/python`。
 - 健康检查：http://localhost:8000/api/health
 - 接口契约：`../docs/api-contract.md`（当前前后端联调依据）
 - 表设计：`../docs/schema-design.md`
+- 验证入口：`../docs/validation.md`
 
-当前服务器前端由宝塔 Nginx 在 `5001` 提供 `/remedi/frontend/dist`，后端由宝塔 Python 项目在 `127.0.0.1:5000` 运行，Milvus 等依赖使用 Docker。后端依赖安装在该项目选定的 Python 虚拟环境中。
-
-宝塔后端项目的环境变量选择「从文件加载」，文件为 `/remedi/deploy/load_backend_model_env.sh`。该脚本从 `/remedi/.env` 读取 `LLM_*`、`DASHSCOPE_*`、`RAG_*`，不覆盖数据库和上传目录设置；修改配置后重启 Python 项目。`/remedi/.env` 权限保持 `600`，所有者为运行账户 `www`，密钥只保存在该文件中；不要复制密钥到面板字段、脚本或 Git。宝塔生成的项目环境文件只引用加载脚本。
-
-原生后端会把默认 Docker 地址 `http://milvus:19530` 转为本机映射地址 `http://127.0.0.1:19530`，不修改 `.env`，自定义 Milvus 地址保持原样。配置文件缺失或模型凭证不完整时，网站和健康检查仍可启动；需要模型的操作返回错误，向量检索按既有规则回退关键词检索。
-
-原生后端与旧 Docker 后端使用不同数据库时，在 `.env` 设置独立的 `RAG_NATIVE_MILVUS_COLLECTION` 前缀（例如 `remedi_subject_knowledge_qwen3_embedding4b_native`）。加载脚本仅为原生进程覆盖集合前缀，保留 Docker 的 `RAG_MILVUS_COLLECTION`；每科仍使用 `前缀_学科`。新前缀应从当前数据库资料建立索引，不复用另一数据库的片段 ID，也不删除旧集合。
-
-生产环境由宝塔 Python 项目原生运行后端，工作目录为 `/remedi/backend`，监听 `127.0.0.1:5000`。Docker Compose 仅运行 Milvus、etcd 和 MinIO；向量服务说明见 [Milvus 与 RAG 部署说明](../docs/milvus-rag.md)。本地和生产环境默认不写入演示数据；仅在需要本地演示时手动运行 `seed.py`。
-
-Ubuntu/Debian 原生部署可在仓库目录运行 `python3 deploy/install_native_ocr.py`。脚本使用服务器现有的可信 APT 索引下载 ARM64/AMD64 软件包，仅解包到 `/remedi/runtime`，不安装系统软件包，也不执行包内安装脚本。校验中英文语言包后原子切换 `runtime/ocr`，保留旧版本；包版本和 SHA256 记录在对应版本的 `manifest.json`。APT 索引无可用候选或软件包下载失败时会停止，不修改系统源或全局配置。
-
-安装后在服务器 `.env` 设置 `RAG_OCR_EXECUTABLE=/remedi/runtime/ocr/bin/tesseract` 并重启后端。共享库路径和语言数据目录只对 OCR 子进程生效；Docker 镜像继续使用默认命令 `tesseract`。该运行目录须在目标主机生成，不应复制到其他系统或提交 Git。
+本地后端从当前进程环境读取配置，不会自动读取 `.env`。需要调用模型时，在启动后端的终端临时设置相应环境变量；不要把真实凭证写入代码、文档或 Git 跟踪文件。Milvus 的本地容器配置见[学科 RAG 与 Milvus](../docs/milvus-rag.md)。
 
 ## 演示流程（curl）
 
@@ -82,7 +71,7 @@ curl -s -X POST localhost:8000/api/teacher/errors/9/correct \
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./remedi.db` | 数据库连接串；切 PG 改为 `postgresql+psycopg2://…` |
 | `LLM_PROVIDER` | `openai-compatible` | OpenAI 兼容模型服务；模型未配置或调用失败时明确报错，不自动切 Mock |
-| `LLM_API_KEY` | 空 | AI Ping API Key；真实凭证只保存在服务器 `/remedi/.env` |
+| `LLM_API_KEY` | 空 | AI Ping API Key；本地运行时通过后端进程环境变量提供 |
 | `LLM_BASE_URL` | `https://aiping.cn/api/v1` | 对话和视觉模型的 OpenAI 兼容接口地址 |
 | `LLM_MODEL` / `LLM_VISION_MODEL` | `GLM-5.3-Flash` | 对话与图片识别模型 |
 | `RAG_API_KEY` / `RAG_BASE_URL` | 空 | 留空时复用 `LLM_API_KEY` / `LLM_BASE_URL` |
@@ -153,7 +142,7 @@ backend/
 
 **顽固误区**：同学生同知识点过去 N 天（默认 30）内已有错误 → `is_stubborn=true`。
 
-**认证**：纯 mock，无密码。学生使用名册姓名+学号登录；教师仅选择任教学科，按学科确定教师身份。`POST /api/auth/login` 成功后返回 token（`mock-<id>`），后续请求带 `Authorization: Bearer <token>`。生产必须替换。
+**认证**：纯 mock，无密码。学生使用名册姓名+学号登录；教师仅选择任教学科，按学科确定教师身份。`POST /api/auth/login` 成功后返回 token（`mock-<id>`），后续请求带 `Authorization: Bearer <token>`。该认证仅供本地开发，不适用于真实用户环境。
 
 ## 已知局限（诊断逻辑）
 
@@ -162,5 +151,5 @@ backend/
 3. **算术偏差检测只试 ±1/±2/±3 的数字微调**，复杂口算错误（如 7×8=54）识别不到。
 4. **隐式乘法与符号**：`2x` 可解析；但 `xy` 会被当作单个变量名；中文注释会被剥离，残留中文则整步记无法解析。
 5. **订正判定**只验证"订正内容与出错前一步等价"，不检查订正是否真正修复了错误类型。
-6. 当前部署不启用 Mock 作文评分；作文评分使用配置的 AI Ping 模型，API Key 未配置或调用失败会返回模型错误。
+6. 当前应用不启用 Mock 作文评分；作文评分使用配置的 AI Ping 模型，API Key 未配置或调用失败会返回模型错误。
 7. SQLite 已启用 WAL，并会等待数据库锁最多 30 秒，以减少读写竞争；但 SQLite 仍然一次只能有一个写事务。写并发较高时应切换到 PostgreSQL（表结构已兼容，改 `DATABASE_URL` 即可）。

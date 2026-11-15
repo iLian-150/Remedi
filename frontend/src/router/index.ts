@@ -5,7 +5,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/', component: () => import('../views/RoleSelect.vue'), meta: { public: true, title: '登录' } },
 
   // 学生端（登录默认进入作业列表，按作业答题）
-  { path: '/student/chat', component: () => import('../views/student/StudentChat.vue'), meta: { role: 'student', title: '智能批改' } },
+  { path: '/student/chat', component: () => import('../views/student/StudentChat.vue'), meta: { role: 'student', title: '新对话' } },
   { path: '/student/assignments', component: () => import('../views/student/StudentAssignments.vue'), meta: { role: 'student', title: '作业' } },
   // 交作业：从作业列表进入（?assignment_id=），直接访问 URL 时回退为下拉选择
   { path: '/student/submit', component: () => import('../views/student/StudentSubmit.vue'), meta: { role: 'student', title: '交作业' } },

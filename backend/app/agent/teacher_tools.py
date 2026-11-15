@@ -1,4 +1,4 @@
-# 教师 Agent 工具集：全部复用 services/stats.py 与 services/teacher_stats.py 的聚合。
+# 教师 Agent 工具集：复用页面使用的统计服务。
 # 教师身份（db 会话 + teacher 对象）以闭包注入，模型无法传 user_id。
 # 返回值是给模型看的紧凑文本摘要，不塞原始 JSON；学生 Agent 的工具在 tools.py，两边隔离。
 import re
@@ -8,7 +8,8 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from ..models import TeacherSubject, User
-from ..services.stats import class_repair_rate, knowledge_point_ranking, student_profile, top_error_questions
+from ..services.knowledge_analysis import student_knowledge_analysis
+from ..services.stats import class_repair_rate, knowledge_point_ranking, top_error_questions
 from ..services.suggestions import build_teaching_suggestions
 from ..services.teacher_stats import (
     assignment_status,
@@ -31,6 +32,14 @@ _STUDENT_NUMBER_REQUEST = re.compile(
     r"(?:告诉(?:我)?|查(?:询|一下)?|查看|显示|提供|给出|给(?:我)?)"
     r".{0,12}学号|学号.{0,6}(?:是什么|是多少|几号|多少|呢|\?|？)"
 )
+
+_SUBJECT_NAMES = {
+    "math": "数学", "english": "英语", "english_exercise": "英语练习",
+    "physics": "物理", "chemistry": "化学", "biology": "生物",
+    "chinese": "语文", "history": "历史", "geography": "地理",
+    "politics": "道德与法治", "computer_science": "信息科技",
+    "art": "美术", "music": "音乐", "pe": "体育", "other": "其他",
+}
 
 
 def _student_number_visibility_request(text: str) -> bool | None:
@@ -72,16 +81,9 @@ def ranking_to_text(items: List[dict]) -> str:
     if not items:
         return "目前还没有错题数据，暂时排不出知识点错误率。"
     lines = ["知识点错误率排行（从高到低）："]
-    subject_names = {
-        "math": "数学", "english": "英语", "english_exercise": "英语练习",
-        "physics": "物理", "chemistry": "化学", "biology": "生物",
-        "chinese": "语文", "history": "历史", "geography": "地理",
-        "politics": "道德与法治", "computer_science": "信息科技",
-        "art": "艺术", "music": "音乐", "pe": "体育", "other": "其他",
-    }
     for it in items:
         lines.append(
-            f"- {subject_names.get(it['subject'], it['subject'])}「{it['knowledge_point']}」："
+            f"- {_SUBJECT_NAMES.get(it['subject'], it['subject'])}「{it['knowledge_point']}」："
             f"错误率 {round(it['error_rate'] * 100)}%"
             f"（提交 {it['submissions']} 次、出错 {it['errors']} 次）。"
         )
@@ -95,16 +97,9 @@ def repair_rate_to_text(data: dict) -> str:
         f"已修复 {data['fixed_knowledge_point_pairs']} 组，涉及 {data['students_with_errors']} 名学生。"
         "（口径：错题订正正确后再做对一道同知识点变式题，才算已修复。）"
     ]
-    subject_names = {
-        "math": "数学", "english": "英语", "english_exercise": "英语练习",
-        "physics": "物理", "chemistry": "化学", "biology": "生物",
-        "chinese": "语文", "history": "历史", "geography": "地理",
-        "politics": "道德与法治", "computer_science": "信息科技",
-        "art": "艺术", "music": "音乐", "pe": "体育", "other": "其他",
-    }
     for kp in data["knowledge_points"]:
         lines.append(
-            f"- {subject_names.get(kp['subject'], kp['subject'])}「{kp['knowledge_point']}」："
+            f"- {_SUBJECT_NAMES.get(kp['subject'], kp['subject'])}「{kp['knowledge_point']}」："
             f"修复率 {round(kp['repair_rate'] * 100)}%"
             f"（{kp['students_fixed']}/{kp['students_errored']} 名学生已修复）。"
         )
@@ -121,34 +116,41 @@ def uncorrected_to_text(rows: List[dict]) -> str:
     return "\n".join(lines)
 
 
-def profile_to_text(profile: dict, include_student_no: bool = False) -> str:
-    st = profile["student"]
-    student_label = f"学生 {st['name']}"
+def profile_to_text(student: User, analysis: dict, include_student_no: bool = False) -> str:
+    student_label = f"学生 {student.name}"
     if include_student_no:
-        student_label += f"（学号：{st.get('student_no') or '未登记'}）"
-    lines = [f"{student_label} 的学习画像摘要："]
-    kps = profile.get("knowledge_points", [])
-    if kps:
-        worst = kps[0]
-        lines.append(
-            f"最需要关注的知识点是「{worst['knowledge_point']}」：实际题目 {worst['question_count']} 道、"
-            f"提交 {worst['attempts']} 次、"
-            f"出错 {worst['errors']} 次，错误率 {round(worst['error_rate'] * 100)}%。"
+        student_label += f"（学号：{student.student_no or '未登记'}）"
+    heading = f"{student_label} 的学习画像摘要"
+    if not analysis["graded_question_count"]:
+        return f"{heading}\n暂无已批改作答。"
+    lines = [
+        heading,
+        f"已批改 {analysis['graded_question_count']} 道题，"
+        f"其中 {analysis['wrong_question_count']} 道有错，"
+        f"有 {analysis['pending_correction_count']} 条错题记录待订正。"
+    ]
+    statuses = {
+        "stubborn": "反复出错", "pending": "待订正", "needs_review": "待核对",
+        "awaiting_verify": "待验证", "fixed": "已修复", "corrected": "已订正", "clear": "未发现错题",
+    }
+    points = analysis["points"]
+    named_points = [point for point in points if point["knowledge_point"]]
+    for point in named_points[:4]:
+        subject = _SUBJECT_NAMES.get(point["subject"], point["subject"])
+        line = (
+            f"- {subject}「{point['knowledge_point']}」出错 {point['wrong_question_count']}"
+            f"/{point['question_count']} 道，{statuses[point['status']]}"
+            f"，订正 {point['corrected_count']}/{point['error_count']} 条。"
         )
-        rest = "、".join(
-            f"「{k['knowledge_point']}」错误率 {round(k['error_rate'] * 100)}%" for k in kps[1:4]
-        )
-        if rest:
-            lines.append(f"其他知识点：{rest}。")
-    else:
-        lines.append("暂时没有作答记录。")
-    stubborn = profile.get("stubborn_errors", [])
-    if stubborn:
-        names = "、".join(sorted({e['knowledge_point'] for e in stubborn}))
-        lines.append(f"有反复出错的记录，涉及知识点：{names}。")
-    suggestion = profile.get("suggestion")
-    if suggestion:
-        lines.append(f"教学建议：{suggestion}")
+        if point["patterns"]:
+            pattern = point["patterns"][0]
+            line += f"「{pattern['error_type']}」出现于 {pattern['question_count']} 道题。"
+        if point["review_count"]:
+            line += f"另有 {point['review_count']} 条作答记录待核对。"
+        lines.append(line)
+    unclassified = sum(point["question_count"] for point in points if not point["knowledge_point"])
+    if unclassified:
+        lines.append(f"有 {unclassified} 道已批改题目未归类。")
     return "\n".join(lines)
 
 
@@ -336,13 +338,10 @@ def build_teacher_tools(
             st = candidates[0] if candidates else None
         if st is None:
             return f"在你任课的班级中没有找到学生「{student_name}」，请检查姓名和学号。"
-        return profile_to_text(
-            student_profile(
-                db, st, assignment_ids=assignment_ids,
-                submission_ids=submission_ids,
-            ),
-            include_student_no=show_number,
+        analysis, _ = student_knowledge_analysis(
+            db, st.id, assignment_ids=assignment_ids, submission_ids=submission_ids,
         )
+        return profile_to_text(st, analysis, include_student_no=show_number)
 
     return [
         search_teaching_knowledge,
