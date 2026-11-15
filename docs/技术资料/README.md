@@ -9,7 +9,20 @@
 - [工作流简图](workflows.md)：教师发布作业、学生答题与提交、后台 AI 批改，以及知识库导入。
 - [数据与接口索引](data-and-interfaces.md)：关键数据表、接口入口和聊天、学习记忆的数据边界。
 
-架构图和工作流图使用 ImageGen 生成，图片统一放在 [技术图](技术图/) 文件夹中：[项目功能总览 PNG](技术图/project_feature_overview.png)、[架构图 PNG](技术图/architecture.png)、[主工作流 PNG](技术图/workflow.png)、[教师 AI 发布到多 Agent 批改流程 PNG](技术图/teacher_ai_student_multi_agent_grading.png)、[多 Agent 批改 PNG](技术图/multi_agent_grading.png)、[学习记忆设计 PNG](技术图/learning_memory_design.png)。对应的 Mermaid 图源和正文保留精确的组件、接口与流程说明。
+架构图和工作流图使用 ImageGen 生成，图片统一放在 [技术图](技术图/) 文件夹中：
+
+- [项目功能总览 PNG](技术图/project_feature_overview.png)
+- [系统架构 PNG](技术图/architecture.png)
+- [主工作流 PNG](技术图/workflow.png)
+- [教师 AI 发布到多 Agent 批改流程 PNG](技术图/teacher_ai_student_multi_agent_grading.png)
+- [多 Agent 批改 PNG](技术图/multi_agent_grading.png)
+- [批改任务生命周期 PNG](技术图/grading_task_lifecycle.png)
+- [教学资料导入与检索 PNG](技术图/knowledge_import_rag.png)
+- [核心数据关系 PNG](技术图/core_data_model.png)
+- [对话与记忆边界 PNG](技术图/conversation_memory_boundary.png)
+- [学习记忆设计 PNG](技术图/learning_memory_design.png)
+
+对应的 Mermaid 图源和正文保留精确的组件、接口与流程说明。
 
 ## 阅读约定
 

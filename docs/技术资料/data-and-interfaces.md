@@ -2,6 +2,8 @@
 
 ## 作业与批改数据
 
+![Remedi 核心数据关系图](技术图/core_data_model.png)
+
 ```mermaid
 erDiagram
     USER ||--o{ ASSIGNMENT : creates
@@ -16,7 +18,14 @@ erDiagram
     SUBMISSION ||--o{ STEP : diagnoses
     SUBMISSION ||--o{ ERROR : records
     ERROR ||--o{ CORRECTION : corrected_by
+    ERROR o|--o{ VERIFICATION : triggers
+    USER ||--o{ VERIFICATION : submits
     USER ||--o{ STUDENT_LEARNING_MEMORY : accumulates
+    USER ||--o{ CHAT_SESSION : owns
+    CHAT_SESSION ||--o{ CHAT_SESSION_MESSAGE : contains
+    USER ||--o{ STUDENT_MISTAKE_CHAT_MESSAGE : owns
+    USER ||--o{ KNOWLEDGE_IMPORT_JOB : imports
+    SUBJECT_KNOWLEDGE_CHUNK o|--o{ KNOWLEDGE_IMPORT_JOB : documents
 ```
 
 图中只列出主流程相关实体，完整字段和约束见 [数据库设计](../schema-design.md)。主要模型如下：
@@ -49,6 +58,35 @@ API 路由在 `backend/app/main.py` 注册。主要入口：
 完整请求/响应字段见 [API 契约](../api-contract.md)。
 
 ## 对话与学习记忆的边界
+
+![主页助手、错题专属对话与长期学习记忆边界图](技术图/conversation_memory_boundary.png)
+
+```mermaid
+flowchart LR
+    subgraph Home[主页学习助手]
+        HomeRequest[学生主页学习问题] --> HomeSession[(ChatSession)]
+        HomeSession --> HomeMessages[(ChatSessionMessage)]
+        HomeMessages --> Context[回答上下文]
+        Idle[闲聊] --> Casual[普通闲聊回答]
+    end
+
+    subgraph Mistake[错题本题目专属讲解]
+        MistakeRequest[针对某道错题提问] --> MistakeMessages[(StudentMistakeChatMessage)]
+    end
+
+    subgraph Memory[结构化学习记忆]
+        Confirmed[已确认错题]
+        Correction[订正结果]
+        Verification[变式验证]
+        Pending[待教师审核诊断]
+        Confirmed --> Summary[(StudentLearningMemory)]
+        Correction --> Summary
+        Verification --> Summary
+        Pending -. 不纳入 .-> Summary
+    end
+
+    Summary -->|非闲聊问题的有限上下文| Context
+```
 
 - 普通学习助手对话使用 Agent 会话与消息记录，学生和教师有各自的会话 API。
 - 错题本中的题目专属讲解使用 `StudentMistakeChatMessage`，接口位于 `/api/student/mistakes/{mistake_id}/chat`；它与普通主页 `chat_sessions` 分开存储，避免两个场景互相串话。

@@ -39,6 +39,10 @@ flowchart TD
 
 `draft → queued → processing → completed` 是常见路径。若后台处理遇到异常，任务自动回到队列并设置下一次尝试时间；已成功题目的检查点可在重试时复用。浏览器负责提交答案和查询状态，不负责维持批改任务。
 
+![整份作业批改任务生命周期图](技术图/grading_task_lifecycle.png)
+
+批改任务保存在 SQL，由 FastAPI 进程内的 worker 领取。异常后任务重新排队，间隔依次增加并最多等待 300 秒；当前没有配置批改任务的总重试次数上限。应用进程停止时任务暂停，应用重新启动后恢复；学生退出账号不会取消已提交的任务。
+
 ## 教师 AI 发布作业 → 学生答题 → 多 Agent 学科批改
 
 ![教师 AI 发布作业、学生答题与多 Agent 学科批改流程图](技术图/teacher_ai_student_multi_agent_grading.png)
@@ -113,6 +117,8 @@ flowchart LR
 
 ## 教师导入学科资料
 
+![教学资料导入与学科检索流程图](技术图/knowledge_import_rag.png)
+
 ```mermaid
 flowchart LR
     Upload[教师上传资料] --> File[原文件写入私有目录]
@@ -128,4 +134,4 @@ flowchart LR
     Complete --> Search[学科 Agent 检索资料并回答]
 ```
 
-SQL 保存知识内容和任务进度，Milvus 只承担可选的向量索引。Milvus 同步不可用时可回退到 BM25 关键词检索；知识导入任务同样由服务端持久化并在启动时恢复。
+SQL 保存知识内容、片段和导入任务进度。Milvus 只保存可重建的可选向量索引；Milvus 不可用时可回退到 BM25 关键词检索。知识导入任务会在应用启动时恢复。
