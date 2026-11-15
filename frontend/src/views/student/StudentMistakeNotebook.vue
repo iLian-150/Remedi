@@ -1839,7 +1839,7 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 卡片错题本跟随主页面自然增高，列表与讲解共用浏览器页面滚动。 */
+/* 卡片错题本跟随主页面滚动；宽屏并排显示题目与讲解，窄屏上下排列。 */
 .remedi-mistake-book:has(> .mistakes-panel.is-notebook) {
   height: auto;
   min-height: 0;
@@ -1860,5 +1860,66 @@ onBeforeUnmount(() => {
   padding: 0;
   overflow: visible;
   overscroll-behavior: auto;
+}
+
+@container (min-width: 851px) {
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(360px, 1fr);
+    grid-template-areas: "content assistant";
+    align-items: start;
+    gap: 16px;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split.is-reversed {
+    grid-template-areas: "assistant content";
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-notebook-content {
+    grid-area: content;
+    width: auto;
+    min-width: 0;
+    flex: initial;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split > .mistake-point-assistant {
+    position: sticky;
+    top: 16px;
+    grid-area: assistant;
+    align-self: start;
+    width: 100%;
+    height: calc(100dvh - 32px);
+    min-height: 0;
+    max-height: calc(100dvh - 32px);
+    overflow: hidden;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-point-summary {
+    max-height: 42%;
+    overflow: hidden;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-point-summary-body {
+    min-width: 0;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-point-transcript {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-assistant-fullscreen {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "assistant";
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-assistant-fullscreen > .mistake-point-assistant {
+    position: relative;
+    top: auto;
+  }
 }
 </style>
