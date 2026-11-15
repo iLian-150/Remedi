@@ -616,10 +616,10 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--card);
-  box-shadow: var(--shadow);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs { flex: 0 0 auto; }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools {
@@ -634,8 +634,8 @@ onBeforeUnmount(() => {
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch {
   position: absolute;
   z-index: 11;
-  top: 16px;
-  right: 66px;
+  top: 18px;
+  right: 98px;
   flex: 0 0 auto;
   padding: 3px;
   border: 0;
@@ -645,8 +645,8 @@ onBeforeUnmount(() => {
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh {
   position: absolute;
   z-index: 11;
-  top: 16px;
-  right: 18px;
+  top: 19px;
+  right: 50px;
   flex: 0 0 auto;
   box-shadow: none;
 }
@@ -658,14 +658,8 @@ onBeforeUnmount(() => {
 .remedi-mistake-book .notebook-header h1 { color: var(--text); font-size: clamp(28px, 3vw, 39px); }
 .remedi-mistake-book .notebook-header h1 span { color: var(--primary); }
 .remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
-.remedi-mistake-book .notebook-status-tabs button.selected { border-color: var(--blue-bg); color: var(--primary); background: var(--primary-50); }
 .remedi-mistake-book .notebook-search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
-.remedi-mistake-book .notebook-assignment { border-color: var(--border); background: var(--card); }
-.remedi-mistake-book .notebook-assignment[open] { border-color: var(--blue-bg); box-shadow: var(--shadow-md); }
-.remedi-mistake-book .notebook-subject-badge { color: var(--primary); background: var(--primary-50); }
-.remedi-mistake-book .notebook-assignment-content { padding: 0 16px 16px; }
-.remedi-mistake-book .notebook-category { border-color: var(--border); background: var(--card); }
-.remedi-mistake-book .notebook-category.studied { border-color: var(--green-bg); background: var(--card); }
+.remedi-mistake-book .notebook-repeat-note { background: transparent; }
 .remedi-mistake-book .notebook-question-open { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px; border: 0; border-radius: var(--radius-detail); color: var(--text); background: transparent; text-align: left; cursor: pointer; }
 .remedi-mistake-book .notebook-question-open:hover, .remedi-mistake-book .notebook-question-open.active { background: var(--primary-50); }
 .remedi-mistake-book .notebook-question-open strong { font-size: 12px; }
@@ -721,6 +715,13 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-panel);
   background: var(--card);
   box-shadow: var(--shadow);
+}
+
+.remedi-mistake-book .mistakes-panel.is-notebook {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .remedi-mistake-book .mistake-book-heading {
@@ -824,9 +825,9 @@ onBeforeUnmount(() => {
 .remedi-mistake-book .notebook-status-tabs {
   flex: 0 0 auto;
   gap: 3px;
-  padding: 4px;
-  border-radius: var(--radius-standard);
-  background: var(--surface-2);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   white-space: nowrap;
 }
 
@@ -847,8 +848,11 @@ onBeforeUnmount(() => {
 
 .remedi-mistake-book .notebook-status-tabs button.selected {
   color: var(--primary);
-  background: var(--card);
-  box-shadow: var(--shadow);
+  border-color: transparent;
+  border-bottom: 2px solid var(--primary);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .remedi-mistake-book .notebook-search-tools {
@@ -907,27 +911,29 @@ onBeforeUnmount(() => {
 }
 
 .remedi-mistake-book .notebook-assignment-list {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .remedi-mistake-book .notebook-assignment {
-  overflow: clip;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--card);
-  box-shadow: var(--shadow);
-  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  overflow: visible;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: border-color .18s ease;
 }
 
 .remedi-mistake-book .notebook-assignment:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+  border-color: var(--border);
+  box-shadow: none;
 }
 
 .remedi-mistake-book .notebook-assignment[open] {
-  border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
-  box-shadow: var(--shadow-md);
+  border-color: var(--border);
+  box-shadow: none;
 }
 
 .remedi-mistake-book .notebook-assignment > summary {
@@ -942,22 +948,23 @@ onBeforeUnmount(() => {
   width: 30px;
   height: 30px;
   place-items: center;
-  border-radius: var(--radius-standard);
+  border-radius: 0;
   color: var(--text-2);
-  background: var(--surface-2);
+  background: transparent;
   transition: transform .18s ease, color .18s ease, background-color .18s ease;
 }
 
 .remedi-mistake-book .notebook-assignment[open] .notebook-assignment-chevron {
   color: var(--primary);
-  background: var(--primary-50);
+  background: transparent;
   transform: rotate(180deg);
 }
 
 .remedi-mistake-book .notebook-subject-badge {
   min-height: 28px;
-  padding: 5px 9px;
-  border-radius: var(--radius-standard);
+  padding: 5px 0;
+  border-radius: 0;
+  background: transparent;
   font-size: 11px;
   font-weight: 650;
 }
@@ -981,32 +988,35 @@ onBeforeUnmount(() => {
 }
 
 .remedi-mistake-book .notebook-assignment-state {
-  padding: 5px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
+  padding: 5px 0;
+  border: 0;
+  border-radius: 0;
   color: var(--text-2);
-  background: var(--surface-2);
+  background: transparent;
   font-size: 10px;
   font-weight: 650;
 }
 
 .remedi-mistake-book .notebook-assignment-state.ready {
-  border-color: var(--green-border);
+  border-color: transparent;
   color: var(--green-strong);
-  background: var(--green-bg);
+  background: transparent;
 }
 
 .remedi-mistake-book .notebook-assignment-content {
-  gap: 10px;
-  padding: 0 18px 18px 62px;
+  gap: 0;
+  padding: 0 18px 16px;
 }
 
 .remedi-mistake-book .notebook-category {
-  padding: 14px;
-  border-color: var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--surface-2);
+  padding: 13px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
+
+.remedi-mistake-book .notebook-category.studied { background: transparent; }
+.remedi-mistake-book .notebook-category + .notebook-category { border-top: 1px solid var(--border); }
 
 .remedi-mistake-book .notebook-category-head h4 {
   color: var(--text);
@@ -1025,33 +1035,35 @@ onBeforeUnmount(() => {
 
 .remedi-mistake-book .notebook-category-head button {
   min-height: 34px;
-  padding: 7px 10px;
-  border-radius: var(--radius-standard);
+  padding: 7px 0;
+  border: 0;
+  border-radius: 0;
   color: var(--primary);
-  background: var(--card);
+  background: transparent;
   font-size: 11px;
   font-weight: 650;
 }
 
 .remedi-mistake-book .notebook-category-head button.studied {
-  border-color: var(--green-border);
+  border-color: transparent;
   color: var(--green-strong);
-  background: var(--green-bg);
+  background: transparent;
 }
 
 .remedi-mistake-book .notebook-category-questions article {
   gap: 8px;
-  padding: 5px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-standard);
-  background: var(--card);
-  transition: border-color .16s ease, background-color .16s ease;
+  padding: 8px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  transition: border-color .16s ease;
 }
 
 .remedi-mistake-book .notebook-category-questions article:focus-within,
 .remedi-mistake-book .notebook-category-questions article:hover {
-  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
-  background: color-mix(in srgb, var(--primary-50) 32%, var(--card));
+  border-color: var(--border);
+  background: transparent;
 }
 
 .remedi-mistake-book .notebook-question-open {

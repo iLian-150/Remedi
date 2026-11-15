@@ -505,6 +505,9 @@ table.table tr:last-child td { border-bottom: 0; }
   .notes-fab:hover { border-color: var(--primary); }
   .cal-fab:hover { border-color: var(--primary); color: var(--primary); }
 }
+@media (min-width: 961px) {
+  .app-shell:has(.remedi-mistake-book) .notes-fab { top: 28px; }
+}
 .notes-badge {
   position: absolute; top: -6px; right: -6px;
   min-width: 19px; height: 19px; padding: 0 5px; border-radius: var(--radius-pill);
