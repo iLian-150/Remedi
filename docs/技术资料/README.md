@@ -8,7 +8,7 @@
 - [工作流简图](workflows.md)：教师发布作业、学生答题与提交、后台 AI 批改，以及知识库导入。
 - [数据与接口索引](data-and-interfaces.md)：关键数据表、接口入口和聊天、学习记忆的数据边界。
 
-架构图和主作业流程图使用 ImageGen 生成，图片统一放在 [技术图](技术图/) 文件夹中：[架构图 PNG](技术图/architecture.png)、[工作流 PNG](技术图/workflow.png)。对应的 Mermaid 图源和正文保留精确的组件、接口与流程说明。
+架构图和工作流图使用 ImageGen 生成，图片统一放在 [技术图](技术图/) 文件夹中：[架构图 PNG](技术图/architecture.png)、[主工作流 PNG](技术图/workflow.png)、[多 Agent 批改 PNG](技术图/multi_agent_grading.png)。对应的 Mermaid 图源和正文保留精确的组件、接口与流程说明。
 
 ## 阅读约定
 

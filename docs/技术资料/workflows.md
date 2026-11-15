@@ -39,6 +39,39 @@ flowchart TD
 
 `draft → queued → processing → completed` 是常见路径。若后台处理遇到异常，任务自动回到队列并设置下一次尝试时间；已成功题目的检查点可在重试时复用。浏览器负责提交答案和查询状态，不负责维持批改任务。
 
+## 多 Agent 学科批改
+
+![Remedi 多 Agent 学科批改流程图](技术图/multi_agent_grading.png)
+
+```mermaid
+flowchart LR
+    subgraph Chat[学习助手文字批改]
+        UserText[学生提交题目与本人作答] --> Router[LangGraph 判断意图与学科]
+        Router --> Tool[diagnose_student_text_work]
+    end
+
+    subgraph Assignment[整份作业批改]
+        Submit[学生提交整份作业] --> Job[(SQL 持久化批改任务)]
+        Job --> Worker[后台 worker 逐题处理]
+        Worker --> Answer[题干与学生文字或图片作答]
+    end
+
+    Tool --> SubjectAgent[按学科选择专属批改 Agent]
+    Answer --> SubjectAgent
+    Knowledge[对应学科知识库\nBM25 + 可选 Milvus] --> SubjectAgent
+    SubjectAgent --> Provider[模型返回结构化逐步判断]
+    Provider --> Validate[校验正误、理由与置信度]
+    Validate --> Save[保存 Submission / Steps / Errors]
+    Save --> Score[计算 AI 评分]
+    Score --> Student[学生查看讲解、错题与订正]
+    Score --> Review{是否需要教师复核?}
+    Review -->|是| Teacher[教师复核并修正结果]
+    Review -->|否| Complete[批改完成]
+    Teacher --> Complete
+```
+
+当前“多 Agent”指由路由按学科选择对应的专属批改 Agent，并提供该学科的知识库上下文；整份作业由后台 worker 按题逐个调度。一次作答由匹配的学科 Agent 处理，不是多个模型并行评分或投票。
+
 常用接口：
 
 - 教师发布：`POST /api/teacher/assignments`
