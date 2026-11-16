@@ -147,6 +147,7 @@ const studentQuery = ref('')
 const statusFilter = ref('')
 const expandedStudentId = ref<number | null>(null)
 const chartColors = readChartColors()
+let loadGeneration = 0
 const assignmentId = computed(() => {
   const value = Number(route.params.id)
   return Number.isInteger(value) && value > 0 ? value : null
@@ -175,8 +176,6 @@ function refresh() {
   void load(assignmentId.value)
 }
 
-let loadGeneration = 0
-
 async function load(id: number | null) {
   const generation = ++loadGeneration
   report.value = null
@@ -189,6 +188,9 @@ async function load(id: number | null) {
   loading.value = true
   try {
     const result = await teacher.fetchTeacherAssignmentAnalytics(id)
+    if (!result || !Array.isArray(result.questions) || !Array.isArray(result.students)) {
+      throw new Error('学情接口未返回有效数据。')
+    }
     if (generation === loadGeneration) report.value = result
   } catch {
     if (generation === loadGeneration) error.value = '学情加载失败，请稍后重试。'
