@@ -1653,7 +1653,6 @@ onBeforeUnmount(() => {
 
 .remedi-mistake-book :deep(.mistake-point-message) {
   border-color: var(--border);
-  border-left-color: var(--primary);
   border-radius: var(--radius-surface);
 }
 

@@ -1699,13 +1699,12 @@
 
 .remedi-mistake-book .mistake-point-message, .remedi-mistake-book.mistake-point-message {
   max-width: 96%;
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   padding: 13px 15px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--green);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   color: var(--text);
-  background: var(--card);
+  background: var(--surface-2);
   overflow-wrap: anywhere;
 }
 
@@ -1720,7 +1719,7 @@
 .remedi-mistake-book .mistake-point-message > strong, .remedi-mistake-book.mistake-point-message > strong {
   display: block;
   margin-bottom: 6px;
-  color: var(--text);
+  color: var(--text-2);
   font-size: 11px;
   font-weight: 600;
 }
@@ -1732,14 +1731,14 @@
   white-space: pre-wrap;
 }
 
-.remedi-mistake-book .mistake-point-message .markdown-content, .remedi-mistake-book.mistake-point-message .markdown-content {
+.remedi-mistake-book .mistake-point-message .mistake-point-message-content, .remedi-mistake-book.mistake-point-message .mistake-point-message-content {
   color: var(--text);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.75;
 }
 
-.remedi-mistake-book .mistake-point-message .markdown-content > :first-child, .remedi-mistake-book.mistake-point-message .markdown-content > :first-child { margin-top: 0; }
-.remedi-mistake-book .mistake-point-message .markdown-content > :last-child, .remedi-mistake-book.mistake-point-message .markdown-content > :last-child { margin-bottom: 0; }
+.remedi-mistake-book .mistake-point-message .mistake-point-message-content > :first-child, .remedi-mistake-book.mistake-point-message .mistake-point-message-content > :first-child { margin-top: 0; }
+.remedi-mistake-book .mistake-point-message .mistake-point-message-content > :last-child, .remedi-mistake-book.mistake-point-message .mistake-point-message-content > :last-child { margin-bottom: 0; }
 .remedi-mistake-book .mistake-point-message > small, .remedi-mistake-book.mistake-point-message > small { color: var(--text-2); font-size: 10px; }
 
 .remedi-mistake-book .mistake-point-chat-error, .remedi-mistake-book.mistake-point-chat-error {
