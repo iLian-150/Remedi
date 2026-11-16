@@ -55,27 +55,63 @@
             <div class="notebook-results-note" role="status" aria-live="polite"><span>{{ loading ? '正在整理你的错题…' : `共 ${visibleAssignments.length} 份${filtersApplied ? '符合条件的' : '待复习'}作业` }}</span></div>
             <p v-if="actionError && !removedAssignment" class="notebook-action-error" role="alert">{{ actionError }}</p>
             <div v-if="loading" class="notebook-assignment-list notebook-loading" aria-hidden="true"><div v-for="index in 4" :key="index" class="notebook-skeleton"><span/><span/><span/></div></div>
-            <div v-else-if="visibleAssignments.length" class="notebook-assignment-list">
-              <details v-for="assignment in displayedAssignments" :key="assignment.id" class="notebook-assignment" :open="expandedAssignmentIds.has(assignment.id)" @toggle="onAssignmentToggle(assignment.id, $event)">
-                <summary>
-                  <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="16"/></span>
-                  <span class="notebook-subject-badge"><AppIcon name="book" :size="14"/>{{ subjectName(assignment.subject) }}</span>
-                  <span class="notebook-assignment-title"><strong>{{ assignment.title }}</strong><small>{{ formatDate(assignment.createdAt) }} · {{ assignmentSummary(assignment) }}</small></span>
-                  <span class="notebook-assignment-progress">{{ assignment.studentSavedOnly ? '自主收录' : `${assignment.studiedCategoryCount}/${assignment.categories.length} 类` }}</span>
-                  <span class="notebook-assignment-state" :class="{ ready: assignment.ready }">{{ assignment.studentSavedOnly ? '已收录' : assignment.ready ? '已学完' : '待学习' }}</span>
+            <div v-else-if="visibleAssignments.length" class="notebook-hierarchy">
+              <details
+                v-for="(subjectGroup, subjectIndex) in displayedSubjectGroups"
+                :key="subjectGroup.key"
+                class="notebook-hierarchy-subject"
+                :open="hierarchyExpanded(subjectExpansionKey(subjectGroup.key), subjectIndex === 0)"
+                @toggle="onHierarchyToggle(subjectExpansionKey(subjectGroup.key), $event)"
+              >
+                <summary class="notebook-hierarchy-summary notebook-hierarchy-subject-summary">
+                  <AppIcon name="chevron-down" :size="16" class="notebook-hierarchy-chevron" aria-hidden="true"/>
+                  <span class="notebook-hierarchy-title"><strong>{{ subjectGroup.label }}</strong><small>{{ subjectGroup.categories.length }} 类错误 · {{ subjectGroup.assignmentCount }} 份作业 · {{ subjectGroup.itemCount }} 条错题</small></span>
                 </summary>
-                <div v-if="expandedAssignmentIds.has(assignment.id)" class="notebook-assignment-content">
-                  <section v-for="category in assignment.categories" :key="category.key" class="notebook-category" :class="{ studied: category.studied }">
-                    <header class="notebook-category-head"><div><span class="notebook-category-dot"/><div><h4>{{ category.label }}</h4><small>{{ category.itemCount }} 条记录</small></div></div><button v-if="!category.studentSavedOnly" type="button" :class="{ studied: category.studied }" :disabled="workingKey === studyKey(assignment.id, category.key)" @click="toggleCategory(assignment, category)">{{ workingKey === studyKey(assignment.id, category.key) ? '保存中…' : category.studied ? '已学会 · 撤销' : '标记已学会' }}</button></header>
-                    <div v-if="category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in category.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
-                    <div class="notebook-category-questions"><article v-for="mistake in categoryItems(category, assignment.id)" :key="mistake.id">
-                      <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.id === mistake.id }" @click="openAssistant(mistake)"><strong>{{ isStudentSaved(mistake) ? '自主收录题目' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</strong><small>{{ mistake.knowledge_point }} · {{ mistake.error_type }}</small><span class="notebook-question-excerpt">{{ mistake.question_stem }}</span><span class="notebook-question-detail">{{ safe(mistake.detail || '') }}</span></button>
-                      <button v-if="!isStudentSaved(mistake)" type="button" @click.stop.prevent="openOriginalQuestion(mistake)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
-                      <button v-else type="button" :disabled="workingKey === `archive:${mistake.assignment_id}`" @click="archiveSaved(mistake)">{{ workingKey === `archive:${mistake.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
-                    </article></div>
-                    <button v-if="displayedCategoryItemCount(assignment.id, category) < category.itemCount" type="button" class="notebook-more-category-items" @click="showMoreCategoryItems(assignment.id, category)">继续显示错题（{{ displayedCategoryItemCount(assignment.id, category) }} / {{ category.itemCount }}）</button>
-                  </section>
-                  <footer v-if="!assignment.studentSavedOnly" class="notebook-assignment-footer"><span>{{ assignment.ready ? '这份作业的错误类别都已学完。' : `还需学完 ${assignment.categories.length - assignment.studiedCategoryCount} 类，才能移出整份作业。` }}</span><button type="button" :disabled="!assignment.ready || workingKey === `archive:${assignment.id}`" @click="archiveAssignment(assignment)">{{ workingKey === `archive:${assignment.id}` ? '正在移出…' : '整份作业移出错题本' }}</button></footer>
+                <div class="notebook-hierarchy-categories">
+                  <details
+                    v-for="(categoryGroup, categoryIndex) in subjectGroup.categories"
+                    :key="categoryGroup.key"
+                    class="notebook-hierarchy-category"
+                    :open="hierarchyExpanded(categoryExpansionKey(subjectGroup.key, categoryGroup.key), subjectIndex === 0 && categoryIndex === 0)"
+                    @toggle="onHierarchyToggle(categoryExpansionKey(subjectGroup.key, categoryGroup.key), $event)"
+                  >
+                    <summary class="notebook-hierarchy-summary notebook-hierarchy-category-summary">
+                      <AppIcon name="chevron-down" :size="14" class="notebook-hierarchy-chevron" aria-hidden="true"/>
+                      <span class="notebook-hierarchy-title"><strong>{{ categoryGroup.label }}</strong><small>{{ categoryGroup.itemCount }} 条错题 · {{ categoryGroup.assignmentCount }} 份作业</small></span>
+                    </summary>
+                    <div class="notebook-hierarchy-assignments">
+                      <details
+                        v-for="(entry, assignmentIndex) in categoryGroup.assignments"
+                        :key="`${entry.assignment.id}:${entry.subjectKey}:${entry.category.key}`"
+                        class="notebook-assignment notebook-hierarchy-assignment"
+                        :open="hierarchyExpanded(assignmentExpansionKey(entry), subjectIndex === 0 && categoryIndex === 0 && assignmentIndex === 0)"
+                        @toggle="onHierarchyToggle(assignmentExpansionKey(entry), $event)"
+                      >
+                        <summary class="notebook-assignment-summary">
+                          <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="15"/></span>
+                          <span class="notebook-assignment-title"><strong>{{ entry.assignment.title }}</strong><small>{{ formatDate(entry.assignment.createdAt) }} · {{ entry.items.length }} 条此类错题</small></span>
+                          <span class="notebook-assignment-progress">{{ entry.studentSavedOnly ? '自主收录' : `${entry.assignment.studiedCategoryCount}/${entry.assignment.categories.length} 类已学` }}</span>
+                          <span class="notebook-assignment-state" :class="{ ready: entry.studentSavedOnly || entry.category.studied }">{{ entry.studentSavedOnly ? '已收录' : entry.category.studied ? '已学会' : '待学习' }}</span>
+                        </summary>
+                        <div class="notebook-assignment-content">
+                          <div v-if="entry.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in entry.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
+                          <div class="notebook-category-questions"><article v-for="mistake in categoryItemsFor(entry)" :key="mistake.id">
+                            <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.id === mistake.id }" @click="openAssistant(mistake)"><strong>{{ isStudentSaved(mistake) ? '自主收录题目' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</strong><small>{{ mistake.knowledge_point }} · {{ mistake.error_type }}</small><span class="notebook-question-excerpt">{{ mistake.question_stem }}</span><span class="notebook-question-detail">{{ safe(mistake.detail || '') }}</span></button>
+                            <button v-if="!isStudentSaved(mistake)" type="button" @click.stop.prevent="openOriginalQuestion(mistake)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
+                            <button v-else type="button" :disabled="workingKey === `archive:${mistake.assignment_id}`" @click="archiveSaved(mistake)">{{ workingKey === `archive:${mistake.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
+                          </article></div>
+                          <button v-if="displayedCategoryItemCountFor(entry) < entry.items.length" type="button" class="notebook-more-category-items" @click="showMoreCategoryItemsFor(entry)">继续显示错题（{{ displayedCategoryItemCountFor(entry) }} / {{ entry.items.length }}）</button>
+                          <footer class="notebook-assignment-footer">
+                            <span>{{ entry.studentSavedOnly ? '这是你主动收录的复习题目。' : entry.category.studied ? '这个错误类别已学会。' : '学完这个错误类别后，可继续复习这份作业的其他类别。' }}</span>
+                            <div class="notebook-hierarchy-actions">
+                              <button v-if="!entry.studentSavedOnly" type="button" class="notebook-hierarchy-study" :class="{ studied: entry.category.studied }" :disabled="workingKey === studyKey(entry.assignment.id, entry.category.key)" @click="toggleCategory(entry.assignment, entry.category)">{{ workingKey === studyKey(entry.assignment.id, entry.category.key) ? '保存中…' : entry.category.studied ? '已学会 · 撤销' : '标记已学会' }}</button>
+                              <button v-if="entry.showArchiveAction && !entry.assignment.studentSavedOnly" type="button" :disabled="!entry.assignment.ready || workingKey === `archive:${entry.assignment.id}`" @click="archiveAssignment(entry.assignment)">{{ workingKey === `archive:${entry.assignment.id}` ? '正在移出…' : '整份作业移出错题本' }}</button>
+                            </div>
+                          </footer>
+                        </div>
+                      </details>
+                    </div>
+                  </details>
                 </div>
               </details>
               <button v-if="displayedAssignments.length < visibleAssignments.length" type="button" class="notebook-more-assignments" @click="showMoreAssignments">继续显示作业（{{ displayedAssignments.length }} / {{ visibleAssignments.length }}）</button>
@@ -133,6 +169,30 @@ type NotebookView = 'notebook' | 'sticky' | 'mindmap'
 type AssignmentSort = 'recent' | 'oldest' | 'priority'
 interface MistakeCategory { key: string; label: string; itemCount: number; firstItem: StudentMistake | null; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
 interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; itemCount: number; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; priority: number }
+interface NotebookAssignmentEntry {
+  assignment: AssignmentGroup
+  subjectKey: string
+  category: MistakeCategory
+  items: StudentMistake[]
+  studentSavedOnly: boolean
+  similar: StudentMistake['similar_occurrences']
+  showArchiveAction: boolean
+}
+interface NotebookCategoryGroup {
+  key: string
+  label: string
+  itemCount: number
+  assignmentCount: number
+  assignments: NotebookAssignmentEntry[]
+}
+type MutableNotebookCategoryGroup = NotebookCategoryGroup & { assignmentIds: Set<number> }
+interface NotebookSubjectGroup {
+  key: string
+  label: string
+  itemCount: number
+  assignmentCount: number
+  categories: NotebookCategoryGroup[]
+}
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
 type AssignmentSearchIndex = Map<number, string>
 interface NotebookData {
@@ -160,7 +220,7 @@ const sortPickerRef = ref<HTMLElement | null>(null)
 const sortPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const workingKey = ref('')
 const selectedMistake = ref<StudentMistake | null>(null)
-const expandedAssignmentIds = ref<Set<number>>(new Set())
+const hierarchyExpansionOverrides = ref<Record<string, boolean>>({})
 const notebookAssignmentPageSize = 30
 const notebookCategoryPageSize = 25
 const visibleAssignmentLimit = ref(notebookAssignmentPageSize)
@@ -231,6 +291,7 @@ const visibleAssignments = computed(() => {
 const displayedAssignments = computed(() =>
   visibleAssignments.value.slice(0, visibleAssignmentLimit.value)
 )
+const displayedSubjectGroups = computed(() => buildNotebookHierarchy(displayedAssignments.value))
 function selectedSortOptionIndex() {
   const index = sortOptions.findIndex((option) => option.value === sort.value)
   return index >= 0 ? index : 0
@@ -293,17 +354,8 @@ function onSortPickerPointerdown(event: PointerEvent) {
 }
 watch([status, query, sort], () => {
   visibleAssignmentLimit.value = notebookAssignmentPageSize
+  hierarchyExpansionOverrides.value = {}
 })
-watch(() => view.value === 'notebook' ? visibleAssignments.value : null, (assignments, previous) => {
-  if (!assignments) return
-  const visibleIds = new Set(assignments.map((assignment) => assignment.id))
-  const next = new Set([...expandedAssignmentIds.value].filter((id) => visibleIds.has(id)))
-  const firstId = assignments[0]?.id
-  if (firstId != null && firstId !== previous?.[0]?.id && !next.has(firstId)) {
-    next.add(firstId)
-  }
-  expandedAssignmentIds.value = next
-}, { immediate: true })
 const filtersApplied = computed(() => status.value !== 'all' || Boolean(query.value.trim()))
 const relatedMistakes = computed(() => {
   const mistake = selectedMistake.value
@@ -315,13 +367,26 @@ const assistantAssignment = computed(() => selectedMistake.value ? notebookData.
 const assistantProgress = computed(() => ({ completed: assistantAssignment.value?.studiedCategoryCount ?? 0, total: assistantAssignment.value?.categories.length ?? 0, complete: Boolean(assistantAssignment.value?.ready) }))
 const assistantStudyKey = computed(() => selectedMistake.value ? studyKey(selectedMistake.value.assignment_id, selectedMistake.value.category_key) : '')
 
-function onAssignmentToggle(assignmentId: number, event: Event) {
+function hierarchyExpanded(key: string, defaultOpen: boolean): boolean {
+  return hierarchyExpansionOverrides.value[key] ?? defaultOpen
+}
+
+function onHierarchyToggle(key: string, event: Event) {
   const details = event.currentTarget as HTMLDetailsElement | null
   if (!details) return
-  const next = new Set(expandedAssignmentIds.value)
-  if (details.open) next.add(assignmentId)
-  else next.delete(assignmentId)
-  expandedAssignmentIds.value = next
+  hierarchyExpansionOverrides.value = { ...hierarchyExpansionOverrides.value, [key]: details.open }
+}
+
+function subjectExpansionKey(subjectKey: string): string {
+  return `subject:${subjectKey}`
+}
+
+function categoryExpansionKey(subjectKey: string, categoryKey: string): string {
+  return `category:${JSON.stringify([subjectKey, categoryKey])}`
+}
+
+function assignmentExpansionKey(entry: NotebookAssignmentEntry): string {
+  return `assignment:${JSON.stringify([entry.subjectKey, entry.category.key, entry.assignment.id])}`
 }
 
 function showMoreAssignments() {
@@ -375,21 +440,133 @@ function assignmentSearchText(assignment: AssignmentGroup): string {
   return index.get(assignment.id) ?? assignment.title.toLocaleLowerCase()
 }
 
-function displayedCategoryItemCount(assignmentId: number, category: MistakeCategory): number {
+function displayedCategoryItemCountFor(entry: NotebookAssignmentEntry): number {
   return Math.min(
-    category.itemCount,
-    categoryItemLimits.value[studyKey(assignmentId, category.key)] ?? notebookCategoryPageSize,
+    entry.items.length,
+    categoryItemLimits.value[studyKey(entry.assignment.id, entry.category.key)] ?? notebookCategoryPageSize,
   )
 }
-function categoryItems(category: MistakeCategory, assignmentId: number): StudentMistake[] {
-  return category.items.slice(0, displayedCategoryItemCount(assignmentId, category))
+function categoryItemsFor(entry: NotebookAssignmentEntry): StudentMistake[] {
+  return entry.items.slice(0, displayedCategoryItemCountFor(entry))
 }
-function showMoreCategoryItems(assignmentId: number, category: MistakeCategory) {
-  const key = studyKey(assignmentId, category.key)
+function showMoreCategoryItemsFor(entry: NotebookAssignmentEntry) {
+  const key = studyKey(entry.assignment.id, entry.category.key)
   categoryItemLimits.value[key] = Math.min(
-    category.itemCount,
-    displayedCategoryItemCount(assignmentId, category) + notebookCategoryPageSize,
+    entry.items.length,
+    displayedCategoryItemCountFor(entry) + notebookCategoryPageSize,
   )
+}
+
+function buildNotebookHierarchy(assignments: AssignmentGroup[]): NotebookSubjectGroup[] {
+  const subjects = new Map<string, NotebookSubjectGroup & { assignmentIds: Set<number>; categoryIndex: Map<string, MutableNotebookCategoryGroup> }>()
+
+  for (const assignment of assignments) {
+    for (const category of assignment.categories) {
+      const itemsBySubject = new Map<string, StudentMistake[]>()
+      for (const item of category.items) {
+        const subjectKey = normalizeNotebookSubject(item.question_subject)
+        const subjectItems = itemsBySubject.get(subjectKey) ?? []
+        subjectItems.push(item)
+        itemsBySubject.set(subjectKey, subjectItems)
+      }
+
+      for (const [subjectKey, subjectItems] of itemsBySubject) {
+        let subject = subjects.get(subjectKey)
+        if (!subject) {
+          subject = {
+            key: subjectKey,
+            label: subjectName(subjectKey),
+            itemCount: 0,
+            assignmentCount: 0,
+            categories: [],
+            assignmentIds: new Set(),
+            categoryIndex: new Map(),
+          }
+          subjects.set(subjectKey, subject)
+        }
+
+        const categoryGroupKey = category.key
+        let categoryGroup = subject.categoryIndex.get(categoryGroupKey)
+        if (!categoryGroup) {
+          categoryGroup = {
+            key: categoryGroupKey,
+            label: category.label,
+            itemCount: 0,
+            assignmentCount: 0,
+            assignments: [],
+            assignmentIds: new Set(),
+          }
+          subject.categoryIndex.set(categoryGroupKey, categoryGroup)
+          subject.categories.push(categoryGroup)
+        }
+
+        let similar = subjectItems[0]?.similar_occurrences ?? []
+        for (const item of subjectItems) {
+          if (item.similar_occurrences.length > similar.length) similar = item.similar_occurrences
+        }
+        const entry: NotebookAssignmentEntry = {
+          assignment,
+          subjectKey,
+          category,
+          items: subjectItems,
+          studentSavedOnly: subjectItems.length > 0 && subjectItems.every(isStudentSaved),
+          similar,
+          showArchiveAction: false,
+        }
+        const existingEntry = categoryGroup.assignments.find((candidate) => candidate.assignment.id === assignment.id)
+        if (existingEntry) {
+          const existingIds = new Set(existingEntry.items.map((item) => item.id))
+          const additionalItems = subjectItems.filter((item) => !existingIds.has(item.id))
+          existingEntry.items.push(...additionalItems)
+          existingEntry.studentSavedOnly = existingEntry.items.every(isStudentSaved)
+          if (entry.similar.length > existingEntry.similar.length) existingEntry.similar = entry.similar
+          categoryGroup.itemCount += additionalItems.length
+          subject.itemCount += additionalItems.length
+        } else {
+          categoryGroup.assignments.push(entry)
+          categoryGroup.itemCount += subjectItems.length
+          subject.itemCount += subjectItems.length
+        }
+        categoryGroup.assignmentIds.add(assignment.id)
+        subject.assignmentIds.add(assignment.id)
+      }
+    }
+  }
+
+  const result = Array.from(subjects.values())
+    .map((subject) => {
+      subject.assignmentCount = subject.assignmentIds.size
+      subject.categories = Array.from(subject.categoryIndex.values())
+        .map((category) => {
+          category.assignmentCount = category.assignmentIds.size
+          return category
+        })
+        .sort((left, right) => {
+          const leftStudied = left.assignments.every((entry) => entry.category.studied)
+          const rightStudied = right.assignments.every((entry) => entry.category.studied)
+          return Number(leftStudied) - Number(rightStudied) || right.itemCount - left.itemCount || left.label.localeCompare(right.label, 'zh-CN')
+        })
+      return subject
+    })
+    .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'))
+
+  const archivedAssignmentIds = new Set<number>()
+  for (const subject of result) {
+    for (const category of subject.categories) {
+      for (const entry of category.assignments) {
+        if (!archivedAssignmentIds.has(entry.assignment.id)) {
+          entry.showArchiveAction = true
+          archivedAssignmentIds.add(entry.assignment.id)
+        }
+      }
+    }
+  }
+  return result
+}
+
+function normalizeNotebookSubject(value: string): string {
+  if (value === 'english_exercise') return 'english'
+  return value || 'other'
 }
 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
@@ -451,15 +628,10 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
     assignmentGroupsById: groups,
   }
 }
-function subjectName(value: string) { return getSubjectLabel(value, value || '其他学科') }
+function subjectName(value: string) { const subject = normalizeNotebookSubject(value); return getSubjectLabel(subject, subject || '其他学科') }
 function formatDate(value?: string) { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '日期未记录' : dateFormatter.format(date) }
 function safe(value: string) { return sanitizeStudentCopy(value) }
 function isStudentSaved(item: StudentMistake) { return item.source_kind === 'student_saved' }
-function assignmentSummary(assignment: AssignmentGroup) {
-  return assignment.studentSavedOnly
-    ? `${assignment.itemCount} 道自主收录题目`
-    : `${assignment.itemCount} 条错题 · ${assignment.categories.length} 类错误`
-}
 function studyKey(assignmentId: number, categoryKey: string) { return `${assignmentId}:${categoryKey}` }
 function ensureSupplementalStyles() {
   if (!supplementalStylesPromise) {
