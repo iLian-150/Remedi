@@ -46,6 +46,16 @@
             <p>{{ mistake.detail || '系统记录了这一步的错误。' }}</p>
             <div v-if="mistake.step_seq" class="mistake-step-ref">第 {{ mistake.step_seq }} 步<template v-if="mistake.step_text">：{{ mistake.step_text }}</template></div>
           </div>
+          <section v-if="otherErrorTypes.length" class="mistake-other-error-types" aria-label="这份作业的其他错误类型">
+            <div class="mistake-other-error-types-heading">
+              <strong>这份作业的其他错误类型</strong>
+              <span>选择一个类型，打开 AI 问答</span>
+            </div>
+            <button v-for="item in otherErrorTypes" :key="item.key" type="button" class="mistake-other-error-type" @click="emit('ask-about', item.representative)">
+              <span><strong>{{ item.label }}</strong><small>{{ item.itemCount }} 条错题 · 第 {{ item.representative.question_order }} 题</small></span>
+              <b>问 AI <span aria-hidden="true">→</span></b>
+            </button>
+          </section>
           <div v-if="mistake.solution_steps?.length" class="mistake-solution">
             <h4>参考解题过程</h4>
             <ol>
@@ -82,8 +92,21 @@ import { useStudentStore } from '../stores/student'
 import { STEP_STATUS_TEXT } from '../api/types'
 import BrandLogo from './BrandLogo.vue'
 
-const props = defineProps<{ mistake: RelatedMistake | StudentMistake | null }>()
-const emit = defineEmits<{ close: [] }>()
+interface OtherErrorType {
+  key: string
+  label: string
+  itemCount: number
+  representative: StudentMistake
+}
+const props = defineProps<{
+  mistake: RelatedMistake | StudentMistake | null
+  otherErrorTypes?: OtherErrorType[]
+}>()
+const emit = defineEmits<{
+  close: []
+  'ask-about': [mistake: StudentMistake]
+}>()
+const otherErrorTypes = computed(() => props.otherErrorTypes ?? [])
 const student = useStudentStore()
 const submission = ref<SubmissionResult | null>(null)
 const submissionLoading = ref(false)
@@ -205,6 +228,17 @@ function stepStatusLabel(status: string) {
 .mistake-error-title { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; color: var(--text-2); font-size: 13px; }
 .mistake-error-title strong { color: var(--red); }
 .mistake-error-card p { margin: 0; white-space: pre-wrap; }
+.mistake-other-error-types { display: grid; gap: 7px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border); }
+.mistake-other-error-types-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 2px; }
+.mistake-other-error-types-heading strong { color: var(--text); font-size: 13px; }
+.mistake-other-error-types-heading > span { color: var(--text-3); font-size: 11px; }
+.mistake-other-error-type { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text); background: var(--bg); text-align: left; cursor: pointer; }
+.mistake-other-error-type:hover { border-color: var(--primary); background: var(--primary-50); }
+.mistake-other-error-type > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.mistake-other-error-type > span strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.mistake-other-error-type > span small { color: var(--text-2); font-size: 11px; }
+.mistake-other-error-type > b { flex: 0 0 auto; color: var(--primary); font-size: 11px; }
+.mistake-other-error-type > b span { margin-left: 3px; }
 .mistake-step-ref, .mistake-old-step { margin-top: 10px; color: var(--text-2); font-size: 13px; }
 .mistake-correction { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); }
 .mistake-correction p { margin: 0 0 7px; white-space: pre-wrap; color: var(--text); line-height: 1.7; }

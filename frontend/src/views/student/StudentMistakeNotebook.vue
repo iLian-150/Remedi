@@ -82,7 +82,7 @@
                     <div class="notebook-hierarchy-assignments">
                       <details
                         v-for="(entry, assignmentIndex) in categoryGroup.assignments"
-                        :key="`${entry.assignment.id}:${entry.subjectKey}:${entry.category.key}`"
+                        :key="`${entry.assignment.id}:${entry.subjectKey}:${entry.key}`"
                         class="notebook-assignment notebook-hierarchy-assignment"
                         :open="hierarchyExpanded(assignmentExpansionKey(entry), subjectIndex === 0 && categoryIndex === 0 && assignmentIndex === 0)"
                         @toggle="onHierarchyToggle(assignmentExpansionKey(entry), $event)"
@@ -91,7 +91,7 @@
                           <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="15"/></span>
                           <span class="notebook-assignment-title"><strong>{{ entry.assignment.title }}</strong><small>{{ formatDate(entry.assignment.createdAt) }} · {{ entry.items.length }} 条此类错题</small></span>
                           <span class="notebook-assignment-progress">{{ entry.studentSavedOnly ? '自主收录' : `${entry.assignment.studiedCategoryCount}/${entry.assignment.categories.length} 类已学` }}</span>
-                          <span class="notebook-assignment-state" :class="{ ready: entry.studentSavedOnly || entry.category.studied }">{{ entry.studentSavedOnly ? '已收录' : entry.category.studied ? '已学会' : '待学习' }}</span>
+                          <span class="notebook-assignment-state" :class="{ ready: entry.studentSavedOnly || entry.studied }">{{ entry.studentSavedOnly ? '已收录' : entry.studied ? '已学会' : '待学习' }}</span>
                         </summary>
                         <div class="notebook-assignment-content">
                           <div v-if="entry.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in entry.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
@@ -102,9 +102,9 @@
                           </article></div>
                           <button v-if="displayedCategoryItemCountFor(entry) < entry.items.length" type="button" class="notebook-more-category-items" @click="showMoreCategoryItemsFor(entry)">继续显示错题（{{ displayedCategoryItemCountFor(entry) }} / {{ entry.items.length }}）</button>
                           <footer class="notebook-assignment-footer">
-                            <span>{{ entry.studentSavedOnly ? '这是你主动收录的复习题目。' : entry.category.studied ? '这个错误类别已学会。' : '学完这个错误类别后，可继续复习这份作业的其他类别。' }}</span>
+                            <span>{{ entry.studentSavedOnly ? '这是你主动收录的复习题目。' : entry.studied ? '这个错误类别已学会。' : '学完这个错误类别后，可继续复习这份作业的其他类别。' }}</span>
                             <div class="notebook-hierarchy-actions">
-                              <button v-if="!entry.studentSavedOnly" type="button" class="notebook-hierarchy-study" :class="{ studied: entry.category.studied }" :disabled="workingKey === studyKey(entry.assignment.id, entry.category.key)" @click="toggleCategory(entry.assignment, entry.category)">{{ workingKey === studyKey(entry.assignment.id, entry.category.key) ? '保存中…' : entry.category.studied ? '已学会 · 撤销' : '标记已学会' }}</button>
+                              <button v-if="!entry.studentSavedOnly" type="button" class="notebook-hierarchy-study" :class="{ studied: entry.studied }" :disabled="workingKey === hierarchyStudyKey(entry)" @click="toggleNotebookEntry(entry)">{{ workingKey === hierarchyStudyKey(entry) ? '保存中…' : entry.studied ? '已学会 · 撤销' : '标记已学会' }}</button>
                               <button v-if="entry.showArchiveAction && !entry.assignment.studentSavedOnly" type="button" :disabled="!entry.assignment.ready || workingKey === `archive:${entry.assignment.id}`" @click="archiveAssignment(entry.assignment)">{{ workingKey === `archive:${entry.assignment.id}` ? '正在移出…' : '整份作业移出错题本' }}</button>
                             </div>
                           </footer>
@@ -130,7 +130,7 @@
         <template #assistant><MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/></template>
       </MistakeRelationshipMap>
     </main>
-    <PreviousMistakeModal :mistake="selectedOriginalMistake" @close="selectedOriginalMistake = null" />
+    <PreviousMistakeModal :mistake="selectedOriginalMistake" :other-error-types="originalAssignmentErrorTypes" @close="selectedOriginalMistake = null" @ask-about="askAboutOriginalError" />
   </div>
 </template>
 
@@ -172,8 +172,10 @@ interface AssignmentGroup { id: number; title: string; createdAt: string; subjec
 interface NotebookAssignmentEntry {
   assignment: AssignmentGroup
   subjectKey: string
-  category: MistakeCategory
+  key: string
+  categories: MistakeCategory[]
   items: StudentMistake[]
+  studied: boolean
   studentSavedOnly: boolean
   similar: StudentMistake['similar_occurrences']
   showArchiveAction: boolean
@@ -193,6 +195,12 @@ interface NotebookSubjectGroup {
   assignmentCount: number
   categories: NotebookCategoryGroup[]
 }
+interface OriginalAssignmentErrorType {
+  key: string
+  label: string
+  itemCount: number
+  representative: StudentMistake
+}
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
 type AssignmentSearchIndex = Map<number, string>
 interface NotebookData {
@@ -211,6 +219,32 @@ const loadError = ref('')
 const actionError = ref('')
 const view = ref<NotebookView>('notebook')
 const selectedOriginalMistake = ref<RelatedMistake | StudentMistake | null>(null)
+const originalAssignmentErrorTypes = computed<OriginalAssignmentErrorType[]>(() => {
+  const selected = selectedOriginalMistake.value
+  if (!selected) return []
+  const assignment = notebookData.value.assignmentGroupsById.get(selected.assignment_id)
+  if (!assignment) return []
+
+  const selectedMistakeRecord = allMistakes.value.find((item) => item.id === selected.id && item.assignment_id === selected.assignment_id)
+  const selectedCategoryLabel = selectedMistakeRecord?.category_label
+    ?? ('category_label' in selected ? selected.category_label : '')
+  const selectedCategoryKey = selectedCategoryLabel ? normalizeNotebookCategory(selectedCategoryLabel) : ''
+  const categoriesByLabel = new Map<string, OriginalAssignmentErrorType>()
+  for (const category of assignment.categories) {
+    const labelKey = normalizeNotebookCategory(category.label)
+    if (labelKey === selectedCategoryKey || category.studentSavedOnly || !category.firstItem) continue
+    const label = category.label || category.firstItem.error_type
+    const existing = categoriesByLabel.get(labelKey)
+    if (existing) existing.itemCount += category.itemCount
+    else categoriesByLabel.set(labelKey, {
+      key: category.key,
+      label,
+      itemCount: category.itemCount,
+      representative: category.firstItem,
+    })
+  }
+  return Array.from(categoriesByLabel.values()).sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'))
+})
 const status = ref<'all' | 'pending' | 'ready'>('all')
 const query = ref('')
 const sort = ref<AssignmentSort>('recent')
@@ -386,7 +420,11 @@ function categoryExpansionKey(subjectKey: string, categoryKey: string): string {
 }
 
 function assignmentExpansionKey(entry: NotebookAssignmentEntry): string {
-  return `assignment:${JSON.stringify([entry.subjectKey, entry.category.key, entry.assignment.id])}`
+  return `assignment:${JSON.stringify([entry.subjectKey, entry.key, entry.assignment.id])}`
+}
+
+function hierarchyStudyKey(entry: NotebookAssignmentEntry): string {
+  return `category-group:${studyKey(entry.assignment.id, entry.key)}`
 }
 
 function showMoreAssignments() {
@@ -443,14 +481,14 @@ function assignmentSearchText(assignment: AssignmentGroup): string {
 function displayedCategoryItemCountFor(entry: NotebookAssignmentEntry): number {
   return Math.min(
     entry.items.length,
-    categoryItemLimits.value[studyKey(entry.assignment.id, entry.category.key)] ?? notebookCategoryPageSize,
+    categoryItemLimits.value[studyKey(entry.assignment.id, entry.key)] ?? notebookCategoryPageSize,
   )
 }
 function categoryItemsFor(entry: NotebookAssignmentEntry): StudentMistake[] {
   return entry.items.slice(0, displayedCategoryItemCountFor(entry))
 }
 function showMoreCategoryItemsFor(entry: NotebookAssignmentEntry) {
-  const key = studyKey(entry.assignment.id, entry.category.key)
+  const key = studyKey(entry.assignment.id, entry.key)
   categoryItemLimits.value[key] = Math.min(
     entry.items.length,
     displayedCategoryItemCountFor(entry) + notebookCategoryPageSize,
@@ -485,7 +523,7 @@ function buildNotebookHierarchy(assignments: AssignmentGroup[]): NotebookSubject
           subjects.set(subjectKey, subject)
         }
 
-        const categoryGroupKey = category.key
+        const categoryGroupKey = normalizeNotebookCategory(category.label)
         let categoryGroup = subject.categoryIndex.get(categoryGroupKey)
         if (!categoryGroup) {
           categoryGroup = {
@@ -507,8 +545,10 @@ function buildNotebookHierarchy(assignments: AssignmentGroup[]): NotebookSubject
         const entry: NotebookAssignmentEntry = {
           assignment,
           subjectKey,
-          category,
+          key: categoryGroupKey,
+          categories: [category],
           items: subjectItems,
+          studied: category.studied,
           studentSavedOnly: subjectItems.length > 0 && subjectItems.every(isStudentSaved),
           similar,
           showArchiveAction: false,
@@ -518,6 +558,10 @@ function buildNotebookHierarchy(assignments: AssignmentGroup[]): NotebookSubject
           const existingIds = new Set(existingEntry.items.map((item) => item.id))
           const additionalItems = subjectItems.filter((item) => !existingIds.has(item.id))
           existingEntry.items.push(...additionalItems)
+          if (!existingEntry.categories.some((existingCategory) => existingCategory.key === category.key)) {
+            existingEntry.categories.push(category)
+          }
+          existingEntry.studied = existingEntry.categories.every((entryCategory) => entryCategory.studied)
           existingEntry.studentSavedOnly = existingEntry.items.every(isStudentSaved)
           if (entry.similar.length > existingEntry.similar.length) existingEntry.similar = entry.similar
           categoryGroup.itemCount += additionalItems.length
@@ -542,8 +586,8 @@ function buildNotebookHierarchy(assignments: AssignmentGroup[]): NotebookSubject
           return category
         })
         .sort((left, right) => {
-          const leftStudied = left.assignments.every((entry) => entry.category.studied)
-          const rightStudied = right.assignments.every((entry) => entry.category.studied)
+          const leftStudied = left.assignments.every((entry) => entry.studied)
+          const rightStudied = right.assignments.every((entry) => entry.studied)
           return Number(leftStudied) - Number(rightStudied) || right.itemCount - left.itemCount || left.label.localeCompare(right.label, 'zh-CN')
         })
       return subject
@@ -567,6 +611,10 @@ function buildNotebookHierarchy(assignments: AssignmentGroup[]): NotebookSubject
 function normalizeNotebookSubject(value: string): string {
   if (value === 'english_exercise') return 'english'
   return value || 'other'
+}
+
+function normalizeNotebookCategory(value: string): string {
+  return value.trim().toLocaleLowerCase() || '待归类'
 }
 
 function buildNotebookData(items: StudentMistake[]): NotebookData {
@@ -673,6 +721,10 @@ function openOriginalQuestion(mistake: RelatedMistake | StudentMistake) {
   // This action is intentionally local: show the modal without changing the current route.
   selectedOriginalMistake.value = { ...mistake }
 }
+function askAboutOriginalError(mistake: StudentMistake) {
+  selectedOriginalMistake.value = null
+  openAssistant(mistake)
+}
 function openSimilarOriginal(previous: StudentMistake['similar_occurrences'][number]) {
   const fullMistake = allMistakes.value.find((item) => item.id === previous.id)
   if (fullMistake) {
@@ -727,8 +779,33 @@ async function loadMistakes(): Promise<boolean> {
 function notifyMistakeReviewChanged(items?: StudentMistake[]) {
   window.dispatchEvent(new CustomEvent('mistake-review-changed', { detail: { items } }))
 }
-async function toggleCategory(assignment: AssignmentGroup, category: MistakeCategory) {
-  await toggleCategoryByPayload({ assignment_id: assignment.id, category_key: category.key, studied: !category.studied })
+async function toggleNotebookEntry(entry: NotebookAssignmentEntry) {
+  if (workingKey.value) return
+  const studied = !entry.studied
+  workingKey.value = hierarchyStudyKey(entry)
+  actionError.value = ''
+  try {
+    const results = await Promise.allSettled(entry.categories.map((category) => student.setMistakeCategoryStudied({
+      assignment_id: entry.assignment.id,
+      category_key: category.key,
+      studied,
+    })))
+    let failed = false
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        failed = true
+        return
+      }
+      for (const item of entry.categories[index].items) item.category_studied = studied
+      if (selectedMistake.value?.assignment_id === entry.assignment.id && selectedMistake.value.category_key === entry.categories[index].key) {
+        selectedMistake.value.category_studied = studied
+      }
+    })
+    if (failed) actionError.value = '部分错误类别的学习状态保存失败，请重试。'
+    notifyMistakeReviewChanged(allMistakes.value)
+  } catch {
+    actionError.value = '学习状态保存失败，请稍后重试。'
+  } finally { workingKey.value = '' }
 }
 async function toggleCategoryByPayload(payload: { assignment_id: number; category_key: string; studied: boolean }) {
   const key = studyKey(payload.assignment_id, payload.category_key)
