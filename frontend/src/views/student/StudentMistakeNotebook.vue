@@ -235,7 +235,7 @@ const loading = ref(false)
 const mistakesLoaded = ref(false)
 const loadError = ref('')
 const actionError = ref('')
-const view = ref<NotebookView>('notebook')
+const view = ref<NotebookView>('sticky')
 const selectedOriginalMistake = ref<RelatedMistake | StudentMistake | null>(null)
 const originalAssignmentErrorTypes = computed<OriginalAssignmentErrorType[]>(() => {
   const selected = selectedOriginalMistake.value
@@ -292,7 +292,6 @@ let viewRequestId = 0
 let assistantRequestId = 0
 const studentName = computed(() => auth.name || '我的')
 const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> = [
-  { key: 'notebook', label: '卡片笔记', icon: 'book' },
   { key: 'sticky', label: '便利贴', icon: 'file' },
   { key: 'mindmap', label: '思维导图', icon: 'chart' },
 ]
