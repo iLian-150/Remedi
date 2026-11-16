@@ -1914,9 +1914,9 @@ onBeforeUnmount(() => {
     grid-area: assistant;
     align-self: start;
     width: 100%;
-    height: calc(100dvh - 220px);
+    height: calc(100dvh - 76px);
     min-height: 0;
-    max-height: calc(100dvh - 220px);
+    max-height: calc(100dvh - 76px);
     overflow: hidden;
   }
 
