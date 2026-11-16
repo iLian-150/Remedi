@@ -11,6 +11,8 @@
 
 架构图和工作流图使用 ImageGen 生成，图片统一放在 [技术图](技术图/) 文件夹中：
 
+所有项目图统一采用 Remedi 产品界面风格：浅灰工作区、白色卡片、品牌蓝、深色文字和细边框。
+
 - [项目功能总览 PNG](技术图/project_feature_overview.png)
 - [系统架构 PNG](技术图/architecture.png)
 - [主工作流 PNG](技术图/workflow.png)
