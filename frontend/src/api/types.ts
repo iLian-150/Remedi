@@ -181,6 +181,7 @@ export interface StudentMistake {
   category_key: string
   category_label: string
   category_studied: boolean
+  question_studied?: boolean
   archived_at: string | null
   similar_occurrences: Array<{
     id: number

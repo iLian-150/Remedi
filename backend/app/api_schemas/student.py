@@ -136,6 +136,7 @@ class StudentMistakeOut(BaseModel):
     category_key: str
     category_label: str
     category_studied: bool
+    question_studied: bool = False
     archived_at: Optional[datetime] = None
     similar_occurrences: List[SimilarMistakeBrief] = Field(default_factory=list)
     latest_correction: Optional[MistakeCorrectionBrief] = None
@@ -239,6 +240,12 @@ class RelatedMistakeOut(BaseModel):
 
 class MistakeCategoryStudyIn(BaseModel):
     assignment_id: int
+    category_key: str = Field(min_length=1, max_length=256)
+    studied: bool
+
+class MistakeQuestionStudyIn(BaseModel):
+    assignment_id: int
+    question_id: int
     category_key: str = Field(min_length=1, max_length=256)
     studied: bool
 

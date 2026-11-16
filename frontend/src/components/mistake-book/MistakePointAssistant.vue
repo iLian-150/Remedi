@@ -21,7 +21,7 @@
         </div>
         <div class="mistake-point-summary-tools">
           <small v-if="mistake.source_kind === 'student_saved'">这是你主动加入错题本的题目</small>
-          <small v-else>{{ related.length }} 道相关错题 · 本作业已学 {{ progress.completed }}/{{ progress.total }} 个错误点</small>
+          <small v-else>{{ related.length }} 道相关错题 · 本作业已学 {{ progress.completed }}/{{ progress.total }} 道题</small>
           <button type="button" class="mistake-point-summary-toggle" :aria-expanded="!summaryCollapsed" :aria-label="summaryCollapsed ? '展开错误点内容' : '收起错误点内容'" @click="summaryCollapsed = !summaryCollapsed">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 12.5 5.5-5.5 5.5 5.5" /></svg>
           </button>
@@ -63,14 +63,14 @@
         </div>
         <div class="mistake-point-summary-actions">
           <template v-if="mistake.source_kind !== 'student_saved'">
-            <button type="button" class="study" :disabled="savingStudy" @click="$emit('study')">{{ savingStudy ? '保存中…' : mistake.category_studied ? '已学会 · 撤销' : '学完这个错误点' }}</button>
+            <button type="button" class="study" :disabled="savingStudy" @click="$emit('study')">{{ savingStudy ? '保存中…' : (mistake.question_studied ?? mistake.category_studied) ? '已学会 · 撤销' : '标记这道题已学会' }}</button>
           </template>
           <span v-else>已保存在错题本，可以继续和学习助手讨论。</span>
         </div>
       </div>
     </section>
 
-    <div v-if="mistake.source_kind !== 'student_saved' && progress.complete" class="mistake-point-assignment-complete" role="status"><AppIcon name="check" :size="15"/> 这份作业的所有错误点和知识点都已学完。</div>
+    <div v-if="mistake.source_kind !== 'student_saved' && progress.complete" class="mistake-point-assignment-complete" role="status"><AppIcon name="check" :size="15"/> 这份作业的错题都已学会。</div>
     <div class="mistake-point-chat-title"><strong>一起弄懂这道题</strong><span>从你卡住的地方开始</span></div>
     <div class="mistake-point-transcript" aria-live="polite">
       <p v-if="loading" class="mistake-point-empty" role="status">正在加载对话…</p>

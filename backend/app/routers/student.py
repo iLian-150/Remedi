@@ -41,6 +41,7 @@ from ..models import (
     StudentMistakeArchive,
     StudentMistakeCategoryReview,
     StudentMistakeEvent,
+    StudentMistakeQuestionReview,
     StudentLearningMemory,
     StudentQuestionCapture,
     Step,
@@ -68,6 +69,7 @@ from ..api_schemas.student import (
     MistakeArchiveIn,
     MistakeAssignmentArchiveIn,
     MistakeCategoryStudyIn,
+    MistakeQuestionStudyIn,
     PhotoCaptureSaveIn,
     PhotoDiagnosisOut,
     PhotoReviewOut,
@@ -1464,6 +1466,23 @@ def my_mistakes(
                 StudentMistakeCategoryReview.assignment_id.in_(assignment_id_chunk),
             ).all()
         )
+    question_reviewed = {}
+    for start in range(0, len(visible_assignment_id_list), 500):
+        assignment_id_chunk = visible_assignment_id_list[start:start + 500]
+        question_reviewed.update(
+            {
+                (assignment_id, question_id, category_key): studied
+                for assignment_id, question_id, category_key, studied in db.query(
+                    StudentMistakeQuestionReview.assignment_id,
+                    StudentMistakeQuestionReview.question_id,
+                    StudentMistakeQuestionReview.category_key,
+                    StudentMistakeQuestionReview.studied,
+                ).filter(
+                    StudentMistakeQuestionReview.student_id == current.id,
+                    StudentMistakeQuestionReview.assignment_id.in_(assignment_id_chunk),
+                ).all()
+            }
+        )
     correction_by_error = {}
     verification_by_error = {}
     for start in range(0, len(visible_error_ids), 500):
@@ -1644,6 +1663,10 @@ def my_mistakes(
             category_key=category_key,
             category_label=category_label,
             category_studied=(assignment.id, category_key) in reviewed,
+            question_studied=question_reviewed.get(
+                (assignment.id, question.id, category_key),
+                (assignment.id, category_key) in reviewed,
+            ),
             archived_at=archived_at_by_error.get(error.id),
             similar_occurrences=similar_by_category_assignment.get(
                 (category_key, assignment.id), []
@@ -2303,8 +2326,70 @@ def set_mistake_category_studied(body: MistakeCategoryStudyIn,
             ))
     elif state:
         db.delete(state)
+    db.query(StudentMistakeQuestionReview).filter_by(
+        student_id=current.id,
+        assignment_id=body.assignment_id,
+        category_key=body.category_key,
+    ).delete(synchronize_session=False)
     db.commit()
     return {"assignment_id": body.assignment_id, "category_key": body.category_key, "studied": body.studied}
+
+
+@router.patch("/mistakes/questions", summary="标记作业中的单题错因学习状态")
+def set_mistake_question_studied(body: MistakeQuestionStudyIn,
+                                 db: Session = Depends(get_db),
+                                 current: User = Depends(require_student)):
+    rows = (
+        db.query(Error.error_type, Error.knowledge_point, Question.subject)
+        .join(Submission, Error.submission_id == Submission.id)
+        .join(Question, Submission.question_id == Question.id)
+        .outerjoin(
+            StudentMistakeArchive,
+            and_(
+                StudentMistakeArchive.error_id == Error.id,
+                StudentMistakeArchive.student_id == current.id,
+            ),
+        )
+        .filter(
+            Submission.student_id == current.id,
+            Question.assignment_id == body.assignment_id,
+            Question.id == body.question_id,
+            StudentMistakeArchive.error_id.is_(None),
+        )
+        .distinct()
+        .all()
+    )
+    valid_keys = {
+        _mistake_category(subject, error_type, knowledge_point)[0]
+        for error_type, knowledge_point, subject in rows
+    }
+    if body.category_key not in valid_keys:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "作业或错题类别不存在")
+
+    review = db.query(StudentMistakeQuestionReview).filter_by(
+        student_id=current.id,
+        assignment_id=body.assignment_id,
+        question_id=body.question_id,
+        category_key=body.category_key,
+    ).first()
+    if review:
+        review.studied = body.studied
+        review.studied_at = datetime.now()
+    else:
+        db.add(StudentMistakeQuestionReview(
+            student_id=current.id,
+            assignment_id=body.assignment_id,
+            question_id=body.question_id,
+            category_key=body.category_key,
+            studied=body.studied,
+        ))
+    db.commit()
+    return {
+        "assignment_id": body.assignment_id,
+        "question_id": body.question_id,
+        "category_key": body.category_key,
+        "studied": body.studied,
+    }
 
 
 @router.patch("/mistakes/{error_id}/archive", summary="移出或恢复单条错题")

@@ -371,34 +371,34 @@
 .remedi-mistake-book .notebook-assignment-footer button, .remedi-mistake-book.notebook-assignment-footer button { min-height: 34px; padding: 8px 12px; border: 1px solid var(--primary); border-radius: var(--radius-control); color: var(--card); background: var(--primary); font-size: 11px; }
 .remedi-mistake-book .notebook-assignment-footer button:hover:not(:disabled), .remedi-mistake-book.notebook-assignment-footer button:hover:not(:disabled) { border-color: var(--primary-dark); background: var(--primary-dark); }
 .remedi-mistake-book .notebook-assignment-footer button:disabled, .remedi-mistake-book.notebook-assignment-footer button:disabled { border-color: var(--border); color: var(--text-2); background: var(--bg); }
-.remedi-mistake-book .notebook-hierarchy { display: flex; flex-direction: column; gap: 12px; }
-.remedi-mistake-book .notebook-hierarchy-subject { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); }
-.remedi-mistake-book .notebook-hierarchy-summary { display: flex; min-width: 0; align-items: center; gap: 12px; cursor: pointer; list-style: none; }
-.remedi-mistake-book .notebook-hierarchy-summary::-webkit-details-marker { display: none; }
-.remedi-mistake-book .notebook-hierarchy-subject-summary { min-height: 70px; padding: 14px 18px; }
-.remedi-mistake-book .notebook-hierarchy-chevron { flex: 0 0 auto; color: var(--text-2); transition: transform .16s ease; }
-.remedi-mistake-book .notebook-hierarchy-subject[open] > .notebook-hierarchy-subject-summary .notebook-hierarchy-chevron,
-.remedi-mistake-book .notebook-hierarchy-category[open] > .notebook-hierarchy-category-summary .notebook-hierarchy-chevron { transform: rotate(180deg); }
-.remedi-mistake-book .notebook-hierarchy-title { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
-.remedi-mistake-book .notebook-hierarchy-title strong { overflow: hidden; color: var(--text); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.remedi-mistake-book .notebook-hierarchy-title small { color: var(--text-2); font-size: 11px; line-height: 1.5; }
-.remedi-mistake-book .notebook-hierarchy-categories { padding: 0 17px 14px 34px; }
-.remedi-mistake-book .notebook-hierarchy-category { border-top: 1px solid var(--border); }
-.remedi-mistake-book .notebook-hierarchy-category-summary { min-height: 54px; padding: 10px 6px; }
-.remedi-mistake-book .notebook-hierarchy-category-summary .notebook-hierarchy-title strong { font-size: 12px; }
-.remedi-mistake-book .notebook-hierarchy-assignments { display: flex; flex-direction: column; padding-left: 18px; }
+.remedi-mistake-book .notebook-hierarchy { display: flex; flex-direction: column; gap: 18px; }
+.remedi-mistake-book .notebook-subject-group { display: flex; min-width: 0; flex-direction: column; gap: 9px; }
+.remedi-mistake-book .notebook-subject-heading { display: flex; min-width: 0; align-items: baseline; gap: 10px; padding: 3px 2px; }
+.remedi-mistake-book .notebook-subject-heading strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.remedi-mistake-book .notebook-subject-heading span { color: var(--text-2); font-size: 11px; }
 .remedi-mistake-book .notebook-hierarchy-assignment,
-.remedi-mistake-book .notebook-hierarchy-assignment[open] { overflow: visible; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
-.remedi-mistake-book .notebook-hierarchy-assignment > summary { min-height: 62px; grid-template-columns: 16px minmax(0, 1fr) auto auto; gap: 10px; padding: 11px 8px; }
+.remedi-mistake-book .notebook-hierarchy-assignment[open] { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); box-shadow: none; }
+.remedi-mistake-book .notebook-hierarchy-assignment[open] { box-shadow: 0 5px 18px rgba(31, 41, 55, 0.035); }
+.remedi-mistake-book .notebook-hierarchy-assignment > summary { min-height: 66px; grid-template-columns: 18px minmax(0, 1fr) auto auto; gap: 11px; padding: 12px 16px; }
 .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-title { grid-column: auto; grid-row: auto; }
 .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-progress,
 .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-state { grid-column: auto; grid-row: auto; }
-.remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-content { padding: 0 10px 14px 34px; }
-.remedi-mistake-book .notebook-hierarchy-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.remedi-mistake-book .notebook-assignment-footer .notebook-hierarchy-study { border-color: var(--border); color: var(--text-2); background: var(--card); }
-.remedi-mistake-book .notebook-assignment-footer .notebook-hierarchy-study:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
-.remedi-mistake-book .notebook-assignment-footer .notebook-hierarchy-study.studied { border-color: var(--border); color: var(--green); background: var(--green-bg); }
-.remedi-mistake-book .notebook-assignment-footer .notebook-hierarchy-study:disabled { border-color: var(--border); color: var(--text-2); background: var(--bg); }
+.remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-content { padding: 0 18px 16px; }
+.remedi-mistake-book .notebook-hierarchy-assignment .notebook-category { padding: 12px 0; }
+.remedi-mistake-book .notebook-hierarchy-assignment .notebook-category + .notebook-category { border-top: 1px solid var(--border); }
+.remedi-mistake-book .notebook-question-records { grid-column: 1 / -1; margin: -2px 8px 2px; color: var(--text-2); font-size: 11px; }
+.remedi-mistake-book .notebook-question-records summary { width: fit-content; color: var(--primary); cursor: pointer; }
+.remedi-mistake-book .notebook-question-records ul { display: flex; flex-direction: column; gap: 5px; margin: 7px 0 3px; padding-left: 18px; }
+.remedi-mistake-book .notebook-question-records li { display: flex; flex-wrap: wrap; gap: 4px 9px; line-height: 1.6; }
+.remedi-mistake-book .notebook-question-records li strong { color: var(--text-2); font-size: 10px; }
+.remedi-mistake-book .notebook-question-actions { display: flex; min-width: 86px; grid-column: 2; grid-row: 1 / span 2; flex-direction: column; align-items: flex-end; justify-content: center; gap: 4px; }
+.remedi-mistake-book .notebook-question-actions button { display: inline-flex; min-height: 30px; align-items: center; gap: 4px; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--radius-detail); color: var(--text-2); background: var(--card); font-size: 10px; white-space: nowrap; }
+.remedi-mistake-book .notebook-question-actions button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
+.remedi-mistake-book .notebook-question-actions .notebook-question-study { color: var(--primary); }
+.remedi-mistake-book .notebook-question-actions .notebook-question-study.studied { border-color: var(--border); color: var(--green-strong); background: var(--green-bg); }
+.remedi-mistake-book .notebook-question-actions button:disabled { color: var(--text-2); background: var(--bg); cursor: wait; }
+.remedi-mistake-book .notebook-question-actions svg { width: 13px; height: 13px; }
+.remedi-mistake-book .notebook-assignment-footer { border-top: 1px solid var(--border); }
 .remedi-mistake-book .notebook-action-error, .remedi-mistake-book.notebook-action-error { margin: 10px 0; color: var(--red-strong); font-size: 12px; }
 .remedi-mistake-book .notebook-skeleton, .remedi-mistake-book.notebook-skeleton { min-height: 259px; padding: 23px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: linear-gradient(100deg, var(--bg) 30%, var(--card) 50%, var(--bg) 70%); background-size: 200% 100%; animation: notebook-loading 1.6s ease-in-out infinite; }
 .remedi-mistake-book .notebook-skeleton > span, .remedi-mistake-book.notebook-skeleton > span { display: block; width: 90%; height: 10px; margin-top: 16px; border-radius: var(--radius-micro); background: var(--border); }
@@ -449,17 +449,14 @@
 }
 
 @container (max-width: 570px) {
-  .remedi-mistake-book .notebook-hierarchy { gap: 9px; }
-  .remedi-mistake-book .notebook-hierarchy-subject-summary { min-height: 62px; padding: 12px; }
-  .remedi-mistake-book .notebook-hierarchy-categories { padding: 0 10px 10px 16px; }
-  .remedi-mistake-book .notebook-hierarchy-assignments { padding-left: 10px; }
   .remedi-mistake-book .notebook-hierarchy-assignment > summary { min-height: 66px; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 7px; padding: 10px 4px; }
   .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-title { grid-column: 2; grid-row: 1; }
   .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-progress { grid-column: 3; grid-row: 1; justify-self: end; }
   .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-state { grid-column: 2 / 4; grid-row: 2; justify-self: start; }
-  .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-content { padding: 0 4px 12px 22px; }
-  .remedi-mistake-book .notebook-hierarchy-actions { width: 100%; }
-  .remedi-mistake-book .notebook-assignment-footer .notebook-hierarchy-actions button { width: 100%; }
+  .remedi-mistake-book .notebook-hierarchy-assignment .notebook-assignment-content { padding: 0 10px 12px; }
+  .remedi-mistake-book .notebook-subject-heading { flex-wrap: wrap; }
+  .remedi-mistake-book .notebook-question-actions { min-width: 0; flex-direction: row; flex-wrap: wrap; }
+  .remedi-mistake-book .notebook-question-actions button { white-space: normal; }
 }
 
 @container (max-width: 350px) {

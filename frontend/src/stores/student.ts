@@ -553,6 +553,15 @@ export const useStudentStore = defineStore('student', {
       await api.patch('/api/student/mistakes/categories', payload)
       invalidateStudentMistakes(useAuthStore().user?.id)
     },
+    async setMistakeQuestionStudied(payload: {
+      assignment_id: number
+      question_id: number
+      category_key: string
+      studied: boolean
+    }): Promise<void> {
+      await api.patch('/api/student/mistakes/questions', payload)
+      invalidateStudentMistakes(useAuthStore().user?.id)
+    },
     async setMistakeArchived(errorId: number, archived: boolean): Promise<void> {
       await api.patch(`/api/student/mistakes/${errorId}/archive`, { archived })
       invalidateStudentMistakes(useAuthStore().user?.id)

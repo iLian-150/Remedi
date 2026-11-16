@@ -543,6 +543,21 @@ class StudentMistakeCategoryReview(Base):
     studied_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class StudentMistakeQuestionReview(Base):
+    """学生错题本中，某份作业里的某类错因对应到单题的学习状态覆盖值。"""
+    __tablename__ = "student_mistake_question_reviews"
+    __table_args__ = (
+        Index("ix_student_mistake_question_reviews_assignment_id", "assignment_id"),
+    )
+
+    student_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
+    question_id = Column(Integer, ForeignKey("questions.id"), primary_key=True)
+    category_key = Column(String(256), primary_key=True)
+    studied = Column(Boolean, nullable=False, default=True)
+    studied_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class StudentMistakeArchive(Base):
     """逐条保存错题本移出状态，不删除原始诊断记录。"""
     __tablename__ = "student_mistake_archives"
