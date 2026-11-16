@@ -244,6 +244,42 @@ table.table th { color: var(--text-2); font-weight: 650; font-size: 12px; letter
 table.table tr:last-child td { border-bottom: 0; }
 @media (hover: hover) { table.table tbody tr:hover td { background: #F7F9FE; } }
 
+/* AI 对话中的 Markdown 表格：统一边框、表头和窄屏横向滚动。 */
+.markdown-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  margin: 0.7em 0 0.9em;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+}
+.markdown-table-scroll table {
+  width: 100%;
+  min-width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.94em;
+  line-height: 1.55;
+}
+.markdown-table-scroll th,
+.markdown-table-scroll td {
+  padding: 8px 10px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.markdown-table-scroll th {
+  color: var(--text-strong);
+  background: var(--surface-2);
+  font-weight: 650;
+}
+.markdown-table-scroll tr > :last-child { border-right: 0; }
+.markdown-table-scroll tbody tr:last-child td { border-bottom: 0; }
+
 /* ---------- 解题步骤展示 ---------- */
 .step {
   border: 1px solid var(--border);

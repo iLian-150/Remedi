@@ -11,6 +11,9 @@ export function createMarkdownRenderer<T extends object>(
     linkify: false,
     typographer: false
   })
+  markdown.enable('table')
+  markdown.renderer.rules.table_open = () => '<div class="markdown-table-scroll"><table>\n'
+  markdown.renderer.rules.table_close = () => '</table></div>\n'
   const renderedByMessage = new WeakMap<T, { source: string; html: string }>()
 
   return (message: T, text = getText(message)): string => {
