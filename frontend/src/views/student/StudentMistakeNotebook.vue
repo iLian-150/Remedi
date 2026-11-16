@@ -1556,7 +1556,7 @@ onBeforeUnmount(() => {
 
 .remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
   max-width: none;
-  padding: calc(40px + var(--content-frame-gutter)) 0 0;
+  padding: 16px 0 0;
 }
 
 .remedi-mistake-book :deep(.sticky-notes-breadcrumb) {
@@ -2066,7 +2066,7 @@ onBeforeUnmount(() => {
   }
 
   .remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
-    padding-top: 72px;
+    padding-top: 16px;
   }
 }
 
@@ -2162,7 +2162,7 @@ onBeforeUnmount(() => {
   }
 
   .remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
-    padding-top: 66px;
+    padding-top: 16px;
   }
 
   .remedi-mistake-book :deep(.sticky-notes-grid) {

@@ -560,7 +560,7 @@
   min-height: 0;
   max-width: none;
   overflow-y: auto;
-  padding: 99px 28px 34px;
+  padding: 16px 28px 24px;
 }
 .remedi-mistake-book .mistake-sticky-notes.is-split .mistake-point-assistant, .remedi-mistake-book.mistake-sticky-notes.is-split .mistake-point-assistant { grid-area: assistant; }
 .remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-split) .mistake-view-controls,

@@ -249,9 +249,9 @@ function toggleStudied(assignment: StickyAssignment) {
 <style scoped>
 .mistake-sticky-notes:not(.is-split) { height: 100%; min-height: 0; }
 .mistake-sticky-notes:not(.is-split) .sticky-notes-inner { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; }
-.mistake-sticky-notes .sticky-notes-topline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; margin-top: 25px; }
+.mistake-sticky-notes .sticky-notes-topline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; margin-top: 0; }
 .mistake-sticky-notes .sticky-notes-topline .sticky-notes-breadcrumb { flex: 0 0 auto; margin-top: 0; }
-.mistake-sticky-notes .sticky-notes-topline .sticky-detail-summary { flex: 1 1 540px; min-width: 0; max-width: 540px; align-items: center; padding-bottom: 0; border-bottom: 0; }
+.mistake-sticky-notes .sticky-notes-topline .sticky-detail-summary { flex: 1 1 540px; min-width: 0; max-width: 540px; align-items: center; margin-top: 0; padding-bottom: 0; border-bottom: 0; }
 .mistake-sticky-notes .sticky-notes-detail { margin-top: 0; }
 .sticky-question-diagnosis { display: -webkit-box; max-height: 40px; margin-top: 7px; overflow: hidden; color: inherit; opacity: .72; font-size: 11px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .sticky-assignment-questions > article { min-width: 0; }
