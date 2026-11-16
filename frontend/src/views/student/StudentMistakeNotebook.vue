@@ -1914,25 +1914,26 @@ onBeforeUnmount(() => {
     grid-area: assistant;
     align-self: start;
     width: 100%;
-    height: calc(100dvh - 32px);
+    height: calc(100dvh - 220px);
     min-height: 0;
-    max-height: calc(100dvh - 32px);
+    max-height: calc(100dvh - 220px);
     overflow: hidden;
   }
 
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-point-summary {
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-summary) {
     max-height: 42%;
     overflow: hidden;
   }
 
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-point-summary-body {
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-summary-body) {
     min-width: 0;
     overflow-y: auto;
     overflow-wrap: anywhere;
   }
 
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-point-transcript {
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-transcript) {
     min-width: 0;
+    min-height: 0;
     flex: 1 1 auto;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -1946,6 +1947,8 @@ onBeforeUnmount(() => {
   .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-assistant-fullscreen > .mistake-point-assistant {
     position: relative;
     top: auto;
+    height: calc(100dvh - 32px);
+    max-height: calc(100dvh - 32px);
   }
 }
 </style>
