@@ -771,10 +771,20 @@ export interface TeacherAssignmentQuestionAnalytics {
   subject: string
   prompt: string
   knowledge_point: string
+  max_score: number
   expected_students: number
   submitted_students: number
   graded_students: number
   average_score_rate: number | null
+}
+
+export interface TeacherAssignmentStudentQuestionResult {
+  question_id: number
+  status: '未提交' | '批改中' | '截止后批改' | '待复核' | '已批改'
+  score: number | null
+  max_score: number
+  score_rate: number | null
+  submitted_at: string | null
 }
 
 export interface TeacherAssignmentStudentAnalytics {
@@ -786,8 +796,10 @@ export interface TeacherAssignmentStudentAnalytics {
   graded_questions: number
   score: number
   max_score: number
+  graded_max_score: number
   score_rate: number | null
   status: '未开始' | '部分提交' | '截止后批改' | '批改中' | '待复核' | '已完成'
+  question_results: TeacherAssignmentStudentQuestionResult[]
 }
 
 export interface TeacherAssignmentAnalytics {
@@ -799,6 +811,7 @@ export interface TeacherAssignmentAnalytics {
   grading_count: number
   review_count: number
   question_count: number
+  average_score_rate: number | null
   progress_counts: Partial<Record<TeacherAssignmentStudentAnalytics['status'], number>>
   questions: TeacherAssignmentQuestionAnalytics[]
   students: TeacherAssignmentStudentAnalytics[]

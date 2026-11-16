@@ -313,6 +313,7 @@ def assignment_analytics(
             "subject": question.subject,
             "prompt": question.stem,
             "knowledge_point": question.knowledge_point,
+            "max_score": max_scores[question.id],
             "expected_students": expected_count,
             "submitted_students": submitted_count,
             "graded_students": graded_count,
@@ -357,11 +358,44 @@ def assignment_analytics(
             score_by_pair[(student_id, question_id)][0]
             for question_id in student_scored
         )
-        max_total = sum(
+        graded_max_total = sum(
             score_by_pair[(student_id, question_id)][1]
             for question_id in student_scored
         )
+        max_total = sum(max_scores[question_id] for question_id in expected_questions)
         student = students_by_id[student_id]
+        question_results = []
+        student_question_ids = sorted(
+            expected_questions,
+            key=lambda question_id: (
+                question_by_id[question_id].order_num,
+                question_by_id[question_id].id,
+            ),
+        )
+        for question_id in student_question_ids:
+            question = question_by_id[question_id]
+            pair = (student_id, question_id)
+            score = score_by_pair.get(pair)
+            if pair not in submitted_pairs:
+                question_status = "未提交"
+            elif pair in deferred_pairs:
+                question_status = "截止后批改"
+            elif pair in pending_pairs:
+                question_status = "批改中"
+            elif pair in review_pairs:
+                question_status = "待复核"
+            else:
+                question_status = "已批改"
+            submission = submissions_by_pair.get(pair)
+            essay = essays_by_pair.get(pair)
+            question_results.append({
+                "question_id": question_id,
+                "status": question_status,
+                "score": round(score[0], 1) if score else None,
+                "max_score": max_scores[question_id],
+                "score_rate": round(score[0] / score[1], 4) if score and score[1] else None,
+                "submitted_at": (submission or essay).submitted_at if submission or essay else None,
+            })
         student_items.append({
             "id": student.id,
             "name": student.name,
@@ -371,10 +405,15 @@ def assignment_analytics(
             "graded_questions": len(student_scored),
             "score": round(earned_total, 1),
             "max_score": round(max_total, 1),
-            "score_rate": round(earned_total / max_total, 4) if max_total else None,
+            "graded_max_score": round(graded_max_total, 1),
+            "score_rate": round(earned_total / graded_max_total, 4) if graded_max_total else None,
             "status": progress,
+            "question_results": question_results,
         })
     student_items.sort(key=lambda item: (item["name"], item["id"]))
+
+    graded_score_total = sum(score[0] for score in score_by_pair.values())
+    graded_max_score_total = sum(score[1] for score in score_by_pair.values())
 
     return {
         "assignment_id": assignment.id,
@@ -388,6 +427,10 @@ def assignment_analytics(
         "grading_count": len(pending_pairs),
         "review_count": len(review_pairs),
         "question_count": len(questions),
+        "average_score_rate": (
+            round(graded_score_total / graded_max_score_total, 4)
+            if graded_max_score_total else None
+        ),
         "progress_counts": dict(progress_counts),
         "questions": question_items,
         "students": student_items,
@@ -404,6 +447,7 @@ def _empty_assignment_analytics(assignment: Assignment):
         "grading_count": 0,
         "review_count": 0,
         "question_count": 0,
+        "average_score_rate": None,
         "progress_counts": {},
         "questions": [],
         "students": [],
