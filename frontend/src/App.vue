@@ -104,7 +104,11 @@
     </aside>
 
     <main class="shell-main" :class="{ 'is-chat-route': isChatRoute }">
-      <header v-if="shellPageTitle" class="shell-page-heading">
+      <header
+        v-if="shellPageTitle"
+        class="shell-page-heading"
+        :class="{ 'is-mistake-book': route.path === '/student/mistakes', 'remedi-mistake-book': route.path === '/student/mistakes' }"
+      >
         <h1 :title="isStudentChat ? shellPageTitle : undefined">{{ shellPageTitle }}</h1>
       </header>
       <!-- 登录成功切换到应用外壳时，路由仍可能短暂停留在公开登录页；不要把登录表单渲染进已登录布局。 -->
@@ -265,7 +269,7 @@ const STUDENT_NAV: NavItem[] = [
   { to: '/student/mistakes', icon: 'book', label: '错题本' },
   { to: '/student/corrections', icon: 'check', label: '订正错题' },
   { to: '/student/report', icon: 'report', label: '学习报告', activePaths: ['/student/report'] },
-  { to: '/student/profile', icon: 'chart', label: '学习档案' },
+  { to: '/student/profile', icon: 'chart', label: '我的档案' },
 ]
 
 const TEACHER_NAV: NavItem[] = [
@@ -293,7 +297,7 @@ const showSidebarSessions = computed(() => {
 })
 
 const shellPageTitle = computed(() => {
-  if (route.meta.public || route.path === '/teacher/chat' || route.path === '/student/mistakes') return ''
+  if (route.meta.public || route.path === '/teacher/chat') return ''
   if (route.path === '/teacher/students' || route.path.startsWith('/teacher/students/classes/')) return ''
   if (isStudentChat.value) {
     const sessionId = student.sessionView.id ?? student.activeSessionId

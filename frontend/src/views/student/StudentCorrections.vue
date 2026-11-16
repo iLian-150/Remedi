@@ -1,6 +1,6 @@
-<!-- 学生端订正：先读取轻量作业目录，进入作业后再分页读取错题；订正判定、
+<!-- 学生端订正：先读取轻量作业目录，进入作业后以便利贴墙浏览错题；订正判定、
      已订正详情、变式验证沿用既有流程。右侧订正日历通过 store.correctionsDateFilter
-     同步筛选目录和题目列表。 -->
+     同步筛选目录和错题。 -->
 <template>
   <div class="page">
     <div v-if="error" class="error-msg">{{ error }}</div>
@@ -115,36 +115,14 @@
             <AppIcon name="chevron-left" :size="16" /> 返回作业
           </button>
         </header>
-        <section class="correction-question-list" :aria-label="`${selectedAssignmentSummary?.assignment_title ?? '作业'}错题列表`">
-          <button
-            v-for="item in mistakes"
-            :key="item.id"
-            type="button"
-            class="correction-question-row"
-            :aria-label="`第 ${item.question_order} 题，${item.corrected ? '已订正，查看诊断' : '待订正'}：${item.question_stem}`"
-            @click="openError(item)"
-          >
-            <span class="question-number tnum">{{ String(item.question_order).padStart(2, '0') }}</span>
-            <span class="question-row-content">
-              <strong>{{ item.question_stem || `第 ${item.question_order} 题` }}</strong>
-              <span class="question-row-meta">
-                <ErrorTypeBadge :type="item.error_type" />
-                <span v-if="item.knowledge_point">{{ item.knowledge_point }}</span>
-                <time :datetime="mistakeDateKey(item)">{{ dateLabelOf(item) }}</time>
-              </span>
-            </span>
-            <span class="question-row-status" :class="{ complete: item.corrected }">{{ item.corrected ? '已订正' : '待订正' }}</span>
-            <AppIcon name="chevron-right" :size="17" class="assignment-row-arrow" />
-          </button>
-          <div v-if="!mistakes.length && !error" class="ledger-empty">这份作业暂时没有错题。</div>
-          <button
-            v-if="hasMoreMistakes"
-            type="button"
-            class="load-more-corrections"
-            :disabled="loadingMoreMistakes"
-            @click="loadMoreCorrectionWall"
-          >{{ loadingMoreMistakes ? '正在加载…' : `继续显示错题（${mistakes.length} / ${selectedAssignmentSummary?.total_count ?? mistakes.length}）` }}</button>
-        </section>
+        <CorrectionStickyWall
+          :notes="mistakes"
+          :total-count="selectedAssignmentSummary?.total_count ?? mistakes.length"
+          :has-more="hasMoreMistakes"
+          :loading-more="loadingMoreMistakes"
+          @open="openError"
+          @show-more="loadMoreCorrectionWall"
+        />
       </template>
 
       <template v-else-if="view === 'work' && selectedError">
@@ -249,6 +227,7 @@ import { sanitizeStudentCopy } from '../../utils/errorType'
 import { getSubjectLabel } from '../../utils/subjectLabels'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
+import CorrectionStickyWall from '../../components/CorrectionStickyWall.vue'
 import VerifyPanel from '../../components/VerifyPanel.vue'
 
 const student = useStudentStore()
@@ -304,22 +283,11 @@ const correctionTotals = computed(() => {
   }), { total: 0, pending: 0 })
 })
 
-/** 错题所属提交的日期键：优先后端 submitted_at，缺失时用错题产生时间兜底 */
-function mistakeDateKey(item: StudentCorrectionWallItem): string {
-  return (item.submitted_at ?? item.created_at).slice(0, 10)
-}
-
 const selectedDateLabel = computed(() => {
   if (!selectedDate.value) return ''
   const [y, m, d] = selectedDate.value.split('-')
   return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`
 })
-
-/** 错题日期文案：如「10月7日」 */
-function dateLabelOf(item: StudentCorrectionWallItem): string {
-  const [, m, d] = mistakeDateKey(item).split('-')
-  return `${Number(m)}月${Number(d)}日`
-}
 
 function assignmentSubjectLabel(assignment: StudentCorrectionAssignmentSummary): string {
   return [...new Set(assignment.subjects)].map(subjectName).join(' / ') || '综合'
@@ -694,7 +662,7 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
   color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .verify-index-action:hover, .verify-index-action[aria-expanded="true"] { border-color: var(--border-strong); color: var(--primary); }
-.correction-ledger, .correction-question-list {
+.correction-ledger {
   overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface);
   background: var(--card); box-shadow: var(--shadow);
 }
@@ -744,35 +712,6 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
 .verify-kp-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text-2); font-size: 13px; }
 .verify-kp-row:last-of-type { border-bottom: 0; }
 .correction-inner-header { display: flex; align-items: flex-start; margin: 0 0 18px; }
-.correction-question-row {
-  width: 100%; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto 20px;
-  align-items: center; gap: 16px; padding: 16px 18px; border: 0; border-bottom: 1px solid var(--border);
-  background: var(--card); color: var(--text); text-align: left; font: inherit; cursor: pointer;
-  transition: background-color .15s ease;
-}
-.correction-question-row:last-of-type { border-bottom: 0; }
-.correction-question-row:hover { background: color-mix(in srgb, var(--primary-50) 55%, white); }
-.question-number {
-  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
-  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg);
-  color: var(--primary); font-size: 12px; font-weight: 700;
-}
-.question-row-content { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-.question-row-content > strong {
-  display: -webkit-box; overflow: hidden; color: var(--text-strong); font-size: 14px; font-weight: 600;
-  line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-}
-.question-row-meta { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--text-3); font-size: 12px; }
-.question-row-meta > span:not(.badge) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.question-row-meta time { margin-left: auto; white-space: nowrap; }
-.question-row-status { color: var(--primary); font-size: 12px; font-weight: 600; white-space: nowrap; }
-.question-row-status.complete { color: var(--green-strong); }
-.load-more-corrections {
-  display: block; width: 100%; padding: 13px 18px; border: 0;
-  background: var(--card); color: var(--primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
-}
-.load-more-corrections:hover { background: var(--primary-50); }
-.load-more-corrections:disabled { color: var(--text-3); cursor: wait; }
 .step-text { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .detail { font-size: 14px; color: var(--text-2); }
 /* v0.13.9：题目回顾完整版——原题 / 原作答（错步原地标红）/ 正确答案 / 标准过程 */
@@ -816,11 +755,6 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
   .assignment-progress-cell { grid-area: progress; padding-left: 47px; }
   .assignment-latest-time { grid-area: date; font-size: 11px; }
   .assignment-row-arrow { grid-area: arrow; }
-  .correction-question-row { grid-template-columns: 38px minmax(0, 1fr) 18px; gap: 10px; padding: 14px; }
-  .question-row-status { grid-column: 2; justify-self: start; grid-row: 2; }
-  .question-row-meta time { display: none; }
-  .question-row-content { grid-column: 2; grid-row: 1; }
-  .correction-question-row > .assignment-row-arrow { grid-column: 3; grid-row: 1; }
 }
 @media (max-width: 480px) {
   .correction-index-toolbar { align-items: flex-start; }
@@ -829,6 +763,5 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
   .verify-index-action { min-height: 34px; padding: 5px 8px; font-size: 12px; }
   .assignment-progress-copy { font-size: 11px; }
   .assignment-index-copy strong { font-size: 14px; }
-  .question-row-meta { gap: 6px; }
 }
 </style>

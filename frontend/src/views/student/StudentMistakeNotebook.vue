@@ -1,19 +1,45 @@
 <template>
   <div class="page mistake-map-view remedi-mistake-book">
-    <main class="mistakes-panel" :class="`is-${view}`" aria-label="学生错题本">
-      <header class="mistake-book-heading"><h1>{{ student.mistakePageTitle || '错题本' }}</h1></header>
-      <div class="mistake-board-toolbar" :class="{ 'with-notebook-filters': view === 'notebook' }" role="toolbar" aria-label="错题本视图操作">
-        <div v-if="view === 'notebook'" class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
-          <button v-for="option in statusOptions" :key="option.key" type="button" :class="{ selected: status === option.key }" :aria-pressed="status === option.key" @click="status = option.key">{{ option.label }}<small>{{ option.count }}</small></button>
-        </div>
-        <div v-if="view === 'notebook'" class="notebook-search-tools">
-          <label class="notebook-search"><AppIcon name="file" :size="15"/><input v-model="query" type="search" placeholder="搜索作业、错因、知识点…" aria-label="搜索作业和错因"/><button v-if="query" type="button" aria-label="清空搜索" @click="query = ''"><AppIcon name="x" :size="13"/></button></label>
-          <label class="notebook-sort"><select v-model="sort" aria-label="作业排序"><option value="recent">最近作业</option><option value="oldest">最早作业</option><option value="priority">优先看重复错因</option></select></label>
-        </div>
+    <Teleport to=".shell-page-heading.is-mistake-book">
+      <div v-if="!assistantFullscreen" class="mistake-view-controls" role="toolbar" aria-label="错题本视图操作">
         <div class="mistake-view-switch" role="group" aria-label="切换错题本样式">
           <button v-for="item in viewOptions" :key="item.key" type="button" :class="{ selected: view === item.key }" :aria-pressed="view === item.key" @click="setView(item.key)"><AppIcon :name="item.icon" :size="15"/>{{ item.label }}</button>
         </div>
         <button class="mistake-board-refresh" type="button" :disabled="loading" aria-label="刷新错题本" title="刷新错题" @click="loadMistakes"><AppIcon name="refresh" :size="17"/></button>
+      </div>
+    </Teleport>
+    <main class="mistakes-panel" :class="`is-${view}`" aria-label="学生错题本">
+      <div v-if="view === 'notebook'" class="mistake-board-toolbar with-notebook-filters" role="group" aria-label="筛选错题作业">
+        <div class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
+          <button v-for="option in statusOptions" :key="option.key" type="button" :class="{ selected: status === option.key }" :aria-pressed="status === option.key" @click="status = option.key">{{ option.label }}<small>{{ option.count }}</small></button>
+        </div>
+        <div class="notebook-search-tools">
+          <label class="notebook-search"><AppIcon name="file" :size="15"/><input v-model="query" type="search" placeholder="搜索作业、错因、知识点…" aria-label="搜索作业和错因"/><button v-if="query" type="button" aria-label="清空搜索" @click="query = ''"><AppIcon name="x" :size="13"/></button></label>
+          <div ref="sortPickerRef" class="notebook-sort" @focusout="onSortPickerFocusout">
+            <button
+              id="notebook-sort-trigger" ref="sortPickerButtonRef" type="button" class="notebook-sort-trigger"
+              aria-haspopup="listbox" aria-controls="notebook-sort-options" :aria-label="`作业排序：${selectedSortLabel}`"
+              :aria-expanded="sortMenuOpen" @click="toggleSortMenu" @keydown="onSortTriggerKeydown"
+            >
+              <span>{{ selectedSortLabel }}</span>
+              <AppIcon name="chevron-down" :size="15" class="notebook-sort-chevron" :class="{ open: sortMenuOpen }" aria-hidden="true"/>
+            </button>
+            <Transition name="sort-menu">
+              <div v-if="sortMenuOpen" id="notebook-sort-options" class="notebook-sort-menu" role="listbox" aria-labelledby="notebook-sort-trigger">
+                <button
+                  v-for="(option, index) in sortOptions" :key="option.value" type="button" role="option"
+                  class="notebook-sort-option" :class="{ 'is-selected': sort === option.value, 'is-active': activeSortIndex === index }"
+                  :aria-selected="sort === option.value" :tabindex="activeSortIndex === index ? 0 : -1"
+                  @focus="activeSortIndex = index" @click="selectSort(option.value)"
+                  @keydown="onSortOptionKeydown($event, index)"
+                >
+                  <span>{{ option.label }}</span>
+                  <AppIcon v-if="sort === option.value" name="check" :size="15" class="notebook-sort-check" aria-hidden="true"/>
+                </button>
+              </div>
+            </Transition>
+          </div>
+        </div>
       </div>
 
       <div v-if="removedAssignment" class="mistake-removal-notice" role="status">
@@ -26,7 +52,7 @@
       <section v-if="view === 'notebook'" class="mistake-notebook" :class="{ 'is-split': Boolean(selectedMistake), 'is-reversed': assistantOnLeft, 'is-assistant-fullscreen': assistantFullscreen }" aria-label="按作业复习错题本" :aria-busy="loading">
         <div class="mistake-notebook-content">
           <div class="notebook-workspace">
-            <div class="notebook-results-note" role="status" aria-live="polite"><span>{{ loading ? '正在整理你的错题…' : `共 ${visibleAssignments.length} 份${filtersApplied ? '符合条件的' : '待复习'}作业` }}</span><button v-if="filtersApplied" type="button" @click="resetFilters">重置筛选</button></div>
+            <div class="notebook-results-note" role="status" aria-live="polite"><span>{{ loading ? '正在整理你的错题…' : `共 ${visibleAssignments.length} 份${filtersApplied ? '符合条件的' : '待复习'}作业` }}</span></div>
             <p v-if="actionError && !removedAssignment" class="notebook-action-error" role="alert">{{ actionError }}</p>
             <div v-if="loading" class="notebook-assignment-list notebook-loading" aria-hidden="true"><div v-for="index in 4" :key="index" class="notebook-skeleton"><span/><span/><span/></div></div>
             <div v-else-if="visibleAssignments.length" class="notebook-assignment-list">
@@ -54,7 +80,7 @@
               </details>
               <button v-if="displayedAssignments.length < visibleAssignments.length" type="button" class="notebook-more-assignments" @click="showMoreAssignments">继续显示作业（{{ displayedAssignments.length }} / {{ visibleAssignments.length }}）</button>
             </div>
-            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '暂无错题' }}</h3><p v-if="allMistakes.length">换个关键词，或调整学习进度试试。</p><button v-if="allMistakes.length" type="button" @click="resetFilters">查看全部作业 <AppIcon name="arrow-right" :size="12"/></button><button v-else type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
+            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '暂无错题' }}</h3><p v-if="allMistakes.length">换个关键词，或调整学习进度试试。</p><button v-if="!allMistakes.length" type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
           </div>
         </div>
         <MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/>
@@ -73,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
@@ -104,6 +130,7 @@ const MistakeStickyNotes = defineAsyncComponent(
 )
 
 type NotebookView = 'notebook' | 'sticky' | 'mindmap'
+type AssignmentSort = 'recent' | 'oldest' | 'priority'
 interface MistakeCategory { key: string; label: string; itemCount: number; firstItem: StudentMistake | null; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
 interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; itemCount: number; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studiedCategoryCount: number; priority: number }
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
@@ -126,7 +153,11 @@ const view = ref<NotebookView>('notebook')
 const selectedOriginalMistake = ref<RelatedMistake | StudentMistake | null>(null)
 const status = ref<'all' | 'pending' | 'ready'>('all')
 const query = ref('')
-const sort = ref('recent')
+const sort = ref<AssignmentSort>('recent')
+const sortMenuOpen = ref(false)
+const activeSortIndex = ref(0)
+const sortPickerRef = ref<HTMLElement | null>(null)
+const sortPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const workingKey = ref('')
 const selectedMistake = ref<StudentMistake | null>(null)
 const expandedAssignmentIds = ref<Set<number>>(new Set())
@@ -151,6 +182,12 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
   { key: 'sticky', label: '便利贴', icon: 'file' },
   { key: 'mindmap', label: '思维导图', icon: 'chart' },
 ]
+const sortOptions: Array<{ value: AssignmentSort; label: string }> = [
+  { value: 'recent', label: '最近作业' },
+  { value: 'oldest', label: '最早作业' },
+  { value: 'priority', label: '优先看重复错因' },
+]
+const selectedSortLabel = computed(() => sortOptions.find((option) => option.value === sort.value)?.label ?? '最近作业')
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
 const relatedMistakeIndexCache = new WeakMap<StudentMistake[], RelatedMistakeIndex>()
 const assignmentSearchIndexCache = new WeakMap<StudentMistake[], AssignmentSearchIndex>()
@@ -194,6 +231,66 @@ const visibleAssignments = computed(() => {
 const displayedAssignments = computed(() =>
   visibleAssignments.value.slice(0, visibleAssignmentLimit.value)
 )
+function selectedSortOptionIndex() {
+  const index = sortOptions.findIndex((option) => option.value === sort.value)
+  return index >= 0 ? index : 0
+}
+function focusSortOption(index: number) {
+  sortPickerRef.value?.querySelectorAll<HTMLButtonElement>('[role="option"]')[index]?.focus()
+}
+async function openSortMenu(index = selectedSortOptionIndex()) {
+  activeSortIndex.value = Math.max(0, Math.min(index, sortOptions.length - 1))
+  sortMenuOpen.value = true
+  await nextTick()
+  focusSortOption(activeSortIndex.value)
+}
+function closeSortMenu(restoreFocus = false) {
+  sortMenuOpen.value = false
+  if (restoreFocus) void nextTick(() => sortPickerButtonRef.value?.focus())
+}
+function toggleSortMenu() {
+  if (sortMenuOpen.value) closeSortMenu()
+  else void openSortMenu()
+}
+function onSortTriggerKeydown(event: KeyboardEvent) {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    if (!sortMenuOpen.value) void openSortMenu()
+  } else if (event.key === 'Escape' && sortMenuOpen.value) {
+    event.preventDefault()
+    closeSortMenu(true)
+  }
+}
+function onSortOptionKeydown(event: KeyboardEvent, index: number) {
+  let nextIndex: number | null = null
+  if (event.key === 'ArrowDown') nextIndex = (index + 1) % sortOptions.length
+  else if (event.key === 'ArrowUp') nextIndex = (index - 1 + sortOptions.length) % sortOptions.length
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = sortOptions.length - 1
+  else if (event.key === 'Escape') {
+    event.preventDefault()
+    closeSortMenu(true)
+    return
+  }
+  if (nextIndex !== null) {
+    event.preventDefault()
+    activeSortIndex.value = nextIndex
+    void nextTick(() => focusSortOption(nextIndex!))
+  }
+}
+function selectSort(value: AssignmentSort) {
+  sort.value = value
+  closeSortMenu(true)
+}
+function onSortPickerFocusout(event: FocusEvent) {
+  const nextTarget = event.relatedTarget
+  if (nextTarget instanceof Node && sortPickerRef.value?.contains(nextTarget)) return
+  closeSortMenu()
+}
+function onSortPickerPointerdown(event: PointerEvent) {
+  const target = event.target
+  if (target instanceof Node && !sortPickerRef.value?.contains(target)) closeSortMenu()
+}
 watch([status, query, sort], () => {
   visibleAssignmentLimit.value = notebookAssignmentPageSize
 })
@@ -429,8 +526,6 @@ function openSimilarOriginal(previous: StudentMistake['similar_occurrences'][num
     latest_correction: null,
   }
 }
-function resetFilters() { status.value = 'all'; query.value = '' }
-
 async function loadMistakes(): Promise<boolean> {
   loading.value = true
   loadError.value = ''
@@ -608,21 +703,24 @@ function openRequestedReview() {
 watch(() => route.query.review, openRequestedReview)
 
 onMounted(() => {
+  document.addEventListener('pointerdown', onSortPickerPointerdown)
   void loadMistakes().finally(() => {
     // 错题加载完成后预热聊天组件，避免第一次打开右侧问答时等待异步代码块。
     void loadMistakePointAssistant().catch(() => undefined)
   })
 })
 onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onSortPickerPointerdown)
+  sortMenuOpen.value = false
   viewRequestId++
   student.setMistakePageTitle('')
 })
 </script>
 
 <style scoped>
-.remedi-mistake-book { min-height: 0; flex: 1 1 0; overflow: hidden; }
-.remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
-.remedi-mistake-book .mistake-board-toolbar { position: absolute; z-index: 10; top: 16px; right: 18px; }
+.remedi-mistake-book { display: flex; min-height: 0; flex: 1 1 0; flex-direction: column; overflow: hidden; }
+.remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: auto; min-height: 0; flex: 1 1 0%; overflow: hidden; }
+.remedi-mistake-book .mistake-board-toolbar { position: static; z-index: 10; }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
   position: static;
   flex-wrap: wrap;
@@ -643,25 +741,18 @@ onBeforeUnmount(() => {
   margin-left: 0;
 }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search { width: auto; min-width: 0; flex: 1 1 240px; }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort select { width: 160px; }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch {
-  position: absolute;
-  z-index: 11;
-  top: 18px;
-  right: 98px;
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort { width: 164px; flex: 0 0 164px; }
+.remedi-mistake-book .mistake-view-controls {
+  position: static;
+  z-index: auto;
+  display: flex;
+  min-height: 50px;
   flex: 0 0 auto;
-  padding: 3px;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+  align-items: center;
+  gap: 12px;
 }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh {
-  position: absolute;
-  z-index: 11;
-  top: 19px;
-  right: 50px;
+.remedi-mistake-book .mistake-view-controls .mistake-view-switch {
   flex: 0 0 auto;
-  box-shadow: none;
 }
 .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { margin-right: 0; }
 .remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
@@ -698,30 +789,17 @@ onBeforeUnmount(() => {
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs,
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { width: 100%; flex-basis: 100%; margin-right: 0; }
 }
-@media (max-width: 760px) {
-  .remedi-mistake-book .mistake-board-toolbar:not(.with-notebook-filters) { top: 10px; right: 10px; }
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch { top: 10px; right: 58px; }
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh { top: 10px; right: 10px; }
-  .remedi-mistake-book .mistakes-panel:not(.is-notebook) > .mistake-book-heading { top: 10px; left: 12px; }
-}
 @media (max-width: 700px) {
-  .remedi-mistake-book .mistake-board-toolbar { top: 10px; right: 10px; left: 10px; justify-content: center; }
+  .remedi-mistake-book .mistake-view-controls { gap: 0; }
   .remedi-mistake-book .mistake-view-switch { max-width: calc(100vw - 72px); overflow-x: auto; }
   .remedi-mistake-book .mistake-view-switch button { min-width: auto; padding-inline: 9px; }
   .remedi-mistake-book .mistake-board-refresh { display: none; }
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-board-toolbar.with-notebook-filters .mistake-view-switch,
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh { position: static; }
   .remedi-mistake-book .mistake-notebook.is-split { display: flex; flex-direction: column; }
   .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 auto; }
   .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant { height: auto; flex: 0 0 auto; }
 }
 
 /* 错题本统一视觉：保持各视图的数据和交互，只调整层级、留白与表面样式。 */
-.page.mistake-map-view.remedi-mistake-book {
-  padding-top: 12px;
-  padding-bottom: 16px;
-}
-
 .remedi-mistake-book .mistakes-panel {
   padding: 16px 18px;
   border: 1px solid var(--border);
@@ -731,40 +809,32 @@ onBeforeUnmount(() => {
 }
 
 .remedi-mistake-book .mistakes-panel.is-notebook {
+  height: auto;
+  flex: 0 0 auto;
+  padding-inline: 0;
   border: 0;
   border-radius: 0;
-  background: transparent;
+  overflow: visible;
+  background: var(--card);
   box-shadow: none;
 }
 
-.remedi-mistake-book .mistake-book-heading {
-  position: absolute;
-  z-index: 12;
-  top: 16px;
-  left: 18px;
-  margin: 0;
+.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-board-toolbar.with-notebook-filters,
+.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-removal-notice,
+.remedi-mistake-book .mistakes-panel.is-notebook > .notebook-action-error,
+.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-notebook {
+  width: 100%;
+  max-width: calc(var(--content-frame-width) - var(--content-frame-gutter) - var(--content-frame-gutter));
+  margin-inline: auto;
 }
 
-.remedi-mistake-book .mistake-book-heading h1 {
-  color: var(--text);
-  font-size: clamp(21px, 2vw, 25px);
-  font-weight: 720;
-  letter-spacing: -.035em;
-  line-height: 1.2;
-}
-
-.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-book-heading {
-  position: relative;
-  z-index: auto;
-  top: auto;
-  left: auto;
-  margin: 0 0 12px;
-}
-
-.remedi-mistake-book .mistake-board-toolbar {
-  top: 20px;
-  right: 22px;
-  gap: 8px;
+@media (max-width: 960px) {
+  .remedi-mistake-book .mistakes-panel.is-notebook > .mistake-board-toolbar.with-notebook-filters,
+  .remedi-mistake-book .mistakes-panel.is-notebook > .mistake-removal-notice,
+  .remedi-mistake-book .mistakes-panel.is-notebook > .notebook-action-error,
+  .remedi-mistake-book .mistakes-panel.is-notebook > .mistake-notebook {
+    max-width: calc(var(--content-frame-width) - var(--content-frame-gutter-compact) - var(--content-frame-gutter-compact));
+  }
 }
 
 .remedi-mistake-book .mistake-view-switch {
@@ -877,7 +947,7 @@ onBeforeUnmount(() => {
 }
 
 .remedi-mistake-book .notebook-search,
-.remedi-mistake-book .notebook-sort select {
+.remedi-mistake-book .notebook-sort-trigger {
   min-height: 40px;
   border: 1px solid var(--border);
   border-radius: var(--radius-standard);
@@ -893,7 +963,7 @@ onBeforeUnmount(() => {
 }
 
 .remedi-mistake-book .notebook-search:focus-within,
-.remedi-mistake-book .notebook-sort select:focus-visible {
+.remedi-mistake-book .notebook-sort-trigger:focus-visible {
   border-color: var(--primary);
   background: var(--card);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
@@ -903,8 +973,8 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.remedi-mistake-book .notebook-sort select {
-  width: 170px;
+.remedi-mistake-book .notebook-sort-trigger {
+  width: 100%;
   flex: 0 0 auto;
   min-height: 40px;
   padding: 8px 30px 8px 11px;
@@ -1702,12 +1772,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 700px) {
-  .remedi-mistake-book .mistake-board-toolbar {
-    top: 9px;
-    right: 9px;
-    left: 9px;
-  }
-
   .remedi-mistake-book .mistake-view-switch {
     max-width: calc(100vw - 80px);
     overflow-x: auto;
@@ -1745,12 +1809,6 @@ onBeforeUnmount(() => {
   .remedi-mistake-book .notebook-search {
     min-width: 0;
     flex: 1;
-  }
-
-  .remedi-mistake-book .notebook-sort select {
-    max-width: 135px;
-    padding-inline: 8px 24px;
-    font-size: 11px;
   }
 
   .remedi-mistake-book .notebook-assignment > summary {
@@ -1828,27 +1886,13 @@ onBeforeUnmount(() => {
     padding: 56px 8px 8px;
   }
 
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-view-switch {
-    order: 1;
-    top: 10px;
-    left: 50%;
-    right: auto;
-    max-width: calc(100% - 48px);
-    margin-left: 0;
-    transform: translateX(-50%);
-  }
-
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .mistake-board-refresh {
-    display: none;
-  }
-
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs {
-    order: 2;
+    order: 1;
     width: 100%;
   }
 
   .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools {
-    order: 3;
+    order: 2;
     width: 100%;
   }
 }
@@ -2015,4 +2059,250 @@ onBeforeUnmount(() => {
     height: 0;
   }
 }
+
+/* 便利贴和思维导图只保留内容画布的单层背景。 */
+.remedi-mistake-book .mistakes-panel.is-sticky,
+.remedi-mistake-book .mistakes-panel.is-mindmap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.remedi-mistake-book .mistakes-panel.is-sticky > .mistake-sticky-notes,
+.remedi-mistake-book .mistakes-panel.is-mindmap > :deep(.mistake-map-section) {
+  flex: 1 1 0%;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.remedi-mistake-book .mistakes-panel.is-sticky > .mistake-sticky-notes {
+  min-height: 0;
+}
+
+.remedi-mistake-book :deep(.mistake-map-viewport) {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-panel);
+  background: var(--card) !important;
+  box-shadow: none !important;
+}
+
+.remedi-mistake-book :deep(.mistake-board-empty) {
+  height: 100%;
+  min-height: 0;
+}
+
+@media (max-width: 760px) {
+  .remedi-mistake-book .mistake-view-controls {
+    min-height: 42px;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-sticky,
+  .remedi-mistake-book .mistakes-panel.is-mindmap {
+    padding: 0 0 12px;
+  }
+
+}
+
+/* 搜索与排序控件使用同一组中性色，焦点时只显示一层品牌色提示。 */
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search,
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger {
+  min-height: 42px;
+  border-color: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search {
+  min-width: 0;
+  flex: 1 1 240px;
+  color: var(--text-3);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search > :deep(svg) {
+  color: var(--text-3);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search:focus-within,
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger:focus-visible {
+  border-color: var(--primary);
+  background: var(--card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search input:focus {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search input::placeholder {
+  color: var(--text-3);
+  opacity: 1;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort {
+  display: block;
+  position: relative;
+  width: 164px;
+  flex: 0 0 164px;
+  min-width: 0;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-2);
+  background: var(--card);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, box-shadow .16s ease, color .16s ease, background-color .16s ease;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger:hover,
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-chevron {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  transition: color .16s ease, transform .16s ease;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-chevron.open {
+  color: var(--primary);
+  transform: rotate(180deg);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 80;
+  display: grid;
+  gap: 2px;
+  max-height: min(220px, 45vh);
+  padding: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+.remedi-mistake-book .notebook-sort-menu.sort-menu-enter-active,
+.remedi-mistake-book .notebook-sort-menu.sort-menu-leave-active {
+  transition: opacity .14s ease, transform .14s ease;
+}
+
+.remedi-mistake-book .notebook-sort-menu.sort-menu-enter-from,
+.remedi-mistake-book .notebook-sort-menu.sort-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius-detail);
+  color: var(--text-2);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option.is-selected {
+  color: var(--primary-dark);
+  background: var(--primary-50);
+  font-weight: 650;
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option.is-active:not(.is-selected) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.remedi-mistake-book .notebook-sort-check {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+@media (hover: hover) {
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option:hover:not(.is-selected) {
+    color: var(--text);
+    background: var(--surface-2);
+  }
+}
+
+@media (max-width: 700px) {
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort {
+    width: 148px;
+    flex-basis: 148px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-chevron,
+  .remedi-mistake-book .notebook-sort-menu.sort-menu-enter-active,
+  .remedi-mistake-book .notebook-sort-menu.sort-menu-leave-active,
+  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option {
+    transition: none;
+  }
+}
+
 </style>

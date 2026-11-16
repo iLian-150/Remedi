@@ -588,11 +588,33 @@ def student_score_report(db: Session, student) -> Dict:
         score = round(sum(v[1] for v in by_q.values()), 1)
         max_score = round(sum(v[2] for v in by_q.values()), 1)
         date = max(v[0] for v in by_q.values())
+        subject_totals: Dict[str, Tuple[float, float]] = {}
+        subject_dates = {}
+        for submitted_at, question_score, question_max, subject in by_q.values():
+            current_score, current_max = subject_totals.get(subject, (0.0, 0.0))
+            subject_totals[subject] = (
+                current_score + float(question_score),
+                current_max + float(question_max),
+            )
+            if subject not in subject_dates or submitted_at > subject_dates[subject]:
+                subject_dates[subject] = submitted_at
+        subject_scores = []
+        for subject, (subject_score, subject_max) in sorted(subject_totals.items()):
+            if not subject_max:
+                continue
+            subject_scores.append({
+                "subject": subject,
+                "date": subject_dates[subject],
+                "score": round(subject_score, 1),
+                "max_score": round(subject_max, 1),
+                "rate": round(subject_score / subject_max, 4),
+            })
         items.append({
             "assignment_id": aid,
             "assignment_title": meta[aid]["title"],
             "subject": subjects_for_assignment[0] if len(subjects_for_assignment) == 1 else "mixed",
             "subjects": subjects_for_assignment,
+            "subject_scores": subject_scores,
             "date": date,
             "score": score,
             "max_score": max_score,

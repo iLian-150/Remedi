@@ -934,10 +934,19 @@ export interface AssignmentScoreItem {
   assignment_title: string
   subject: string
   subjects: string[]
+  subject_scores?: AssignmentSubjectScore[]
   date: string
   score: number // 得分（各题最新一次已通过提交的最终分之和）
   max_score: number // 满分（计入题目的满分之和）
   rate: number // 得分率 0~1
+}
+
+export interface AssignmentSubjectScore {
+  subject: string
+  date: string // 该科目计入提交中的最晚日期
+  score: number
+  max_score: number
+  rate: number
 }
 
 export interface ReportScores {

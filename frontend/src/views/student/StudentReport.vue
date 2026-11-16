@@ -112,7 +112,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { ReportScores, StudentLearningMemory, SubjectReport } from '../../api/types'
+import type { AssignmentSubjectScore, ReportScores, StudentLearningMemory, SubjectReport } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import { AsyncEChartLine as EChart } from '../../components/AsyncEChart'
 import { getSubjectLabel } from '../../utils/subjectLabels'
@@ -120,7 +120,7 @@ import { getSubjectLabel } from '../../utils/subjectLabels'
 const student = useStudentStore()
 const router = useRouter()
 
-const subjectLabel = (subject: string) => getSubjectLabel(subject)
+const subjectLabel = (subject: string) => subject === 'mixed' ? '综合' : getSubjectLabel(subject)
 
 const report = ref<SubjectReport[]>([])
 const scoreData = ref<ReportScores | null>(null)
@@ -149,41 +149,157 @@ function memoryStateLabel(state: StudentLearningMemory['state']): string {
   })[state]
 }
 
-/** 成绩走势折线：历次作业得分率（%），tooltip 带得分/满分 */
+interface ScoreChartAssignment {
+  title: string
+  score: number
+  max_score: number
+}
+
+interface ScoreChartPoint {
+  value: number
+  score: number
+  max_score: number
+  assignments: ScoreChartAssignment[]
+}
+
+const scoreColorTokens = [
+  ['--primary', '#315DDB'],
+  ['--amber', '#D97706'],
+  ['--purple', '#7C3AED'],
+  ['--green', '#059669']
+] as const
+
+function themeColor(token: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback
+}
+
+function shortDateLabel(date: string): string {
+  const [, month, day] = date.split('-')
+  return month && day ? `${Number(month)}/${Number(day)}` : date
+}
+
+function longDateLabel(date: string): string {
+  const [year, month, day] = date.split('-')
+  return year && month && day ? `${year}年${Number(month)}月${Number(day)}日` : date
+}
+
+function subjectScoresForItem(item: ReportScores['items'][number]): AssignmentSubjectScore[] {
+  if (item.subject_scores?.length) return item.subject_scores
+  return [{
+    subject: item.subject || 'mixed',
+    date: item.date,
+    score: item.score,
+    max_score: item.max_score,
+    rate: item.rate
+  }]
+}
+
+/** 每科一条折线；同一天同科多份作业按总得分/总满分合并。 */
 const scoreChartOption = computed(() => {
   const items = scoreData.value?.items ?? []
+  const buckets = new Map<string, ScoreChartPoint>()
+  const subjectSet = new Set<string>()
+  const dateSet = new Set<string>()
+
+  for (const item of items) {
+    for (const subjectScore of subjectScoresForItem(item)) {
+      const date = subjectScore.date?.slice(0, 10)
+      if (!date || subjectScore.max_score <= 0) continue
+      const subject = subjectScore.subject || 'mixed'
+      const key = `${date}\u0000${subject}`
+      let point = buckets.get(key)
+      if (!point) {
+        point = { value: 0, score: 0, max_score: 0, assignments: [] }
+        buckets.set(key, point)
+      }
+      point.score += subjectScore.score
+      point.max_score += subjectScore.max_score
+      point.assignments.push({
+        title: item.assignment_title,
+        score: subjectScore.score,
+        max_score: subjectScore.max_score
+      })
+      subjectSet.add(subject)
+      dateSet.add(date)
+    }
+  }
+
+  for (const point of buckets.values()) {
+    point.value = Math.round(point.score / point.max_score * 100)
+  }
+
+  const subjects = [...subjectSet].sort((a, b) => subjectLabel(a).localeCompare(subjectLabel(b), 'zh-CN'))
+  const dates = [...dateSet].sort()
+  const palette = subjects.map((_, index) => {
+    const [token, fallback] = scoreColorTokens[index % scoreColorTokens.length]
+    return themeColor(token, fallback)
+  })
+
   return {
+    color: palette,
+    legend: {
+      show: subjects.length > 1,
+      top: 0,
+      type: 'scroll',
+      textStyle: { color: themeColor('--text-2', '#66758D'), fontSize: 12 }
+    },
     tooltip: {
       trigger: 'axis',
-      formatter: (params: { dataIndex: number }[]) => {
-        const it = items[params[0]?.dataIndex ?? 0]
-        if (!it) return ''
-        const subjects = it.subjects.length > 1
-          ? `<br/>科目 ${it.subjects.map((subject) => escapeHtml(subjectLabel(subject))).join('、')}`
-          : ''
-        return `${escapeHtml(it.assignment_title)}${subjects}<br/>得分 ${fmtScore(it.score)} / ${fmtScore(it.max_score)} 分 · 得分率 ${Math.round(it.rate * 100)}%`
+      axisPointer: { type: 'line' },
+      formatter: (params: Array<{
+        axisValue?: string | number
+        seriesName?: string
+        data?: ScoreChartPoint | null
+      }>) => {
+        const date = String(params[0]?.axisValue ?? '')
+        const points = params.filter((param) => param.data && param.data.max_score > 0)
+        if (!date || !points.length) return ''
+        const details = points.map((param) => {
+          const point = param.data!
+          const assignmentDetails = point.assignments
+            .map((assignment) => `${escapeHtml(assignment.title)} ${fmtScore(assignment.score)}/${fmtScore(assignment.max_score)}分`)
+            .join('、')
+          return `<div style="margin-top: 5px"><b>${escapeHtml(param.seriesName ?? '')} ${point.value}%</b> · ${fmtScore(point.score)} / ${fmtScore(point.max_score)} 分<br/><span>${assignmentDetails}</span></div>`
+        }).join('')
+        return `<strong>${escapeHtml(longDateLabel(date))}</strong>${details}`
       }
     },
-    grid: { left: 8, right: 16, top: 28, bottom: 4, containLabel: true },
+    grid: { left: 8, right: 16, top: subjects.length > 1 ? 38 : 16, bottom: 8, containLabel: true },
     xAxis: {
       type: 'category',
-      data: items.map((it) => it.assignment_title),
-      axisLabel: { interval: 0, rotate: items.length > 4 ? 28 : 0, fontSize: 11 }
+      boundaryGap: false,
+      data: dates,
+      axisLabel: {
+        interval: 'auto',
+        hideOverlap: true,
+        rotate: dates.length > 8 ? 30 : 0,
+        formatter: (value: string) => shortDateLabel(value),
+        fontSize: 11,
+        color: themeColor('--text-3', '#8F9BB0')
+      },
+      axisLine: { lineStyle: { color: themeColor('--border-strong', '#CBD5E4') } }
     },
-    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { formatter: '{value}%' } },
-    series: [
-      {
-        name: '得分率',
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 100,
+      splitNumber: 4,
+      axisLabel: { formatter: '{value}%', color: themeColor('--text-3', '#8F9BB0') },
+      splitLine: { lineStyle: { color: themeColor('--border', '#E3E9F2') } }
+    },
+    series: subjects.map((subject, index) => ({
+        name: subjectLabel(subject),
         type: 'line',
         smooth: true,
-        symbolSize: 8,
-        data: items.map((it) => Math.round(it.rate * 100)),
-        lineStyle: { color: '#1D4ED8', width: 2.5 },
-        itemStyle: { color: '#1D4ED8' },
-        areaStyle: { color: 'rgba(29, 78, 216, 0.08)' },
-        label: { show: true, formatter: '{c}%', fontSize: 11, color: '#475569' }
-      }
-    ]
+        connectNulls: false,
+        symbol: 'circle',
+        symbolSize: 7,
+        data: dates.map((date) => buckets.get(`${date}\u0000${subject}`) ?? null),
+        lineStyle: { color: palette[index], width: 2.5 },
+        itemStyle: { color: palette[index] },
+        emphasis: { focus: 'series' }
+      }))
   }
 })
 

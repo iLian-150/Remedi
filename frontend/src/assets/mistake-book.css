@@ -26,16 +26,6 @@
   background: transparent;
 }
 
-.remedi-mistake-book .is-notebook .mistake-view-switch, .remedi-mistake-book.is-notebook .mistake-view-switch, .remedi-mistake-book .is-notebook .mistake-board-refresh, .remedi-mistake-book.is-notebook .mistake-board-refresh {
-  border-color: var(--border);
-  background: var(--card);
-  box-shadow: none;
-}
-
-.remedi-mistake-book .is-notebook .mistake-view-switch button, .remedi-mistake-book.is-notebook .mistake-view-switch button { font-size: 11px; }
-.remedi-mistake-book .is-notebook .mistake-view-switch button.selected, .remedi-mistake-book.is-notebook .mistake-view-switch button.selected { background: var(--primary); }
-.remedi-mistake-book .is-notebook .mistake-board-refresh, .remedi-mistake-book.is-notebook .mistake-board-refresh { color: var(--text); }
-
 /* 默认卡片笔记视图不加载图谱专用补充样式，因此这里也提供工具栏基础布局。 */
 .remedi-mistake-book .mistake-board-toolbar, .remedi-mistake-book .mistake-view-switch {
   display: flex;
@@ -272,8 +262,8 @@
 .remedi-mistake-book .notebook-search button, .remedi-mistake-book.notebook-search button { display: grid; width: 21px; height: 23px; flex: 0 0 21px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-micro); color: var(--text-2); background: transparent; }
 .remedi-mistake-book .notebook-search button:hover, .remedi-mistake-book.notebook-search button:hover { color: var(--text); background: var(--bg); }
 .remedi-mistake-book .notebook-search button svg, .remedi-mistake-book.notebook-search button svg { width: 13px; height: 13px; }
-.remedi-mistake-book .notebook-sort, .remedi-mistake-book.notebook-sort { display: flex; flex-shrink: 0; align-items: center; color: var(--text-2); }
-.remedi-mistake-book .notebook-sort select, .remedi-mistake-book.notebook-sort select { max-width: 100%; min-height: 35px; padding: 7px 6px 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-2); background: var(--card); font-size: 12px; cursor: pointer; }
+.remedi-mistake-book .notebook-sort, .remedi-mistake-book.notebook-sort { display: block; flex-shrink: 0; color: var(--text-2); }
+.remedi-mistake-book .notebook-sort-trigger, .remedi-mistake-book.notebook-sort-trigger { display: flex; width: 100%; max-width: 100%; min-height: 35px; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-2); background: var(--card); font-size: 12px; text-align: left; cursor: pointer; }
 .remedi-mistake-book .notebook-results-note, .remedi-mistake-book.notebook-results-note { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin: 17px 0 12px; color: var(--text-2); font-size: 12px; line-height: 1.6; }
 .remedi-mistake-book .notebook-results-note strong, .remedi-mistake-book.notebook-results-note strong { color: var(--text-2); font-weight: 500; }
 .remedi-mistake-book .notebook-results-note button, .remedi-mistake-book.notebook-results-note button { padding: 4px 7px; border: 0; border-radius: var(--radius-detail); color: var(--text-2); background: transparent; font-size: 12px; }
@@ -415,7 +405,6 @@
   .remedi-mistake-book .notebook-status-tabs button, .remedi-mistake-book.notebook-status-tabs button { gap: 5px; padding: 7px 9px; }
   .remedi-mistake-book .notebook-search-tools, .remedi-mistake-book.notebook-search-tools { width: 100%; gap: 7px; }
   .remedi-mistake-book .notebook-search, .remedi-mistake-book.notebook-search { width: auto; flex: 1; }
-  .remedi-mistake-book .notebook-sort select, .remedi-mistake-book.notebook-sort select { padding-right: 2px; padding-left: 6px; font-size: 11px; }
   .remedi-mistake-book .notebook-card, .remedi-mistake-book.notebook-card { padding: 18px 17px 13px; }
   .remedi-mistake-book .notebook-card-body, .remedi-mistake-book.notebook-card-body { margin-top: 16px; }
   .remedi-mistake-book .notebook-card h3, .remedi-mistake-book.notebook-card h3 { font-size: 14px; }
@@ -481,21 +470,8 @@
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  background: var(--bg);
-}
-
-.remedi-mistake-book .is-sticky .mistake-board-toolbar, .remedi-mistake-book.is-sticky .mistake-board-toolbar {
-  top: 16px;
-  right: 18px;
-}
-
-.remedi-mistake-book .is-sticky .mistake-view-switch, .remedi-mistake-book.is-sticky .mistake-view-switch, .remedi-mistake-book .is-sticky .mistake-board-refresh, .remedi-mistake-book.is-sticky .mistake-board-refresh {
-  border-color: var(--border);
   background: var(--card);
-  box-shadow: 0 4px 16px rgba(31, 41, 55, 0.063);
 }
-
-.remedi-mistake-book .is-sticky .mistake-view-switch button.selected, .remedi-mistake-book.is-sticky .mistake-view-switch button.selected { background: var(--primary); }
 
 .remedi-mistake-book .is-sticky .mistake-removal-notice, .remedi-mistake-book.is-sticky .mistake-removal-notice {
   top: 28px;
@@ -529,15 +505,31 @@
   padding: 99px 28px 34px;
 }
 .remedi-mistake-book .mistake-sticky-notes.is-split .mistake-point-assistant, .remedi-mistake-book.mistake-sticky-notes.is-split .mistake-point-assistant { grid-area: assistant; }
-.remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-split) .mistake-board-toolbar, .remedi-mistake-book.is-sticky:has(.mistake-sticky-notes.is-split) .mistake-board-toolbar { right: calc(40% + 18px); }
-.remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-split.is-reversed) .mistake-board-toolbar, .remedi-mistake-book.is-sticky:has(.mistake-sticky-notes.is-split.is-reversed) .mistake-board-toolbar { right: 18px; }
+.remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-split) .mistake-view-controls,
+.remedi-mistake-book.is-sticky:has(.mistake-sticky-notes.is-split) .mistake-view-controls,
+.remedi-mistake-book .is-mindmap:has(.mistake-map-section.is-split) .mistake-view-controls,
+.remedi-mistake-book.is-mindmap:has(.mistake-map-section.is-split) .mistake-view-controls,
+.remedi-mistake-book .is-notebook:has(.mistake-notebook.is-split) .mistake-view-controls,
+.remedi-mistake-book.is-notebook:has(.mistake-notebook.is-split) .mistake-view-controls { right: calc(40% + 18px); }
+.remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-split.is-reversed) .mistake-view-controls,
+.remedi-mistake-book.is-sticky:has(.mistake-sticky-notes.is-split.is-reversed) .mistake-view-controls,
+.remedi-mistake-book .is-mindmap:has(.mistake-map-section.is-split.is-reversed) .mistake-view-controls,
+.remedi-mistake-book.is-mindmap:has(.mistake-map-section.is-split.is-reversed) .mistake-view-controls,
+.remedi-mistake-book .is-notebook:has(.mistake-notebook.is-split.is-reversed) .mistake-view-controls,
+.remedi-mistake-book.is-notebook:has(.mistake-notebook.is-split.is-reversed) .mistake-view-controls { right: 18px; }
 
 .remedi-mistake-book .mistake-sticky-notes.is-split.is-assistant-fullscreen, .remedi-mistake-book.mistake-sticky-notes.is-split.is-assistant-fullscreen {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "assistant";
 }
 .remedi-mistake-book .mistake-sticky-notes.is-assistant-fullscreen .sticky-notes-inner, .remedi-mistake-book.mistake-sticky-notes.is-assistant-fullscreen .sticky-notes-inner { display: none; }
-.remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-assistant-fullscreen) .mistake-board-toolbar, .remedi-mistake-book.is-sticky:has(.mistake-sticky-notes.is-assistant-fullscreen) .mistake-board-toolbar {
+.remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-assistant-fullscreen) .mistake-view-controls, .remedi-mistake-book.is-sticky:has(.mistake-sticky-notes.is-assistant-fullscreen) .mistake-view-controls {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+.remedi-mistake-book .is-mindmap:has(.mistake-map-section.is-assistant-fullscreen) .mistake-view-controls,
+.remedi-mistake-book.is-mindmap:has(.mistake-map-section.is-assistant-fullscreen) .mistake-view-controls {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
@@ -770,7 +762,6 @@
 }
 
 @media (max-width: 760px) {
-  .remedi-mistake-book .is-sticky .mistake-board-toolbar, .remedi-mistake-book.is-sticky .mistake-board-toolbar { top: 10px; right: 10px; }
   .remedi-mistake-book .is-sticky:has(.mistake-sticky-notes.is-assistant-fullscreen) .mistake-board-toolbar, .remedi-mistake-book.is-sticky:has(.mistake-sticky-notes.is-assistant-fullscreen) .mistake-board-toolbar { display: none; }
 }
 

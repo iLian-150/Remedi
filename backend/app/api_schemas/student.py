@@ -465,12 +465,20 @@ class StudentLearningMemoryOut(BaseModel):
     summary: str
     updated_at: datetime
 
+class AssignmentSubjectScore(BaseModel):
+    subject: str
+    date: datetime              # 该科目计入提交中的最晚时间
+    score: float
+    max_score: float
+    rate: float                 # 得分率 0~1
+
 class AssignmentScoreItem(BaseModel):
     """一份作业的成绩聚合：每题取最新一次已通过且有分的提交求和。"""
     assignment_id: int
     assignment_title: str
     subject: str                  # 单学科代码；跨学科作业为 mixed
     subjects: List[str] = Field(default_factory=list)
+    subject_scores: List[AssignmentSubjectScore] = Field(default_factory=list)
     date: datetime              # 计入提交里最晚的一次提交时间
     score: float                # 得分（各题最终分之和）
     max_score: float            # 满分（计入题目的满分之和）
@@ -534,6 +542,7 @@ __all__ = [
     'SubjectReportOut',
     'KnowledgePointErrorItem',
     'StudentLearningMemoryOut',
+    'AssignmentSubjectScore',
     'AssignmentScoreItem',
     'SubjectScoreItem',
     'ReportScoresOut',

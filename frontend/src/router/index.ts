@@ -18,7 +18,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/student/report', component: () => import('../views/student/StudentReport.vue'), meta: { role: 'student', title: '学习报告' } },
   // 学习报告科目详情（v0.6.0 从报告页拆出独立页，带返回键；?verify= 深链打开验证面板）
   { path: '/student/report/:subject', component: () => import('../views/student/StudentReportSubject.vue'), meta: { role: 'student', title: '学习报告' } },
-  { path: '/student/profile', component: () => import('../views/student/StudentProfile.vue'), meta: { role: 'student', title: '学习档案' } },
+  { path: '/student/profile', component: () => import('../views/student/StudentProfile.vue'), meta: { role: 'student', title: '我的档案' } },
   { path: '/student/corrections', component: () => import('../views/student/StudentCorrections.vue'), meta: { role: 'student', title: '订正错题' } },
 
   // 教师端（诊断详情 :id 为 error_id，契约 4.1 未提供单条查询，用列表定位）
