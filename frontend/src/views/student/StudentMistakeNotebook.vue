@@ -1865,35 +1865,71 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 卡片错题本跟随主页面滚动；宽屏并排显示题目与讲解，窄屏上下排列。 */
-.remedi-mistake-book:has(> .mistakes-panel.is-notebook) {
-  height: auto;
-  min-height: 0;
-  flex: 0 0 auto;
-  overflow: visible;
+/* 宽屏卡片错题本使用固定视口；窄屏仍由整页自然滚动。 */
+@media (max-width: 1199px) {
+  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) {
+    height: auto;
+    min-height: 0;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) > .mistakes-panel {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook {
+    height: auto;
+    min-height: 0;
+  }
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content {
+    height: auto;
+    padding: 0;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
 }
-.remedi-mistake-book:has(> .mistakes-panel.is-notebook) > .mistakes-panel {
-  height: auto;
-  min-height: 0;
-  overflow: visible;
-}
-.remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook {
-  height: auto;
-  min-height: 0;
-}
-.remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content {
-  height: auto;
-  padding: 0;
-  overflow: visible;
-  overscroll-behavior: auto;
+
+@media (min-width: 1200px) {
+  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) {
+    height: 100%;
+    min-height: 0;
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) > .mistakes-panel {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content {
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content::-webkit-scrollbar { display: none; }
 }
 
 @container (min-width: 851px) {
   .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split {
     display: grid;
+    min-height: 0;
     grid-template-columns: minmax(0, 1.35fr) minmax(360px, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     grid-template-areas: "content assistant";
-    align-items: start;
+    align-items: stretch;
     gap: 16px;
   }
 
@@ -1905,18 +1941,25 @@ onBeforeUnmount(() => {
     grid-area: content;
     width: auto;
     min-width: 0;
+    height: auto;
+    min-height: 0;
     flex: initial;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-notebook-content::-webkit-scrollbar { display: none; }
 
   .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split > .mistake-point-assistant {
-    position: sticky;
-    top: 16px;
+    position: relative;
+    top: auto;
     grid-area: assistant;
-    align-self: start;
+    align-self: stretch;
     width: 100%;
-    height: calc(100dvh - 76px);
+    height: auto;
     min-height: 0;
-    max-height: calc(100dvh - 76px);
+    max-height: none;
     overflow: hidden;
   }
 
@@ -1929,6 +1972,8 @@ onBeforeUnmount(() => {
     min-width: 0;
     overflow-y: auto;
     overflow-wrap: anywhere;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
 
   .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-transcript) {
@@ -1937,7 +1982,12 @@ onBeforeUnmount(() => {
     flex: 1 1 auto;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-summary-body::-webkit-scrollbar),
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-transcript::-webkit-scrollbar) { display: none; width: 0; height: 0; }
 
   .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-assistant-fullscreen {
     grid-template-columns: minmax(0, 1fr);
@@ -1947,8 +1997,23 @@ onBeforeUnmount(() => {
   .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-assistant-fullscreen > .mistake-point-assistant {
     position: relative;
     top: auto;
-    height: calc(100dvh - 32px);
-    max-height: calc(100dvh - 32px);
+    height: auto;
+    max-height: none;
+  }
+}
+
+@media (min-width: 1200px) {
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant),
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant *) {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant::-webkit-scrollbar),
+  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant *::-webkit-scrollbar) {
+    display: none;
+    width: 0;
+    height: 0;
   }
 }
 </style>

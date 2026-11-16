@@ -4,6 +4,19 @@
  * --green），便利贴配色与 RightRail 统一为 var(--note-yellow) / var(--note-pink) / var(--note-blue) + 墨色 var(--note-ink)。
  * 内容对应：卡片笔记 / 便利贴 / 思维导图 / 关联图谱 / 错题点助手 五个视图。 */
 
+@media (min-width: 1200px) {
+  .app-shell:has(> .shell-main > .remedi-mistake-book > .mistakes-panel.is-notebook) {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .shell-main:has(> .remedi-mistake-book > .mistakes-panel.is-notebook) {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+}
+
 .remedi-mistake-book .mistake-map-view .mistakes-panel.is-notebook, .remedi-mistake-book.mistake-map-view .mistakes-panel.is-notebook {
   container-type: inline-size;
   min-width: 0;
