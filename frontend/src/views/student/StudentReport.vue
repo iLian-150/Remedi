@@ -2,8 +2,8 @@
      对应开题报告「学习记忆层 + 教学反馈层」。本页是落地层：只保留悬挂科目卡 + 简要汇总；
      科目详情（总览 / 知识点 / 验证 / 错题时间线 / 步骤诊断）已拆到独立页
      /student/report/:subject（StudentReportSubject.vue），带「返回学习报告」按钮。
-     点可用科目吊牌：先播掉落动画（挂绳断开、卡片加速下坠淡出，约 450ms），
-     动画结束 router.push 跳详情页；占位卡不跳转，
+     点科目吊牌：先播掉落动画（挂绳断开、卡片加速下坠淡出，约 450ms），
+     动画结束 router.push 跳详情页；
      prefers-reduced-motion 时跳过动画直接跳转。
      文案伦理：不出现「顽固」「置信度」等术语（与既有页面一致）。 -->
 <template>
@@ -12,7 +12,7 @@
     <div v-if="loading" class="loading">加载中…</div>
 
     <template v-if="!loading">
-      <!-- 落地层：科目悬挂卡（吊牌）——数学真实数据可点进详情，其余科目占位 -->
+      <!-- 科目悬挂卡（吊牌）：数学、英语、物理、化学均可进入；有记录的其他学科一并展示 -->
       <div class="hang-row">
         <div
           v-for="(s, i) in subjectCards"
@@ -24,23 +24,24 @@
           <button
             type="button"
             class="hang-card"
-            :class="{ placeholder: s.placeholder }"
-            :disabled="s.placeholder"
             @click="enterSubject(s)"
           >
             <span class="hang-string"></span>
             <span class="hang-hole"></span>
             <span class="hang-name">{{ s.name }}</span>
-            <template v-if="!s.placeholder">
+            <template v-if="s.data">
               <span class="hang-stats">
-                提交 <span class="tnum">{{ s.data?.submission_count ?? 0 }}</span> 次 ·
-                待修复 <span class="tnum">{{ s.data?.pending_fix_count ?? 0 }}</span> 个知识点
+                提交 <span class="tnum">{{ s.data.submission_count }}</span> 次 ·
+                待修复 <span class="tnum">{{ s.data.pending_fix_count }}</span> 个知识点
               </span>
-              <span class="hang-bar"><span :style="{ width: `${Math.round((s.data?.fixed_ratio ?? 0) * 100)}%` }"></span></span>
-              <span class="hang-ratio">知识修复进度 <span class="tnum">{{ Math.round((s.data?.fixed_ratio ?? 0) * 100) }}%</span></span>
+              <span class="hang-bar"><span :style="{ width: `${Math.round(s.data.fixed_ratio * 100)}%` }"></span></span>
+              <span class="hang-ratio">知识修复进度 <span class="tnum">{{ Math.round(s.data.fixed_ratio * 100) }}%</span></span>
               <span class="hang-cta">点开看知识点明细</span>
             </template>
-            <span v-else class="hang-soon">即将上线</span>
+            <template v-else>
+              <span class="hang-empty">暂无记录</span>
+              <span class="hang-cta">查看学科报告</span>
+            </template>
           </button>
         </div>
       </div>
@@ -307,26 +308,28 @@ const scoreChartOption = computed(() => {
 interface SubjectCard {
   key: string
   name: string
-  placeholder: boolean
   data: SubjectReport | null
 }
 
 const subjectCards = computed<SubjectCard[]>(() => {
-  const math = report.value.find((r) => r.subject === 'math') ?? null
-  return [
-    { key: 'math', name: '数学', placeholder: false, data: math },
-    { key: 'english', name: '英语', placeholder: true, data: null },
-    { key: 'physics', name: '物理', placeholder: true, data: null },
-    { key: 'chemistry', name: '化学', placeholder: true, data: null }
-  ]
+  const launchSubjects = ['math', 'english', 'physics', 'chemistry']
+  const primary = launchSubjects.map((key) => ({
+    key,
+    name: getSubjectLabel(key),
+    data: report.value.find((item) => item.subject === key) ?? null
+  }))
+  const additional = report.value
+    .filter((item) => !launchSubjects.includes(item.subject))
+    .map((item) => ({ key: item.subject, name: subjectLabel(item.subject), data: item }))
+  return [...primary, ...additional]
 })
 
 // ---------- 掉落动画（v0.5.0，v0.6.0 改为跳页）：点科目吊牌 → 挂绳断开、卡片加速下坠
-// 出视口 → router.push 到科目详情页；占位卡不触发；prefers-reduced-motion 时直接跳转。
+// 出视口 → router.push 到科目详情页；prefers-reduced-motion 时直接跳转。
 const droppingKey = ref('')
 
 async function enterSubject(s: SubjectCard) {
-  if (s.placeholder || droppingKey.value) return
+  if (droppingKey.value) return
   const reduceMotion =
     typeof window !== 'undefined' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -392,11 +395,6 @@ onMounted(async () => {
 }
 .hang-wrap:hover .hang-card { transform: scale(1.045); box-shadow: var(--shadow-md); }
 .hang-wrap:hover { animation-play-state: paused; }
-.hang-card.placeholder {
-  cursor: default; filter: grayscale(0.65); opacity: 0.68;
-  background: #F4F6F9;
-}
-.hang-wrap:hover .hang-card.placeholder { transform: none; box-shadow: var(--shadow); }
 .hang-string {
   position: absolute; bottom: 100%; left: 50%;
   width: 2px; height: var(--hang-string-height); margin-left: -1px;
@@ -412,6 +410,7 @@ onMounted(async () => {
 }
 .hang-name { font-size: 19px; font-weight: 800; margin-top: 6px; }
 .hang-stats { font-size: 12.5px; color: var(--text-2); text-align: center; line-height: 1.5; }
+.hang-empty { font-size: 12.5px; color: var(--text-2); }
 .hang-bar {
   width: 100%; height: 8px; border-radius: var(--radius-pill);
   background: #EDF0F4; overflow: hidden; display: block;
@@ -419,10 +418,6 @@ onMounted(async () => {
 .hang-bar > span { display: block; height: 100%; background: var(--green); border-radius: var(--radius-pill); }
 .hang-ratio { font-size: 12.5px; color: var(--text-2); }
 .hang-cta { font-size: 12.5px; color: var(--primary); font-weight: 600; margin-top: 2px; }
-.hang-soon {
-  font-size: 12.5px; font-weight: 600; color: var(--text-3);
-  border: 1px dashed #C7CEDA; border-radius: var(--radius-pill); padding: 3px 12px; margin-top: 8px;
-}
 /* ---------- 掉落动画 ---------- */
 /* 挂绳先"断"（快速消失），卡片以加速曲线（近似重力）下坠、轻微旋转并淡出，随后跳页 */
 .hang-wrap.dropping {
