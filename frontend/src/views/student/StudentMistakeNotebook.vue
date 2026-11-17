@@ -9,122 +9,12 @@
       </div>
     </Teleport>
     <main class="mistakes-panel" :class="`is-${view}`" aria-label="学生错题本">
-      <div v-if="view === 'notebook'" class="mistake-board-toolbar with-notebook-filters" role="group" aria-label="筛选错题作业">
-        <div class="notebook-status-tabs" role="group" aria-label="按作业学习进度筛选">
-          <button v-for="option in statusOptions" :key="option.key" type="button" :class="{ selected: status === option.key }" :aria-pressed="status === option.key" @click="status = option.key">{{ option.label }}<small>{{ option.count }}</small></button>
-        </div>
-        <div class="notebook-search-tools">
-          <label class="notebook-search"><AppIcon name="file" :size="15"/><input v-model="query" type="search" placeholder="搜索作业、错因、知识点…" aria-label="搜索作业和错因"/><button v-if="query" type="button" aria-label="清空搜索" @click="query = ''"><AppIcon name="x" :size="13"/></button></label>
-          <div ref="sortPickerRef" class="notebook-sort" @focusout="onSortPickerFocusout">
-            <button
-              id="notebook-sort-trigger" ref="sortPickerButtonRef" type="button" class="notebook-sort-trigger"
-              aria-haspopup="listbox" aria-controls="notebook-sort-options" :aria-label="`作业排序：${selectedSortLabel}`"
-              :aria-expanded="sortMenuOpen" @click="toggleSortMenu" @keydown="onSortTriggerKeydown"
-            >
-              <span>{{ selectedSortLabel }}</span>
-              <AppIcon name="chevron-down" :size="15" class="notebook-sort-chevron" :class="{ open: sortMenuOpen }" aria-hidden="true"/>
-            </button>
-            <Transition name="sort-menu">
-              <div v-if="sortMenuOpen" id="notebook-sort-options" class="notebook-sort-menu" role="listbox" aria-labelledby="notebook-sort-trigger">
-                <button
-                  v-for="(option, index) in sortOptions" :key="option.value" type="button" role="option"
-                  class="notebook-sort-option" :class="{ 'is-selected': sort === option.value, 'is-active': activeSortIndex === index }"
-                  :aria-selected="sort === option.value" :tabindex="activeSortIndex === index ? 0 : -1"
-                  @focus="activeSortIndex = index" @click="selectSort(option.value)"
-                  @keydown="onSortOptionKeydown($event, index)"
-                >
-                  <span>{{ option.label }}</span>
-                  <AppIcon v-if="sort === option.value" name="check" :size="15" class="notebook-sort-check" aria-hidden="true"/>
-                </button>
-              </div>
-            </Transition>
-          </div>
-        </div>
-      </div>
-
       <div v-if="removedAssignment" class="mistake-removal-notice" role="status">
         <span>已将「{{ removedAssignment.title }}」的整份错题移出，历史记录仍保留。<em v-if="actionError">{{ actionError }}</em></span>
         <button type="button" :disabled="workingKey === `restore:${removedAssignment.id}`" @click="restoreAssignment">{{ workingKey === `restore:${removedAssignment.id}` ? '恢复中…' : '撤销' }}</button>
         <button type="button" class="mistake-notice-close" aria-label="关闭移出提示" @click="removedAssignment = null"><AppIcon name="x" :size="14"/></button>
       </div>
-      <p v-if="loadError" class="notebook-action-error" role="alert">{{ loadError }}</p>
-
-      <section v-if="view === 'notebook'" class="mistake-notebook" :class="{ 'is-split': Boolean(selectedMistake), 'is-reversed': assistantOnLeft, 'is-assistant-fullscreen': assistantFullscreen }" aria-label="按科目、错误类型和作业复习错题本" :aria-busy="loading">
-        <div class="mistake-notebook-content">
-          <div class="notebook-workspace">
-            <div class="notebook-results-note" role="status" aria-live="polite"><span>{{ loading ? '正在整理你的错题…' : notebookScreen === 'subjects' ? `${displayedSubjectGroups.length} 个科目 · ${visibleAssignments.length} 份作业` : notebookScreen === 'categories' ? `${selectedNotebookSubject?.categories.length ?? 0} 类错误` : `${selectedNotebookCategory?.assignmentCount ?? 0} 份作业` }}</span></div>
-            <p v-if="actionError && !removedAssignment" class="notebook-action-error" role="alert">{{ actionError }}</p>
-            <div v-if="loading" class="notebook-assignment-list notebook-loading" aria-hidden="true"><div v-for="index in 4" :key="index" class="notebook-skeleton"><span/><span/><span/></div></div>
-            <div v-else-if="displayedSubjectGroups.length" class="notebook-drilldown">
-              <nav v-if="notebookScreen !== 'subjects'" class="notebook-breadcrumb" aria-label="错题本层级">
-                <button type="button" @click="goToNotebookSubjects">全部科目</button>
-                <template v-if="selectedNotebookSubject"><span aria-hidden="true">/</span><button type="button" :aria-current="notebookScreen === 'categories' ? 'page' : undefined" @click="goToNotebookCategories">{{ selectedNotebookSubject.label }}</button></template>
-                <template v-if="selectedNotebookCategory"><span aria-hidden="true">/</span><span aria-current="page">{{ selectedNotebookCategory.label }}</span></template>
-              </nav>
-
-              <div v-if="notebookScreen === 'subjects'" class="notebook-drill-grid" aria-label="错题科目">
-                <button v-for="(subjectGroup, index) in displayedSubjectGroups" :key="subjectGroup.key" type="button" class="notebook-drill-card notebook-subject-card" @click="selectNotebookSubject(subjectGroup)">
-                  <span class="notebook-drill-index">科目 {{ String(index + 1).padStart(2, '0') }}</span>
-                  <strong>{{ subjectGroup.label }}</strong>
-                  <span class="notebook-drill-meta">{{ subjectGroup.categories.length }} 类错误 · {{ subjectGroup.itemCount }} 道错题</span>
-                  <span class="notebook-drill-foot">{{ subjectGroup.assignmentCount }} 份作业 <AppIcon name="arrow-right" :size="13"/></span>
-                </button>
-              </div>
-
-              <div v-else-if="notebookScreen === 'categories' && selectedNotebookSubject" class="notebook-drill-grid" aria-label="错误类型">
-                <button v-for="(categoryGroup, index) in selectedNotebookSubject.categories" :key="categoryGroup.key" type="button" class="notebook-drill-card notebook-category-card" @click="selectNotebookCategory(categoryGroup)">
-                  <span class="notebook-drill-index">错误类型 {{ String(index + 1).padStart(2, '0') }}</span>
-                  <strong>{{ categoryGroup.label }}</strong>
-                  <span class="notebook-drill-meta">{{ categoryGroup.assignmentCount }} 份作业 · {{ categoryGroup.itemCount }} 道此类错题</span>
-                  <span class="notebook-drill-foot">{{ categoryGroup.studiedQuestionCount }}/{{ categoryGroup.questionCount }} 道题已学 <AppIcon name="arrow-right" :size="13"/></span>
-                </button>
-              </div>
-
-              <div v-else-if="notebookScreen === 'assignments' && selectedNotebookCategory" class="notebook-assignment-list notebook-category-assignment-list">
-                <details
-                  v-for="(entry, assignmentIndex) in displayedCategoryAssignments"
-                  :key="assignmentExpansionKey(entry)"
-                  class="notebook-assignment notebook-hierarchy-assignment"
-                  :open="hierarchyExpanded(assignmentExpansionKey(entry), assignmentIndex === 0)"
-                  @toggle="onHierarchyToggle(assignmentExpansionKey(entry), $event)"
-                >
-                  <summary class="notebook-assignment-summary">
-                    <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="15"/></span>
-                    <span class="notebook-assignment-title"><strong>{{ entry.assignment.title }}</strong><small>{{ formatDate(entry.assignment.createdAt) }} · {{ entry.category.itemCount }} 道此类错题</small></span>
-                    <span class="notebook-assignment-progress">{{ entry.category.studentSavedOnly ? '自主收录' : `${entry.category.questionGroups.filter((question) => question.studied).length}/${entry.category.questionGroups.length} 道题已学` }}</span>
-                    <span class="notebook-assignment-state" :class="{ ready: entry.category.studied || entry.category.studentSavedOnly }">{{ entry.category.studentSavedOnly ? '已收录' : entry.category.studied ? '已学会' : '待学习' }}</span>
-                  </summary>
-                  <div class="notebook-assignment-content">
-                    <section class="notebook-category" :class="{ studied: entry.category.studied }">
-                      <header class="notebook-category-head">
-                        <div><span class="notebook-category-dot" aria-hidden="true"/><div><h4>{{ entry.category.label }}</h4><small>{{ entry.category.questionGroups.length }} 道题</small></div></div>
-                      </header>
-                      <div v-if="entry.category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in entry.category.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
-                      <div class="notebook-category-questions"><article v-for="questionGroup in categoryQuestionsFor(entry.assignment.id, entry.category)" :key="questionGroup.key">
-                        <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.submission_id === questionGroup.representative.submission_id }" @click="openAssistant(questionGroup.representative)"><strong>{{ isStudentSaved(questionGroup.representative) ? '自主收录题目' : `第 ${questionGroup.representative.question_order} 题` }}</strong><small>{{ isStudentSaved(questionGroup.representative) ? '自主收录' : questionGroup.studied ? '已学会' : questionGroup.errorCategories.length > 1 ? `${questionGroup.errorCategories.length} 类错误` : questionGroup.representative.knowledge_point }}</small><span class="notebook-question-excerpt">{{ questionGroup.representative.question_stem }}</span><span v-if="questionGroup.errorCategories.length" class="notebook-question-detail">{{ questionGroup.errorCategories.map((category) => category.label).join(' · ') }}</span><span v-if="questionGroup.steps.length" class="notebook-question-detail">错误步骤：第 {{ questionGroup.steps.join('、') }} 步</span></button>
-                        <div class="notebook-question-actions">
-                          <button v-if="!isStudentSaved(questionGroup.representative)" type="button" class="notebook-question-study" :class="{ studied: questionGroup.studied }" :disabled="workingKey === questionStudyKey(entry.assignment.id, questionGroup)" @click="toggleQuestionStudy(entry.assignment.id, questionGroup)">{{ workingKey === questionStudyKey(entry.assignment.id, questionGroup) ? '保存中…' : questionGroup.studied ? '已学会 · 撤销' : '标记已学会' }}</button>
-                          <button v-if="!isStudentSaved(questionGroup.representative)" type="button" @click.stop.prevent="openOriginalQuestion(questionGroup.representative)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
-                          <button v-else type="button" :disabled="workingKey === `archive:${questionGroup.representative.assignment_id}`" @click="archiveSaved(questionGroup.representative)">{{ workingKey === `archive:${questionGroup.representative.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
-                        </div>
-                        <details v-if="questionGroup.errorDetails.length" class="notebook-question-records" @click.stop><summary>{{ questionGroup.errorDetails.length }} 项步骤诊断</summary><ul><li v-for="detail in questionGroup.errorDetails" :key="detail.id"><strong>{{ detail.step_seq ? `第 ${detail.step_seq} 步 · ` : '' }}{{ detail.category_label }}</strong><span v-if="detail.step_text">{{ safe(detail.step_text) }}</span><span v-if="detail.detail">{{ safe(detail.detail) }}</span></li></ul></details>
-                      </article></div>
-                      <button v-if="displayedQuestionGroupCountFor(entry.assignment.id, entry.category) < entry.category.questionGroups.length" type="button" class="notebook-more-category-items" @click="showMoreQuestionGroupsFor(entry.assignment.id, entry.category)">继续显示题目（{{ displayedQuestionGroupCountFor(entry.assignment.id, entry.category) }} / {{ entry.category.questionGroups.length }}）</button>
-                    </section>
-                    <footer class="notebook-assignment-footer">
-                      <span>{{ entry.category.studentSavedOnly ? '这是你主动收录的复习题目。' : entry.category.studied ? '这类错误中的题目都已学会。' : '同一题的多个错误步骤一起标记，其他题可以分别学习。' }}</span>
-                      <button v-if="!entry.assignment.studentSavedOnly" type="button" :disabled="!entry.assignment.ready || workingKey === `archive:${entry.assignment.id}`" @click="archiveAssignment(entry.assignment)">{{ workingKey === `archive:${entry.assignment.id}` ? '正在移出…' : '整份作业移出错题本' }}</button>
-                    </footer>
-                  </div>
-                </details>
-                <button v-if="displayedCategoryAssignments.length < selectedNotebookCategory.assignments.length" type="button" class="notebook-more-assignments" @click="showMoreAssignments">继续显示作业（{{ displayedCategoryAssignments.length }} / {{ selectedNotebookCategory.assignments.length }}）</button>
-              </div>
-            </div>
-            <div v-else class="notebook-empty"><div class="notebook-empty-icon"><AppIcon name="book" :size="24"/></div><h3>{{ allMistakes.length ? '没有找到符合条件的作业' : '暂无错题' }}</h3><p v-if="allMistakes.length">换个关键词，或调整学习进度试试。</p><button v-if="!allMistakes.length" type="button" @click="router.push('/student/assignments')">去作业列表 <AppIcon name="arrow-right" :size="12"/></button></div>
-          </div>
-        </div>
-        <MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/>
-      </section>
+      <p v-if="loadError" class="mistake-load-error" role="alert">{{ loadError }}</p>
 
       <MistakeStickyNotes v-else-if="view === 'sticky'" :mistakes="allMistakes" :loading="loading" :split="Boolean(selectedMistake)" :reversed="assistantOnLeft" :fullscreen="assistantFullscreen" :working-key="workingKey" @select-mistake="openAssistant" @study-category="toggleCategoryByPayload" @archive-assignment="archiveById" @start-assignment="router.push('/student/assignments')" @review="openOriginalQuestion($event)">
         <template #assistant><MistakePointAssistant v-if="selectedMistake" :mistake="selectedMistake" :related="relatedMistakes" :progress="assistantProgress" :saving-study="workingKey === assistantStudyKey" :fullscreen="assistantFullscreen" @close="closeAssistant" @swap="assistantOnLeft = !assistantOnLeft" @fullscreen="assistantFullscreen = !assistantFullscreen" @open-original="openOriginalQuestion($event)" @study="toggleAssistantStudy"/></template>
@@ -139,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useStudentStore } from '../../stores/student'
@@ -147,8 +37,6 @@ import type { RelatedMistake, StudentMistake } from '../../api/types'
 import PreviousMistakeModal from '../../components/PreviousMistakeModal.vue'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import type { IconName } from '../../components/icons/paths'
-import { sanitizeStudentCopy } from '../../utils/errorType'
-import { getSubjectLabel } from '../../utils/subjectLabels'
 import '../../assets/mistake-book.css'
 
 let mistakePointAssistantPromise: Promise<typeof import('../../components/mistake-book/MistakePointAssistant.vue')> | undefined
@@ -169,51 +57,14 @@ const MistakeStickyNotes = defineAsyncComponent(
   () => import('../../components/mistake-book/MistakeStickyNotes.vue'),
 )
 
-type NotebookView = 'notebook' | 'sticky' | 'mindmap'
-type AssignmentSort = 'recent' | 'oldest' | 'priority'
-interface MistakeCategory { key: string; label: string; itemCount: number; firstItem: StudentMistake | null; items: StudentMistake[]; studied: boolean; studentSavedOnly: boolean; similar: StudentMistake['similar_occurrences'] }
-interface AssignmentGroup { id: number; title: string; createdAt: string; subject: string; itemCount: number; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studyPointCount: number; studiedStudyPointCount: number; priority: number }
-interface NotebookQuestionGroup {
-  key: string
+type NotebookView = 'sticky' | 'mindmap'
+interface MistakeCategory { key: string; label: string; itemCount: number; firstItem: StudentMistake | null; items: StudentMistake[]; studentSavedOnly: boolean }
+interface AssignmentGroup { id: number; title: string; categories: MistakeCategory[]; ready: boolean; studentSavedOnly: boolean; studyPointCount: number; studiedStudyPointCount: number }
+interface MistakeQuestionGroup {
   questionId: number | null
   items: StudentMistake[]
   representative: StudentMistake
-  steps: number[]
-  errorCategories: StudentMistake['error_categories']
-  errorDetails: StudentMistake['error_details']
   studied: boolean
-}
-interface NotebookAssignmentCategory {
-  key: string
-  label: string
-  categories: MistakeCategory[]
-  items: StudentMistake[]
-  questionGroups: NotebookQuestionGroup[]
-  itemCount: number
-  studied: boolean
-  studentSavedOnly: boolean
-  similar: StudentMistake['similar_occurrences']
-}
-interface NotebookAssignmentView {
-  assignment: AssignmentGroup
-  category: NotebookAssignmentCategory
-}
-interface NotebookErrorCategoryGroup {
-  key: string
-  label: string
-  itemCount: number
-  assignmentCount: number
-  questionCount: number
-  studiedQuestionCount: number
-  studied: boolean
-  assignments: NotebookAssignmentView[]
-}
-interface NotebookSubjectGroup {
-  key: string
-  label: string
-  itemCount: number
-  assignmentCount: number
-  categories: NotebookErrorCategoryGroup[]
 }
 interface OriginalAssignmentErrorType {
   key: string
@@ -222,7 +73,6 @@ interface OriginalAssignmentErrorType {
   representative: StudentMistake
 }
 type RelatedMistakeIndex = Map<string, Map<string, Map<string, StudentMistake[]>>>
-type AssignmentSearchIndex = Map<number, string>
 interface NotebookData {
   assignmentGroups: AssignmentGroup[]
   assignmentGroupsById: Map<number, AssignmentGroup>
@@ -265,22 +115,8 @@ const originalAssignmentErrorTypes = computed<OriginalAssignmentErrorType[]>(() 
   }
   return Array.from(categoriesByLabel.values()).sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'))
 })
-const status = ref<'all' | 'pending' | 'ready'>('all')
-const query = ref('')
-const sort = ref<AssignmentSort>('recent')
-const sortMenuOpen = ref(false)
-const activeSortIndex = ref(0)
-const sortPickerRef = ref<HTMLElement | null>(null)
-const sortPickerButtonRef = ref<HTMLButtonElement | null>(null)
-const workingKey = ref('')
 const selectedMistake = ref<StudentMistake | null>(null)
-const hierarchyExpansionOverrides = ref<Record<string, boolean>>({})
-const selectedNotebookSubjectKey = ref<string | null>(null)
-const selectedNotebookCategoryKey = ref<string | null>(null)
-const notebookAssignmentPageSize = 30
-const notebookCategoryPageSize = 25
-const visibleAssignmentLimit = ref(notebookAssignmentPageSize)
-const categoryItemLimits = ref<Record<string, number>>({})
+const workingKey = ref('')
 const assistantOnLeft = ref(false)
 const assistantFullscreen = ref(false)
 const removedAssignment = ref<{
@@ -297,131 +133,9 @@ const viewOptions: Array<{ key: NotebookView; label: string; icon: IconName }> =
   { key: 'sticky', label: '便利贴', icon: 'file' },
   { key: 'mindmap', label: '思维导图', icon: 'chart' },
 ]
-const sortOptions: Array<{ value: AssignmentSort; label: string }> = [
-  { value: 'recent', label: '最近作业' },
-  { value: 'oldest', label: '最早作业' },
-  { value: 'priority', label: '优先看重复错因' },
-]
-const selectedSortLabel = computed(() => sortOptions.find((option) => option.value === sort.value)?.label ?? '最近作业')
-const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
 const relatedMistakeIndexCache = new WeakMap<StudentMistake[], RelatedMistakeIndex>()
-const assignmentSearchIndexCache = new WeakMap<StudentMistake[], AssignmentSearchIndex>()
-
 const notebookData = computed(() => buildNotebookData(allMistakes.value))
 const assignmentGroups = computed(() => notebookData.value.assignmentGroups)
-const assignmentReadiness = computed(() => {
-  let pending = 0
-  let ready = 0
-  for (const assignment of assignmentGroups.value) {
-    if (assignment.ready) ready++
-    else pending++
-  }
-  return { pending, ready }
-})
-const statusOptions = computed(() => {
-  const groups = assignmentGroups.value
-  return [
-    { key: 'all' as const, label: '全部作业', count: groups.length },
-    { key: 'pending' as const, label: '待学习', count: assignmentReadiness.value.pending },
-    { key: 'ready' as const, label: '已学完', count: assignmentReadiness.value.ready },
-  ]
-})
-// 排序只依赖类别顺序与排序选项；搜索输入变化时复用这份结果。
-const sortedAssignments = computed(() => [...assignmentGroups.value].sort((left, right) => {
-  if (sort.value === 'oldest') return left.createdAt.localeCompare(right.createdAt)
-  if (sort.value === 'priority') {
-    const difference = right.priority - left.priority
-    if (difference) return difference
-  }
-  return right.createdAt.localeCompare(left.createdAt)
-}))
-const visibleAssignments = computed(() => {
-  const needle = query.value.trim().toLocaleLowerCase()
-  return sortedAssignments.value.filter((assignment) => {
-    if (status.value === 'pending' && assignment.ready || status.value === 'ready' && !assignment.ready) return false
-    if (!needle) return true
-    return assignmentSearchText(assignment).includes(needle)
-  })
-})
-const displayedSubjectGroups = computed(() => buildNotebookHierarchy(visibleAssignments.value))
-const selectedNotebookSubject = computed(() => displayedSubjectGroups.value.find((subject) => subject.key === selectedNotebookSubjectKey.value))
-const selectedNotebookCategory = computed(() => selectedNotebookSubject.value?.categories.find((category) => category.key === selectedNotebookCategoryKey.value))
-const notebookScreen = computed(() => selectedNotebookCategory.value ? 'assignments' : selectedNotebookSubject.value ? 'categories' : 'subjects')
-const displayedCategoryAssignments = computed(() => selectedNotebookCategory.value?.assignments.slice(0, visibleAssignmentLimit.value) ?? [])
-function selectedSortOptionIndex() {
-  const index = sortOptions.findIndex((option) => option.value === sort.value)
-  return index >= 0 ? index : 0
-}
-function focusSortOption(index: number) {
-  sortPickerRef.value?.querySelectorAll<HTMLButtonElement>('[role="option"]')[index]?.focus()
-}
-async function openSortMenu(index = selectedSortOptionIndex()) {
-  activeSortIndex.value = Math.max(0, Math.min(index, sortOptions.length - 1))
-  sortMenuOpen.value = true
-  await nextTick()
-  focusSortOption(activeSortIndex.value)
-}
-function closeSortMenu(restoreFocus = false) {
-  sortMenuOpen.value = false
-  if (restoreFocus) void nextTick(() => sortPickerButtonRef.value?.focus())
-}
-function toggleSortMenu() {
-  if (sortMenuOpen.value) closeSortMenu()
-  else void openSortMenu()
-}
-function onSortTriggerKeydown(event: KeyboardEvent) {
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-    event.preventDefault()
-    if (!sortMenuOpen.value) void openSortMenu()
-  } else if (event.key === 'Escape' && sortMenuOpen.value) {
-    event.preventDefault()
-    closeSortMenu(true)
-  }
-}
-function onSortOptionKeydown(event: KeyboardEvent, index: number) {
-  let nextIndex: number | null = null
-  if (event.key === 'ArrowDown') nextIndex = (index + 1) % sortOptions.length
-  else if (event.key === 'ArrowUp') nextIndex = (index - 1 + sortOptions.length) % sortOptions.length
-  else if (event.key === 'Home') nextIndex = 0
-  else if (event.key === 'End') nextIndex = sortOptions.length - 1
-  else if (event.key === 'Escape') {
-    event.preventDefault()
-    closeSortMenu(true)
-    return
-  }
-  if (nextIndex !== null) {
-    event.preventDefault()
-    activeSortIndex.value = nextIndex
-    void nextTick(() => focusSortOption(nextIndex!))
-  }
-}
-function selectSort(value: AssignmentSort) {
-  sort.value = value
-  closeSortMenu(true)
-}
-function onSortPickerFocusout(event: FocusEvent) {
-  const nextTarget = event.relatedTarget
-  if (nextTarget instanceof Node && sortPickerRef.value?.contains(nextTarget)) return
-  closeSortMenu()
-}
-function onSortPickerPointerdown(event: PointerEvent) {
-  const target = event.target
-  if (target instanceof Node && !sortPickerRef.value?.contains(target)) closeSortMenu()
-}
-watch([status, query, sort], () => {
-  visibleAssignmentLimit.value = notebookAssignmentPageSize
-  hierarchyExpansionOverrides.value = {}
-  selectedNotebookSubjectKey.value = null
-  selectedNotebookCategoryKey.value = null
-})
-watch(displayedSubjectGroups, (subjects) => {
-  if (selectedNotebookSubjectKey.value && !subjects.some((subject) => subject.key === selectedNotebookSubjectKey.value)) {
-    selectedNotebookSubjectKey.value = null
-    selectedNotebookCategoryKey.value = null
-  } else if (selectedNotebookCategoryKey.value && !selectedNotebookSubject.value?.categories.some((category) => category.key === selectedNotebookCategoryKey.value)) {
-    selectedNotebookCategoryKey.value = null
-  }
-})
 const relatedMistakes = computed(() => {
   const mistake = selectedMistake.value
   if (!mistake) return []
@@ -434,52 +148,8 @@ const assistantStudyKey = computed(() => selectedMistake.value
   ? `question:${studyKey(selectedMistake.value.assignment_id, selectedMistake.value.category_key)}:${selectedMistake.value.question_id}`
   : '')
 
-function hierarchyExpanded(key: string, defaultOpen: boolean): boolean {
-  return hierarchyExpansionOverrides.value[key] ?? defaultOpen
-}
-
-function onHierarchyToggle(key: string, event: Event) {
-  const details = event.currentTarget as HTMLDetailsElement | null
-  if (!details) return
-  hierarchyExpansionOverrides.value = { ...hierarchyExpansionOverrides.value, [key]: details.open }
-}
-
-function assignmentExpansionKey(entry: NotebookAssignmentView): string {
-  return `assignment:${entry.assignment.id}:${entry.category.key}`
-}
-
-function selectNotebookSubject(subject: NotebookSubjectGroup) {
-  selectedNotebookSubjectKey.value = subject.key
-  selectedNotebookCategoryKey.value = null
-  visibleAssignmentLimit.value = notebookAssignmentPageSize
-  hierarchyExpansionOverrides.value = {}
-}
-
-function selectNotebookCategory(category: NotebookErrorCategoryGroup) {
-  selectedNotebookCategoryKey.value = category.key
-  visibleAssignmentLimit.value = notebookAssignmentPageSize
-  hierarchyExpansionOverrides.value = {}
-}
-
-function goToNotebookSubjects() {
-  selectedNotebookSubjectKey.value = null
-  selectedNotebookCategoryKey.value = null
-  visibleAssignmentLimit.value = notebookAssignmentPageSize
-  hierarchyExpansionOverrides.value = {}
-}
-
-function goToNotebookCategories() {
-  selectedNotebookCategoryKey.value = null
-  visibleAssignmentLimit.value = notebookAssignmentPageSize
-  hierarchyExpansionOverrides.value = {}
-}
-
-function questionStudyKey(assignmentId: number, question: NotebookQuestionGroup): string {
+function questionStudyKey(assignmentId: number, question: MistakeQuestionGroup): string {
   return `question:${studyKey(assignmentId, question.representative.category_key)}:${question.questionId ?? question.representative.id}`
-}
-
-function showMoreAssignments() {
-  visibleAssignmentLimit.value += notebookAssignmentPageSize
 }
 
 function getRelatedMistakeIndex(items: StudentMistake[]): RelatedMistakeIndex {
@@ -509,138 +179,14 @@ function getRelatedMistakeIndex(items: StudentMistake[]): RelatedMistakeIndex {
   return index
 }
 
-function assignmentSearchText(assignment: AssignmentGroup): string {
-  const cached = assignmentSearchIndexCache.get(allMistakes.value)
-  if (cached) return cached.get(assignment.id) ?? assignment.title.toLocaleLowerCase()
-
-  const searchPartsByAssignment = new Map<number, Array<string | null | undefined>>()
-  for (const group of assignmentGroups.value) {
-    searchPartsByAssignment.set(group.id, [group.title, ...group.categories.map((category) => category.label)])
-  }
-  for (const item of allMistakes.value) {
-    const searchParts = searchPartsByAssignment.get(item.assignment_id)
-    searchParts?.push(item.error_type, item.knowledge_point, item.question_stem, item.step_text, item.detail)
-  }
-  const index: AssignmentSearchIndex = new Map()
-  for (const [assignmentId, searchParts] of searchPartsByAssignment) {
-    index.set(assignmentId, searchParts.filter(Boolean).join(' ').toLocaleLowerCase())
-  }
-  assignmentSearchIndexCache.set(allMistakes.value, index)
-  return index.get(assignment.id) ?? assignment.title.toLocaleLowerCase()
-}
-
-function displayedQuestionGroupCountFor(assignmentId: number, category: NotebookAssignmentCategory): number {
-  return Math.min(
-    category.questionGroups.length,
-    categoryItemLimits.value[studyKey(assignmentId, category.key)] ?? notebookCategoryPageSize,
-  )
-}
-function categoryQuestionsFor(assignmentId: number, category: NotebookAssignmentCategory): NotebookQuestionGroup[] {
-  return category.questionGroups.slice(0, displayedQuestionGroupCountFor(assignmentId, category))
-}
-function showMoreQuestionGroupsFor(assignmentId: number, category: NotebookAssignmentCategory) {
-  const key = studyKey(assignmentId, category.key)
-  categoryItemLimits.value[key] = Math.min(
-    category.questionGroups.length,
-    displayedQuestionGroupCountFor(assignmentId, category) + notebookCategoryPageSize,
-  )
-}
-
-function buildNotebookHierarchy(assignments: AssignmentGroup[]): NotebookSubjectGroup[] {
-  const subjects = new Map<string, NotebookSubjectGroup>()
-  const categoriesBySubject = new Map<string, Map<string, NotebookErrorCategoryGroup>>()
-  const assignmentIdsBySubject = new Map<string, Set<number>>()
-  for (const assignment of assignments) {
-    const subjectKey = normalizeNotebookSubject(assignment.subject)
-    let subject = subjects.get(subjectKey)
-    if (!subject) {
-      subject = { key: subjectKey, label: subjectName(subjectKey), itemCount: 0, assignmentCount: 0, categories: [] }
-      subjects.set(subjectKey, subject)
-      categoriesBySubject.set(subjectKey, new Map())
-      assignmentIdsBySubject.set(subjectKey, new Set())
-    }
-    assignmentIdsBySubject.get(subjectKey)!.add(assignment.id)
-    subject.itemCount += assignment.itemCount
-
-    const categoriesByLabel = new Map<string, NotebookAssignmentCategory>()
-    for (const category of assignment.categories) {
-      const key = normalizeNotebookCategory(category.label)
-      let group = categoriesByLabel.get(key)
-      if (!group) {
-        group = {
-          key,
-          label: category.label || category.firstItem?.error_type || '待归类',
-          categories: [],
-          items: [],
-          questionGroups: [],
-          itemCount: 0,
-          studied: true,
-          studentSavedOnly: true,
-          similar: [],
-        }
-        categoriesByLabel.set(key, group)
-      }
-      group.categories.push(category)
-      group.items.push(...category.items)
-      group.studied = group.studied && category.studied
-      group.studentSavedOnly = group.studentSavedOnly && category.studentSavedOnly
-      if (category.similar.length > group.similar.length) group.similar = category.similar
-    }
-
-    const categories = Array.from(categoriesByLabel.values()).map((category) => {
-      const uniqueItems = Array.from(new Map(category.items.map((item) => [item.id, item])).values())
-      category.items = uniqueItems
-      category.itemCount = uniqueItems.length
-      category.studentSavedOnly = uniqueItems.length > 0 && uniqueItems.every(isStudentSaved)
-      category.questionGroups = buildQuestionGroups(uniqueItems)
-      return category
-    }).sort((left, right) => Number(left.studied) - Number(right.studied) || right.itemCount - left.itemCount || left.label.localeCompare(right.label, 'zh-CN'))
-
-    const subjectCategoryIndex = categoriesBySubject.get(subjectKey)!
-    for (const category of categories) {
-      let categoryGroup = subjectCategoryIndex.get(category.key)
-      if (!categoryGroup) {
-        categoryGroup = {
-          key: category.key,
-          label: category.label,
-          itemCount: 0,
-          assignmentCount: 0,
-          questionCount: 0,
-          studiedQuestionCount: 0,
-          studied: true,
-          assignments: [],
-        }
-        subject.categories.push(categoryGroup)
-        subjectCategoryIndex.set(category.key, categoryGroup)
-      }
-      categoryGroup.assignments.push({ assignment, category })
-      categoryGroup.itemCount += category.itemCount
-      categoryGroup.questionCount += category.questionGroups.length
-      categoryGroup.studiedQuestionCount += category.questionGroups.filter((question) => question.studied).length
-    }
-  }
-
-  return Array.from(subjects.values())
-    .map((subject) => {
-      subject.assignmentCount = assignmentIdsBySubject.get(subject.key)?.size ?? 0
-      subject.categories = subject.categories.map((category) => {
-        category.assignmentCount = category.assignments.length
-        category.studied = category.questionCount > 0 && category.studiedQuestionCount === category.questionCount
-        return category
-      }).sort((left, right) => Number(left.studied) - Number(right.studied) || right.assignmentCount - left.assignmentCount || left.label.localeCompare(right.label, 'zh-CN'))
-      return subject
-    })
-    .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'))
-}
-
-function buildQuestionGroups(items: StudentMistake[]): NotebookQuestionGroup[] {
-  const groups = new Map<string, NotebookQuestionGroup>()
+function buildQuestionGroups(items: StudentMistake[]): MistakeQuestionGroup[] {
+  const groups = new Map<string, MistakeQuestionGroup>()
   for (const item of items) {
     const questionId = isStudentSaved(item) ? null : item.question_id
     const key = isStudentSaved(item) ? `saved:${item.id}` : `submission:${item.submission_id}`
     let group = groups.get(key)
     if (!group) {
-      group = { key, questionId, items: [], representative: item, steps: [], errorCategories: [], errorDetails: [], studied: true }
+      group = { questionId, items: [], representative: item, studied: true }
       groups.set(key, group)
     }
     group.items.push(item)
@@ -649,23 +195,8 @@ function buildQuestionGroups(items: StudentMistake[]): NotebookQuestionGroup[] {
     group.items.sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id - left.id)
     group.representative = group.items[0]
     group.studied = group.items.every((item) => item.question_studied ?? item.category_studied)
-    const detailsById = new Map<number, StudentMistake['error_details'][number]>()
-    const categoriesByKey = new Map<string, StudentMistake['error_categories'][number]>()
-    for (const item of group.items) {
-      for (const detail of item.error_details ?? []) detailsById.set(detail.id, detail)
-      for (const category of item.error_categories ?? []) categoriesByKey.set(category.key, category)
-    }
-    group.errorDetails = Array.from(detailsById.values()).sort((left, right) => (left.step_seq ?? Number.MAX_SAFE_INTEGER) - (right.step_seq ?? Number.MAX_SAFE_INTEGER) || left.id - right.id)
-    group.errorCategories = Array.from(categoriesByKey.values())
-    group.steps = Array.from(new Set(group.errorDetails.flatMap((detail) => detail.step_seq === null ? [] : [detail.step_seq])))
-      .sort((left, right) => left - right)
     return group
   })
-}
-
-function normalizeNotebookSubject(value: string): string {
-  if (value === 'english_exercise') return 'english'
-  return value || 'other'
 }
 
 function normalizeNotebookCategory(value: string): string {
@@ -681,22 +212,16 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
       group = {
         id: item.assignment_id,
         title: item.assignment_title,
-        createdAt: item.assignment_created_at,
-        subject: item.question_subject,
-        itemCount: 0,
         categories: [],
         ready: false,
         studentSavedOnly: true,
         studyPointCount: 0,
         studiedStudyPointCount: 0,
-        priority: 0,
       }
       groups.set(item.assignment_id, group)
       categoriesByAssignment.set(item.assignment_id, new Map())
     }
-    group.itemCount += 1
     group.studentSavedOnly = group.studentSavedOnly && isStudentSaved(item)
-    group.priority += item.similar_occurrences.length + Number(item.is_stubborn)
     const categories = item.error_categories?.length
       ? item.error_categories
       : [{ key: item.category_key, label: item.category_label || item.error_type, category_studied: item.category_studied, question_studied: item.question_studied }]
@@ -710,8 +235,6 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
           itemCount: 0,
           firstItem: null,
           items: [],
-          studied: true,
-          similar: item.similar_occurrences,
           studentSavedOnly: true,
         }
         categoryIndex.set(itemCategory.key, category)
@@ -728,16 +251,10 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
       category.items.push(categoryItem)
       if (!category.firstItem) category.firstItem = categoryItem
       category.studentSavedOnly = category.studentSavedOnly && isStudentSaved(item)
-      category.studied = category.studied && categoryItem.category_studied
-      if (item.similar_occurrences.length > category.similar.length) category.similar = item.similar_occurrences
     }
   }
 
   const assignmentGroups = Array.from(groups.values()).map((group) => {
-    for (const category of group.categories) {
-      category.studied = buildQuestionGroups(category.items).every((question) => question.studied)
-    }
-    group.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.itemCount - a.itemCount || a.label.localeCompare(b.label, 'zh-CN'))
     const questionStudyBySubmission = new Map<number, boolean>()
     for (const category of group.categories) {
       for (const question of buildQuestionGroups(category.items)) {
@@ -759,9 +276,6 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
     assignmentGroupsById: groups,
   }
 }
-function subjectName(value: string) { const subject = normalizeNotebookSubject(value); return getSubjectLabel(subject, subject || '其他学科') }
-function formatDate(value?: string) { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '日期未记录' : dateFormatter.format(date) }
-function safe(value: string) { return sanitizeStudentCopy(value) }
 function isStudentSaved(item: StudentMistake) { return item.source_kind === 'student_saved' }
 function studyKey(assignmentId: number, categoryKey: string) { return `${assignmentId}:${categoryKey}` }
 function ensureSupplementalStyles() {
@@ -777,12 +291,6 @@ function setView(next: NotebookView) {
   const requestId = ++viewRequestId
   const activate = () => {
     if (requestId !== viewRequestId) return
-    if (next !== view.value) {
-      selectedNotebookSubjectKey.value = null
-      selectedNotebookCategoryKey.value = null
-      visibleAssignmentLimit.value = notebookAssignmentPageSize
-      hierarchyExpansionOverrides.value = {}
-    }
     view.value = next
     student.setMistakePageTitle(next === 'sticky' ? '错题便利贴' : '')
     closeAssistant()
@@ -814,38 +322,12 @@ function askAboutOriginalError(mistake: StudentMistake) {
   selectedOriginalMistake.value = null
   openAssistant(mistake)
 }
-function openSimilarOriginal(previous: StudentMistake['similar_occurrences'][number]) {
-  const fullMistake = allMistakes.value.find((item) => item.id === previous.id)
-  if (fullMistake) {
-    openOriginalQuestion(fullMistake)
-    return
-  }
-  selectedOriginalMistake.value = {
-    id: previous.id,
-    submission_id: previous.submission_id,
-    question_id: selectedMistake.value?.question_id ?? 0,
-    assignment_id: previous.assignment_id,
-    assignment_title: previous.assignment_title,
-    assignment_created_at: previous.assignment_created_at,
-    question_subject: selectedMistake.value?.question_subject ?? '',
-    question_stem: previous.question_stem,
-    solution_steps: [],
-    knowledge_point: selectedMistake.value?.knowledge_point ?? '历史同类错题',
-    error_type: selectedMistake.value?.error_type ?? '历史错题',
-    detail: null,
-    step_seq: null,
-    step_text: null,
-    created_at: previous.assignment_created_at,
-    latest_correction: null,
-  }
-}
 async function loadMistakes(): Promise<boolean> {
   loading.value = true
   loadError.value = ''
   actionError.value = ''
   try {
     allMistakes.value = await student.fetchMyMistakes(false)
-    categoryItemLimits.value = {}
     mistakesLoaded.value = true
     if (selectedMistake.value) {
       const previous = selectedMistake.value
@@ -883,7 +365,7 @@ async function loadMistakes(): Promise<boolean> {
 function notifyMistakeReviewChanged(items?: StudentMistake[]) {
   window.dispatchEvent(new CustomEvent('mistake-review-changed', { detail: { items } }))
 }
-async function toggleQuestionStudy(assignmentId: number, question: NotebookQuestionGroup) {
+async function toggleQuestionStudy(assignmentId: number, question: MistakeQuestionGroup) {
   if (workingKey.value || question.questionId === null || isStudentSaved(question.representative)) return
   const studied = !question.studied
   workingKey.value = questionStudyKey(assignmentId, question)
@@ -1012,17 +494,6 @@ async function archiveById(assignmentId: number) {
   const assignment = assignmentGroups.value.find((item) => item.id === assignmentId)
   if (assignment) await archiveAssignment(assignment)
 }
-async function archiveSaved(mistake: StudentMistake) {
-  workingKey.value = `archive:${mistake.assignment_id}`
-  actionError.value = ''
-  try {
-    await student.setMistakeArchived(mistake.id, true)
-    closeAssistant()
-    allMistakes.value = allMistakes.value.filter((item) => item.id !== mistake.id)
-    notifyMistakeReviewChanged(allMistakes.value)
-  } catch { actionError.value = '移出错题本失败，请稍后重试。' }
-  finally { workingKey.value = '' }
-}
 async function restoreAssignment() {
   if (!removedAssignment.value) return
   const removed = removedAssignment.value
@@ -1072,14 +543,6 @@ function openRequestedReview() {
   if (!Number.isInteger(requestedId) || requestedId <= 0) return
   const mistake = allMistakes.value.find((item) => item.id === requestedId)
   if (mistake) {
-    const assignmentIndex = visibleAssignments.value.findIndex(
-      (assignment) => assignment.id === mistake.assignment_id,
-    )
-    if (assignmentIndex >= visibleAssignmentLimit.value) {
-      visibleAssignmentLimit.value =
-        Math.ceil((assignmentIndex + 1) / notebookAssignmentPageSize)
-        * notebookAssignmentPageSize
-    }
     openAssistant(mistake)
   }
   const query = { ...route.query }
@@ -1090,15 +553,12 @@ function openRequestedReview() {
 watch(() => route.query.review, openRequestedReview)
 
 onMounted(() => {
-  document.addEventListener('pointerdown', onSortPickerPointerdown)
   void loadMistakes().finally(() => {
     // 错题加载完成后预热聊天组件，避免第一次打开右侧问答时等待异步代码块。
     void loadMistakePointAssistant().catch(() => undefined)
   })
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onSortPickerPointerdown)
-  sortMenuOpen.value = false
   viewRequestId++
   student.setMistakePageTitle('')
 })
@@ -1108,27 +568,6 @@ onBeforeUnmount(() => {
 .remedi-mistake-book { display: flex; min-height: 0; flex: 1 1 0; flex-direction: column; overflow: hidden; }
 .remedi-mistake-book .mistakes-panel { position: relative; width: 100%; height: auto; min-height: 0; flex: 1 1 0%; overflow: hidden; }
 .remedi-mistake-book .mistake-board-toolbar { position: static; z-index: 10; }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
-  position: static;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs { flex: 0 0 auto; }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools {
-  width: auto;
-  min-width: 0;
-  flex: 1 1 260px;
-  gap: 8px;
-  margin-left: 0;
-}
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search { width: auto; min-width: 0; flex: 1 1 240px; }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort { width: 164px; flex: 0 0 164px; }
 .remedi-mistake-book .mistake-view-controls {
   position: static;
   z-index: auto;
@@ -1141,51 +580,18 @@ onBeforeUnmount(() => {
 .remedi-mistake-book .mistake-view-controls .mistake-view-switch {
   flex: 0 0 auto;
 }
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { margin-right: 0; }
-.remedi-mistake-book .mistake-notebook:not(.is-split) .notebook-assignment-list { overflow: visible; }
 .remedi-mistake-book .mistake-map-viewport-frame, .remedi-mistake-book .mistake-network-frame { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-map-viewport, .remedi-mistake-book .mistake-network-viewport { height: 100%; min-height: 0; }
 .remedi-mistake-book .mistake-network-topic-nav { top: 62px; }
-.remedi-mistake-book .notebook-header h1 { color: var(--text); font-size: clamp(28px, 3vw, 39px); }
-.remedi-mistake-book .notebook-header h1 span { color: var(--primary); }
-.remedi-mistake-book .notebook-eyebrow { color: var(--primary); }
-.remedi-mistake-book .notebook-search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
-.remedi-mistake-book .notebook-repeat-note { background: transparent; }
-.remedi-mistake-book .notebook-question-open { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px; border: 0; border-radius: var(--radius-detail); color: var(--text); background: transparent; text-align: left; cursor: pointer; }
-.remedi-mistake-book .notebook-question-open:hover, .remedi-mistake-book .notebook-question-open.active { background: var(--primary-50); }
-.remedi-mistake-book .notebook-question-open strong { font-size: 12px; }
-.remedi-mistake-book .notebook-question-open small, .remedi-mistake-book .notebook-question-detail { color: var(--text-3); font-size: 11px; }
-.remedi-mistake-book .notebook-question-excerpt { color: var(--text-2); font-size: 12px; }
-.remedi-mistake-book .notebook-question-detail { line-height: 1.55; }
 /* Each question is one compact row: prompt on the left, individual learn/review actions on the right. */
-.remedi-mistake-book .notebook-category-questions article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px 10px; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
-.remedi-mistake-book .notebook-category-questions article > .notebook-question-open { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow: hidden; grid-column: 1; grid-row: 1 / span 2; }
-.remedi-mistake-book .notebook-category-questions article > .notebook-question-open > * { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
-.remedi-mistake-book .notebook-question-actions { display: flex; min-width: 86px; grid-column: 2; grid-row: 1 / span 2; flex-direction: column; align-items: flex-end; gap: 4px; }
-.remedi-mistake-book .notebook-question-actions button { display: inline-flex; min-height: 30px; align-items: center; gap: 4px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-standard); color: var(--text-2); background: var(--surface-2); font-size: 11px; white-space: nowrap; cursor: pointer; }
-.remedi-mistake-book .notebook-question-actions button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--primary-50); }
-.remedi-mistake-book .notebook-question-actions .notebook-question-study { color: var(--primary); }
-.remedi-mistake-book .notebook-question-actions .notebook-question-study.studied { color: var(--green-strong); background: var(--green-bg); }
-.remedi-mistake-book .notebook-category-questions article > .notebook-question-records { grid-column: 1 / -1; }
-.remedi-mistake-book .notebook-question-excerpt, .remedi-mistake-book .notebook-question-detail { display: -webkit-box; width: 100%; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.remedi-mistake-book .notebook-assignment-content, .remedi-mistake-book .notebook-category, .remedi-mistake-book .notebook-category-questions { box-sizing: border-box; min-width: 0; max-width: 100%; }
-.remedi-mistake-book .notebook-assignment-footer button { border-color: var(--primary); background: var(--primary); }
-.remedi-mistake-book .notebook-action-error { margin: 10px 0; color: var(--red-strong); font-size: 12px; }
-.remedi-mistake-book .mistake-point-assistant { animation: notebook-assistant-enter .22s ease-out both; }
-@keyframes notebook-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
-@media (max-width: 1150px) {
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters { padding-top: 8px; }
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs,
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools { width: 100%; flex-basis: 100%; margin-right: 0; }
-}
+.remedi-mistake-book .mistake-load-error { margin: 10px 0; color: var(--red-strong); font-size: 12px; }
+.remedi-mistake-book .mistake-point-assistant { animation: mistake-assistant-enter .22s ease-out both; }
+@keyframes mistake-assistant-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 700px) {
   .remedi-mistake-book .mistake-view-controls { gap: 0; }
   .remedi-mistake-book .mistake-view-switch { max-width: calc(100vw - 72px); overflow-x: auto; }
   .remedi-mistake-book .mistake-view-switch button { min-width: auto; padding-inline: 9px; }
   .remedi-mistake-book .mistake-board-refresh { display: none; }
-  .remedi-mistake-book .mistake-notebook.is-split { display: flex; flex-direction: column; }
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-notebook-content { flex: 0 0 auto; }
-  .remedi-mistake-book .mistake-notebook.is-split .mistake-point-assistant { height: auto; flex: 0 0 auto; }
 }
 
 /* 错题本统一视觉：保持各视图的数据和交互，只调整层级、留白与表面样式。 */
@@ -1195,35 +601,6 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-panel);
   background: var(--card);
   box-shadow: var(--shadow);
-}
-
-.remedi-mistake-book .mistakes-panel.is-notebook {
-  height: auto;
-  flex: 0 0 auto;
-  padding-inline: 0;
-  border: 0;
-  border-radius: 0;
-  overflow: visible;
-  background: var(--card);
-  box-shadow: none;
-}
-
-.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-board-toolbar.with-notebook-filters,
-.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-removal-notice,
-.remedi-mistake-book .mistakes-panel.is-notebook > .notebook-action-error,
-.remedi-mistake-book .mistakes-panel.is-notebook > .mistake-notebook {
-  width: 100%;
-  max-width: calc(var(--content-frame-width) - var(--content-frame-gutter) - var(--content-frame-gutter));
-  margin-inline: auto;
-}
-
-@media (max-width: 960px) {
-  .remedi-mistake-book .mistakes-panel.is-notebook > .mistake-board-toolbar.with-notebook-filters,
-  .remedi-mistake-book .mistakes-panel.is-notebook > .mistake-removal-notice,
-  .remedi-mistake-book .mistakes-panel.is-notebook > .notebook-action-error,
-  .remedi-mistake-book .mistakes-panel.is-notebook > .mistake-notebook {
-    max-width: calc(var(--content-frame-width) - var(--content-frame-gutter-compact) - var(--content-frame-gutter-compact));
-  }
 }
 
 .remedi-mistake-book .mistake-view-switch {
@@ -1277,314 +654,8 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow);
 }
 
-/* 卡片笔记 */
-.remedi-mistake-book .notebook-workspace {
-  min-width: 0;
-}
+/* 便利贴扩展列表 */
 
-.remedi-mistake-book .notebook-filterbar {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--card);
-  box-shadow: var(--shadow);
-}
-
-.remedi-mistake-book .notebook-status-tabs {
-  flex: 0 0 auto;
-  gap: 3px;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  white-space: nowrap;
-}
-
-.remedi-mistake-book .notebook-status-tabs button {
-  min-height: 36px;
-  gap: 7px;
-  padding: 7px 11px;
-  border-radius: var(--radius-standard);
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.remedi-mistake-book .notebook-status-tabs button:hover:not(.selected) {
-  color: var(--text);
-  background: var(--card);
-}
-
-.remedi-mistake-book .notebook-status-tabs button.selected {
-  color: var(--primary);
-  border-color: transparent;
-  border-bottom: 2px solid var(--primary);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.remedi-mistake-book .notebook-search-tools {
-  min-width: 0;
-  flex: 0 1 auto;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.remedi-mistake-book .notebook-search,
-.remedi-mistake-book .notebook-sort-trigger {
-  min-height: 40px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-standard);
-  background: var(--surface-2);
-  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
-}
-
-.remedi-mistake-book .notebook-search {
-  width: clamp(220px, 24vw, 340px);
-  min-width: 180px;
-  flex: 0 1 340px;
-  padding: 0 11px;
-}
-
-.remedi-mistake-book .notebook-search:focus-within,
-.remedi-mistake-book .notebook-sort-trigger:focus-visible {
-  border-color: var(--primary);
-  background: var(--card);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
-}
-
-.remedi-mistake-book .notebook-search input {
-  font-size: 13px;
-}
-
-.remedi-mistake-book .notebook-sort-trigger {
-  width: 100%;
-  flex: 0 0 auto;
-  min-height: 40px;
-  padding: 8px 30px 8px 11px;
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.remedi-mistake-book .notebook-results-note {
-  margin: 16px 4px;
-  color: var(--text-2);
-  font-size: 12px;
-}
-
-.remedi-mistake-book .notebook-results-note button {
-  border-radius: var(--radius-standard);
-  color: var(--primary);
-  font-weight: 650;
-}
-
-.remedi-mistake-book .notebook-assignment-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.remedi-mistake-book .notebook-assignment {
-  overflow: visible;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transition: border-color .18s ease;
-}
-
-.remedi-mistake-book .notebook-assignment:hover {
-  border-color: var(--border);
-  box-shadow: none;
-}
-
-.remedi-mistake-book .notebook-assignment[open] {
-  border-color: var(--border);
-  box-shadow: none;
-}
-
-.remedi-mistake-book .notebook-assignment > summary {
-  grid-template-columns: 32px auto minmax(0, 1fr) auto auto;
-  gap: 12px;
-  min-height: 82px;
-  padding: 14px 18px;
-}
-
-.remedi-mistake-book .notebook-assignment-chevron {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border-radius: 0;
-  color: var(--text-2);
-  background: transparent;
-  transition: transform .18s ease, color .18s ease, background-color .18s ease;
-}
-
-.remedi-mistake-book .notebook-assignment[open] .notebook-assignment-chevron {
-  color: var(--primary);
-  background: transparent;
-  transform: rotate(180deg);
-}
-
-.remedi-mistake-book .notebook-subject-badge {
-  min-height: 28px;
-  padding: 5px 0;
-  border-radius: 0;
-  background: transparent;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.remedi-mistake-book .notebook-assignment-title strong {
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 680;
-}
-
-.remedi-mistake-book .notebook-assignment-title small {
-  margin-top: 4px;
-  color: var(--text-3);
-  font-size: 11px;
-}
-
-.remedi-mistake-book .notebook-assignment-progress {
-  color: var(--text-2);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.remedi-mistake-book .notebook-assignment-state {
-  padding: 5px 0;
-  border: 0;
-  border-radius: 0;
-  color: var(--text-2);
-  background: transparent;
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.remedi-mistake-book .notebook-assignment-state.ready {
-  border-color: transparent;
-  color: var(--green-strong);
-  background: transparent;
-}
-
-.remedi-mistake-book .notebook-assignment-content {
-  gap: 0;
-  padding: 0 18px 16px;
-}
-
-.remedi-mistake-book .notebook-category {
-  padding: 13px 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.remedi-mistake-book .notebook-category.studied { background: transparent; }
-.remedi-mistake-book .notebook-category + .notebook-category { border-top: 1px solid var(--border); }
-
-.remedi-mistake-book .notebook-category-head h4 {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.remedi-mistake-book .notebook-category-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--primary);
-}
-
-.remedi-mistake-book .notebook-category.studied .notebook-category-dot {
-  background: var(--green);
-}
-
-.remedi-mistake-book .notebook-category-head button {
-  min-height: 34px;
-  padding: 7px 0;
-  border: 0;
-  border-radius: 0;
-  color: var(--primary);
-  background: transparent;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.remedi-mistake-book .notebook-category-head button.studied {
-  border-color: transparent;
-  color: var(--green-strong);
-  background: transparent;
-}
-
-.remedi-mistake-book .notebook-category-questions article {
-  gap: 8px;
-  padding: 8px 0;
-  border: 0;
-  border-top: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  transition: border-color .16s ease;
-}
-
-.remedi-mistake-book .notebook-category-questions article:focus-within,
-.remedi-mistake-book .notebook-category-questions article:hover {
-  border-color: var(--border);
-  background: transparent;
-}
-
-.remedi-mistake-book .notebook-question-open {
-  gap: 4px;
-  padding: 9px;
-  border-radius: var(--radius-standard);
-}
-
-.remedi-mistake-book .notebook-question-open:hover,
-.remedi-mistake-book .notebook-question-open.active {
-  background: var(--primary-50);
-}
-
-.remedi-mistake-book .notebook-question-open strong {
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.remedi-mistake-book .notebook-question-open small,
-.remedi-mistake-book .notebook-question-detail {
-  color: var(--text-3);
-  font-size: 11px;
-}
-
-.remedi-mistake-book .notebook-question-excerpt {
-  color: var(--text-2);
-  font-size: 12px;
-}
-
-.remedi-mistake-book .notebook-category-questions article > button:last-child {
-  min-height: 32px;
-  margin: 0 5px 0 0;
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-standard);
-  color: var(--text-2);
-  background: var(--surface-2);
-  font-size: 11px;
-}
-
-.remedi-mistake-book .notebook-category-questions article > button:last-child:hover:not(:disabled) {
-  border-color: var(--primary);
-  color: var(--primary);
-  background: var(--primary-50);
-}
-
-.remedi-mistake-book .notebook-more-category-items,
-.remedi-mistake-book .notebook-more-assignments,
 :deep(.sticky-list-more) {
   min-height: 38px;
   padding: 8px 14px;
@@ -1597,38 +668,8 @@ onBeforeUnmount(() => {
   transition: border-color .16s ease, background-color .16s ease;
 }
 
-.remedi-mistake-book .notebook-more-category-items:hover,
-.remedi-mistake-book .notebook-more-assignments:hover,
 :deep(.sticky-list-more:hover) {
   border-color: var(--primary);
-  background: var(--primary-50);
-}
-
-.remedi-mistake-book .notebook-assignment-footer {
-  padding-top: 10px;
-  color: var(--text-2);
-  font-size: 11px;
-}
-
-.remedi-mistake-book .notebook-assignment-footer button {
-  min-height: 36px;
-  padding: 8px 12px;
-  border-radius: var(--radius-standard);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.remedi-mistake-book .notebook-empty {
-  margin-top: 10px;
-  padding: 52px 24px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-panel);
-  background: var(--card);
-  text-align: center;
-}
-
-.remedi-mistake-book .notebook-empty-icon {
-  color: var(--primary);
   background: var(--primary-50);
 }
 
@@ -2130,18 +1171,9 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 960px) {
-  .remedi-mistake-book .notebook-filterbar {
-    align-items: center;
-  }
 
   .remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
     padding-top: 16px;
-  }
-}
-
-@media (max-width: 760px) {
-  .remedi-mistake-book .notebook-filterbar {
-    flex-wrap: wrap;
   }
 }
 
@@ -2160,74 +1192,6 @@ onBeforeUnmount(() => {
   .remedi-mistake-book .mistake-board-refresh {
     width: 36px;
     height: 36px;
-  }
-
-  .remedi-mistake-book .notebook-filterbar {
-    padding: 10px;
-  }
-
-  .remedi-mistake-book .notebook-status-tabs {
-    width: 100%;
-  }
-
-  .remedi-mistake-book .notebook-status-tabs button {
-    flex: 1;
-    justify-content: center;
-    padding-inline: 6px;
-  }
-
-  .remedi-mistake-book .notebook-search-tools {
-    width: 100%;
-  }
-
-  .remedi-mistake-book .notebook-search {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .remedi-mistake-book .notebook-assignment > summary {
-    grid-template-columns: 28px minmax(0, 1fr) auto;
-    gap: 8px;
-    min-height: 0;
-    padding: 12px;
-  }
-
-  .remedi-mistake-book .notebook-subject-badge {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: start;
-  }
-
-  .remedi-mistake-book .notebook-assignment-title {
-    grid-column: 2 / 4;
-    grid-row: 2;
-  }
-
-  .remedi-mistake-book .notebook-assignment-progress {
-    grid-column: 3;
-    grid-row: 1;
-  }
-
-  .remedi-mistake-book .notebook-assignment-state {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
-  }
-
-  .remedi-mistake-book .notebook-assignment-content {
-    padding: 0 10px 12px;
-  }
-
-  .remedi-mistake-book .notebook-category {
-    padding: 10px;
-  }
-
-  .remedi-mistake-book .notebook-assignment-footer {
-    align-items: stretch;
-  }
-
-  .remedi-mistake-book .notebook-assignment-footer button {
-    width: 100%;
   }
 
   .remedi-mistake-book :deep(.mistake-sticky-notes:not(.is-split) .sticky-notes-inner) {
@@ -2253,186 +1217,14 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 700px) {
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters {
-    justify-content: flex-start;
-    gap: 8px;
-    padding: 56px 8px 8px;
-  }
-
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-status-tabs {
-    order: 1;
-    width: 100%;
-  }
-
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search-tools {
-    order: 2;
-    width: 100%;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .remedi-mistake-book .mistake-view-switch button,
-  .remedi-mistake-book .notebook-assignment,
-  .remedi-mistake-book :deep(.sticky-note),
-  .remedi-mistake-book :deep(.sticky-question),
-  .remedi-mistake-book :deep(.mistake-point-assistant *) {
+  .remedi-mistake-book .mistake-view-switch button, .remedi-mistake-book :deep(.sticky-note), .remedi-mistake-book :deep(.sticky-question), .remedi-mistake-book :deep(.mistake-point-assistant *) {
     transition: none;
     animation: none;
   }
 }
 
-/* 宽屏卡片错题本使用固定视口；窄屏仍由整页自然滚动。 */
-@media (max-width: 1199px) {
-  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) {
-    height: auto;
-    min-height: 0;
-    flex: 0 0 auto;
-    overflow: visible;
-  }
-  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) > .mistakes-panel {
-    height: auto;
-    min-height: 0;
-    overflow: visible;
-  }
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook {
-    height: auto;
-    min-height: 0;
-  }
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content {
-    height: auto;
-    padding: 0;
-    overflow: visible;
-    overscroll-behavior: auto;
-  }
-}
-
-@media (min-width: 1200px) {
-  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) {
-    height: 100%;
-    min-height: 0;
-    flex: 1 1 0;
-    overflow: hidden;
-  }
-  .remedi-mistake-book:has(> .mistakes-panel.is-notebook) > .mistakes-panel {
-    display: flex;
-    height: 100%;
-    min-height: 0;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook {
-    height: auto;
-    min-height: 0;
-    flex: 1 1 0;
-    overflow: hidden;
-  }
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content {
-    height: 100%;
-    min-height: 0;
-    padding: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook-content::-webkit-scrollbar { display: none; }
-}
-
-@container (min-width: 851px) {
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split {
-    display: grid;
-    min-height: 0;
-    grid-template-columns: minmax(0, 1.35fr) minmax(360px, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-    grid-template-areas: "content assistant";
-    align-items: stretch;
-    gap: 16px;
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split.is-reversed {
-    grid-template-areas: "assistant content";
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-notebook-content {
-    grid-area: content;
-    width: auto;
-    min-width: 0;
-    height: auto;
-    min-height: 0;
-    flex: initial;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split .mistake-notebook-content::-webkit-scrollbar { display: none; }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split > .mistake-point-assistant {
-    position: relative;
-    top: auto;
-    grid-area: assistant;
-    align-self: stretch;
-    width: 100%;
-    height: auto;
-    min-height: 0;
-    max-height: none;
-    overflow: hidden;
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-summary) {
-    max-height: 42%;
-    overflow: hidden;
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-summary-body) {
-    min-width: 0;
-    overflow-y: auto;
-    overflow-wrap: anywhere;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-transcript) {
-    min-width: 0;
-    min-height: 0;
-    flex: 1 1 auto;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-summary-body::-webkit-scrollbar),
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-transcript::-webkit-scrollbar) { display: none; width: 0; height: 0; }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-assistant-fullscreen {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "assistant";
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-assistant-fullscreen > .mistake-point-assistant {
-    position: relative;
-    top: auto;
-    height: auto;
-    max-height: none;
-  }
-}
-
-@media (min-width: 1200px) {
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant),
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant *) {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant::-webkit-scrollbar),
-  .remedi-mistake-book .mistakes-panel.is-notebook .mistake-notebook.is-split :deep(.mistake-point-assistant *::-webkit-scrollbar) {
-    display: none;
-    width: 0;
-    height: 0;
-  }
-}
+/* 错题本保持视口内滚动；窄屏由整页自然滚动。 */
 
 /* 便利贴保留页面留白，思维导图画布延伸到视口底部。 */
 .remedi-mistake-book .mistakes-panel.is-sticky {
@@ -2516,198 +1308,5 @@ onBeforeUnmount(() => {
 }
 
 /* 搜索与排序控件使用同一组中性色，焦点时只显示一层品牌色提示。 */
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search,
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger {
-  min-height: 42px;
-  border-color: var(--border);
-  border-radius: var(--radius-control);
-  background: var(--card);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search {
-  min-width: 0;
-  flex: 1 1 240px;
-  color: var(--text-3);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search > :deep(svg) {
-  color: var(--text-3);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search:focus-within,
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger:focus-visible {
-  border-color: var(--primary);
-  background: var(--card);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search input {
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  color: var(--text);
-  background: transparent;
-  box-shadow: none;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search input:focus {
-  border: 0;
-  outline: 0;
-  box-shadow: none;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-search input::placeholder {
-  color: var(--text-3);
-  opacity: 1;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort {
-  display: block;
-  position: relative;
-  width: 164px;
-  flex: 0 0 164px;
-  min-width: 0;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  min-height: 42px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  color: var(--text-2);
-  background: var(--card);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color .16s ease, box-shadow .16s ease, color .16s ease, background-color .16s ease;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger:hover,
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger[aria-expanded='true'] {
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-trigger:focus-visible {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-chevron {
-  flex: 0 0 auto;
-  color: var(--text-3);
-  transition: color .16s ease, transform .16s ease;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-chevron.open {
-  color: var(--primary);
-  transform: rotate(180deg);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  left: 0;
-  z-index: 80;
-  display: grid;
-  gap: 2px;
-  max-height: min(220px, 45vh);
-  padding: 5px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  background: var(--card);
-  box-shadow: var(--shadow-md);
-}
-
-.remedi-mistake-book .notebook-sort-menu.sort-menu-enter-active,
-.remedi-mistake-book .notebook-sort-menu.sort-menu-leave-active {
-  transition: opacity .14s ease, transform .14s ease;
-}
-
-.remedi-mistake-book .notebook-sort-menu.sort-menu-enter-from,
-.remedi-mistake-book .notebook-sort-menu.sort-menu-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 38px;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: var(--radius-detail);
-  color: var(--text-2);
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color .12s ease, color .12s ease;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option.is-selected {
-  color: var(--primary-dark);
-  background: var(--primary-50);
-  font-weight: 650;
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option.is-active:not(.is-selected) {
-  color: var(--text);
-  background: var(--surface-2);
-}
-
-.remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-}
-
-.remedi-mistake-book .notebook-sort-check {
-  flex: 0 0 auto;
-  color: var(--primary);
-}
-
-@media (hover: hover) {
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option:hover:not(.is-selected) {
-    color: var(--text);
-    background: var(--surface-2);
-  }
-}
-
-@media (max-width: 700px) {
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort {
-    width: 148px;
-    flex-basis: 148px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-chevron,
-  .remedi-mistake-book .notebook-sort-menu.sort-menu-enter-active,
-  .remedi-mistake-book .notebook-sort-menu.sort-menu-leave-active,
-  .remedi-mistake-book .mistake-board-toolbar.with-notebook-filters .notebook-sort-option {
-    transition: none;
-  }
-}
 
 </style>

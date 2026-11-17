@@ -103,6 +103,11 @@
             </div>
           </div>
           <p class="board-stem">{{ currentQ.stem }}</p>
+          <div v-if="hasStudentAnswer(currentQ.id)" class="student-answer">
+            <strong>我的作答</strong>
+            <img v-if="studentAnswerImage(currentQ.id)" :src="studentAnswerImage(currentQ.id)" alt="我的作答图片" class="student-answer-image" />
+            <p v-else class="student-answer-copy">{{ studentAnswerText(currentQ.id) }}</p>
+          </div>
 
           <!-- 本题已提交且没重开编辑器：显示状态卡。
                v0.13.1 起提交后锁定，不能直接再交；老师开了「允许修改」时，
@@ -294,6 +299,11 @@
             <span class="q-order tnum">{{ q.order_num }}</span>
             <div class="q-main">
               <p class="q-stem">{{ q.stem }}</p>
+              <div v-if="hasStudentAnswer(q.id)" class="student-answer">
+                <strong>我的作答</strong>
+                <img v-if="studentAnswerImage(q.id)" :src="studentAnswerImage(q.id)" alt="我的作答图片" class="student-answer-image" />
+                <p v-else class="student-answer-copy">{{ studentAnswerText(q.id) }}</p>
+              </div>
               <p class="q-meta">
                 <span v-if="gradingJobStatus === 'queued'" class="badge badge-amber">待批改</span>
                 <span v-else-if="gradingJobStatus === 'processing'" class="badge badge-blue">批改中</span>
@@ -468,6 +478,7 @@ const canSubmitAssignment = computed(() => allAnswersStaged.value && !batchSubmi
   && !questions.value.some((q) => !!answerErrors.value[q.id])
   && !questions.value.some((q) => answeredQids.value.has(q.id) && editorOpen.value[q.id] && !isShowingImage(q.id)))
 const scoreByQid = ref<Record<number, { score: number; max: number }>>({}) // 评分系统：已通过题目的得分 chip
+const latestSubmissionByQid = ref<Record<number, LatestQuestionSubmissionStatus>>({})
 const relatedByQid = ref<Record<number, RelatedMistake>>({})
 const selectedRelatedMistake = ref<RelatedMistake | null>(null)
 const loading = ref(false)
@@ -559,13 +570,16 @@ function applyGradingStatus(status: AssignmentGradingStatus) {
 
 async function refreshLatestQuestionStatuses(questionIds: number[]) {
   const statuses = await student.fetchLatestQuestionSubmissionStatuses().catch(() => [])
+  const nextLatest = { ...latestSubmissionByQid.value }
   for (const qid of questionIds) {
     doneQids.value.delete(qid)
     pendingQids.value.delete(qid)
     deferredQids.value.delete(qid)
     delete scoreByQid.value[qid]
+    delete nextLatest[qid]
   }
   statuses.filter((item) => questionIds.includes(item.question_id)).forEach((item) => {
+    nextLatest[item.question_id] = item
     if (item.status === 'deferred') deferredQids.value.add(item.question_id)
     else if ((item.review_status ?? 'approved') === 'pending') pendingQids.value.add(item.question_id)
     else doneQids.value.add(item.question_id)
@@ -573,6 +587,7 @@ async function refreshLatestQuestionStatuses(questionIds: number[]) {
       scoreByQid.value[item.question_id] = { score: item.score, max: item.max_score }
     }
   })
+  latestSubmissionByQid.value = nextLatest
 }
 
 async function refreshGradingStatus(id: number) {
@@ -854,6 +869,23 @@ function noteKind(q: Question): 'pending' | 'approved' | 'deferred' | null {
   return null
 }
 
+function studentAnswerText(qid: number): string {
+  const steps = latestSubmissionByQid.value[qid]?.answer_steps ?? []
+  return steps.join('\n')
+}
+
+function studentAnswerImage(qid: number): string {
+  const latestImage = latestSubmissionByQid.value[qid]?.answer_image_url
+  if (!latestImage) return ''
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  return base ? `${base.replace(/\/+$/, '')}${latestImage}` : latestImage
+}
+
+function hasStudentAnswer(qid: number): boolean {
+  if (!scoreByQid.value[qid]) return false
+  return Boolean(studentAnswerImage(qid) || studentAnswerText(qid))
+}
+
 /* ---------- 修改作业（v0.13.1）：教师勾选允许修改时，页面底部出现已提交清单 ---------- */
 const groupById = computed(() => new Map((currentDetail.value?.groups ?? []).map((g) => [g.id, g])))
 function groupStemOf(q: Question): string | undefined {
@@ -1106,6 +1138,7 @@ onMounted(async () => {
       else if ((s.review_status ?? 'approved') === 'pending') pendingQids.value.add(qid)
       else doneQids.value.add(qid)
     })
+    latestSubmissionByQid.value = Object.fromEntries(statuses.map((item) => [item.question_id, item]))
     const scores: Record<number, { score: number; max: number }> = {}
     statuses.forEach((s) => {
       if (s.score !== null && s.score !== undefined && s.max_score !== null && s.max_score !== undefined) {
@@ -1208,6 +1241,25 @@ onMounted(async () => {
 .assign-info { background: var(--primary-50); border-color: var(--blue-bg); box-shadow: none; }
 .assign-info .kp { color: var(--text-2); font-size: 13px; margin-top: 4px; }
 .assign-info .deadline-line { color: #B45309; font-weight: 600; }
+.student-answer {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+.student-answer > strong { color: var(--text-2); font-size: 13px; }
+.student-answer-copy { margin: 0; color: var(--text); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.student-answer-image {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  max-height: 420px;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: var(--card);
+}
 .assignment-grading-card { margin-top: 16px; }
 .grading-progress-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 8px; color: var(--text-2); font-size: 14px; }
 .grading-progress-track { height: 8px; overflow: hidden; border-radius: var(--radius-pill); background: #E8EDF5; margin: 8px 0 12px; }

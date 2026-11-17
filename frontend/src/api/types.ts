@@ -394,6 +394,8 @@ export interface LatestQuestionSubmissionStatus {
   review_status?: 'pending' | 'approved' | null
   score?: number | null
   max_score?: number | null
+  answer_steps?: string[]
+  answer_image_url?: string | null
 }
 
 // ---------- 英语作文 ----------

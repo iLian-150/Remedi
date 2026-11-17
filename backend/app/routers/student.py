@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import and_, case, exists, func, or_
-from sqlalchemy.orm import Session, aliased, joinedload, load_only
+from sqlalchemy.orm import Session, aliased, joinedload, load_only, selectinload
 from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_student
@@ -1068,6 +1068,7 @@ def latest_submission_statuses(db: Session = Depends(get_db),
                 Submission.id, Submission.question_id,
                 Submission.status, Submission.submitted_at,
             ),
+            selectinload(Submission.steps).load_only(Step.seq, Step.text),
             joinedload(Submission.question).load_only(
                 Question.id, Question.assignment_id,
             ),
@@ -1078,6 +1079,12 @@ def latest_submission_statuses(db: Session = Depends(get_db),
     )
     # 待教师审核只表示分数可能被老师调整；学生仍可查看 AI 当前评分。
     visible_submissions = [submission for submission, _review_status in rows]
+    image_path_by_submission = dict(db.query(
+        SubmissionImage.submission_id,
+        SubmissionImage.file_path,
+    ).filter(
+        SubmissionImage.submission_id.in_([submission.id for submission in visible_submissions]),
+    ).all()) if visible_submissions else {}
     scores_by_submission = {}
     for start in range(0, len(visible_submissions), 300):
         scores_by_submission.update(
@@ -1095,6 +1102,11 @@ def latest_submission_statuses(db: Session = Depends(get_db),
             review_status=review_status or review_svc.APPROVED,
             score=score["score"] if score else None,
             max_score=score["max_score"] if score else None,
+            answer_steps=[step.text for step in submission.steps if step.seq > 0],
+            answer_image_url=(
+                f"/api/uploads/{image_path_by_submission[submission.id]}"
+                if submission.id in image_path_by_submission else None
+            ),
         ))
     return result
 

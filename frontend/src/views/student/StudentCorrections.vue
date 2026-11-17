@@ -131,22 +131,31 @@
             <AppIcon name="chevron-left" :size="16" /> 返回作业错题
           </button>
         </div>
+        <section class="question-prompt-sticky" aria-label="原题">
+          <div class="question-prompt-card">
+            <div class="question-prompt-copy">
+              <p v-if="selectedQuestionGroupStem" class="question-prompt-context">{{ selectedQuestionGroupStem }}</p>
+              <p class="question-prompt-stem">{{ selectedError.question_stem || '题目内容暂未记录' }}</p>
+            </div>
+            <a
+              v-if="selectedError.image_url"
+              class="question-prompt-image"
+              :href="imageHref(selectedError.image_url)"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="打开作业原图"
+            >
+              <img :src="imageHref(selectedError.image_url)" alt="作业原图" loading="lazy" decoding="async" />
+            </a>
+          </div>
+        </section>
         <div class="card">
-          <h3>题目回顾</h3>
+          <h3>我当时的作答</h3>
           <!-- v0.13.9：原来这里只有出错的一步、看不到原题——改成完整回顾：
                原来的题目 → 我当时的作答（错步在原步骤里原地标出）→ 解析。
                v0.13.10：正确答案与标准解题过程不在订正前直接给出（用户口径），
                先自己想、自己改，判定结果会告诉你对不对 -->
           <div class="review-block">
-            <span class="review-label">原来的题目</span>
-            <div class="review-stem">
-              <p v-if="selectedQuestionGroupStem" class="review-stem-main">{{ selectedQuestionGroupStem }}</p>
-              <p>{{ selectedError.question_stem || '题目内容暂未记录' }}</p>
-            </div>
-            <a v-if="selectedError.image_url" class="review-img-link" :href="imageHref(selectedError.image_url)" target="_blank" rel="noreferrer">查看上传原图</a>
-          </div>
-          <div class="review-block">
-            <span class="review-label">我当时的作答</span>
             <div
               v-if="origStepsLoading"
               class="correction-assessment"
@@ -928,14 +937,15 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
 .detail { font-size: 14px; color: var(--text-2); }
 /* v0.13.9：题目回顾完整版——原题 / 原作答（错步原地标红）/ 正确答案 / 标准过程 */
 .review-block { margin-bottom: 14px; }
-.review-label { display: block; font-size: 12px; font-weight: 700; color: var(--text-3); letter-spacing: .4px; margin-bottom: 5px; }
 .correction-assessment { margin: 8px 0 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); color: var(--text-2); font-size: 13px; line-height: 1.5; }
 .correction-assessment.is-forced-redo { border-color: var(--amber-border); background: var(--amber-bg); color: var(--amber-strong); font-weight: 600; }
-.review-stem { font-size: 16px; font-weight: 600; line-height: 1.65; }
-.review-stem p { margin: 0; white-space: pre-wrap; }
-.review-stem p + p { margin-top: 8px; }
-.review-stem .review-stem-main { color: var(--text-2); font-size: 15px; font-weight: 500; }
-.review-img-link { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--primary); font-weight: 600; }
+.question-prompt-sticky { position: sticky; top: 12px; z-index: 120; isolation: isolate; margin-bottom: 16px; }
+.question-prompt-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 18px; max-height: min(44vh, 440px); overflow: auto; overscroll-behavior: contain; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--card); box-shadow: var(--shadow-md); }
+.question-prompt-copy { min-width: 0; }
+.question-prompt-context { margin: 0 0 7px; color: var(--text-2); font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.question-prompt-stem { margin: 0; color: var(--text); font-size: 16px; font-weight: 650; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-prompt-image { display: block; width: min(30vw, 340px); max-height: 36vh; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
+.question-prompt-image img { display: block; width: 100%; max-height: 36vh; object-fit: contain; }
 .orig-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .orig-steps li { display: flex; flex-direction: column; gap: 0; padding: 12px 14px; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--bg); font-size: 14px; }
 .orig-steps li.is-error { border-color: var(--red-border); background: var(--red-bg); }
@@ -976,6 +986,9 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
 .result-actions { margin-top: 14px; }
 .empty-link { color: var(--primary); font-weight: 600; }
 
+@media (max-width: 960px) {
+  .question-prompt-sticky { top: 60px; }
+}
 @media (max-width: 760px) {
   .correction-ledger-head { display: none; }
   .correction-assignment-row {
@@ -1002,5 +1015,9 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
   .redo-panel { padding: 16px; }
   .redo-panel-editor textarea { min-height: 180px; }
   .redo-panel-footer .btn { width: 100%; }
+  .question-prompt-card { grid-template-columns: minmax(0, 1fr); gap: 10px; max-height: 48vh; padding: 13px 15px; }
+  .question-prompt-stem { font-size: 14px; }
+  .question-prompt-image { width: min(100%, 360px); max-height: 20vh; }
+  .question-prompt-image img { max-height: 20vh; }
 }
 </style>

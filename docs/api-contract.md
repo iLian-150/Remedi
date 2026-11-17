@@ -1028,7 +1028,7 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
 
 ### 3.43 GET /api/student/submissions/latest-status —— 每道题的最新提交状态与得分
 
-权限：学生。按题目分组，只返回本人每道题的最新提交状态；同一题多次提交时按 `submitted_at`、`id` 倒序取最新一条。响应不包含题干、错因数量或提交历史，包含教师审核状态及 AI 当前得分。没有审核记录时 `review_status` 为 `approved`；待审核提交也返回当前得分，教师改分后成绩会更新。未提交过的题目不返回。
+权限：学生。按题目分组，只返回本人每道题的最新提交状态；同一题多次提交时按 `submitted_at`、`id` 倒序取最新一条。响应包含本人的作答步骤、原始作答图片地址、教师审核状态及当前得分，不包含题干、错因数量或提交历史。没有审核记录时 `review_status` 为 `approved`；待审核提交也返回当前得分，教师改分后成绩会更新。未提交过的题目不返回。
 
 响应 `200`：
 
@@ -1039,7 +1039,9 @@ data: {"reply":"先把方程两边……", "suggestions":["为什么要移项？
     "status": "graded",
     "review_status": "approved",
     "score": 8.0,
-    "max_score": 10.0
+    "max_score": 10.0,
+    "answer_steps": ["第一步", "最终答案"],
+    "answer_image_url": null
   }
 ]
 ```

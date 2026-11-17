@@ -93,6 +93,8 @@ class SubmissionQuestionStatusOut(BaseModel):
     review_status: str = "approved"
     score: Optional[float] = None
     max_score: Optional[float] = None
+    answer_steps: List[str] = Field(default_factory=list)
+    answer_image_url: Optional[str] = None
 
 class MistakeCorrectionBrief(BaseModel):
     id: int
