@@ -469,6 +469,12 @@ async function load(newOffset = questionOffset.value) {
   }
 }
 
+async function refreshCurrentStage(): Promise<boolean> {
+  if (stage.value === 'assignments') return loadAssignments(assignmentOffset.value)
+  if (stage.value === 'students') return loadStudents(studentOffset.value)
+  return load(questionOffset.value)
+}
+
 function search() {
   commentRequest += 1
   currentComment.value = null
