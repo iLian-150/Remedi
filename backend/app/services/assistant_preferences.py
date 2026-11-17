@@ -14,6 +14,8 @@ STYLE_LABELS = {
     "examples": "喜欢结合例子讲解",
 }
 
+PREFERENCE_RESCAN_WINDOW = 100
+
 
 def extract_styles(text: str) -> list[str] | None:
     text = text.strip()
@@ -22,13 +24,22 @@ def extract_styles(text: str) -> list[str] | None:
     if (len(text) > 160 or re.search(r'[\n\r`"“”「」？?]', text)
             or re.search(r"什么|哪种|是否|是不是|为什么|吗|例如|比如|如果|假如|题目|作答|附件|翻译|改写|他说|她说", text)):
         return None
-    match = re.fullmatch(
-        r"(?:我(?:更)?(?:喜欢|偏好)|我(?:希望|想要)(?:以后|今后|你以后|你今后)|"
-        r"(?:请(?:你)?)?(?:以后|今后)(?:请)?|记住[，,:：]?我(?:喜欢|偏好))(.{1,100})", text,
+    declaration = re.search(
+        r"我(?:更)?(?:喜欢|偏好)(?:的)?(?:回答)?风格(?:是|为|：|:)(.{1,100})$",
+        text,
     )
-    if not match:
-        return None
-    body = match.group(1)
+    if declaration:
+        # Accept a positive preference that follows a complaint, e.g.
+        # “我不喜欢这种风格，我喜欢的风格是简洁回答并加一个例子”。
+        body = declaration.group(1)
+    else:
+        match = re.fullmatch(
+            r"(?:我(?:更)?(?:喜欢|偏好)|我(?:希望|想要)(?:以后|今后|你以后|你今后)|"
+            r"(?:请(?:你)?)?(?:以后|今后)(?:请)?|记住[，,:：]?我(?:喜欢|偏好))(.{1,100})", text,
+        )
+        if not match:
+            return None
+        body = match.group(1)
     if re.search(r"不喜欢|不想|不要|别|不需要|无需|不简|不详细", body) and "不要啰嗦" not in body:
         return None
     patterns = {
@@ -59,11 +70,20 @@ def preference_context(db: Session, student_id: int, current_text: str | None = 
     row = (db.query(StudentAssistantPreference).filter_by(student_id=student_id)
            .populate_existing().with_for_update().one())
     # 只读本人的用户消息；附件正文、助手回复和其他会话的题目上下文不作偏好来源。
-    messages = (db.query(ChatSessionMessage)
-                .join(ChatSession, ChatSession.id == ChatSessionMessage.session_id)
-                .filter(ChatSession.user_id == student_id, ChatSessionMessage.role == "user",
-                        ChatSessionMessage.id > row.last_message_id)
-                .order_by(ChatSessionMessage.id.asc()).all())
+    message_query = (db.query(ChatSessionMessage)
+                     .join(ChatSession, ChatSession.id == ChatSessionMessage.session_id)
+                     .filter(ChatSession.user_id == student_id,
+                             ChatSessionMessage.role == "user"))
+    # Recheck the student's last 100 messages behind the cursor so an explicit
+    # preference missed by an earlier parser version can be recovered next turn.
+    recent_messages = (message_query
+                       .filter(ChatSessionMessage.id <= row.last_message_id)
+                       .order_by(ChatSessionMessage.id.desc())
+                       .limit(PREFERENCE_RESCAN_WINDOW).all())
+    new_messages = (message_query
+                    .filter(ChatSessionMessage.id > row.last_message_id)
+                    .order_by(ChatSessionMessage.id.asc()).all())
+    messages = sorted([*recent_messages, *new_messages], key=lambda message: message.id)
     texts = [unpack_message_content(message.content)[0] for message in messages]
     if current_text is not None:
         texts.append(current_text)
