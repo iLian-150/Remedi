@@ -101,6 +101,27 @@ class MistakeCorrectionBrief(BaseModel):
     note: Optional[str] = None
     submitted_at: datetime
 
+class StudentMistakeErrorOut(BaseModel):
+    id: int
+    error_type: str
+    category_key: str
+    category_label: str
+    is_stubborn: bool
+    detail: Optional[str] = None
+    step_seq: Optional[int] = None
+    step_text: Optional[str] = None
+    latest_correction: Optional[MistakeCorrectionBrief] = None
+    verification_status: Optional[str] = None
+    corrected: bool = False
+    category_studied: bool = False
+    question_studied: bool = False
+
+class StudentMistakeCategoryBrief(BaseModel):
+    key: str
+    label: str
+    category_studied: bool = False
+    question_studied: bool = False
+
 class SimilarMistakeBrief(BaseModel):
     id: int
     submission_id: int
@@ -144,6 +165,9 @@ class StudentMistakeOut(BaseModel):
     source_kind: str = "diagnosed"
     capture_id: Optional[int] = None
     image_url: Optional[str] = None
+    error_details: List[StudentMistakeErrorOut] = Field(default_factory=list)
+    error_types: List[str] = Field(default_factory=list)
+    error_categories: List[StudentMistakeCategoryBrief] = Field(default_factory=list)
 
 class StudentMistakeCountOut(BaseModel):
     count: int
@@ -183,6 +207,7 @@ class StudentMistakeTimelinePageOut(BaseModel):
 class StudentCorrectionWallItemOut(BaseModel):
     id: int
     submission_id: int
+    question_id: int
     question_subject: str
     assignment_id: int
     assignment_title: str
@@ -199,6 +224,9 @@ class StudentCorrectionWallItemOut(BaseModel):
     created_at: datetime
     submitted_at: Optional[datetime] = None
     image_url: Optional[str] = None
+    error_details: List[StudentMistakeErrorOut] = Field(default_factory=list)
+    error_types: List[str] = Field(default_factory=list)
+    error_categories: List[StudentMistakeCategoryBrief] = Field(default_factory=list)
 
 class StudentCorrectionWallCursorOut(BaseModel):
     created_at: datetime
@@ -294,6 +322,20 @@ class EssayBrief(BaseModel):
 class CorrectionCreate(BaseModel):
     error_id: int
     content: str = Field(min_length=1, max_length=500)
+
+class QuestionRedoCreate(BaseModel):
+    submission_id: int
+    content: str = Field(min_length=1, max_length=10000)
+
+class QuestionRedoOut(BaseModel):
+    id: int
+    submission_id: int
+    content: str
+    is_correct: Optional[bool] = None
+    note: Optional[str] = None
+    submitted_at: datetime
+    can_verify: bool = False
+    knowledge_point: Optional[str] = None
 
 class CorrectionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

@@ -13,7 +13,9 @@
       >
         <span class="correction-note-top">
           <strong>第 {{ item.question_order }} 题</strong>
-          <ErrorTypeBadge :type="item.error_type" />
+          <span class="correction-note-categories">
+            <ErrorTypeBadge v-for="type in item.error_types" :key="type" :type="type" />
+          </span>
         </span>
         <span class="correction-note-stem">{{ item.question_stem || (item.image_url ? '图片题目' : '题目暂未记录') }}</span>
         <span class="correction-note-footer">
@@ -69,7 +71,8 @@ function dateLabel(item: StudentCorrectionWallItem): string {
 function noteAriaLabel(item: StudentCorrectionWallItem): string {
   const state = item.corrected ? '已订正，查看诊断' : '待订正'
   const stem = item.question_stem || (item.image_url ? '图片题目' : '题目暂未记录')
-  return `${item.assignment_title}，第 ${item.question_order} 题，${item.error_type}，${state}：${stem}`
+  const categories = item.error_types.join('、') || item.error_type
+  return `${item.assignment_title}，第 ${item.question_order} 题，${categories}，${state}：${stem}`
 }
 </script>
 
@@ -134,8 +137,9 @@ function noteAriaLabel(item: StudentCorrectionWallItem): string {
 .note-c1 { --note-paper: var(--note-pink); }
 .note-c2 { --note-paper: var(--note-blue); }
 .correction-note.fixed { filter: saturate(.58) brightness(1.035); }
-.correction-note-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.correction-note-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .correction-note-top > strong { font-size: 15px; font-weight: 750; }
+.correction-note-categories { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .correction-note-stem {
   display: -webkit-box;
   overflow: hidden;

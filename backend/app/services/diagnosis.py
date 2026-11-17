@@ -496,6 +496,57 @@ def verify_correction(db, error: Error, content: str) -> Tuple[Optional[bool], s
     return False, "订正后仍与上一步不等价，请再检查"
 
 
+def verify_question_redo(question: Question, content: str) -> Tuple[Optional[bool], str]:
+    """Check a complete math redo as equivalent steps plus a verified final answer."""
+    if question.subject != "math":
+        return None, "该学科暂不支持自动判定，整题作答已提交给老师确认"
+
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not lines:
+        return False, "请填写至少一个作答步骤"
+    if len(lines) > 20:
+        return False, "整题重做最多填写 20 个步骤"
+
+    base = extract_equation(question.stem)
+    if base is None:
+        try:
+            base = parse_step(question.stem)
+        except UnparseableError:
+            return None, "题目暂不支持自动核验，整题作答已提交给老师确认"
+
+    for seq, text in enumerate(lines, start=1):
+        try:
+            parsed = parse_step(text)
+        except UnparseableError:
+            return False, f"第 {seq} 步无法解析，请检查后再提交"
+        if not equivalent(base.expr, parsed.expr):
+            return False, f"第 {seq} 步与前一步不等价，请检查这一题的解题过程"
+        base = parsed
+
+    final = base
+    if final.kind == "eq":
+        lhs, rhs = final.expr.lhs, final.expr.rhs
+        isolated_variable = (
+            lhs.is_Symbol and not rhs.free_symbols
+        ) or (
+            rhs.is_Symbol and not lhs.free_symbols
+        )
+        if not isolated_variable:
+            return False, "最后一步请写出未知数的解"
+
+    try:
+        from .answer_check import _sympy_check
+
+        checked = _sympy_check(question.stem, lines[-1])
+    except Exception:
+        checked = None
+    if checked and checked.get("status") == "ok":
+        return True, checked.get("detail") or "整题作答已核验正确"
+    if checked and checked.get("status") == "suspect":
+        return False, checked.get("detail") or "最终答案与题目不符，请再检查"
+    return None, "解题步骤已提交，但最终答案暂时无法自动核验，请老师确认"
+
+
 # ---------------------------------------------------------------- 出参组装
 
 def present_error(err: Error, db, step: Optional[Step] = None) -> dict:

@@ -66,7 +66,7 @@
                 <button v-for="(subjectGroup, index) in displayedSubjectGroups" :key="subjectGroup.key" type="button" class="notebook-drill-card notebook-subject-card" @click="selectNotebookSubject(subjectGroup)">
                   <span class="notebook-drill-index">科目 {{ String(index + 1).padStart(2, '0') }}</span>
                   <strong>{{ subjectGroup.label }}</strong>
-                  <span class="notebook-drill-meta">{{ subjectGroup.categories.length }} 类错误 · {{ subjectGroup.itemCount }} 条错题</span>
+                  <span class="notebook-drill-meta">{{ subjectGroup.categories.length }} 类错误 · {{ subjectGroup.itemCount }} 道错题</span>
                   <span class="notebook-drill-foot">{{ subjectGroup.assignmentCount }} 份作业 <AppIcon name="arrow-right" :size="13"/></span>
                 </button>
               </div>
@@ -75,7 +75,7 @@
                 <button v-for="(categoryGroup, index) in selectedNotebookSubject.categories" :key="categoryGroup.key" type="button" class="notebook-drill-card notebook-category-card" @click="selectNotebookCategory(categoryGroup)">
                   <span class="notebook-drill-index">错误类型 {{ String(index + 1).padStart(2, '0') }}</span>
                   <strong>{{ categoryGroup.label }}</strong>
-                  <span class="notebook-drill-meta">{{ categoryGroup.assignmentCount }} 份作业 · {{ categoryGroup.itemCount }} 条错题</span>
+                  <span class="notebook-drill-meta">{{ categoryGroup.assignmentCount }} 份作业 · {{ categoryGroup.itemCount }} 道此类错题</span>
                   <span class="notebook-drill-foot">{{ categoryGroup.studiedQuestionCount }}/{{ categoryGroup.questionCount }} 道题已学 <AppIcon name="arrow-right" :size="13"/></span>
                 </button>
               </div>
@@ -90,24 +90,24 @@
                 >
                   <summary class="notebook-assignment-summary">
                     <span class="notebook-assignment-chevron" aria-hidden="true"><AppIcon name="chevron-down" :size="15"/></span>
-                    <span class="notebook-assignment-title"><strong>{{ entry.assignment.title }}</strong><small>{{ formatDate(entry.assignment.createdAt) }} · {{ entry.category.itemCount }} 条此类错题</small></span>
+                    <span class="notebook-assignment-title"><strong>{{ entry.assignment.title }}</strong><small>{{ formatDate(entry.assignment.createdAt) }} · {{ entry.category.itemCount }} 道此类错题</small></span>
                     <span class="notebook-assignment-progress">{{ entry.category.studentSavedOnly ? '自主收录' : `${entry.category.questionGroups.filter((question) => question.studied).length}/${entry.category.questionGroups.length} 道题已学` }}</span>
                     <span class="notebook-assignment-state" :class="{ ready: entry.category.studied || entry.category.studentSavedOnly }">{{ entry.category.studentSavedOnly ? '已收录' : entry.category.studied ? '已学会' : '待学习' }}</span>
                   </summary>
                   <div class="notebook-assignment-content">
                     <section class="notebook-category" :class="{ studied: entry.category.studied }">
                       <header class="notebook-category-head">
-                        <div><span class="notebook-category-dot" aria-hidden="true"/><div><h4>{{ entry.category.label }}</h4><small>{{ entry.category.questionGroups.length }} 道题 · {{ entry.category.itemCount }} 条错误记录</small></div></div>
+                        <div><span class="notebook-category-dot" aria-hidden="true"/><div><h4>{{ entry.category.label }}</h4><small>{{ entry.category.questionGroups.length }} 道题</small></div></div>
                       </header>
                       <div v-if="entry.category.similar.length" class="notebook-repeat-note"><strong>同类问题再次出现</strong><span>你之前也在这些作业中错过类似题目：</span><div><button v-for="previous in entry.category.similar" :key="previous.id" type="button" @click="openSimilarOriginal(previous)">{{ previous.assignment_title }} · {{ formatDate(previous.assignment_created_at) }} · 回看错题</button></div></div>
                       <div class="notebook-category-questions"><article v-for="questionGroup in categoryQuestionsFor(entry.assignment.id, entry.category)" :key="questionGroup.key">
-                        <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.id === questionGroup.representative.id }" @click="openAssistant(questionGroup.representative)"><strong>{{ isStudentSaved(questionGroup.representative) ? '自主收录题目' : `第 ${questionGroup.representative.question_order} 题` }}</strong><small>{{ isStudentSaved(questionGroup.representative) ? '自主收录' : questionGroup.studied ? '已学会' : questionGroup.items.length > 1 ? `${questionGroup.items.length} 条记录` : questionGroup.representative.knowledge_point }}</small><span class="notebook-question-excerpt">{{ questionGroup.representative.question_stem }}</span><span v-if="questionGroup.steps.length" class="notebook-question-detail">涉及步骤：第 {{ questionGroup.steps.join('、') }} 步</span><span v-if="questionGroup.items.length === 1 && questionGroup.representative.detail" class="notebook-question-detail">{{ safe(questionGroup.representative.detail) }}</span></button>
+                        <button type="button" class="notebook-question-open" :class="{ active: selectedMistake?.submission_id === questionGroup.representative.submission_id }" @click="openAssistant(questionGroup.representative)"><strong>{{ isStudentSaved(questionGroup.representative) ? '自主收录题目' : `第 ${questionGroup.representative.question_order} 题` }}</strong><small>{{ isStudentSaved(questionGroup.representative) ? '自主收录' : questionGroup.studied ? '已学会' : questionGroup.errorCategories.length > 1 ? `${questionGroup.errorCategories.length} 类错误` : questionGroup.representative.knowledge_point }}</small><span class="notebook-question-excerpt">{{ questionGroup.representative.question_stem }}</span><span v-if="questionGroup.errorCategories.length" class="notebook-question-detail">{{ questionGroup.errorCategories.map((category) => category.label).join(' · ') }}</span><span v-if="questionGroup.steps.length" class="notebook-question-detail">错误步骤：第 {{ questionGroup.steps.join('、') }} 步</span></button>
                         <div class="notebook-question-actions">
                           <button v-if="!isStudentSaved(questionGroup.representative)" type="button" class="notebook-question-study" :class="{ studied: questionGroup.studied }" :disabled="workingKey === questionStudyKey(entry.assignment.id, questionGroup)" @click="toggleQuestionStudy(entry.assignment.id, questionGroup)">{{ workingKey === questionStudyKey(entry.assignment.id, questionGroup) ? '保存中…' : questionGroup.studied ? '已学会 · 撤销' : '标记已学会' }}</button>
                           <button v-if="!isStudentSaved(questionGroup.representative)" type="button" @click.stop.prevent="openOriginalQuestion(questionGroup.representative)">查看原题<AppIcon name="arrow-right" :size="12"/></button>
                           <button v-else type="button" :disabled="workingKey === `archive:${questionGroup.representative.assignment_id}`" @click="archiveSaved(questionGroup.representative)">{{ workingKey === `archive:${questionGroup.representative.assignment_id}` ? '正在移出…' : '移出错题本' }}</button>
                         </div>
-                        <details v-if="questionGroup.items.length > 1" class="notebook-question-records" @click.stop><summary>{{ questionGroup.items.length }} 条步骤记录</summary><ul><li v-for="mistake in questionGroup.items" :key="mistake.id"><strong>{{ mistake.step_seq ? `第 ${mistake.step_seq} 步` : '题目记录' }}</strong><span v-if="mistake.step_text">{{ safe(mistake.step_text) }}</span><span v-if="mistake.detail">{{ safe(mistake.detail) }}</span></li></ul></details>
+                        <details v-if="questionGroup.errorDetails.length" class="notebook-question-records" @click.stop><summary>{{ questionGroup.errorDetails.length }} 项步骤诊断</summary><ul><li v-for="detail in questionGroup.errorDetails" :key="detail.id"><strong>{{ detail.step_seq ? `第 ${detail.step_seq} 步 · ` : '' }}{{ detail.category_label }}</strong><span v-if="detail.step_text">{{ safe(detail.step_text) }}</span><span v-if="detail.detail">{{ safe(detail.detail) }}</span></li></ul></details>
                       </article></div>
                       <button v-if="displayedQuestionGroupCountFor(entry.assignment.id, entry.category) < entry.category.questionGroups.length" type="button" class="notebook-more-category-items" @click="showMoreQuestionGroupsFor(entry.assignment.id, entry.category)">继续显示题目（{{ displayedQuestionGroupCountFor(entry.assignment.id, entry.category) }} / {{ entry.category.questionGroups.length }}）</button>
                     </section>
@@ -179,6 +179,8 @@ interface NotebookQuestionGroup {
   items: StudentMistake[]
   representative: StudentMistake
   steps: number[]
+  errorCategories: StudentMistake['error_categories']
+  errorDetails: StudentMistake['error_details']
   studied: boolean
 }
 interface NotebookAssignmentCategory {
@@ -635,19 +637,28 @@ function buildQuestionGroups(items: StudentMistake[]): NotebookQuestionGroup[] {
   const groups = new Map<string, NotebookQuestionGroup>()
   for (const item of items) {
     const questionId = isStudentSaved(item) ? null : item.question_id
-    const key = questionId === null ? `saved:${item.id}` : `question:${questionId}:${item.category_key}`
+    const key = isStudentSaved(item) ? `saved:${item.id}` : `submission:${item.submission_id}`
     let group = groups.get(key)
     if (!group) {
-      group = { key, questionId, items: [], representative: item, steps: [], studied: true }
+      group = { key, questionId, items: [], representative: item, steps: [], errorCategories: [], errorDetails: [], studied: true }
       groups.set(key, group)
     }
     group.items.push(item)
   }
   return Array.from(groups.values()).map((group) => {
-    group.items.sort((left, right) => (right.step_seq ?? -1) - (left.step_seq ?? -1) || right.created_at.localeCompare(left.created_at) || right.id - left.id)
+    group.items.sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id - left.id)
     group.representative = group.items[0]
     group.studied = group.items.every((item) => item.question_studied ?? item.category_studied)
-    group.steps = Array.from(new Set(group.items.flatMap((item) => item.step_seq === null ? [] : [item.step_seq]))).sort((left, right) => right - left)
+    const detailsById = new Map<number, StudentMistake['error_details'][number]>()
+    const categoriesByKey = new Map<string, StudentMistake['error_categories'][number]>()
+    for (const item of group.items) {
+      for (const detail of item.error_details ?? []) detailsById.set(detail.id, detail)
+      for (const category of item.error_categories ?? []) categoriesByKey.set(category.key, category)
+    }
+    group.errorDetails = Array.from(detailsById.values()).sort((left, right) => (left.step_seq ?? Number.MAX_SAFE_INTEGER) - (right.step_seq ?? Number.MAX_SAFE_INTEGER) || left.id - right.id)
+    group.errorCategories = Array.from(categoriesByKey.values())
+    group.steps = Array.from(new Set(group.errorDetails.flatMap((detail) => detail.step_seq === null ? [] : [detail.step_seq])))
+      .sort((left, right) => left - right)
     return group
   })
 }
@@ -686,28 +697,40 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
     group.itemCount += 1
     group.studentSavedOnly = group.studentSavedOnly && isStudentSaved(item)
     group.priority += item.similar_occurrences.length + Number(item.is_stubborn)
-    const categoryIndex = categoriesByAssignment.get(item.assignment_id)!
-    let category = categoryIndex.get(item.category_key)
-    if (!category) {
-      category = {
-        key: item.category_key,
-        label: item.category_label || item.error_type,
-        itemCount: 0,
-        firstItem: item,
-        items: [],
-        studied: true,
-        similar: item.similar_occurrences,
-        studentSavedOnly: true,
+    const categories = item.error_categories?.length
+      ? item.error_categories
+      : [{ key: item.category_key, label: item.category_label || item.error_type, category_studied: item.category_studied, question_studied: item.question_studied }]
+    for (const itemCategory of categories) {
+      const categoryIndex = categoriesByAssignment.get(item.assignment_id)!
+      let category = categoryIndex.get(itemCategory.key)
+      if (!category) {
+        category = {
+          key: itemCategory.key,
+          label: itemCategory.label || item.error_type,
+          itemCount: 0,
+          firstItem: null,
+          items: [],
+          studied: true,
+          similar: item.similar_occurrences,
+          studentSavedOnly: true,
+        }
+        categoryIndex.set(itemCategory.key, category)
+        group.categories.push(category)
       }
-      categoryIndex.set(item.category_key, category)
-      group.categories.push(category)
+      const categoryItem: StudentMistake = {
+        ...item,
+        category_key: itemCategory.key,
+        category_label: itemCategory.label,
+        category_studied: itemCategory.category_studied ?? item.category_studied,
+        question_studied: itemCategory.question_studied ?? item.question_studied,
+      }
+      category.itemCount += 1
+      category.items.push(categoryItem)
+      if (!category.firstItem) category.firstItem = categoryItem
+      category.studentSavedOnly = category.studentSavedOnly && isStudentSaved(item)
+      category.studied = category.studied && categoryItem.category_studied
+      if (item.similar_occurrences.length > category.similar.length) category.similar = item.similar_occurrences
     }
-    category.itemCount += 1
-    category.items.push(item)
-    if (!category.firstItem) category.firstItem = item
-    category.studentSavedOnly = category.studentSavedOnly && isStudentSaved(item)
-    category.studied = category.studied && item.category_studied
-    if (item.similar_occurrences.length > category.similar.length) category.similar = item.similar_occurrences
   }
 
   const assignmentGroups = Array.from(groups.values()).map((group) => {
@@ -715,9 +738,19 @@ function buildNotebookData(items: StudentMistake[]): NotebookData {
       category.studied = buildQuestionGroups(category.items).every((question) => question.studied)
     }
     group.categories.sort((a, b) => Number(a.studied) - Number(b.studied) || b.itemCount - a.itemCount || a.label.localeCompare(b.label, 'zh-CN'))
-    const studyPoints = group.categories.flatMap((category) => buildQuestionGroups(category.items).filter((question) => !isStudentSaved(question.representative)))
-    group.studyPointCount = studyPoints.length
-    group.studiedStudyPointCount = studyPoints.reduce((count, point) => count + Number(point.studied), 0)
+    const questionStudyBySubmission = new Map<number, boolean>()
+    for (const category of group.categories) {
+      for (const question of buildQuestionGroups(category.items)) {
+        if (isStudentSaved(question.representative)) continue
+        const submissionId = question.representative.submission_id
+        questionStudyBySubmission.set(
+          submissionId,
+          (questionStudyBySubmission.get(submissionId) ?? true) && question.studied,
+        )
+      }
+    }
+    group.studyPointCount = questionStudyBySubmission.size
+    group.studiedStudyPointCount = Array.from(questionStudyBySubmission.values()).filter(Boolean).length
     group.ready = group.studentSavedOnly || (group.studyPointCount > 0 && group.studiedStudyPointCount === group.studyPointCount)
     return group
   })
@@ -814,7 +847,22 @@ async function loadMistakes(): Promise<boolean> {
     allMistakes.value = await student.fetchMyMistakes(false)
     categoryItemLimits.value = {}
     mistakesLoaded.value = true
-    if (selectedMistake.value) selectedMistake.value = allMistakes.value.find((item) => item.id === selectedMistake.value?.id) || null
+    if (selectedMistake.value) {
+      const previous = selectedMistake.value
+      const refreshed = allMistakes.value.find((item) => item.id === previous.id)
+      const category = refreshed?.error_categories.find((item) => item.key === previous.category_key)
+      selectedMistake.value = refreshed
+        ? category
+          ? {
+              ...refreshed,
+              category_key: category.key,
+              category_label: category.label,
+              category_studied: category.category_studied ?? refreshed.category_studied,
+              question_studied: category.question_studied ?? refreshed.question_studied,
+            }
+          : refreshed
+        : null
+    }
     openRequestedReview()
     return true
   } catch (reason) {
@@ -848,9 +896,7 @@ async function toggleQuestionStudy(assignmentId: number, question: NotebookQuest
       studied,
     })
     for (const item of question.items) item.question_studied = studied
-    if (selectedMistake.value?.assignment_id === assignmentId && selectedMistake.value.question_id === question.questionId && selectedMistake.value.category_key === question.representative.category_key) {
-      selectedMistake.value.question_studied = studied
-    }
+    updateCategoryStudyState(assignmentId, question.questionId, question.representative.category_key, { question_studied: studied })
     notifyMistakeReviewChanged(allMistakes.value)
   } catch {
     actionError.value = '这道题的学习状态保存失败，请稍后重试。'
@@ -869,23 +915,61 @@ async function toggleCategoryByPayload(payload: { assignment_id: number; categor
       item.category_studied = payload.studied
       item.question_studied = payload.studied
     }
-    if (selectedMistake.value?.assignment_id === payload.assignment_id && selectedMistake.value.category_key === payload.category_key) {
-      selectedMistake.value.category_studied = payload.studied
-      selectedMistake.value.question_studied = payload.studied
+    for (const item of category?.items ?? []) {
+      updateCategoryStudyState(payload.assignment_id, item.question_id, payload.category_key, {
+        category_studied: payload.studied,
+        question_studied: payload.studied,
+      })
     }
     notifyMistakeReviewChanged(allMistakes.value)
   } catch {
     actionError.value = '学习状态保存失败，请稍后重试。'
   } finally { workingKey.value = '' }
 }
+function updateCategoryStudyState(
+  assignmentId: number,
+  questionId: number | null,
+  categoryKey: string,
+  state: { category_studied?: boolean; question_studied?: boolean },
+) {
+  for (const mistake of allMistakes.value) {
+    if (mistake.assignment_id !== assignmentId || (questionId !== null && mistake.question_id !== questionId)) continue
+    for (const category of mistake.error_categories ?? []) {
+      if (category.key !== categoryKey) continue
+      if (state.category_studied !== undefined) category.category_studied = state.category_studied
+      if (state.question_studied !== undefined) category.question_studied = state.question_studied
+    }
+    for (const detail of mistake.error_details ?? []) {
+      if (detail.category_key !== categoryKey) continue
+      if (state.category_studied !== undefined) detail.category_studied = state.category_studied
+      if (state.question_studied !== undefined) detail.question_studied = state.question_studied
+    }
+    if (mistake.category_key === categoryKey) {
+      if (state.category_studied !== undefined) mistake.category_studied = state.category_studied
+      if (state.question_studied !== undefined) mistake.question_studied = state.question_studied
+    }
+  }
+  const selected = selectedMistake.value
+  if (selected?.assignment_id === assignmentId && selected.category_key === categoryKey
+    && (questionId === null || selected.question_id === questionId)) {
+    if (state.category_studied !== undefined) selected.category_studied = state.category_studied
+    if (state.question_studied !== undefined) selected.question_studied = state.question_studied
+  }
+}
 async function toggleAssistantStudy() {
   const mistake = selectedMistake.value
   if (!mistake || isStudentSaved(mistake)) return
-  const question = buildQuestionGroups(allMistakes.value.filter((item) =>
-    item.assignment_id === mistake.assignment_id &&
-    item.question_id === mistake.question_id &&
-    item.category_key === mistake.category_key,
-  ))[0]
+  const item = allMistakes.value.find((candidate) => candidate.submission_id === mistake.submission_id)
+  if (!item) return
+  const category = item.error_categories.find((entry) => entry.key === mistake.category_key)
+  const scopedItem = category ? {
+    ...item,
+    category_key: category.key,
+    category_label: category.label,
+    category_studied: category.category_studied ?? item.category_studied,
+    question_studied: category.question_studied ?? item.question_studied,
+  } : item
+  const question = buildQuestionGroups([scopedItem])[0]
   if (question) await toggleQuestionStudy(mistake.assignment_id, question)
 }
 async function archiveAssignment(assignment: AssignmentGroup) {
@@ -1690,21 +1774,6 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-standard);
   background: var(--primary);
   font-weight: 650;
-}
-
-.remedi-mistake-book :deep(.sticky-detail-summary) {
-  margin-top: 22px;
-  padding: 15px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  color: var(--text-2);
-  background: var(--card);
-  box-shadow: var(--shadow);
-}
-
-.remedi-mistake-book :deep(.sticky-detail-summary strong) {
-  color: var(--primary);
-  font-variant-numeric: tabular-nums;
 }
 
 .remedi-mistake-book :deep(.sticky-assignment-list) {

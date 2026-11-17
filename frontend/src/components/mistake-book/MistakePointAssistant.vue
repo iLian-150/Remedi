@@ -1,10 +1,10 @@
 <template>
-  <aside class="mistake-point-assistant" :class="{ 'is-fullscreen': fullscreen }" :aria-label="`${mistake.category_label}专属问答`">
+  <aside class="mistake-point-assistant" :class="{ 'is-fullscreen': fullscreen }" :aria-label="mistake.source_kind === 'student_saved' ? '自主收录题目专属问答' : `第 ${mistake.question_order} 题专属问答`">
     <header class="mistake-point-assistant-head">
       <div>
         <span>{{ mistake.source_kind === 'student_saved' ? '自主收录题目' : '错题专属问答' }}</span>
-        <h2>{{ mistake.source_kind === 'student_saved' ? '继续复习这道题' : mistake.category_label || mistake.error_type }}</h2>
-        <p>{{ mistake.knowledge_point }} · {{ subjectName(mistake.question_subject) }}</p>
+        <h2>{{ mistake.source_kind === 'student_saved' ? '继续复习这道题' : `第 ${mistake.question_order} 题` }}</h2>
+        <p>{{ diagnosisCategories(mistake).join(' · ') || mistake.knowledge_point }} · {{ subjectName(mistake.question_subject) }}</p>
       </div>
       <nav class="mistake-point-assistant-controls" aria-label="内容区布局控制">
         <button type="button" aria-label="左右交换区域" title="左右交换区域" @click="$emit('swap')"><AppIcon name="swap" :size="16"/></button>
@@ -30,12 +30,21 @@
       <div v-if="!summaryCollapsed" class="mistake-point-summary-body" id="mistake-point-summary-body">
         <div class="mistake-point-summary-detail">
           <div class="mistake-point-summary-detail-head">
-            <span>{{ mistake.source_kind === 'student_saved' ? '自主收录' : `第 ${mistake.question_order} 题${mistake.step_seq ? ` · 第 ${mistake.step_seq} 步` : ''}` }}</span>
-            <strong>{{ mistake.category_label || mistake.error_type }}</strong>
+            <span>{{ mistake.source_kind === 'student_saved' ? '自主收录' : `第 ${mistake.question_order} 题` }}</span>
+            <strong>{{ diagnosisCategories(mistake).join('、') || mistake.category_label || mistake.error_type }}</strong>
           </div>
           <div class="mistake-reference-line"><span>题目</span><p>{{ mistake.question_stem || '题目内容暂未记录' }}</p></div>
-          <div v-if="mistake.step_text" class="mistake-reference-line is-error"><span>错误作答</span><p>{{ mistake.step_text }}</p></div>
-          <div class="mistake-point-reason"><strong>{{ mistake.source_kind === 'student_saved' ? '复习提示' : '错因分析' }}</strong><p>{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</p></div>
+          <template v-if="mistake.source_kind !== 'student_saved' && mistake.error_details.length">
+            <div v-for="detail in mistake.error_details" :key="detail.id" class="mistake-reference-line is-error">
+              <span>{{ detail.step_seq ? `第 ${detail.step_seq} 步 · ` : '' }}{{ detail.category_label }}</span>
+              <p v-if="detail.step_text"><strong>作答：</strong>{{ detail.step_text }}</p>
+              <p><strong>分析：</strong>{{ safe(detail.detail || detail.error_type) }}</p>
+            </div>
+          </template>
+          <template v-else>
+            <div v-if="mistake.step_text" class="mistake-reference-line is-error"><span>错误作答</span><p>{{ mistake.step_text }}</p></div>
+            <div class="mistake-point-reason"><strong>{{ mistake.source_kind === 'student_saved' ? '复习提示' : '错因分析' }}</strong><p>{{ safe(mistake.detail || '回顾这类错误的作答过程，找到容易忽略的条件。') }}</p></div>
+          </template>
           <!-- v0.13.10：正确答案与解题过程不直接给（用户口径）——先自己想，
                点开才显示；切换错题时自动收起 -->
           <template v-if="mistake.source_kind !== 'student_saved'">
@@ -176,6 +185,9 @@ async function loadHistory() {
 function subjectName(value: string) {
   const labels: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学', chinese: '语文', biology: '生物' }
   return labels[value] || value || '其他学科'
+}
+function diagnosisCategories(mistake: StudentMistake) {
+  return Array.from(new Set((mistake.error_categories ?? []).map((category) => category.label).filter(Boolean)))
 }
 function safe(value: string) { return sanitizeStudentCopy(value) }
 async function sendQuestion() {

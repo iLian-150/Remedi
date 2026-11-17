@@ -87,6 +87,7 @@ def init_db():
         models.Notification,
         models.SubmissionReview,
         models.Correction,
+        models.QuestionRedo,
         models.Question,
         models.QuestionGroup,
         models.Essay,

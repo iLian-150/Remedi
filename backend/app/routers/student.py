@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, exists, func, or_
 from sqlalchemy.orm import Session, aliased, joinedload, load_only
 from starlette.concurrency import run_in_threadpool
 
@@ -46,6 +46,7 @@ from ..models import (
     StudentQuestionCapture,
     Step,
     Submission,
+    QuestionRedo,
     SubmissionImage,
     SubmissionReview,
     User,
@@ -61,6 +62,8 @@ from ..api_schemas.student import (
     BriefingOut,
     CorrectionCreate,
     CorrectionOut,
+    QuestionRedoCreate,
+    QuestionRedoOut,
     DiagnosisOut,
     EssayBrief,
     EssayCreate,
@@ -85,6 +88,7 @@ from ..api_schemas.student import (
     StudentLearningMemoryOut,
     StudentMistakeCountOut,
     StudentMistakeOut,
+    StudentMistakeErrorOut,
     StudentMistakeReviewSummaryOut,
     StudentMistakeTimelinePageOut,
     StudentQuestionCaptureCreate,
@@ -128,6 +132,7 @@ from ..services.diagnosis import (
     present_diagnosis,
     present_error,
     verify_correction,
+    verify_question_redo,
 )
 from ..services.answer_check import (
     student_visible_linear_error_detail,
@@ -1012,8 +1017,8 @@ def list_submissions(question_id: Optional[int] = Query(default=None),
     items = []
     for s in subs:
         rstatus = status_by_id.get(s.id, review_svc.APPROVED)
-        # 错题同步进入错题本和订正区；低分待审时仍显示错误数。
-        err_n = error_count_by_id.get(s.id, 0)
+        # 一次作答只对应一道错题；内部诊断步骤不作为错题数量。
+        err_n = int(error_count_by_id.get(s.id, 0) > 0)
         score = max_score = None
         vis = scores_by_id.get(s.id)
         if vis:
@@ -1185,14 +1190,13 @@ def my_mistakes(
 ):
     """List this student's active or archived error occurrences without deleting diagnosis history."""
     archive_filter = None if include_archived else archived
-    image_join_condition = SubmissionImage.submission_id == Submission.id
-    if archive_filter is not None:
-        archive_match = (
-            StudentMistakeArchive.archived_at.isnot(None)
-            if archive_filter
-            else StudentMistakeArchive.archived_at.is_(None)
-        )
-        image_join_condition = and_(image_join_condition, archive_match)
+    submission_archived = db.query(StudentMistakeArchive.id).join(
+        Error, Error.id == StudentMistakeArchive.error_id,
+    ).filter(
+        Error.submission_id == Submission.id,
+        StudentMistakeArchive.student_id == current.id,
+        StudentMistakeArchive.archived_at.isnot(None),
+    ).correlate(Submission).exists()
     all_rows_query = (
         db.query(
             Error,
@@ -1221,7 +1225,7 @@ def my_mistakes(
         )
         .outerjoin(
             SubmissionImage,
-            image_join_condition,
+            SubmissionImage.submission_id == Submission.id,
         )
         .options(
             load_only(
@@ -1241,9 +1245,7 @@ def my_mistakes(
     )
     if archive_filter is not None:
         all_rows_query = all_rows_query.filter(
-            StudentMistakeArchive.archived_at.isnot(None)
-            if archive_filter
-            else StudentMistakeArchive.archived_at.is_(None)
+            submission_archived if archive_filter else ~submission_archived
         )
     # 诊断错题立即进入错题本；待教师复核状态作为标记返回，不再过滤掉这批记录。
     archived_at_by_error = {}
@@ -1334,6 +1336,24 @@ def my_mistakes(
                 assignment.created_at,
             )
         )
+
+    if archive_filter is True and rows:
+        visible_submission_ids = {submission.id for _, submission, _, _, _ in rows}
+        archived_at_by_submission = dict(
+            db.query(
+                Error.submission_id,
+                func.max(StudentMistakeArchive.archived_at),
+            ).join(
+                StudentMistakeArchive,
+                StudentMistakeArchive.error_id == Error.id,
+            ).filter(
+                StudentMistakeArchive.student_id == current.id,
+                StudentMistakeArchive.archived_at.isnot(None),
+                Error.submission_id.in_(visible_submission_ids),
+            ).group_by(Error.submission_id).all()
+        )
+        for error, submission, _, _, _ in rows:
+            archived_at_by_error[error.id] = archived_at_by_submission.get(submission.id)
 
     if archive_filter is not None and rows:
         needed_category_keys = {
@@ -1633,6 +1653,24 @@ def my_mistakes(
                 step.text if step else None,
                 step.seq if step else None,
             )
+        error_detail = {
+            "id": error.id,
+            "error_type": error.error_type,
+            "category_key": category_key,
+            "category_label": category_label,
+            "is_stubborn": error.is_stubborn,
+            "detail": linear_detail_by_step[step_key] or error.detail,
+            "step_seq": step.seq if step else None,
+            "step_text": step.text if step else None,
+            "latest_correction": correction,
+            "verification_status": verification_by_error.get(error.id),
+            "corrected": bool(correction and correction.get("is_correct") is True),
+            "category_studied": (assignment.id, category_key) in reviewed,
+            "question_studied": question_reviewed.get(
+                (assignment.id, question.id, category_key),
+                (assignment.id, category_key) in reviewed,
+            ),
+        }
         result.append(StudentMistakeOut(
             id=error.id,
             submission_id=submission.id,
@@ -1677,7 +1715,72 @@ def my_mistakes(
                 f"/api/uploads/{image_path_by_submission[submission.id]}"
                 if submission.id in image_path_by_submission else None
             ),
+            error_details=[error_detail],
+            error_types=[error.error_type],
+            error_categories=[{
+                "key": category_key,
+                "label": category_label,
+                "category_studied": (assignment.id, category_key) in reviewed,
+                "question_studied": question_reviewed.get(
+                    (assignment.id, question.id, category_key),
+                    (assignment.id, category_key) in reviewed,
+                ),
+            }],
         ))
+
+    # One mistake entry represents one submitted question. Step diagnoses remain
+    # available as error_details instead of becoming separate question records.
+    grouped_result = []
+    grouped_by_submission = {}
+    for mistake in result:
+        group = grouped_by_submission.get(mistake.submission_id)
+        if group is None:
+            grouped_by_submission[mistake.submission_id] = mistake
+            grouped_result.append(mistake)
+            continue
+
+        group.error_details.extend(mistake.error_details)
+        group.error_types = list(dict.fromkeys([*group.error_types, *mistake.error_types]))
+        category_by_key = {item.key: item for item in group.error_categories}
+        for category in mistake.error_categories:
+            category_by_key.setdefault(category.key, category)
+        group.error_categories = list(category_by_key.values())
+        group.is_stubborn = group.is_stubborn or mistake.is_stubborn
+        if mistake.created_at > group.created_at:
+            group.id = mistake.id
+            group.error_type = mistake.error_type
+            group.category_key = mistake.category_key
+            group.category_label = mistake.category_label
+            group.knowledge_point = mistake.knowledge_point
+            group.detail = mistake.detail
+            group.step_seq = mistake.step_seq
+            group.step_text = mistake.step_text
+            group.category_studied = mistake.category_studied
+            group.question_studied = mistake.question_studied
+            group.similar_occurrences = mistake.similar_occurrences
+            group.latest_correction = mistake.latest_correction
+            group.verification_status = mistake.verification_status
+            group.created_at = mistake.created_at
+        if (
+            mistake.latest_correction is not None
+            and (
+                group.latest_correction is None
+                or mistake.latest_correction.submitted_at > group.latest_correction.submitted_at
+            )
+        ):
+            group.latest_correction = mistake.latest_correction
+    for group in grouped_result:
+        group.error_details = list({
+            detail.id: detail for detail in group.error_details
+        }.values())
+        group.error_details.sort(
+            key=lambda item: (
+                item.step_seq is None,
+                item.step_seq or 0,
+                item.id,
+            )
+        )
+    result = grouped_result
     captures_query = db.query(StudentQuestionCapture).filter(
         StudentQuestionCapture.student_id == current.id,
         StudentQuestionCapture.saved_at.isnot(None),
@@ -1746,20 +1849,55 @@ def my_mistakes(
     return result
 
 
+def _question_error_groups(db: Session, student_id: int):
+    """One summary row per submitted question, with the number of unresolved steps."""
+    latest_correction = (
+        db.query(Correction.is_correct)
+        .filter(
+            Correction.error_id == Error.id,
+            Correction.student_id == student_id,
+        )
+        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
+        .limit(1)
+        .correlate(Error)
+        .scalar_subquery()
+    )
+    return (
+        db.query(
+            Error.submission_id.label("submission_id"),
+            func.max(Error.id).label("representative_error_id"),
+            func.max(Error.created_at).label("created_at"),
+            func.sum(case((latest_correction.is_(True), 0), else_=1)).label("pending_error_count"),
+        )
+        .join(Submission, Submission.id == Error.submission_id)
+        .filter(Submission.student_id == student_id)
+        .group_by(Error.submission_id)
+        .subquery()
+    )
+
+
+def _successful_question_redo(submission_id, student_id: int):
+    return exists().where(and_(
+        QuestionRedo.submission_id == submission_id,
+        QuestionRedo.student_id == student_id,
+        QuestionRedo.is_correct.is_(True),
+    ))
+
+
 @router.get("/corrections/calendar-marks", response_model=Dict[str, int],
             summary="订正日历错题日期统计")
 def correction_calendar_marks(db: Session = Depends(get_db),
                               current: User = Depends(require_student)):
-    """按提交日期统计本人诊断错题，供订正日历使用，不组装错题详情。"""
-    submission_date = func.date(
-        func.coalesce(Submission.submitted_at, Error.created_at)
-    )
+    """按提交日期统计有错题的作答次数，每道题只记一次。"""
+    question_groups = _question_error_groups(db, current.id)
+    submission_date = func.date(func.coalesce(Submission.submitted_at, question_groups.c.created_at))
     rows = (
         db.query(
             submission_date.label("submission_date"),
-            func.count(Error.id).label("error_count"),
+            func.count(question_groups.c.submission_id).label("question_count"),
         )
-        .join(Submission, Error.submission_id == Submission.id)
+        .select_from(question_groups)
+        .join(Submission, Submission.id == question_groups.c.submission_id)
         .filter(Submission.student_id == current.id)
         .group_by(submission_date)
         .all()
@@ -1779,29 +1917,23 @@ def correction_assignment_summaries(
     current: User = Depends(require_student),
 ):
     """返回当前学生有错题的作业目录及订正进度，不读取错题详情。"""
-    latest_correction = (
-        db.query(Correction.is_correct)
-        .filter(
-            Correction.error_id == Error.id,
-            Correction.student_id == current.id,
-        )
-        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
-        .limit(1)
-        .correlate(Error)
-        .scalar_subquery()
-    )
+    question_groups = _question_error_groups(db, current.id)
+    redo_succeeded = _successful_question_redo(question_groups.c.submission_id, current.id)
     query = (
         db.query(
             Assignment.id.label("assignment_id"),
             Assignment.title.label("assignment_title"),
             Assignment.created_at.label("published_at"),
             Question.subject.label("subject"),
-            func.count(Error.id).label("total_count"),
-            func.coalesce(func.sum(case((latest_correction.is_(True), 0), else_=1)), 0).label("pending_count"),
+            func.count(question_groups.c.submission_id).label("total_count"),
+            func.coalesce(func.sum(case((
+                or_(redo_succeeded, question_groups.c.pending_error_count == 0), 0,
+            ), else_=1)), 0).label("pending_count"),
         )
-        .join(Question, Question.assignment_id == Assignment.id)
-        .join(Submission, Submission.question_id == Question.id)
-        .join(Error, Error.submission_id == Submission.id)
+        .select_from(question_groups)
+        .join(Submission, Submission.id == question_groups.c.submission_id)
+        .join(Question, Question.id == Submission.question_id)
+        .join(Assignment, Assignment.id == Question.assignment_id)
         .filter(Submission.student_id == current.id)
     )
     if submitted_on is not None:
@@ -1815,8 +1947,8 @@ def correction_assignment_summaries(
             ),
             and_(
                 Submission.submitted_at.is_(None),
-                Error.created_at >= submitted_start,
-                Error.created_at < submitted_end,
+                question_groups.c.created_at >= submitted_start,
+                question_groups.c.created_at < submitted_end,
             ),
         ))
 
@@ -1862,12 +1994,16 @@ def correction_wall_page(
     db: Session = Depends(get_db),
     current: User = Depends(require_student),
 ):
-    """按需返回作业内订正列表字段，不组装完整错题本条目。"""
+    """按提交作答分页：每道错题只返回一张卡片，步骤错误作为卡片详情。"""
     if (before_created_at is None) != (before_id is None):
         raise HTTPException(
             status_code=422,
             detail="before_created_at 与 before_id 必须同时提供",
         )
+
+    question_groups = _question_error_groups(db, current.id)
+    redo_succeeded = _successful_question_redo(question_groups.c.submission_id, current.id)
+    question_corrected = or_(redo_succeeded, question_groups.c.pending_error_count == 0)
 
     submitted_date_filter = None
     if submitted_on is not None:
@@ -1881,25 +2017,11 @@ def correction_wall_page(
             ),
             and_(
                 Submission.submitted_at.is_(None),
-                Error.created_at >= submitted_start,
-                Error.created_at < submitted_end,
+                question_groups.c.created_at >= submitted_start,
+                question_groups.c.created_at < submitted_end,
             ),
         )
 
-    submission_date = func.date(
-        func.coalesce(Submission.submitted_at, Error.created_at)
-    )
-    latest_correction = (
-        db.query(Correction.is_correct)
-        .filter(
-            Correction.error_id == Error.id,
-            Correction.student_id == current.id,
-        )
-        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
-        .limit(1)
-        .correlate(Error)
-        .scalar_subquery()
-    )
     review_status = (
         db.query(SubmissionReview.status)
         .filter(SubmissionReview.submission_id == Submission.id)
@@ -1917,13 +2039,11 @@ def correction_wall_page(
 
     count_query = (
         db.query(
-            func.count(Error.id),
-            func.coalesce(func.sum(case((
-                latest_correction.is_(True), 0,
-            ), else_=1)), 0),
+            func.count(question_groups.c.submission_id),
+            func.coalesce(func.sum(case((question_corrected, 0), else_=1)), 0),
         )
-        .select_from(Error)
-        .join(Submission, Submission.id == Error.submission_id)
+        .select_from(question_groups)
+        .join(Submission, Submission.id == question_groups.c.submission_id)
         .join(Question, Question.id == Submission.question_id)
         .filter(Submission.student_id == current.id)
     )
@@ -1940,28 +2060,31 @@ def correction_wall_page(
 
     base_query = (
         db.query(
-            Error.id,
-            Error.submission_id,
+            Error.id.label("id"),
+            question_groups.c.submission_id,
+            Question.id.label("question_id"),
             Question.subject.label("question_subject"),
             Question.assignment_id.label("assignment_id"),
             Assignment.title.label("assignment_title"),
             Question.order_num.label("question_order"),
             Question.stem.label("question_stem"),
             review_status.label("review_status"),
-            latest_correction.label("corrected"),
+            question_corrected.label("corrected"),
             Error.is_stubborn,
             Error.knowledge_point,
             Error.error_type,
             Error.detail,
             Step.seq.label("step_seq"),
             Step.text.label("step_text"),
-            Error.created_at,
+            question_groups.c.created_at.label("created_at"),
             Submission.submitted_at,
             image_path.label("image_path"),
         )
-        .join(Submission, Submission.id == Error.submission_id)
+        .select_from(question_groups)
+        .join(Submission, Submission.id == question_groups.c.submission_id)
         .join(Question, Question.id == Submission.question_id)
         .join(Assignment, Assignment.id == Question.assignment_id)
+        .join(Error, Error.id == question_groups.c.representative_error_id)
         .outerjoin(Step, Step.id == Error.step_id)
         .filter(Submission.student_id == current.id)
     )
@@ -1973,49 +2096,145 @@ def correction_wall_page(
     page_query = base_query
     if before_created_at is not None and before_id is not None:
         page_query = page_query.filter(or_(
-            Error.created_at < before_created_at,
-            and_(Error.created_at == before_created_at, Error.id < before_id),
+            question_groups.c.created_at < before_created_at,
+            and_(question_groups.c.created_at == before_created_at, Error.id < before_id),
         ))
     page_rows = page_query.order_by(
-        Error.created_at.desc(), Error.id.desc()
+        question_groups.c.created_at.desc(), Error.id.desc()
     ).limit(limit + 1).all()
     has_more = len(page_rows) > limit
     items_rows = page_rows[:limit]
     cursor_row = items_rows[-1] if has_more and items_rows else None
 
-    # 深链可以带入较早的错题；它不会改变常规分页游标或计数。
-    if include_id is not None and all(row.id != include_id for row in items_rows):
-        included = base_query.filter(Error.id == include_id).first()
+    # Deep links still accept any historical step error ID and load its whole question.
+    included_submission_id = None
+    if include_id is not None:
+        included_submission_id = db.query(Error.submission_id).join(
+            Submission, Submission.id == Error.submission_id,
+        ).filter(
+            Error.id == include_id,
+            Submission.student_id == current.id,
+        ).scalar()
+    if included_submission_id is not None and all(
+        row.submission_id != included_submission_id for row in items_rows
+    ):
+        included = base_query.filter(
+            question_groups.c.submission_id == included_submission_id,
+        ).first()
         if included is not None:
             items_rows.append(included)
             items_rows.sort(key=lambda row: (row.created_at, row.id), reverse=True)
 
-    return {
-        "items": [
-            {
-                "id": row.id,
-                "submission_id": row.submission_id,
-                "question_subject": row.question_subject,
-                "assignment_id": row.assignment_id,
-                "assignment_title": row.assignment_title,
-                "question_order": row.question_order,
-                "question_stem": row.question_stem,
-                "review_status": row.review_status or review_svc.APPROVED,
-                "corrected": row.corrected is True,
-                "is_stubborn": row.is_stubborn,
-                "knowledge_point": row.knowledge_point,
-                "error_type": row.error_type,
+    submission_ids = list(dict.fromkeys(row.submission_id for row in items_rows))
+    error_details_by_submission = {submission_id: [] for submission_id in submission_ids}
+    redo_completed_ids = set()
+    if submission_ids:
+        redo_completed_ids = {
+            row[0] for row in db.query(QuestionRedo.submission_id).filter(
+                QuestionRedo.student_id == current.id,
+                QuestionRedo.submission_id.in_(submission_ids),
+                QuestionRedo.is_correct.is_(True),
+            ).distinct().all()
+        }
+        latest_step_correction = (
+            db.query(Correction.is_correct)
+            .filter(
+                Correction.error_id == Error.id,
+                Correction.student_id == current.id,
+            )
+            .order_by(Correction.submitted_at.desc(), Correction.id.desc())
+            .limit(1)
+            .correlate(Error)
+            .scalar_subquery()
+        )
+        error_rows = db.query(
+            Error.id,
+            Error.submission_id,
+            Question.subject,
+            Question.stem,
+            Error.knowledge_point,
+            Error.error_type,
+            Error.is_stubborn,
+            Error.detail,
+            Step.seq,
+            Step.text,
+            latest_step_correction.label("corrected"),
+        ).join(
+            Submission, Submission.id == Error.submission_id,
+        ).join(
+            Question, Question.id == Submission.question_id,
+        ).outerjoin(
+            Step, Step.id == Error.step_id,
+        ).filter(
+            Submission.student_id == current.id,
+            Error.submission_id.in_(submission_ids),
+        ).order_by(
+            Error.submission_id,
+            Step.seq,
+            Error.id,
+        ).all()
+        for error_row in error_rows:
+            category_key, category_label = _mistake_category(
+                error_row.subject, error_row.error_type, error_row.knowledge_point,
+            )
+            error_details_by_submission[error_row.submission_id].append({
+                "id": error_row.id,
+                "error_type": error_row.error_type,
+                "category_key": category_key,
+                "category_label": category_label,
+                "is_stubborn": error_row.is_stubborn,
                 "detail": student_visible_linear_error_detail(
-                    row.question_stem, row.step_text, row.step_seq,
-                ) or row.detail,
-                "step_seq": row.step_seq,
-                "step_text": row.step_text,
-                "created_at": row.created_at,
-                "submitted_at": row.submitted_at,
-                "image_url": f"/api/uploads/{row.image_path}" if row.image_path else None,
-            }
-            for row in items_rows
-        ],
+                    error_row.stem, error_row.text, error_row.seq,
+                ) or error_row.detail,
+                "step_seq": error_row.seq,
+                "step_text": error_row.text,
+                "latest_correction": None,
+                "verification_status": None,
+                "corrected": (
+                    error_row.submission_id in redo_completed_ids
+                    or error_row.corrected is True
+                ),
+            })
+
+    items = []
+    for row in items_rows:
+        error_details = error_details_by_submission.get(row.submission_id, [])
+        error_types = list(dict.fromkeys(item["error_type"] for item in error_details))
+        category_by_key = {}
+        for detail in error_details:
+            category_by_key.setdefault(detail["category_key"], {
+                "key": detail["category_key"],
+                "label": detail["category_label"],
+            })
+        items.append({
+            "id": row.id,
+            "submission_id": row.submission_id,
+            "question_id": row.question_id,
+            "question_subject": row.question_subject,
+            "assignment_id": row.assignment_id,
+            "assignment_title": row.assignment_title,
+            "question_order": row.question_order,
+            "question_stem": row.question_stem,
+            "review_status": row.review_status or review_svc.APPROVED,
+            "corrected": row.corrected is True,
+            "is_stubborn": any(item["is_stubborn"] for item in error_details),
+            "knowledge_point": row.knowledge_point,
+            "error_type": row.error_type,
+            "error_types": error_types,
+            "error_categories": list(category_by_key.values()),
+            "detail": student_visible_linear_error_detail(
+                row.question_stem, row.step_text, row.step_seq,
+            ) or row.detail,
+            "step_seq": row.step_seq,
+            "step_text": row.step_text,
+            "created_at": row.created_at,
+            "submitted_at": row.submitted_at,
+            "image_url": f"/api/uploads/{row.image_path}" if row.image_path else None,
+            "error_details": error_details,
+        })
+
+    return {
+        "items": items,
         "total_count": total_count,
         "pending_count": pending_count,
         "has_more": has_more,
@@ -2059,47 +2278,47 @@ def student_mistake_timeline(
 
     include_count = include_total_count and before_created_at is None
     total_count = None
-
-    latest_correction = (
-        db.query(Correction.is_correct)
-        .filter(
-            Correction.error_id == Error.id,
-            Correction.student_id == current.id,
-        )
-        .order_by(Correction.submitted_at.desc(), Correction.id.desc())
-        .limit(1)
-        .correlate(Error)
-        .scalar_subquery()
+    question_groups = _question_error_groups(db, current.id)
+    question_corrected = or_(
+        _successful_question_redo(question_groups.c.submission_id, current.id),
+        question_groups.c.pending_error_count == 0,
     )
-    query = (
-        db.query(
-            Error.id,
-            Error.submission_id,
-            Question.subject.label("question_subject"),
-            Error.created_at,
-            Question.stem.label("question_stem"),
-            Error.knowledge_point,
-            Error.error_type,
-            latest_correction.label("corrected"),
-        )
-        .join(Submission, Error.submission_id == Submission.id)
-        .join(Question, Submission.question_id == Question.id)
-        .filter(Submission.student_id == current.id)
+    query = db.query(
+        question_groups.c.representative_error_id.label("id"),
+        question_groups.c.submission_id,
+        Question.subject.label("question_subject"),
+        question_groups.c.created_at,
+        Question.stem.label("question_stem"),
+        Error.knowledge_point,
+        Error.error_type,
+        question_corrected.label("corrected"),
+    ).select_from(
+        question_groups,
+    ).join(
+        Submission, Submission.id == question_groups.c.submission_id,
+    ).join(
+        Question, Question.id == Submission.question_id,
+    ).join(
+        Error, Error.id == question_groups.c.representative_error_id,
+    ).filter(
+        Submission.student_id == current.id,
     )
     if subject:
         query = query.filter(Question.subject == subject)
     if include_count:
         query = query.add_columns(
-            func.count(Error.id).over().label("total_count")
+            func.count(question_groups.c.submission_id).over().label("total_count")
         )
     if before_created_at is not None and before_id is not None:
         query = query.filter(or_(
-            Error.created_at < before_created_at,
-            and_(Error.created_at == before_created_at, Error.id < before_id),
+            question_groups.c.created_at < before_created_at,
+            and_(question_groups.c.created_at == before_created_at,
+                 question_groups.c.representative_error_id < before_id),
         ))
 
     rows = query.order_by(
-        Error.created_at.desc(), Error.id.desc()
+        question_groups.c.created_at.desc(),
+        question_groups.c.representative_error_id.desc(),
     ).limit(limit + 1).all()
     if include_count:
         total_count = int(rows[0].total_count or 0) if rows else 0
@@ -2115,6 +2334,7 @@ def student_mistake_timeline(
                 "knowledge_point": row.knowledge_point,
                 "error_type": row.error_type,
                 "corrected": row.corrected is True,
+                "error_types": [row.error_type],
             }
             for row in rows[:limit]
         ],
@@ -2128,9 +2348,9 @@ def student_mistake_timeline(
 def my_mistake_count(subject: Optional[str] = Query(default=None),
                      db: Session = Depends(get_db),
                      current: User = Depends(require_student)):
-    """Count diagnosis errors without assembling the full mistake notebook payload."""
+    """Count submitted questions with mistakes, not individual step diagnoses."""
     query = (
-        db.query(func.count(Error.id))
+        db.query(func.count(func.distinct(Error.submission_id)))
         .select_from(Error)
         .join(Submission, Submission.id == Error.submission_id)
         .filter(Submission.student_id == current.id)
@@ -2146,9 +2366,17 @@ def my_mistake_count(subject: Optional[str] = Query(default=None),
 def student_mistake_review_summary(db: Session = Depends(get_db),
                                    current: User = Depends(require_student)):
     """只聚合错题复习侧栏需要的类别、进度和优先级字段。"""
+    submission_archived = db.query(StudentMistakeArchive.id).join(
+        Error, Error.id == StudentMistakeArchive.error_id,
+    ).filter(
+        Error.submission_id == Submission.id,
+        StudentMistakeArchive.student_id == current.id,
+        StudentMistakeArchive.archived_at.isnot(None),
+    ).correlate(Submission).exists()
     row_query = (
         db.query(
             Error.id.label("error_id"),
+            Error.submission_id.label("submission_id"),
             Error.error_type,
             Error.knowledge_point,
             Error.is_stubborn,
@@ -2158,6 +2386,7 @@ def student_mistake_review_summary(db: Session = Depends(get_db),
             Assignment.title.label("assignment_title"),
             Assignment.created_at.label("assignment_created_at"),
             StudentMistakeArchive.archived_at,
+            submission_archived.label("submission_archived"),
         )
         .join(Submission, Submission.id == Error.submission_id)
         .join(Question, Question.id == Submission.question_id)
@@ -2177,6 +2406,7 @@ def student_mistake_review_summary(db: Session = Depends(get_db),
     # 不读取题干、标准答案、步骤、订正正文、图片或相似错题详情。
     latest_by_category_assignment = {}
     groups = {}
+    visible_submission_ids = set()
     for row in row_query.yield_per(500):
         subject = row.subject or "other"
         category_key, category_label = _mistake_category(
@@ -2186,9 +2416,10 @@ def student_mistake_review_summary(db: Session = Depends(get_db),
         latest_by_category_assignment.setdefault(
             category_assignment_key, row.assignment_created_at
         )
-        if row.archived_at is not None:
+        if row.submission_archived:
             continue
 
+        visible_submission_ids.add(row.submission_id)
         group_key = (row.assignment_id, category_key)
         entry = groups.get(group_key)
         if entry is None:
@@ -2203,10 +2434,16 @@ def student_mistake_review_summary(db: Session = Depends(get_db),
                 "stubborn_count": 0,
                 "created_at": row.error_created_at,
                 "assignment_created_at": row.assignment_created_at,
+                "submission_ids": set(),
+                "stubborn_submission_ids": set(),
             }
             groups[group_key] = entry
-        entry["item_count"] += 1
-        entry["stubborn_count"] += int(row.is_stubborn)
+        if row.submission_id not in entry["submission_ids"]:
+            entry["submission_ids"].add(row.submission_id)
+            entry["item_count"] += 1
+            if row.is_stubborn:
+                entry["stubborn_submission_ids"].add(row.submission_id)
+                entry["stubborn_count"] += 1
         if row.error_created_at < entry["created_at"]:
             entry["created_at"] = row.error_created_at
 
@@ -2262,7 +2499,7 @@ def student_mistake_review_summary(db: Session = Depends(get_db),
         StudentQuestionCapture.archived_at.is_(None),
     ).first() is not None
     return {
-        "total_count": len(groups),
+        "total_count": len(visible_submission_ids),
         "has_records": bool(groups) or has_saved_capture,
         "categories": categories,
     }
@@ -2407,7 +2644,7 @@ def set_mistake_archived(error_id: int, body: MistakeArchiveIn,
         return {"id": error_id, "student_id": current.id, "archived_at": capture.archived_at}
 
     target = (
-        db.query(Error.id, Question.assignment_id)
+        db.query(Error.submission_id, Question.assignment_id)
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
         .filter(Error.id == error_id, Submission.student_id == current.id)
@@ -2415,23 +2652,43 @@ def set_mistake_archived(error_id: int, body: MistakeArchiveIn,
     )
     if not target:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这条错题记录")
-    _, assignment_id = target
-    state = db.query(StudentMistakeArchive).filter_by(
-        student_id=current.id, error_id=error_id
-    ).first()
-    if bool(state) == body.archived:
-        return {"id": error_id, "student_id": current.id, "archived_at": state.archived_at if state else None}
+    submission_id, assignment_id = target
+    related_error_ids = [row[0] for row in db.query(Error.id).filter(
+        Error.submission_id == submission_id,
+    ).all()]
+    states = db.query(StudentMistakeArchive).filter(
+        StudentMistakeArchive.student_id == current.id,
+        StudentMistakeArchive.error_id.in_(related_error_ids),
+    ).all()
+    states_by_error_id = {state.error_id: state for state in states}
+    if body.archived and len(states_by_error_id) == len(related_error_ids):
+        return {"id": error_id, "student_id": current.id,
+                "archived_at": states_by_error_id[error_id].archived_at}
+    if not body.archived and not states_by_error_id:
+        return {"id": error_id, "student_id": current.id, "archived_at": None}
 
     now = datetime.now()
     if body.archived:
-        state = StudentMistakeArchive(student_id=current.id, error_id=error_id, archived_at=now)
-        db.add(state)
+        db.add_all(
+            StudentMistakeArchive(student_id=current.id, error_id=related_error_id, archived_at=now)
+            for related_error_id in related_error_ids
+            if related_error_id not in states_by_error_id
+        )
         event_type = "mistake_archived"
-        payload = {"occurrence_id": error_id, "student_id": current.id}
+        payload = {
+            "occurrence_id": error_id,
+            "submission_id": submission_id,
+            "student_id": current.id,
+        }
     else:
-        db.delete(state)
+        for state in states:
+            db.delete(state)
         event_type = "mistake_restored"
-        payload = {"occurrence_id": error_id, "student_id": current.id}
+        payload = {
+            "occurrence_id": error_id,
+            "submission_id": submission_id,
+            "student_id": current.id,
+        }
     _record_mistake_event(db, current.id, assignment_id, event_type, payload, now)
     db.commit()
     return {"id": error_id, "student_id": current.id, "archived_at": now if body.archived else None}
@@ -2453,10 +2710,19 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
                 "archived_at": capture.archived_at}
 
     rows_query = (
-        db.query(Error.id, Error.error_type, Error.knowledge_point, Question.subject)
+        db.query(
+            Error.id,
+            Error.submission_id,
+            Question.id.label("question_id"),
+            Error.created_at,
+            Error.error_type,
+            Error.knowledge_point,
+            Question.subject,
+        )
         .join(Submission, Error.submission_id == Submission.id)
         .join(Question, Submission.question_id == Question.id)
         .filter(Submission.student_id == current.id, Question.assignment_id == assignment_id)
+        .order_by(Error.created_at.desc(), Error.id.desc())
     )
     if body.archived:
         rows_query = rows_query.outerjoin(
@@ -2473,28 +2739,74 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
         raise HTTPException(status.HTTP_404_NOT_FOUND, "作业没有可整理的错题")
 
     if body.archived:
-        active_rows = [
-            (error_id, error_type, knowledge_point, subject)
-            for error_id, error_type, knowledge_point, subject, archived_error_id in rows
-            if archived_error_id is None
-        ]
-        if not active_rows:
-            return {"assignment_id": assignment_id, "archived_ids": []}
-        categories = {
-            _mistake_category(subject, error_type, knowledge_point)[0]
-            for _, error_type, knowledge_point, subject in active_rows
+        question_groups = {}
+        for error_id, submission_id, question_id, created_at, error_type, knowledge_point, subject, archived_error_id in rows:
+            group = question_groups.setdefault(submission_id, {
+                "representative_id": error_id,
+                "question_id": question_id,
+                "error_ids": [],
+                "archived_ids": set(),
+                "category_keys": set(),
+                "has_active_error": False,
+            })
+            group["error_ids"].append(error_id)
+            group["category_keys"].add(
+                _mistake_category(subject, error_type, knowledge_point)[0]
+            )
+            if archived_error_id is None:
+                group["has_active_error"] = True
+            else:
+                group["archived_ids"].add(error_id)
+        active_groups = {
+            submission_id: group
+            for submission_id, group in question_groups.items()
+            if group["has_active_error"]
         }
-        reviewed = {
+        if not active_groups:
+            return {"assignment_id": assignment_id, "archived_ids": []}
+        categories = set().union(*(group["category_keys"] for group in active_groups.values()))
+        reviewed_categories = {
             item.category_key for item in db.query(StudentMistakeCategoryReview)
             .filter_by(student_id=current.id, assignment_id=assignment_id).all()
         }
-        remaining = categories - reviewed
+        question_ids = {group["question_id"] for group in active_groups.values()}
+        category_questions = {category_key: set() for category_key in categories}
+        for group in active_groups.values():
+            for category_key in group["category_keys"]:
+                category_questions[category_key].add(group["question_id"])
+        reviewed_questions_by_category = {}
+        for question_id, category_key in db.query(
+            StudentMistakeQuestionReview.question_id,
+            StudentMistakeQuestionReview.category_key,
+        ).filter(
+            StudentMistakeQuestionReview.student_id == current.id,
+            StudentMistakeQuestionReview.assignment_id == assignment_id,
+            StudentMistakeQuestionReview.studied.is_(True),
+            StudentMistakeQuestionReview.question_id.in_(question_ids),
+        ).all():
+            reviewed_questions_by_category.setdefault(category_key, set()).add(question_id)
+        remaining = {
+            category_key
+            for category_key, category_question_ids in category_questions.items()
+            if category_key not in reviewed_categories
+            and not category_question_ids.issubset(
+                reviewed_questions_by_category.get(category_key, set())
+            )
+        }
         if remaining:
             raise HTTPException(status.HTTP_409_CONFLICT, f"还有 {len(remaining)} 类错误没有标记为已学习。")
         now = datetime.now()
-        archived_ids = [error_id for error_id, _, _, _ in active_rows]
-        db.add_all(StudentMistakeArchive(student_id=current.id, error_id=error_id, archived_at=now)
-                    for error_id in archived_ids)
+        archived_error_ids = [
+            error_id
+            for group in active_groups.values()
+            for error_id in group["error_ids"]
+            if error_id not in group["archived_ids"]
+        ]
+        archived_ids = [group["representative_id"] for group in active_groups.values()]
+        db.add_all(
+            StudentMistakeArchive(student_id=current.id, error_id=error_id, archived_at=now)
+            for error_id in archived_error_ids
+        )
         _record_mistake_event(db, current.id, assignment_id, "mistake_assignment_archived",
                               {"student_id": current.id, "occurrence_ids": archived_ids}, now)
         db.commit()
@@ -2503,8 +2815,19 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
     occurrence_ids = list(dict.fromkeys(body.occurrence_ids))
     if not occurrence_ids:
         return {"assignment_id": assignment_id, "archived_ids": []}
+    submission_ids = [row[0] for row in db.query(Error.submission_id).join(
+        Submission, Submission.id == Error.submission_id,
+    ).join(
+        Question, Question.id == Submission.question_id,
+    ).filter(
+        Error.id.in_(occurrence_ids),
+        Submission.student_id == current.id,
+        Question.assignment_id == assignment_id,
+    ).distinct().all()]
+    if not submission_ids:
+        return {"assignment_id": assignment_id, "archived_ids": []}
     restore_states = []
-    for start in range(0, len(occurrence_ids), 500):
+    for start in range(0, len(submission_ids), 500):
         restore_states.extend(
             db.query(StudentMistakeArchive)
             .join(Error, StudentMistakeArchive.error_id == Error.id)
@@ -2512,13 +2835,13 @@ def set_mistake_assignment_archived(assignment_id: int, body: MistakeAssignmentA
             .join(Question, Submission.question_id == Question.id)
             .filter(
                 StudentMistakeArchive.student_id == current.id,
-                StudentMistakeArchive.error_id.in_(occurrence_ids[start:start + 500]),
+                Submission.id.in_(submission_ids[start:start + 500]),
                 Submission.student_id == current.id,
                 Question.assignment_id == assignment_id,
             ).all()
         )
-    restored_ids = [state.error_id for state in restore_states]
-    if restored_ids:
+    restored_ids = occurrence_ids if restore_states else []
+    if restore_states:
         for state in restore_states:
             db.delete(state)
         now = datetime.now()
@@ -2627,22 +2950,95 @@ def submit_correction(body: CorrectionCreate, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能订正自己的错误")
     knowledge_point = err.knowledge_point
     is_correct, note = verify_correction(db, err, body.content.strip())
-    c = Correction(error_id=err.id, student_id=current.id,
-                   content=body.content.strip(), is_correct=is_correct, note=note)
-    db.add(c)
+    target_error_ids = [err.id]
+    if err.step_id is not None:
+        target_error_ids = [row[0] for row in db.query(Error.id).filter(
+            Error.submission_id == err.submission_id,
+            Error.step_id == err.step_id,
+        ).all()]
+    corrections = [
+        Correction(
+            error_id=error_id,
+            student_id=current.id,
+            content=body.content.strip(),
+            is_correct=is_correct,
+            note=note,
+        )
+        for error_id in target_error_ids
+    ]
+    db.add_all(corrections)
     db.flush()
-    out = CorrectionOut.model_validate(c)
+    out = CorrectionOut.model_validate(corrections[0])
     # 现有变式题生成及判定服务只支持数学。
     out.can_verify = (
         is_correct is True and bool(knowledge_point.strip())
         and sub.question is not None and sub.question.subject == "math"
     )
     out.knowledge_point = knowledge_point
-    refresh_student_learning_memory(
-        db, current.id,
-        subject=sub.question.subject if sub.question is not None else None,
-        knowledge_point=knowledge_point, commit=False,
+    if knowledge_point.strip():
+        refresh_student_learning_memory(
+            db, current.id,
+            subject=sub.question.subject if sub.question is not None else None,
+            knowledge_point=knowledge_point, commit=False,
+        )
+    db.commit()
+    return out
+
+
+@router.post("/corrections/redo", response_model=QuestionRedoOut,
+             summary="提交整题重做")
+def submit_question_redo(body: QuestionRedoCreate, db: Session = Depends(get_db),
+                         current: User = Depends(require_student)):
+    submission = db.query(Submission).options(
+        joinedload(Submission.question),
+    ).filter(
+        Submission.id == body.submission_id,
+        Submission.student_id == current.id,
+    ).first()
+    if submission is None or submission.question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这道错题")
+    errors = db.query(Error).filter(
+        Error.submission_id == submission.id,
+    ).order_by(Error.id).all()
+    if not errors:
+        raise HTTPException(status.HTTP_409_CONFLICT, "这道题没有需要订正的诊断记录")
+
+    content = body.content.strip()
+    is_correct, note = verify_question_redo(submission.question, content)
+    redo = QuestionRedo(
+        submission_id=submission.id,
+        student_id=current.id,
+        content=content,
+        is_correct=is_correct,
+        note=note,
     )
+    db.add(redo)
+    db.flush()
+    knowledge_point = next(
+        (error.knowledge_point for error in errors if error.knowledge_point.strip()),
+        "",
+    )
+    out = QuestionRedoOut(
+        id=redo.id,
+        submission_id=redo.submission_id,
+        content=redo.content,
+        is_correct=redo.is_correct,
+        note=redo.note,
+        submitted_at=redo.submitted_at,
+        can_verify=(
+            is_correct is True
+            and bool(knowledge_point)
+            and submission.question.subject == "math"
+        ),
+        knowledge_point=knowledge_point or None,
+    )
+    if is_correct is True and knowledge_point:
+        refresh_student_learning_memory(
+            db, current.id,
+            subject=submission.question.subject,
+            knowledge_point=knowledge_point,
+            commit=False,
+        )
     db.commit()
     return out
 

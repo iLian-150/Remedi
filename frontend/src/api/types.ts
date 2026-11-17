@@ -202,6 +202,32 @@ export interface StudentMistake {
   source_kind?: 'diagnosed' | 'student_saved'
   capture_id?: number | null
   image_url?: string | null
+  error_details: Array<{
+    id: number
+    error_type: ErrorType | string
+    category_key: string
+    category_label: string
+    is_stubborn: boolean
+    detail: string | null
+    step_seq: number | null
+    step_text: string | null
+    latest_correction: {
+      id: number
+      content: string
+      is_correct: boolean | null
+      note: string | null
+      submitted_at: string
+    } | null
+    verification_status: VerificationStatus | null
+    corrected?: boolean
+  }>
+  error_types: Array<ErrorType | string>
+  error_categories: Array<{
+    key: string
+    label: string
+    category_studied?: boolean
+    question_studied?: boolean
+  }>
 }
 
 export interface StudentMistakeCount {
@@ -247,6 +273,7 @@ export interface StudentMistakeTimelinePage {
 export interface StudentCorrectionWallItem {
   id: number
   submission_id: number
+  question_id: number
   question_subject: string
   assignment_id: number
   assignment_title: string
@@ -263,6 +290,14 @@ export interface StudentCorrectionWallItem {
   created_at: string
   submitted_at: string | null
   image_url: string | null
+  error_details: StudentMistake['error_details']
+  error_types: Array<ErrorType | string>
+  error_categories: Array<{
+    key: string
+    label: string
+    category_studied?: boolean
+    question_studied?: boolean
+  }>
 }
 
 export interface StudentCorrectionWallPage {
@@ -405,6 +440,17 @@ export interface CorrectionResult {
   submitted_at: string
   can_verify?: boolean // v0.4.0：订正成功时为 true，提示可去做二次验证
   knowledge_point?: string | null // v0.4.0：该错题所属知识点
+}
+
+export interface QuestionRedoResult {
+  id: number
+  submission_id: number
+  content: string
+  is_correct: boolean | null
+  note: string | null
+  submitted_at: string
+  can_verify: boolean
+  knowledge_point: string | null
 }
 
 // ---------- 学习画像（学生自查 / 教师查学生同结构） ----------

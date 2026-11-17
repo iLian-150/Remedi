@@ -61,6 +61,7 @@
           <div class="student-tools">
             <label class="student-search"><span class="sr-only">搜索学生</span><input v-model="studentQuery" type="search" placeholder="搜索姓名或学号" /></label>
             <label class="student-status-filter"><span class="sr-only">筛选提交状态</span><select v-model="statusFilter"><option value="">全部状态</option><option v-for="status in progressLabels" :key="status" :value="status">{{ status }}</option></select></label>
+            <label class="student-score-filter"><span class="sr-only">筛选得分区间</span><select v-model="scoreFilter"><option value="">全部得分</option><option value="90">90% 及以上</option><option value="80">80%–89%</option><option value="60">60%–79%</option><option value="below60">低于 60%</option><option value="ungraded">暂无评分</option></select></label>
             <span class="section-count">{{ filteredStudents.length }} / {{ report.students.length }} 人</span>
           </div>
         </div>
@@ -141,6 +142,7 @@ const loading = ref(false)
 const error = ref('')
 const studentQuery = ref('')
 const statusFilter = ref('')
+const scoreFilter = ref('')
 const expandedStudentId = ref<number | null>(null)
 const chartColors = readChartColors()
 let loadGeneration = 0
@@ -153,6 +155,7 @@ watch(assignmentId, (id, previousId) => {
   if (id !== previousId) {
     studentQuery.value = ''
     statusFilter.value = ''
+    scoreFilter.value = ''
     expandedStudentId.value = null
     teacher.setAssignmentAnalyticsPageTitle('')
   }
@@ -168,13 +171,29 @@ const filteredStudents = computed(() => {
   const query = studentQuery.value.trim().toLocaleLowerCase()
   return (report.value?.students ?? []).filter((student) => {
     const matchesQuery = !query || `${student.name} ${student.student_no ?? ''}`.toLocaleLowerCase().includes(query)
-    return matchesQuery && (!statusFilter.value || student.status === statusFilter.value)
+    const matchesStatus = !statusFilter.value || student.status === statusFilter.value
+    const matchesScore = matchesScoreFilter(student)
+    return matchesQuery && matchesStatus && matchesScore
   })
 })
 const questionById = computed(() => new Map((report.value?.questions ?? []).map((question) => [question.id, question])))
 
 function refresh() {
   void load(assignmentId.value)
+}
+
+function matchesScoreFilter(student: TeacherAssignmentAnalytics['students'][number]): boolean {
+  if (scoreFilter.value === 'ungraded') return student.graded_questions === 0 || student.score_rate === null
+  if (student.graded_questions === 0 || student.score_rate === null) return !scoreFilter.value
+
+  const scorePercentage = Math.round(student.score_rate * 100)
+  switch (scoreFilter.value) {
+    case '90': return scorePercentage >= 90
+    case '80': return scorePercentage >= 80 && scorePercentage < 90
+    case '60': return scorePercentage >= 60 && scorePercentage < 80
+    case 'below60': return scorePercentage < 60
+    default: return true
+  }
 }
 
 async function load(id: number | null) {
@@ -314,7 +333,7 @@ function escapeTooltip(value: string): string {
 .student-card { margin-top: 16px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .section-heading h3 { margin: 0; }
-.student-tools { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
+.student-tools { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .student-tools input, .student-tools select { min-height: 36px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-standard); color: var(--text); background: var(--card); font-size: 12px; }
 .student-search input { width: min(220px, 24vw); }
 .section-count { color: var(--text-3); font-size: 12px; font-weight: 500; white-space: nowrap; }

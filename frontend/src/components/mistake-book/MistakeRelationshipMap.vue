@@ -21,10 +21,10 @@
                     <path v-for="(point, index) in activeTopic?.errorPoints" :key="`leaf-${point.key}`" class="leaf-line" :d="curve({ x: activeTopicPoint.x + (activeBranch.side === 'left' ? -74 : 74), y: activeTopicPoint.y }, { x: leafPoints[index].x + (activeBranch.side === 'left' ? 74 : -74), y: leafPoints[index].y }, activeBranch.side)" :stroke="activeBranch.color"/>
                   </template>
                 </svg>
-                <button class="mistake-map-root" type="button" :style="pointStyle(root)" aria-label="回到思维导图中心" @click="resetMap"><span>学习脉络</span><strong>我的错题</strong><small>{{ studentName || '我的档案' }} · {{ recordCount }} 条记录</small></button>
-                <button v-for="branch in branches" :key="branch.key" class="mistake-map-branch" :class="{ selected: branch.key === selectedSubjectKey }" type="button" :style="{ ...pointStyle(branch), '--accent': branch.color }" :aria-pressed="branch.key === selectedSubjectKey" @click="selectSubject(branch.key)"><span>{{ branch.label }}</span><small>{{ branch.topics.length }} 个知识点 · {{ branch.recordCount }} 条错题</small></button>
+                <button class="mistake-map-root" type="button" :style="pointStyle(root)" aria-label="回到思维导图中心" @click="resetMap"><span>学习脉络</span><strong>我的错题</strong><small>{{ studentName || '我的档案' }} · {{ recordCount }} 道错题</small></button>
+                <button v-for="branch in branches" :key="branch.key" class="mistake-map-branch" :class="{ selected: branch.key === selectedSubjectKey }" type="button" :style="{ ...pointStyle(branch), '--accent': branch.color }" :aria-pressed="branch.key === selectedSubjectKey" @click="selectSubject(branch.key)"><span>{{ branch.label }}</span><small>{{ branch.topics.length }} 个知识点 · {{ branch.recordCount }} 道错题</small></button>
                 <template v-if="activeSubject">
-                  <button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-map-topic-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(topicPoints[index]), '--accent': activeBranch?.color }" :aria-pressed="topic.key === selectedTopicKey" :aria-expanded="topic.key === selectedTopicKey" :aria-label="`${topic.label}，${topic.itemCount} 条错题，${topic.errorPoints.length} 个错误点${topic.studied ? '，已学完' : ''}，点击查看`" @click="selectTopic(topic.key)"><strong>{{ topic.label }}</strong><small>{{ topic.errorPoints.length }} 个错误点 · {{ topic.key === selectedTopicKey ? '已展开' : '点击查看' }}</small></button>
+                  <button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-map-topic-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(topicPoints[index]), '--accent': activeBranch?.color }" :aria-pressed="topic.key === selectedTopicKey" :aria-expanded="topic.key === selectedTopicKey" :aria-label="`${topic.label}，${topic.itemCount} 道错题，${topic.errorPoints.length} 个错误点${topic.studied ? '，已学完' : ''}，点击查看`" @click="selectTopic(topic.key)"><strong>{{ topic.label }}</strong><small>{{ topic.errorPoints.length }} 个错误点 · {{ topic.key === selectedTopicKey ? '已展开' : '点击查看' }}</small></button>
                 </template>
                 <template v-if="activeTopic">
                   <button v-for="(point, index) in activeTopic.errorPoints" :key="point.key" class="mistake-map-leaf-node" :class="{ studied: point.studied, selected: point.key === selectedPointKey }" type="button" :style="{ ...pointStyle(leafPoints[index]), '--accent': activeBranch?.color }" @click="openPoint(point)" :aria-label="`打开错误点问答：${point.label}`"><strong>{{ point.label }}</strong><small>{{ point.itemCount }} 道相关错题 · <span v-if="point.studied">已学会</span><span v-else>查看错题详情 <AppIcon name="arrow-up-right" :size="11"/></span></small></button>
@@ -59,10 +59,10 @@
                   <g v-if="subjectExpanded && activeSubject"><template v-for="(topic, index) in activeSubject.topics" :key="`topic-line-${topic.key}`"><path class="mistake-network-beam topic-beam" :class="{ active: topic.key === selectedTopicKey }" :d="signalPath(hub, networkTopicPoints[index], index % 2 ? -.85 : .85)" :stroke="activeColor"/><path class="mistake-network-hierarchy" :d="signalPath(activeSubjectPoint, networkTopicPoints[index], index % 2 ? -.4 : .4)"/><circle class="mistake-network-anchor topic-anchor" :cx="networkTopicPoints[index].x" :cy="networkTopicPoints[index].y" r="13" :stroke="activeColor"/></template></g>
                   <g v-if="activeTopic"><template v-for="(point, index) in activeTopic.errorPoints" :key="`point-line-${point.key}`"><path class="mistake-network-beam leaf-beam" :d="signalPath(hub, pointPoints[index], index % 2 ? -.75 : .75)" :stroke="activeColor"/><path class="mistake-network-hierarchy leaf-hierarchy" :d="signalPath(networkActiveTopicPoint || hub, pointPoints[index], index % 2 ? -.4 : .4)"/><circle class="mistake-network-anchor leaf-anchor" :cx="pointPoints[index].x" :cy="pointPoints[index].y" r="15" :stroke="activeColor"/></template></g>
                 </svg>
-                <button v-for="(subject, index) in subjects" :key="subject.key" class="mistake-network-node subject-node" :class="{ selected: subjectExpanded && subject.key === activeSubject?.key }" type="button" :style="{ ...pointStyle(subjectPoints[index]), '--accent': subjectColor(index) }" @click="selectSubject(subject.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ subject.label }}</strong><small>{{ subject.topics.length }} 个知识点 · {{ subject.recordCount }} 条错题</small></button>
-                <template v-if="subjectExpanded && activeSubject"><button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-network-node topic-node knowledge-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(networkTopicPoints[index]), '--accent': activeColor }" :aria-pressed="topic.key === selectedTopicKey" :aria-expanded="topic.key === selectedTopicKey" :aria-label="`${topic.label}，${topic.itemCount} 条错题，${topic.errorPoints.length} 个错误点${topic.studied ? '，已学完' : ''}，点击查看`" @click="selectTopic(topic.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ topic.label }}</strong><small>{{ topic.errorPoints.length }} 个错误点 · {{ topic.key === selectedTopicKey ? '已展开' : '点击查看' }}</small></button></template>
+                <button v-for="(subject, index) in subjects" :key="subject.key" class="mistake-network-node subject-node" :class="{ selected: subjectExpanded && subject.key === activeSubject?.key }" type="button" :style="{ ...pointStyle(subjectPoints[index]), '--accent': subjectColor(index) }" @click="selectSubject(subject.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ subject.label }}</strong><small>{{ subject.topics.length }} 个知识点 · {{ subject.recordCount }} 道错题</small></button>
+                <template v-if="subjectExpanded && activeSubject"><button v-for="(topic, index) in activeSubject.topics" :key="topic.key" class="mistake-network-node topic-node knowledge-node" :class="{ selected: topic.key === selectedTopicKey }" type="button" :style="{ ...pointStyle(networkTopicPoints[index]), '--accent': activeColor }" :aria-pressed="topic.key === selectedTopicKey" :aria-expanded="topic.key === selectedTopicKey" :aria-label="`${topic.label}，${topic.itemCount} 道错题，${topic.errorPoints.length} 个错误点${topic.studied ? '，已学完' : ''}，点击查看`" @click="selectTopic(topic.key)"><span class="mistake-network-node-mark" aria-hidden="true"/><strong>{{ topic.label }}</strong><small>{{ topic.errorPoints.length }} 个错误点 · {{ topic.key === selectedTopicKey ? '已展开' : '点击查看' }}</small></button></template>
                 <template v-if="activeTopic"><button v-for="(point, index) in activeTopic.errorPoints" :key="point.key" class="mistake-network-node leaf-node" :class="{ studied: point.studied, selected: point.key === selectedPointKey }" type="button" :style="{ ...pointStyle(pointPoints[index]), '--accent': activeColor }" @click="openPoint(point)" :aria-label="`打开错误点问答：${point.label}`"><strong>{{ point.label }}</strong><small>{{ point.itemCount }} 道相关错题 · <span v-if="point.studied">已学会</span><span v-else>查看错题详情 <AppIcon name="arrow-up-right" :size="11"/></span></small></button></template>
-                <div ref="networkHub" class="mistake-network-hub" :style="pointStyle(hub)"><span>知</span><strong>{{ studentName || '我的' }}</strong><small>{{ recordCount }} 条错题</small></div>
+                <div ref="networkHub" class="mistake-network-hub" :style="pointStyle(hub)"><span>知</span><strong>{{ studentName || '我的' }}</strong><small>{{ recordCount }} 道错题</small></div>
               </div>
             </div>
           </div>
@@ -152,15 +152,16 @@ const activeTopicIndex = computed(() => activeSubject.value?.topics.findIndex((i
 const activeTopic = computed(() => activeSubject.value?.topics[activeTopicIndex.value])
 const activeTopicPoint = computed<Point | undefined>(() => topicPoints.value[activeTopicIndex.value])
 const recordCount = computed(() => subjects.value.reduce((total, item) => total + item.recordCount, 0))
-const canvasHeight = computed(() => Math.max(620, (Math.ceil(subjects.value.length / 2) - 1) * 114 + 620, (activeSubject.value?.topics.length || 0) * 68 + 220, (activeTopic.value?.errorPoints.length || 0) * 58 + 220))
-const root = computed<Point>(() => ({ x: 840, y: canvasHeight.value / 2 }))
+const MIND_MAP_ROOT_X = 260
+const MIND_MAP_SUBJECT_X = 560
+const MIND_MAP_COLUMN_GAP = 210
+const canvasHeight = computed(() => Math.max(620, Math.max(0, subjects.value.length - 1) * 114 + 220, (activeSubject.value?.topics.length || 0) * 68 + 220, (activeTopic.value?.errorPoints.length || 0) * 58 + 220))
+const root = computed<Point>(() => ({ x: MIND_MAP_ROOT_X, y: canvasHeight.value / 2 }))
 const branches = computed(() => subjects.value.map((subject, index) => {
-  const side: 'left' | 'right' = index % 2 === 0 ? 'left' : 'right'
-  const count = side === 'left' ? Math.ceil(subjects.value.length / 2) : Math.floor(subjects.value.length / 2)
-  return { ...subject, side, x: side === 'left' ? 655 : 1025, y: root.value.y + (Math.floor(index / 2) - (count - 1) / 2) * 114, color: colors[index % colors.length] }
+  return { ...subject, side: 'right' as const, x: MIND_MAP_SUBJECT_X, y: root.value.y + (index - (subjects.value.length - 1) / 2) * 114, color: colors[index % colors.length] }
 }))
-const topicPoints = computed<Point[]>(() => activeSubject.value?.topics.map((_, index) => ({ x: (activeBranch.value?.x || 840) + (activeBranch.value?.side === 'left' ? -175 : 175), y: root.value.y + (index - ((activeSubject.value?.topics.length || 1) - 1) / 2) * 68 })) || [])
-const leafPoints = computed<Point[]>(() => activeTopic.value?.errorPoints.map((_, index) => ({ x: (topicPoints.value[activeTopicIndex.value]?.x || 840) + (activeBranch.value?.side === 'left' ? -170 : 170), y: root.value.y + (index - ((activeTopic.value?.errorPoints.length || 1) - 1) / 2) * 58 })) || [])
+const topicPoints = computed<Point[]>(() => activeSubject.value?.topics.map((_, index) => ({ x: (activeBranch.value?.x || MIND_MAP_SUBJECT_X) + MIND_MAP_COLUMN_GAP, y: root.value.y + (index - ((activeSubject.value?.topics.length || 1) - 1) / 2) * 68 })) || [])
+const leafPoints = computed<Point[]>(() => activeTopic.value?.errorPoints.map((_, index) => ({ x: (topicPoints.value[activeTopicIndex.value]?.x || MIND_MAP_SUBJECT_X + MIND_MAP_COLUMN_GAP) + MIND_MAP_COLUMN_GAP, y: root.value.y + (index - ((activeTopic.value?.errorPoints.length || 1) - 1) / 2) * 58 })) || [])
 
 const networkWidth = computed(() => 2400 + Math.max(0, Math.ceil((activeSubject.value?.topics.length || 0) / 8) - 1) * 360)
 const networkHeight = computed(() => 1650 + Math.max(0, Math.ceil((activeSubject.value?.topics.length || 0) / 8) - 1) * 260)
@@ -229,7 +230,7 @@ function zoomBy(amount: number) { zoom.value = Math.min(1.4, Math.max(props.mode
 function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1.4; void nextTick(centerNetwork) }
 function centerNetwork(behavior: ScrollBehavior = 'smooth') {
   if (!viewport.value) return
-  // 按当前显示的节点整体居中，避免单侧分支展开时被挤到画布边缘。
+  // 尽量居中；画布过宽时保留根节点，便于向右滚动浏览。
   if (props.mode === 'mindmap') {
     const nodes = viewport.value.querySelectorAll<HTMLElement>('.mistake-map-canvas > button')
     if (!nodes.length) return
@@ -241,8 +242,13 @@ function centerNetwork(behavior: ScrollBehavior = 'smooth') {
     const contentBottom = Math.max(...nodeRects.map((rect) => rect.bottom))
     const viewportCenterX = viewportRect.left + viewport.value.clientLeft + viewport.value.clientWidth / 2
     const viewportCenterY = viewportRect.top + viewport.value.clientTop + viewport.value.clientHeight / 2
+    const centeredScrollLeft = viewport.value.scrollLeft + (contentLeft + contentRight) / 2 - viewportCenterX
+    const firstNodeSafeScrollLeft = viewport.value.scrollLeft + contentLeft - viewportRect.left - viewport.value.clientLeft - 24
+    const scrollLeft = contentRight - contentLeft > viewport.value.clientWidth
+      ? Math.max(0, Math.min(centeredScrollLeft, firstNodeSafeScrollLeft))
+      : centeredScrollLeft
     viewport.value.scrollTo({
-      left: viewport.value.scrollLeft + (contentLeft + contentRight) / 2 - viewportCenterX,
+      left: scrollLeft,
       top: viewport.value.scrollTop + (contentTop + contentBottom) / 2 - viewportCenterY,
       behavior,
     })

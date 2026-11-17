@@ -12,7 +12,6 @@
           <template v-if="screen === 'detail'"><button type="button" @click="goToCategories">{{ displaySubject(selectedSubject!.key) }}</button><span aria-hidden="true">/</span><span aria-current="page">{{ selectedCategory!.label }}</span></template>
           <span v-else aria-current="page">{{ displaySubject(selectedSubject!.key) }}</span>
         </nav>
-        <div v-if="screen === 'detail'" class="sticky-detail-summary"><span>这类错误的作业记录</span><strong>{{ completedAssignmentCount }}<small> / {{ assignments.length }} 份已学完</small></strong></div>
       </div>
 
       <div v-if="loading" class="sticky-notes-grid" aria-hidden="true">
@@ -47,15 +46,15 @@
         <div class="sticky-assignment-list">
           <article v-for="(assignment, assignmentIndex) in visibleAssignments" :key="`${assignment.assignmentId}:${assignment.categoryKey}`" class="sticky-assignment" :class="[`sticky-note-${categoryColors[assignmentIndex % categoryColors.length]}`, { 'is-studied': assignment.studied }]">
             <div class="sticky-assignment-head">
-              <div><span class="sticky-assignment-date">{{ formatDate(assignment.entries[0].assignment_created_at) }}</span><h2>{{ assignment.title }}</h2><p>{{ assignment.studentSavedOnly ? '你主动收录的复习题目' : `${assignment.entries.length} 道这类错题 · 本份作业已学 ${assignment.progress.completed}/${assignment.progress.total} 类错误` }}</p></div>
+              <div><span class="sticky-assignment-date">{{ formatDate(assignment.entries[0].assignment_created_at) }}</span><h2>{{ assignment.title }}</h2><p>{{ assignment.studentSavedOnly ? '你主动收录的复习题目' : `${assignment.entries.length} 道此类错题 · 已学 ${assignment.progress.completed}/${assignment.progress.total} 项分类复习` }}</p></div>
               <span class="sticky-assignment-state">{{ assignment.studied ? '此类已学完' : '待学习' }}</span>
             </div>
             <div class="sticky-assignment-questions">
               <article v-for="(entry, entryIndex) in visibleEntries(assignment)" :key="entry.id" class="sticky-question" :class="[`sticky-note-${categoryColors[(assignmentIndex + entryIndex + 1) % categoryColors.length]}`, { 'is-current': focusedMistakeId === entry.id }]" :style="noteStyle(entryIndex)" @click="selectQuestion(entry)">
                 <div class="sticky-question-main" role="button" tabindex="0" :aria-pressed="focusedMistakeId === entry.id" :aria-label="entry.source_kind === 'student_saved' ? '查看自主收录题目' : `查看第 ${entry.question_order} 题错题详情`" title="单击查看题目详情" @keydown.enter.prevent="selectQuestion(entry)" @keydown.space.prevent="selectQuestion(entry)">
-                  <div class="sticky-question-head"><strong>{{ entry.source_kind === 'student_saved' ? '自主收录题目' : `第 ${entry.question_order} 题${entry.step_seq ? ` · 第 ${entry.step_seq} 步` : ''}` }}</strong><span>{{ entry.knowledge_point }}</span></div>
+                  <div class="sticky-question-head"><strong>{{ entry.source_kind === 'student_saved' ? '自主收录题目' : `第 ${entry.question_order} 题` }}</strong><span>{{ entry.knowledge_point }}</span></div>
                   <p class="sticky-question-excerpt">{{ entry.question_stem }}</p>
-                  <p class="sticky-question-diagnosis">{{ entry.detail || entry.error_type }}</p>
+                  <p class="sticky-question-diagnosis">{{ diagnosisSummary(entry) }}</p>
                 </div>
                 <div class="sticky-question-actions"><button type="button" @click.stop="selectQuestion(entry)">{{ entry.source_kind === 'student_saved' ? '继续复习' : '查看错题讲解' }} <AppIcon name="arrow-up-right" :size="13"/></button><button v-if="entry.source_kind !== 'student_saved'" type="button" @click.stop.prevent="$emit('review', entry)">查看原题 <AppIcon name="arrow-up-right" :size="13"/></button></div>
               </article>
@@ -63,7 +62,7 @@
             <button v-if="visibleEntryCount(assignment) < assignment.entries.length" type="button" class="sticky-list-more" @click="showMoreEntries(assignment)">再显示 {{ Math.min(questionPageSize, assignment.entries.length - visibleEntryCount(assignment)) }} 道题</button>
             <div class="sticky-assignment-actions">
               <button v-if="!assignment.studentSavedOnly" type="button" class="sticky-study-button" :disabled="Boolean(workingKey)" @click="toggleStudied(assignment)">{{ workingKey === studyKey(assignment) ? '保存中…' : assignment.studied ? '取消已学会' : '学完这类错误' }}</button>
-              <span>{{ assignment.studentSavedOnly ? '这是你主动收录的题目' : assignment.progress.complete ? '这份作业的错误类别已全部学完' : `还有 ${assignment.progress.total - assignment.progress.completed} 类待学习` }}</span>
+              <span>{{ assignment.studentSavedOnly ? '这是你主动收录的题目' : assignment.progress.complete ? '这份作业的错题已全部学会' : `还有 ${assignment.progress.total - assignment.progress.completed} 项分类复习` }}</span>
               <button type="button" class="sticky-archive-button" :disabled="!assignment.progress.complete || Boolean(workingKey)" @click="$emit('archive-assignment', assignment.assignmentId)">{{ workingKey === `archive:${assignment.assignmentId}` ? '正在移出…' : '整份作业移出错题本' }}</button>
             </div>
           </article>
@@ -118,7 +117,7 @@ const stickyData = computed(() => {
   const categoriesBySubject = new Map<string, Map<string, Category>>()
   const assignmentIdsByCategory = new Map<Category, Set<number>>()
   const tagsByCategory = new Map<Category, Set<string>>()
-  const categoriesByAssignment = new Map<number, Map<string, boolean>>()
+  const categoriesByAssignment = new Map<number, Map<string, Map<number, boolean>>>()
   for (const entry of props.mistakes) {
     const key = entry.question_subject === 'english_exercise' ? 'english' : entry.question_subject || 'other'
     let subject = groups.get(key)
@@ -128,31 +127,46 @@ const stickyData = computed(() => {
       categoriesBySubject.set(key, new Map())
     }
     subject.itemCount += 1
-    const categoryIndex = categoriesBySubject.get(key)!
-    let category = categoryIndex.get(entry.category_key)
-    if (!category) {
-      category = { key: entry.category_key, label: entry.category_label || entry.error_type, itemCount: 0, studied: true, assignmentCount: 0, tags: [], entries: [] }
-      subject.categories.push(category)
-      categoryIndex.set(entry.category_key, category)
-      assignmentIdsByCategory.set(category, new Set())
-      tagsByCategory.set(category, new Set())
-    }
-    category.itemCount += 1
-    category.entries.push(entry)
-    category.studied = category.studied && entry.category_studied
-    assignmentIdsByCategory.get(category)!.add(entry.assignment_id)
-    const tags = tagsByCategory.get(category)!
-    if (entry.knowledge_point && tags.size < 2) tags.add(entry.knowledge_point)
+    const entryCategories = entry.error_categories?.length
+      ? entry.error_categories
+      : [{ key: entry.category_key, label: entry.category_label || entry.error_type, category_studied: entry.category_studied, question_studied: entry.question_studied }]
+    for (const entryCategory of entryCategories) {
+      const categoryIndex = categoriesBySubject.get(key)!
+      let category = categoryIndex.get(entryCategory.key)
+      if (!category) {
+        category = { key: entryCategory.key, label: entryCategory.label || entry.error_type, itemCount: 0, studied: true, assignmentCount: 0, tags: [], entries: [] }
+        subject.categories.push(category)
+        categoryIndex.set(entryCategory.key, category)
+        assignmentIdsByCategory.set(category, new Set())
+        tagsByCategory.set(category, new Set())
+      }
+      const categoryEntry: StudentMistake = {
+        ...entry,
+        category_key: entryCategory.key,
+        category_label: entryCategory.label,
+        category_studied: entryCategory.category_studied ?? entry.category_studied,
+        question_studied: entryCategory.question_studied ?? entry.question_studied,
+      }
+      category.itemCount += 1
+      category.entries.push(categoryEntry)
+      category.studied = category.studied && (categoryEntry.question_studied ?? categoryEntry.category_studied)
+      assignmentIdsByCategory.get(category)!.add(entry.assignment_id)
+      const tags = tagsByCategory.get(category)!
+      if (entry.knowledge_point && tags.size < 2) tags.add(entry.knowledge_point)
 
-    let assignmentCategories = categoriesByAssignment.get(entry.assignment_id)
-    if (!assignmentCategories) {
-      assignmentCategories = new Map()
-      categoriesByAssignment.set(entry.assignment_id, assignmentCategories)
+      let assignmentCategories = categoriesByAssignment.get(entry.assignment_id)
+      if (!assignmentCategories) {
+        assignmentCategories = new Map()
+        categoriesByAssignment.set(entry.assignment_id, assignmentCategories)
+      }
+      let questionStates = assignmentCategories.get(entryCategory.key)
+      if (!questionStates) {
+        questionStates = new Map()
+        assignmentCategories.set(entryCategory.key, questionStates)
+      }
+      const questionKey = entry.source_kind === 'student_saved' ? entry.id : entry.submission_id
+      questionStates.set(questionKey, categoryEntry.question_studied ?? categoryEntry.category_studied)
     }
-    assignmentCategories.set(
-      entry.category_key,
-      (assignmentCategories.get(entry.category_key) ?? true) && entry.category_studied,
-    )
   }
   for (const subject of groups.values()) {
     for (const category of subject.categories) {
@@ -165,13 +179,17 @@ const stickyData = computed(() => {
   const progressByAssignment = new Map<number, AssignmentProgress>()
   for (const [assignmentId, categories] of categoriesByAssignment) {
     let completed = 0
-    for (const studied of categories.values()) {
-      if (studied) completed += 1
+    let total = 0
+    for (const questionStates of categories.values()) {
+      for (const studied of questionStates.values()) {
+        total += 1
+        if (studied) completed += 1
+      }
     }
     progressByAssignment.set(assignmentId, {
       completed,
-      total: categories.size,
-      complete: categories.size > 0 && completed === categories.size,
+      total,
+      complete: total > 0 && completed === total,
     })
   }
   return {
@@ -195,14 +213,13 @@ const assignments = computed<StickyAssignment[]>(() => {
   for (const entry of category.entries) {
     const group = grouped.get(entry.assignment_id) ?? { assignmentId: entry.assignment_id, categoryKey: entry.category_key, entries: [], studied: true, studentSavedOnly: true, title: entry.assignment_title }
     group.entries.push(entry)
-    group.studied = group.studied && entry.category_studied
+    group.studied = group.studied && (entry.question_studied ?? entry.category_studied)
     group.studentSavedOnly = group.studentSavedOnly && entry.source_kind === 'student_saved'
     grouped.set(entry.assignment_id, group)
   }
   return Array.from(grouped.values()).map((group) => ({ ...group, entries: group.entries.sort((a, b) => a.question_order - b.question_order), progress: progressFor(group.assignmentId) })).sort((a, b) => b.entries[0].assignment_created_at.localeCompare(a.entries[0].assignment_created_at))
 })
 const visibleAssignments = computed(() => assignments.value.slice(0, visibleAssignmentLimit.value))
-const completedAssignmentCount = computed(() => assignments.value.reduce((count, assignment) => count + Number(assignment.studied), 0))
 
 watch(() => props.mistakes, () => {
   if (selectedSubjectKey.value && !subjectsByKey.value.has(selectedSubjectKey.value)) goToSubjects()
@@ -233,6 +250,12 @@ function showMoreEntries(assignment: StickyAssignment) {
 }
 function showMoreAssignments() { visibleAssignmentLimit.value += assignmentPageSize }
 function selectQuestion(entry: StudentMistake) { focusedMistakeId.value = entry.id; emit('select-mistake', entry) }
+function diagnosisSummary(entry: StudentMistake) {
+  const categories = Array.from(new Set((entry.error_categories ?? []).map((item) => item.label).filter(Boolean)))
+  const steps = Array.from(new Set((entry.error_details ?? []).flatMap((item) => item.step_seq === null ? [] : [item.step_seq])))
+  const summary = categories.length ? categories.join(' · ') : entry.category_label || entry.error_type
+  return steps.length ? `${summary} · 第 ${steps.sort((a, b) => a - b).join('、')} 步` : summary
+}
 function studyKey(assignment: StickyAssignment) { return `study:${assignment.assignmentId}:${assignment.categoryKey}` }
 function progressFor(assignmentId: number) {
   return assignmentProgressById.value.get(assignmentId) ?? {
@@ -251,7 +274,6 @@ function toggleStudied(assignment: StickyAssignment) {
 .mistake-sticky-notes:not(.is-split) .sticky-notes-inner { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; }
 .mistake-sticky-notes .sticky-notes-topline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; margin-top: 0; }
 .mistake-sticky-notes .sticky-notes-topline .sticky-notes-breadcrumb { flex: 0 0 auto; margin-top: 0; }
-.mistake-sticky-notes .sticky-notes-topline .sticky-detail-summary { flex: 1 1 540px; min-width: 0; max-width: 540px; align-items: center; margin-top: 0; padding-bottom: 0; border-bottom: 0; }
 .mistake-sticky-notes .sticky-notes-detail { margin-top: 0; }
 .sticky-question-diagnosis { display: -webkit-box; max-height: 40px; margin-top: 7px; overflow: hidden; color: inherit; opacity: .72; font-size: 11px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .sticky-assignment-questions > article { min-width: 0; }

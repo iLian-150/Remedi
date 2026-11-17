@@ -19,6 +19,7 @@ import type {
   ChatSessionCursor,
   ChatSessionPage,
   CorrectionResult,
+  QuestionRedoResult,
   EssayResult,
   EssaySummary,
   LatestQuestionSubmissionStatus,
@@ -598,6 +599,12 @@ export const useStudentStore = defineStore('student', {
     // 3.9 提交订正（针对某条 error）
     async submitCorrection(payload: { error_id: number; content: string }): Promise<CorrectionResult> {
       const { data } = await api.post<CorrectionResult>('/api/student/corrections', payload)
+      invalidateStudentMistakes(useAuthStore().user?.id)
+      invalidateStudentReport(useAuthStore().user?.id)
+      return data
+    },
+    async submitQuestionRedo(payload: { submission_id: number; content: string }): Promise<QuestionRedoResult> {
+      const { data } = await api.post<QuestionRedoResult>('/api/student/corrections/redo', payload)
       invalidateStudentMistakes(useAuthStore().user?.id)
       invalidateStudentReport(useAuthStore().user?.id)
       return data

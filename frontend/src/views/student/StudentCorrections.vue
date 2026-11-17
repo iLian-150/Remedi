@@ -11,7 +11,7 @@
       <div v-if="selectedDate" class="card filter-bar">
         <div class="filter-info">
           <span class="filter-title">正在看 {{ selectedDateLabel }} 的订正</span>
-          <span class="filter-progress-text tnum">共 {{ correctionTotals.total }} 条 · 待订正 {{ correctionTotals.pending }} 条</span>
+          <span class="filter-progress-text tnum">共 {{ correctionTotals.total }} 道题 · 待订正 {{ correctionTotals.pending }} 道题</span>
         </div>
         <button class="btn secondary small" @click="clearDateFilter">查看全部</button>
       </div>
@@ -57,7 +57,7 @@
               :key="assignment.assignment_id"
               type="button"
               class="correction-assignment-row"
-              :aria-label="`${assignment.assignment_title}，已订正 ${assignment.total_count - assignment.pending_count} / ${assignment.total_count} 条，进入错题列表`"
+              :aria-label="`${assignment.assignment_title}，已订正 ${assignment.total_count - assignment.pending_count} / ${assignment.total_count} 道题，进入错题列表`"
               @click="openAssignment(assignment)"
             >
               <span class="assignment-index-cell">
@@ -148,30 +148,65 @@
               <li v-for="st in origSteps" :key="st.seq" :class="origStepClass(st)">
                 <span class="orig-seq">{{ st.seq }}</span>
                 <span class="orig-text">{{ st.text }}</span>
-                <span v-if="st.status === 'error'" class="orig-flag">出错在这里</span>
+                <span v-if="errorsForStep(st.seq).length" class="orig-flag">错误步骤</span>
+                <div v-if="!redoMode && errorsForStep(st.seq).length" class="step-correction-editor">
+                  <div class="step-correction-types">
+                    <ErrorTypeBadge v-for="errorDetail in errorsForStep(st.seq)" :key="errorDetail.id" :type="errorDetail.error_type" />
+                  </div>
+                  <label class="form-row">
+                    <span class="sr-only">订正第 {{ st.seq }} 步</span>
+                    <input v-model="stepCorrectionDrafts[st.seq]" :aria-label="`订正第 ${st.seq} 步`" />
+                  </label>
+                  <button class="btn small" type="button" :disabled="submitting || !stepCorrectionDrafts[st.seq]?.trim() || stepIsCorrected(st.seq)" @click="submitStepCorrection(st.seq)">
+                    {{ stepIsCorrected(st.seq) ? '这一步已订正' : submittingStepSeq === st.seq ? '判定中…' : '提交这一步' }}
+                  </button>
+                </div>
+              </li>
+            </ol>
+            <ol v-else-if="fallbackWrongSteps.length" class="orig-steps">
+              <li v-for="detail in fallbackWrongSteps" :key="detail.seq" class="is-error">
+                <span class="orig-seq">{{ detail.seq }}</span>
+                <span class="orig-text">{{ detail.text }}</span>
+                <span class="orig-flag">错误步骤</span>
+                <div v-if="!redoMode" class="step-correction-editor">
+                  <div class="step-correction-types">
+                    <ErrorTypeBadge v-for="errorDetail in errorsForStep(detail.seq)" :key="errorDetail.id" :type="errorDetail.error_type" />
+                  </div>
+                  <label class="form-row">
+                    <span class="sr-only">订正第 {{ detail.seq }} 步</span>
+                    <input v-model="stepCorrectionDrafts[detail.seq]" :aria-label="`订正第 ${detail.seq} 步`" />
+                  </label>
+                  <button class="btn small" type="button" :disabled="submitting || !stepCorrectionDrafts[detail.seq]?.trim() || stepIsCorrected(detail.seq)" @click="submitStepCorrection(detail.seq)">
+                    {{ stepIsCorrected(detail.seq) ? '这一步已订正' : submittingStepSeq === detail.seq ? '判定中…' : '提交这一步' }}
+                  </button>
+                </div>
               </li>
             </ol>
             <p v-else-if="selectedError.step_text" class="step-text">第 {{ selectedError.step_seq ?? '?' }} 步：{{ selectedError.step_text }}（这一步出错了）</p>
             <p v-else class="detail">原来的作答步骤暂未记录。</p>
           </div>
           <p class="detail"><strong>解析：</strong>{{ sanitizeStudentCopy(selectedError.detail ?? '') }}</p>
-          <p style="margin-top: 10px">
-            <ErrorTypeBadge :type="selectedError.error_type" />
+          <p class="correction-error-types">
+            <ErrorTypeBadge v-for="errorType in selectedError.error_types" :key="errorType" :type="errorType" />
             <span class="badge badge-blue">{{ subjectName(selectedError.question_subject) }}</span>
             <span class="badge badge-blue">{{ selectedError.knowledge_point }}</span>
             <span v-if="selectedError.corrected" class="badge badge-green">已订正</span>
             <span v-else-if="selectedError.is_stubborn" class="badge badge-amber">需要加固</span>
           </p>
+          <div class="correction-mode-switch" role="group" aria-label="订正方式">
+            <button type="button" :class="{ active: !redoMode }" :aria-pressed="!redoMode" @click="startStepCorrection">修改错误步骤</button>
+            <button type="button" :class="{ active: redoMode }" :aria-pressed="redoMode" @click="startFullRedo">重新做整题</button>
+          </div>
         </div>
 
-        <div class="card">
-          <h3>我的订正</h3>
+        <div v-if="redoMode" class="card">
+          <h3>重新做整题</h3>
           <div class="form-row">
-            <label>写出这一步的正确内容</label>
-            <input v-model="content" type="text" :placeholder="correctionPlaceholder" />
+            <label for="question-redo-content">完整作答</label>
+            <textarea id="question-redo-content" v-model="redoContent" rows="7" placeholder="按步骤逐行写出完整解题过程" />
           </div>
-          <button class="btn" :disabled="submitting || !content.trim()" @click="submit">
-            {{ submitting ? '判定中…' : '提交订正' }}
+          <button class="btn" :disabled="submitting || !redoContent.trim()" @click="submitFullRedo">
+            {{ submitting ? '判定中…' : '提交整题重做' }}
           </button>
         </div>
 
@@ -219,6 +254,7 @@ import { useStudentStore } from '../../stores/student'
 import type {
   AwaitingVerificationKnowledgePoint,
   CorrectionResult,
+  QuestionRedoResult,
   StepDiagnosis,
   StudentCorrectionAssignmentSummary,
   StudentCorrectionWallItem,
@@ -256,10 +292,13 @@ const loadingMoreMistakes = ref(false)
 const correctionCursor = ref<{ created_at: string; id: number } | null>(null)
 const loadedMistakesById = reactive(new Map<number, StudentCorrectionWallItem>())
 let correctionRequestGeneration = 0
-const content = ref('')
-const result = ref<CorrectionResult | null>(null)
+const redoContent = ref('')
+const result = ref<CorrectionResult | QuestionRedoResult | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
+const submittingStepSeq = ref<number | null>(null)
+const redoMode = ref(false)
+const stepCorrectionDrafts = reactive<Record<number, string>>({})
 const error = ref('')
 
 const selectedAssignmentSummary = computed(() =>
@@ -407,7 +446,7 @@ async function loadCorrectionWall(reset = true, includeId?: number, assignmentId
     if (reset) {
       mistakes.value = page.items
       loadedMistakesById.clear()
-      for (const item of mistakes.value) loadedMistakesById.set(item.id, item)
+      for (const item of mistakes.value) indexMistake(item)
       // 首屏可能额外包含深链错题，按时间恢复顺序；后续页由联合游标保证顺序。
       mistakes.value.sort((a, b) =>
         b.created_at.localeCompare(a.created_at) || b.id - a.id,
@@ -417,7 +456,7 @@ async function loadCorrectionWall(reset = true, includeId?: number, assignmentId
         if (loadedMistakesById.has(item.id)) continue
         mistakes.value.push(item)
         const loadedItem = mistakes.value[mistakes.value.length - 1]
-        loadedMistakesById.set(loadedItem.id, loadedItem)
+        indexMistake(loadedItem)
       }
     }
     const summary = assignmentSummaries.value.find(item => item.assignment_id === requestedAssignmentId)
@@ -439,6 +478,13 @@ async function loadCorrectionWall(reset = true, includeId?: number, assignmentId
       loading.value = false
       loadingMoreMistakes.value = false
     }
+  }
+}
+
+function indexMistake(item: StudentCorrectionWallItem) {
+  loadedMistakesById.set(item.id, item)
+  for (const errorDetail of item.error_details) {
+    loadedMistakesById.set(errorDetail.id, item)
   }
 }
 
@@ -476,9 +522,16 @@ function syncSelection() {
 // 工作区消费当前页的轻量错题记录；完整作答步骤仍按提交 ID 按需读取，避免
 // 首屏请求携带错题本不需要的标准答案、相似错题和订正正文。
 const selectedError = computed(() => loadedMistakesById.get(Number(selectedErrorId.value)) ?? null)
-const correctionPlaceholder = computed(() => selectedError.value?.question_subject === 'math'
-  ? '例如：2x=7-3'
-  : '写出订正后的正确步骤、结论或答案')
+interface FallbackWrongStep { seq: number; text: string }
+const fallbackWrongSteps = computed(() => {
+  const byStep = new Map<number, FallbackWrongStep>()
+  for (const detail of selectedError.value?.error_details ?? []) {
+    if (detail.step_seq !== null && detail.step_text && !byStep.has(detail.step_seq)) {
+      byStep.set(detail.step_seq, { seq: detail.step_seq, text: detail.step_text })
+    }
+  }
+  return Array.from(byStep.values()).sort((left, right) => left.seq - right.seq)
+})
 function subjectName(subject: string) { return getSubjectLabel(subject, subject || '其他学科') }
 
 // v0.13.9：题目回顾要展示「我当时的作答」全文——错题条目里只有出错的那一步，
@@ -493,6 +546,11 @@ async function loadOrigSteps() {
   origSteps.value = []
   if (!err) return
   const submissionId = err.submission_id
+  for (const detail of err.error_details) {
+    if (detail.step_seq !== null && detail.step_text && stepCorrectionDrafts[detail.step_seq] === undefined) {
+      stepCorrectionDrafts[detail.step_seq] = detail.step_text
+    }
+  }
   let stepsRequest = origStepsBySubmission.get(submissionId)
   if (!stepsRequest) {
     stepsRequest = student.fetchSubmissionDetail(submissionId).then((detail) =>
@@ -504,6 +562,9 @@ async function loadOrigSteps() {
     const steps = await stepsRequest
     if (token !== origLoadToken) return
     origSteps.value = steps
+    for (const step of steps) {
+      if (errorsForStep(step.seq).length) stepCorrectionDrafts[step.seq] = step.text
+    }
   } catch {
     if (origStepsBySubmission.get(submissionId) === stepsRequest) {
       origStepsBySubmission.delete(submissionId)
@@ -515,9 +576,29 @@ watch(selectedError, () => { void loadOrigSteps() })
 
 function origStepClass(st: StepDiagnosis) {
   return {
-    'is-error': st.status === 'error',
+    'is-error': errorsForStep(st.seq).length > 0 || st.status === 'error',
     'is-dim': st.status === 'skipped' || st.status === 'unparseable'
   }
+}
+
+function errorsForStep(stepSeq: number) {
+  return selectedError.value?.error_details.filter((item) => item.step_seq === stepSeq) ?? []
+}
+
+function stepIsCorrected(stepSeq: number): boolean {
+  const errors = errorsForStep(stepSeq)
+  return errors.length > 0 && errors.every((item) => item.corrected)
+}
+
+function startFullRedo() {
+  redoMode.value = true
+  redoContent.value = ''
+  result.value = null
+}
+
+function startStepCorrection() {
+  redoMode.value = false
+  result.value = null
 }
 
 /** 原图链接（与错题本同口径：相对路径按 API 基址补全） */
@@ -570,35 +651,76 @@ async function onVerifyPassed() {
 }
 
 function onSelect() {
-  content.value = ''
+  redoContent.value = ''
+  redoMode.value = false
+  for (const key of Object.keys(stepCorrectionDrafts)) delete stepCorrectionDrafts[Number(key)]
   result.value = null
   justVerified.value = false
   verifyTarget.value = null
 }
 
-async function submit() {
-  if (!selectedErrorId.value) return
+function updateQuestionCorrectionStatus(item: StudentCorrectionWallItem, completedByRedo = false) {
+  if (completedByRedo) {
+    item.error_details.forEach((detail) => { detail.corrected = true })
+  }
+  const nowCorrected = completedByRedo || (
+    item.error_details.length > 0 && item.error_details.every((detail) => detail.corrected)
+  )
+  if (nowCorrected && !item.corrected) {
+    item.corrected = true
+    const summary = assignmentSummaries.value.find((entry) => entry.assignment_id === item.assignment_id)
+    if (summary) summary.pending_count = Math.max(0, summary.pending_count - 1)
+  }
+}
+
+async function submitStepCorrection(stepSeq: number) {
+  const item = selectedError.value
+  const target = errorsForStep(stepSeq).find((detail) => !detail.corrected)
+  const content = stepCorrectionDrafts[stepSeq]?.trim() ?? ''
+  if (!item || !target || !content) return
   submitting.value = true
+  submittingStepSeq.value = stepSeq
   error.value = ''
   result.value = null
   justVerified.value = false
   verifyTarget.value = null
   try {
     result.value = await student.submitCorrection({
-      error_id: Number(selectedErrorId.value),
-      content: content.value.trim()
+      error_id: target.id,
+      content,
     })
-    // 订正成功后同步当前页状态和跨页汇总计数；后续页面读取以服务端记录为准。
     if (result.value.is_correct === true) {
-      const fixedMistake = loadedMistakesById.get(Number(selectedErrorId.value))
-      if (fixedMistake && !fixedMistake.corrected) {
-        fixedMistake.corrected = true
-        const summary = assignmentSummaries.value.find(item => item.assignment_id === fixedMistake.assignment_id)
-        if (summary) summary.pending_count = Math.max(0, summary.pending_count - 1)
+      for (const detail of item.error_details) {
+        if (detail.step_seq === stepSeq) detail.corrected = true
       }
+      updateQuestionCorrectionStatus(item)
     }
   } catch (e) {
     error.value = '订正提交失败：' + errDetail(e)
+    console.error(e)
+  } finally {
+    submitting.value = false
+    submittingStepSeq.value = null
+  }
+}
+
+async function submitFullRedo() {
+  const item = selectedError.value
+  const content = redoContent.value.trim()
+  if (!item || !content) return
+  submitting.value = true
+  error.value = ''
+  result.value = null
+  justVerified.value = false
+  verifyTarget.value = null
+  try {
+    result.value = await student.submitQuestionRedo({
+      submission_id: item.submission_id,
+      content,
+    })
+    if (result.value.is_correct === true) updateQuestionCorrectionStatus(item, true)
+  } catch (e) {
+    error.value = '整题重做提交失败：' + errDetail(e)
     console.error(e)
   } finally {
     submitting.value = false
@@ -720,13 +842,21 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
 .review-stem { font-size: 16px; font-weight: 600; line-height: 1.65; }
 .review-img-link { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--primary); font-weight: 600; }
 .orig-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.orig-steps li { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px; border-radius: var(--radius-control); background: var(--bg); font-size: 14px; }
+.orig-steps li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; padding: 7px 10px; border-radius: var(--radius-control); background: var(--bg); font-size: 14px; }
 .orig-steps li.is-error { background: var(--red-bg); box-shadow: inset 0 0 0 1.5px #DC2626; }
 .orig-steps li.is-dim { opacity: .55; }
 .orig-seq { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; transform: translateY(2px); }
 .orig-steps li.is-error .orig-seq { background: #DC2626; border-color: transparent; color: #fff; }
 .orig-text { flex: 1; line-height: 1.55; word-break: break-word; }
 .orig-flag { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #DC2626; }
+.step-correction-editor { display: grid; flex: 1 1 100%; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 4px 0 0 29px; }
+.step-correction-editor .form-row { min-width: 0; margin: 0; }
+.step-correction-editor input { width: 100%; min-height: 36px; }
+.step-correction-types { display: flex; flex-wrap: wrap; gap: 5px; grid-column: 1 / -1; }
+.correction-error-types { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.correction-mode-switch { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.correction-mode-switch button { min-height: 36px; padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.correction-mode-switch button.active { border-color: var(--primary); background: var(--primary-50); color: var(--primary); }
 .note { margin-top: 8px; font-size: 14px; color: var(--text); }
 .note.hint { color: var(--text-3); font-size: 13px; }
 .verify-cta {

@@ -322,6 +322,22 @@ class Correction(Base):
     submitted_at = Column(DateTime, nullable=False, default=datetime.now)
 
 
+class QuestionRedo(Base):
+    """Student's complete redo attempt for one submitted question."""
+    __tablename__ = "question_redos"
+    __table_args__ = (
+        Index("ix_question_redos_student_submission_submitted", "student_id", "submission_id", "submitted_at", "id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    content = Column(Text, nullable=False, comment="整题重做的完整作答步骤")
+    is_correct = Column(Boolean, nullable=True, comment="true/false/NULL(无法判定)")
+    note = Column(Text, nullable=True)
+    submitted_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class Essay(Base):
     __tablename__ = "essays"
     __table_args__ = (
