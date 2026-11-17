@@ -220,6 +220,8 @@ export interface StudentMistake {
     } | null
     verification_status: VerificationStatus | null
     corrected?: boolean
+    category_studied?: boolean
+    question_studied?: boolean
   }>
   error_types: Array<ErrorType | string>
   error_categories: Array<{

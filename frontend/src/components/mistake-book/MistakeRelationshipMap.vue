@@ -84,6 +84,7 @@ type Point = { x: number; y: number }
 type ErrorPoint = { key: string; label: string; itemCount: number; firstItem: StudentMistake; firstUnstudiedItem: StudentMistake | null; studied: boolean }
 type Topic = { key: string; label: string; itemCount: number; errorPoints: ErrorPoint[]; studied: boolean }
 type SubjectGroup = { key: string; label: string; topics: Topic[]; recordCount: number }
+type Branch = SubjectGroup & { side: 'left' | 'right'; x: number; y: number; color: string }
 
 const props = defineProps<{ mode: 'mindmap' | 'network'; mistakes: StudentMistake[]; studentName?: string; split?: boolean; reversed?: boolean; fullscreen?: boolean }>()
 const emit = defineEmits<{ select: [mistake: StudentMistake] }>()
@@ -157,7 +158,7 @@ const MIND_MAP_SUBJECT_X = 560
 const MIND_MAP_COLUMN_GAP = 210
 const canvasHeight = computed(() => Math.max(620, Math.max(0, subjects.value.length - 1) * 114 + 220, (activeSubject.value?.topics.length || 0) * 68 + 220, (activeTopic.value?.errorPoints.length || 0) * 58 + 220))
 const root = computed<Point>(() => ({ x: MIND_MAP_ROOT_X, y: canvasHeight.value / 2 }))
-const branches = computed(() => subjects.value.map((subject, index) => {
+const branches = computed<Branch[]>(() => subjects.value.map((subject, index) => {
   return { ...subject, side: 'right' as const, x: MIND_MAP_SUBJECT_X, y: root.value.y + (index - (subjects.value.length - 1) / 2) * 114, color: colors[index % colors.length] }
 }))
 const topicPoints = computed<Point[]>(() => activeSubject.value?.topics.map((_, index) => ({ x: (activeBranch.value?.x || MIND_MAP_SUBJECT_X) + MIND_MAP_COLUMN_GAP, y: root.value.y + (index - ((activeSubject.value?.topics.length || 1) - 1) / 2) * 68 })) || [])
