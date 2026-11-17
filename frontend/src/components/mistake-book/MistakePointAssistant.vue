@@ -223,7 +223,9 @@ async function sendQuestion() {
 .mistake-reference-line p { margin: 0; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .mistake-reference-line.correction p { color: var(--green); }
 .mistake-reference-line.is-error, .mistake-reference-line.is-correct, .mistake-reference-line.is-revision { grid-template-columns: max-content minmax(0, 1fr); padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius-control); }
-.mistake-reference-line.is-error { border-color: var(--red-border); color: var(--red-strong); background: var(--red-bg); }
+/* 错因卡可能同时包含作答和分析，改为整行堆叠，避免多段内容挤进标签列。 */
+.mistake-reference-line.is-error { grid-template-columns: minmax(0, 1fr); border-color: var(--red-border); color: var(--red-strong); background: var(--red-bg); }
+.mistake-reference-line.is-error > * { min-width: 0; overflow-wrap: anywhere; }
 .mistake-reference-line.is-error p { color: var(--red-strong); }
 .mistake-reference-line.is-correct { border-color: var(--green-border); color: var(--green-strong); background: var(--green-bg); }
 .mistake-reference-line.is-correct p { color: var(--green-strong); }

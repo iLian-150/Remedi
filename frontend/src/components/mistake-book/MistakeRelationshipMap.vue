@@ -187,6 +187,9 @@ const pointPoints = computed(() => activeTopic.value?.errorPoints.map((_, index)
 const orbitRings = computed(() => [{ rx: 112, ry: 86 }, { rx: radii.value.subjectX, ry: radii.value.subjectY }, { rx: radii.value.topicX, ry: radii.value.topicY }, { rx: radii.value.errorX, ry: radii.value.errorY }])
 
 watch(() => props.mode, (mode) => { zoom.value = mode === 'network' ? 0.85 : 1.4; resetMap() })
+watch(() => props.split, (isSplit) => {
+  if (props.mode === 'mindmap' && isSplit && zoom.value > 1) zoom.value = 1
+}, { immediate: true })
 watch(() => props.mistakes.length, () => { if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) resetMap() })
 watch(() => props.mode === 'network' ? subjects.value[0]?.key ?? '' : '', (firstSubjectKey) => {
   if (firstSubjectKey && !selectedSubjectKey.value) selectedSubjectKey.value = firstSubjectKey
@@ -228,7 +231,7 @@ function stopPanning(event: PointerEvent) {
   if (viewport.value?.hasPointerCapture(pointerId)) viewport.value.releasePointerCapture(pointerId)
 }
 function zoomBy(amount: number) { zoom.value = Math.min(1.4, Math.max(props.mode === 'mindmap' ? 0.65 : 0.6, Math.round((zoom.value + amount) * 100) / 100)) }
-function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : 1.4; void nextTick(centerNetwork) }
+function resetMap() { selectedSubjectKey.value = null; selectedTopicKey.value = null; selectedPointKey.value = null; zoom.value = props.mode === 'network' ? 0.85 : props.split ? 1 : 1.4; void nextTick(centerNetwork) }
 function centerNetwork(behavior: ScrollBehavior = 'smooth') {
   if (!viewport.value) return
   // 尽量居中；画布过宽时保留根节点，便于向右滚动浏览。
