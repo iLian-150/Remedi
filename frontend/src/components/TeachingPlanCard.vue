@@ -1,26 +1,27 @@
 <template>
   <section class="card teaching-plan" aria-labelledby="teaching-plan-title">
-    <h2 id="teaching-plan-title"><AppIcon name="lightbulb" :size="18" /> 讲评重点</h2>
+    <h3 id="teaching-plan-title"><AppIcon name="lightbulb" :size="18" /> 明天讲什么</h3>
     <p v-if="loading" class="loading" role="status">正在读取讲评重点…</p>
     <div v-else-if="loadError" class="plan-load-error">
       <span class="error-msg" role="alert">{{ loadError }}</span>
-      <button type="button" class="btn secondary small" @click="load">重试</button>
+      <button type="button" class="btn secondary" @click="load">重试</button>
     </div>
     <template v-else>
       <ol v-if="plan.topics.length" class="topic-list">
         <li v-for="topic in plan.topics" :key="keyOf(topic)" class="topic-item">
           <div class="topic-summary">
             <div class="topic-main">
-              <strong>{{ topic.knowledge_point }}</strong>
-              <p class="topic-metrics tnum">
-                {{ subjectLabel(topic.subject) }} · {{ topic.student_count }} 人出错 · 错误率 {{ Math.round(topic.error_rate * 100) }}%
-              </p>
+              <div class="topic-title">
+                <span class="badge badge-gray">{{ subjectLabel(topic.subject) }}</span>
+                <strong>{{ topic.knowledge_point }}</strong>
+              </div>
+              <p class="topic-metrics tnum">错误率 {{ Math.round(topic.error_rate * 100) }}% · {{ topic.student_count }} 名学生出错</p>
             </div>
             <div class="topic-actions">
-              <button type="button" class="btn secondary small" :disabled="stateOf(topic).generating" @click="generate(topic)">
+              <button type="button" class="btn" :disabled="stateOf(topic).generating" @click="generate(topic)">
                 {{ stateOf(topic).generating ? '生成中…' : stateOf(topic).exercise ? '重新生成变式练习' : '生成变式练习' }}
               </button>
-              <button type="button" class="btn ghost small" :disabled="marking !== ''" @click="markTaught(topic)">
+              <button type="button" class="btn secondary" :disabled="marking !== ''" @click="markTaught(topic)">
                 {{ marking === keyOf(topic) ? '记录中…' : topic.taught_at ? '再次标记已讲' : '标记已讲' }}
               </button>
             </div>
@@ -39,14 +40,15 @@
         </li>
       </ol>
       <p v-else class="empty">暂无涉及多名学生的共性薄弱点。</p>
-      <div role="status" aria-live="polite">
-        <div v-if="plan.follow_up" class="follow-up">
-          <strong>讲后跟进</strong>
-          <p>{{ subjectLabel(plan.follow_up.subject) }} · {{ plan.follow_up.knowledge_point }}</p>
-          <p v-if="plan.follow_up.student_count">本周讲解后仍有 <b class="tnum">{{ plan.follow_up.student_count }}</b> 人出错</p>
-          <p v-else>本周讲解后暂无新的出错记录</p>
-        </div>
-      </div>
+      <p class="follow-up" role="status" aria-live="polite">
+        <strong>回马枪：</strong>
+        <template v-if="plan.follow_up">
+          上次讲的{{ subjectLabel(plan.follow_up.subject) }}「{{ plan.follow_up.knowledge_point }}」，
+          <template v-if="plan.follow_up.student_count">本周仍有 <b class="tnum">{{ plan.follow_up.student_count }}</b> 名学生出错。</template>
+          <template v-else>本周暂无新的出错记录。</template>
+        </template>
+        <template v-else>暂无已讲记录。</template>
+      </p>
     </template>
   </section>
 </template>
@@ -117,35 +119,23 @@ onBeforeUnmount(() => controller.abort())
 </script>
 
 <style scoped>
-.teaching-plan { margin-bottom: 0; }
-.teaching-plan h2 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 16px; font-weight: 700; }
-.teaching-plan h2 svg { color: var(--primary); }
-.teaching-plan .empty, .teaching-plan .loading { padding-block: 16px; }
+.teaching-plan { margin-bottom: 16px; }
 .topic-list { list-style: none; padding: 0; margin: 0; }
-.topic-item { padding: 13px 0; }
-.topic-item + .topic-item { border-top: 1px solid var(--border); }
-.topic-summary, .topic-actions, .plan-load-error { display: flex; align-items: center; gap: 8px 10px; }
+.topic-item { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.topic-summary, .topic-title, .topic-actions, .plan-load-error { display: flex; align-items: center; gap: 10px; }
 .topic-summary { justify-content: space-between; flex-wrap: wrap; }
-.topic-main { flex: 1 1 min(100%, 210px); min-width: 0; overflow-wrap: anywhere; }
-.topic-metrics { font-size: 13px; color: var(--text-2); margin: 4px 0 0; }
+.topic-main { flex: 1; min-width: min(100%, 240px); }
+.topic-title { align-items: baseline; overflow-wrap: anywhere; }
+.topic-title .badge { flex-shrink: 0; }
+.topic-metrics { font-size: 13px; color: var(--text-2); margin: 5px 0 0; }
 .topic-actions { flex-wrap: wrap; }
-.follow-up {
-  display: grid;
-  gap: 3px;
-  margin-top: 8px;
-  padding: 12px 14px;
-  border-radius: var(--radius-control);
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
+.topic-actions .btn { font-size: 13px; padding: 7px 12px; }
+.follow-up { color: var(--text-2); font-size: 13px; margin: 14px 0 0; }
 .follow-up strong, .follow-up b { color: var(--text); }
 .topic-exercise { margin-top: 14px; padding: 14px; background: var(--bg); border-radius: var(--radius-control); }
 .exercise-prompt, .exercise-steps li, .exercise-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
 .topic-exercise summary { cursor: pointer; color: var(--primary); font-size: 13px; margin-top: 12px; }
 .exercise-steps { padding-left: 22px; margin-top: 10px; }
 .exercise-answer { margin-top: 10px; }
-.plan-load-error { flex-wrap: wrap; }
-.plan-load-error .error-msg { margin: 0; }
+.plan-load-error { justify-content: space-between; }
 </style>
