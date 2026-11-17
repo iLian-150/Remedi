@@ -341,6 +341,7 @@ WHERE s.student_id = S
 | v0.13.14 | 2026-10-12 | 新增 `submission_images`，关联学生作答原图与提交记录，供教师待审核作业卡展示。 |
 | v0.13.315 | 2026-10-22 | 新增 `subject_knowledge_passages`，保存学科教学资料父子片段和 PDF 页码；向量存入可重建的 Milvus 索引，不改变已有资料表。 |
 | v0.13.379 | 2026-10-30 | 补充当前 ORM 表清单；题目知识点允许空字符串，表示尚未识别或归类。 |
+| v0.13.386 | 2026-11-17 | 新增 `assignment_teacher_comments`，按作业和学生唯一保存教师评语。 |
 
 ## 8. 学科 RAG 片段（v0.13.315）
 
@@ -360,4 +361,4 @@ Milvus 集合保存片段 `id`、`document_id`、`subject`、`embedding_model` �
 
 以下名称来自当前 `backend/app/models.py`。第 2 节的逐字段定义是早期设计基线；对于本文未详述的表和字段，请以 ORM 模型和当前 API 契约为准。
 
-`users`、`assignments`、`classrooms`、`teacher_subjects`、`classroom_teacher_subjects`、`classroom_members`、`assignment_classes`、`subject_knowledge_chunks`、`subject_knowledge_passages`、`knowledge_import_jobs`、`knowledge_import_dismissals`、`student_learning_memories`、`questions`、`submissions`、`steps`、`errors`、`corrections`、`essays`、`chat_messages`、`chat_sessions`、`chat_session_messages`、`chat_session_message_images`、`chat_session_message_mistake_links`、`notifications`、`verifications`、`student_mistake_category_reviews`、`student_mistake_archives`、`student_mistake_events`、`student_question_captures`、`submission_reviews`、`workbooks`、`assignment_ext`、`assignment_scoring`、`question_weights`、`submission_scores`、`submission_images`、`assignment_settings`、`question_groups`、`question_group_members`。
+`users`、`assignments`、`assignment_teacher_comments`、`classrooms`、`teacher_subjects`、`classroom_teacher_subjects`、`classroom_members`、`assignment_classes`、`subject_knowledge_chunks`、`subject_knowledge_passages`、`knowledge_import_jobs`、`knowledge_import_dismissals`、`student_learning_memories`、`questions`、`submissions`、`steps`、`errors`、`corrections`、`essays`、`chat_messages`、`chat_sessions`、`chat_session_messages`、`chat_session_message_images`、`chat_session_message_mistake_links`、`notifications`、`verifications`、`student_mistake_category_reviews`、`student_mistake_archives`、`student_mistake_events`、`student_question_captures`、`submission_reviews`、`workbooks`、`assignment_ext`、`assignment_scoring`、`question_weights`、`submission_scores`、`submission_images`、`assignment_settings`、`question_groups`、`question_group_members`。

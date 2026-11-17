@@ -76,6 +76,8 @@ class AssignmentDetail(BaseModel):
     workbook_title: Optional[str] = None
     page_range: Optional[str] = None
     deadline: Optional[datetime] = None
+    # 整份作业已发布的教师评语，仅当前学生可见。
+    teacher_comment: Optional[str] = None
     # v0.13.1 新增（只加字段）：允许修改开关 + 大题列表
     allow_revision: bool = False
     groups: List[QuestionGroupOut] = []

@@ -57,6 +57,27 @@ class Assignment(Base):
     questions = relationship("Question", back_populates="assignment")
 
 
+class AssignmentTeacherComment(Base):
+    """整份作业的教师评语；每位学生每份作业最多一条。"""
+    __tablename__ = "assignment_teacher_comments"
+    __table_args__ = (
+        Index(
+            "ix_assignment_teacher_comments_assignment_student",
+            "assignment_id", "student_id", unique=True,
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    content = Column(Text, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+    published_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
 class Classroom(Base):
     """班级名册；同名学生由唯一学号区分，班级本身不承担邀请/注册流程。"""
     __tablename__ = "classrooms"

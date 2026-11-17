@@ -119,6 +119,7 @@ export interface Question {
 
 export interface AssignmentDetail extends Assignment {
   questions: Question[]
+  teacher_comment?: string | null
   // v0.13.1：允许修改开关 + 大题列表（共享题干）
   allow_revision?: boolean
   groups?: { id: number; stem: string; order_num: number; diagram?: FigureSpec | null; diagram_status?: string | null }[]
@@ -622,6 +623,13 @@ export interface TeacherAIGradingStudentPage {
   limit: number
   offset: number
   items: TeacherAIGradingStudentItem[]
+}
+
+export interface TeacherAssignmentComment {
+  assignment_id: number
+  student_id: number
+  content: string | null
+  published_at: string | null
 }
 
 // 评分系统：审核详情里的评分信息（满分/AI 分/最终分/步骤对了几步）

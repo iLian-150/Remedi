@@ -23,6 +23,7 @@ from ..database import get_db
 from ..services.provider_errors import log_model_failure
 from ..models import (
     Assignment,
+    AssignmentTeacherComment,
     AssignmentExt,
     AssignmentScoring,
     AssignmentSetting,
@@ -103,6 +104,8 @@ from ..api_schemas.teacher import (
     TeacherAIGradingPage,
     TeacherAIGradingAssignmentPage,
     TeacherAIGradingStudentPage,
+    TeacherAssignmentCommentIn,
+    TeacherAssignmentCommentOut,
     TeacherAIRegradeIn,
     TeacherAIRegradeOut,
     TeacherGradingPreferenceIn,
@@ -1280,6 +1283,101 @@ def teacher_ai_grading_assignment_students(
             }
             for row in rows
         ],
+    }
+
+
+def _require_teacher_ai_grading_student(
+    db: Session, teacher: User, assignment_id: int, student_id: int,
+) -> None:
+    _require_teacher_assignment(db, teacher, assignment_id)
+    has_graded_submission = db.query(Submission.id).join(
+        Question, Question.id == Submission.question_id,
+    ).filter(
+        Question.assignment_id == assignment_id,
+        Submission.student_id == student_id,
+        Submission.status == "graded",
+        Submission.id.in_(_teacher_submission_ids(db, teacher)),
+    ).first()
+    if has_graded_submission is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "学生批改记录不存在或你没有查看权限。")
+
+
+@router.get(
+    "/ai-gradings/assignments/{assignment_id}/students/{student_id}/comment",
+    response_model=TeacherAssignmentCommentOut,
+    summary="读取整份作业的教师评语",
+)
+def get_teacher_assignment_comment(
+    assignment_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    _require_teacher_ai_grading_student(db, current, assignment_id, student_id)
+    comment = db.query(AssignmentTeacherComment).filter_by(
+        assignment_id=assignment_id, student_id=student_id,
+    ).first()
+    return {
+        "assignment_id": assignment_id,
+        "student_id": student_id,
+        "content": comment.content if comment else None,
+        "published_at": comment.published_at if comment else None,
+    }
+
+
+@router.put(
+    "/ai-gradings/assignments/{assignment_id}/students/{student_id}/comment",
+    response_model=TeacherAssignmentCommentOut,
+    summary="发布或编辑整份作业的教师评语",
+)
+def save_teacher_assignment_comment(
+    assignment_id: int,
+    student_id: int,
+    payload: TeacherAssignmentCommentIn,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_teacher),
+):
+    _require_teacher_ai_grading_student(db, current, assignment_id, student_id)
+    comment = db.query(AssignmentTeacherComment).filter_by(
+        assignment_id=assignment_id, student_id=student_id,
+    ).first()
+    now = datetime.now()
+    if comment is None:
+        comment = AssignmentTeacherComment(
+            assignment_id=assignment_id,
+            student_id=student_id,
+            content=payload.content,
+            created_by=current.id,
+            updated_by=current.id,
+            created_at=now,
+            updated_at=now,
+            published_at=now,
+        )
+        db.add(comment)
+    else:
+        comment.content = payload.content
+        comment.updated_by = current.id
+        comment.updated_at = now
+    try:
+        db.commit()
+    except IntegrityError:
+        # 两个教师请求同时首次发布时，由唯一索引保证一条记录；败者改为更新已创建的行。
+        db.rollback()
+        comment = db.query(AssignmentTeacherComment).filter_by(
+            assignment_id=assignment_id, student_id=student_id,
+        ).first()
+        if comment is None:
+            raise
+        comment.content = payload.content
+        comment.updated_by = current.id
+        comment.updated_at = now
+        db.commit()
+    db.refresh(comment)
+    return {
+        "assignment_id": comment.assignment_id,
+        "student_id": comment.student_id,
+        "content": comment.content,
+        "published_at": comment.published_at,
     }
 
 

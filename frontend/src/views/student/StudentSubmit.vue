@@ -75,6 +75,14 @@
         </p>
       </div>
 
+      <section v-if="currentDetail?.teacher_comment" class="card teacher-comment-card" aria-labelledby="teacher-comment-title">
+        <div class="teacher-comment-heading">
+          <AppIcon name="book" :size="18" />
+          <h2 id="teacher-comment-title">教师评语</h2>
+        </div>
+        <p>{{ currentDetail.teacher_comment }}</p>
+      </section>
+
       <!-- 线上做题板（v0.13.1）：一次只看一道题——题干放大、不再堆知识点等小字；
            数学符号栏插入的符号都是后端解析器认得的（× ÷ ² ³ √ π 等）；
            底部左「答题卡」弹层跳题、右下角上一题/下一题翻页 -->
@@ -1241,6 +1249,10 @@ onMounted(async () => {
 .assign-info { background: var(--primary-50); border-color: var(--blue-bg); box-shadow: none; }
 .assign-info .kp { color: var(--text-2); font-size: 13px; margin-top: 4px; }
 .assign-info .deadline-line { color: #B45309; font-weight: 600; }
+.teacher-comment-card { border-color: var(--blue-bg); background: var(--card); }
+.teacher-comment-heading { display: flex; align-items: center; gap: 8px; color: var(--primary); }
+.teacher-comment-heading h2 { font-size: 15px; font-weight: 700; }
+.teacher-comment-card > p { margin-top: 9px; color: var(--text); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .student-answer {
   display: grid;
   gap: 8px;

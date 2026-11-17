@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .base import QuestionOut, UserOut
 from .diagram import FigureSpec
@@ -371,6 +371,23 @@ class TeacherAIGradingStudentPage(BaseModel):
     offset: int
     items: List[TeacherAIGradingStudentItem]
 
+class TeacherAssignmentCommentIn(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("content")
+    @classmethod
+    def _clean_content(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("评语不能为空")
+        return cleaned
+
+class TeacherAssignmentCommentOut(BaseModel):
+    assignment_id: int
+    student_id: int
+    content: Optional[str] = None
+    published_at: Optional[datetime] = None
+
 class TeacherGradingPreferenceIn(BaseModel):
     low_score_threshold: int = Field(ge=0, le=100, strict=True)
 
@@ -431,6 +448,13 @@ __all__ = [
     'ReviewDetailOut',
     'TeacherAIGradingItem',
     'TeacherAIGradingPage',
+    'TeacherAIGradingAssignmentItem',
+    'TeacherAIGradingAssignmentPage',
+    'TeacherAIGradingStudentInfo',
+    'TeacherAIGradingStudentItem',
+    'TeacherAIGradingStudentPage',
+    'TeacherAssignmentCommentIn',
+    'TeacherAssignmentCommentOut',
     'TeacherAIRegradeIn',
     'TeacherAIRegradeOut',
     'ReviewApproveIn',

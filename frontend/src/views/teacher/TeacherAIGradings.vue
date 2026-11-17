@@ -47,8 +47,22 @@
             <strong>{{ selectedStudent.student.name }}</strong>
           </template>
         </div>
+        <button
+          v-if="selectedStudent"
+          type="button"
+          class="btn small secondary comment-action"
+          :disabled="commentLoading || !!commentLoadError"
+          @click="openCommentEditor"
+        >
+          {{ commentLoading ? '读取评语…' : hasPublishedComment ? '编辑评语' : '写评语' }}
+        </button>
         <span class="grading-stage-count tnum">{{ stageCountLabel }}</span>
       </header>
+
+      <div v-if="selectedStudent && commentLoadError" class="comment-load-error" role="status">
+        评语读取失败：{{ commentLoadError }}
+        <button type="button" @click="loadSelectedStudentComment">重新加载</button>
+      </div>
 
       <div v-if="loading" class="loading">加载中…</div>
       <div v-else-if="stage === 'assignments' && !assignments.length" class="empty">暂无 AI 批改作业。</div>
@@ -154,6 +168,43 @@
       </div>
     </section>
 
+    <div v-if="commentModalOpen" class="detail-mask" @click.self="closeCommentEditor">
+      <section class="comment-editor-modal" role="dialog" aria-modal="true" aria-labelledby="comment-title">
+        <header class="detail-header">
+          <div>
+            <h3 id="comment-title">{{ hasPublishedComment ? '编辑教师评语' : '写教师评语' }}</h3>
+            <p>{{ selectedAssignment?.assignment_title }} · {{ selectedStudent?.student.name }}</p>
+          </div>
+          <button class="detail-close" aria-label="关闭评语编辑" @click="closeCommentEditor">×</button>
+        </header>
+        <div class="comment-editor-body">
+          <label for="assignment-teacher-comment">结合整份作答写下鼓励和下一步建议</label>
+          <p v-if="commentSaveError" class="comment-save-error" role="alert">{{ commentSaveError }}</p>
+          <textarea
+            id="assignment-teacher-comment"
+            v-model="commentDraft"
+            maxlength="1000"
+            rows="8"
+            placeholder="例如：这次计算步骤写得很完整，接下来可以多练习……"
+          ></textarea>
+          <footer class="comment-editor-footer">
+            <span>{{ commentDraft.length }} / 1000</span>
+            <div>
+              <button type="button" class="btn secondary" :disabled="savingComment" @click="closeCommentEditor">取消</button>
+              <button
+                type="button"
+                class="btn"
+                :disabled="savingComment || !commentDraft.trim()"
+                @click="saveComment"
+              >
+                {{ savingComment ? (hasPublishedComment ? '保存中…' : '发布中…') : hasPublishedComment ? '保存修改' : '发布评语' }}
+              </button>
+            </div>
+          </footer>
+        </div>
+      </section>
+    </div>
+
     <div v-if="modalOpen" class="detail-mask" @click.self="closeDetail">
       <section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title">
         <header class="detail-header">
@@ -252,6 +303,7 @@ import type {
   TeacherAIGradingAssignmentItem,
   TeacherAIGradingItem,
   TeacherAIGradingStudentItem,
+  TeacherAssignmentComment,
 } from '../../api/types'
 import { ERROR_TYPES, STEP_STATUS_TEXT } from '../../api/types'
 import ErrorTypeBadge from '../../components/ErrorTypeBadge.vue'
@@ -290,8 +342,16 @@ const savingThreshold = ref(false)
 const correctingId = ref<number | null>(null)
 const correctionForms = reactive<Record<number, { type: string; note: string }>>({})
 const detailListItem = ref<TeacherAIGradingItem | null>(null)
+const currentComment = ref<TeacherAssignmentComment | null>(null)
+const commentDraft = ref('')
+const commentLoading = ref(false)
+const commentLoadError = ref('')
+const commentModalOpen = ref(false)
+const commentSaveError = ref('')
+const savingComment = ref(false)
 let listRequest = 0
 let detailRequest = 0
+let commentRequest = 0
 
 const stage = computed(() => selectedStudent.value ? 'questions' : selectedAssignment.value ? 'students' : 'assignments')
 const stageTotal = computed(() => stage.value === 'assignments' ? assignmentTotal.value : stage.value === 'students' ? studentTotal.value : questionTotal.value)
@@ -308,6 +368,7 @@ const selectedItem = computed(() =>
   ?? (detailListItem.value?.submission_id === selectedId.value ? detailListItem.value : null),
 )
 const answerSteps = computed(() => detail.value?.diagnosis.steps.filter((step) => step.status !== 'stem') ?? [])
+const hasPublishedComment = computed(() => !!currentComment.value?.content && !!currentComment.value.published_at)
 
 function fmtScore(score: number | null): string {
   return score === null ? '—' : String(Math.round(score * 10) / 10)
@@ -415,6 +476,10 @@ async function refreshCurrentStage(): Promise<boolean> {
 }
 
 function search() {
+  commentRequest += 1
+  currentComment.value = null
+  commentLoadError.value = ''
+  commentModalOpen.value = false
   selectedAssignment.value = null
   selectedStudent.value = null
   students.value = []
@@ -425,6 +490,10 @@ function search() {
 }
 
 function selectAssignment(assignment: TeacherAIGradingAssignmentItem) {
+  commentRequest += 1
+  currentComment.value = null
+  commentLoadError.value = ''
+  commentModalOpen.value = false
   selectedAssignment.value = assignment
   selectedStudent.value = null
   students.value = []
@@ -436,25 +505,87 @@ function selectAssignment(assignment: TeacherAIGradingAssignmentItem) {
 
 function selectStudent(entry: TeacherAIGradingStudentItem) {
   selectedStudent.value = entry
+  currentComment.value = null
+  commentLoadError.value = ''
   items.value = []
   questionOffset.value = 0
   void load(0)
+  void loadSelectedStudentComment()
+}
+
+async function loadSelectedStudentComment() {
+  const assignmentId = selectedAssignment.value?.assignment_id
+  const studentId = selectedStudent.value?.student.id
+  if (!assignmentId || !studentId) return
+  const request = ++commentRequest
+  commentLoading.value = true
+  commentLoadError.value = ''
+  try {
+    const comment = await teacher.fetchAIGradingComment(assignmentId, studentId)
+    if (request !== commentRequest || selectedAssignment.value?.assignment_id !== assignmentId
+      || selectedStudent.value?.student.id !== studentId) return
+    currentComment.value = comment
+  } catch (cause) {
+    if (request !== commentRequest) return
+    commentLoadError.value = errDetail(cause)
+  } finally {
+    if (request === commentRequest) commentLoading.value = false
+  }
+}
+
+function openCommentEditor() {
+  if (commentLoading.value || commentLoadError.value || !selectedStudent.value) return
+  commentDraft.value = currentComment.value?.content ?? ''
+  commentSaveError.value = ''
+  commentModalOpen.value = true
+}
+
+function closeCommentEditor() {
+  if (savingComment.value) return
+  commentModalOpen.value = false
+}
+
+async function saveComment() {
+  const assignmentId = selectedAssignment.value?.assignment_id
+  const studentId = selectedStudent.value?.student.id
+  const content = commentDraft.value.trim()
+  if (!assignmentId || !studentId || !content || savingComment.value) return
+  savingComment.value = true
+  commentSaveError.value = ''
+  error.value = ''
+  try {
+    currentComment.value = await teacher.saveAIGradingComment(assignmentId, studentId, content)
+    commentModalOpen.value = false
+    success.value = '教师评语已发布。'
+  } catch (cause) {
+    commentSaveError.value = `评语发布失败：${errDetail(cause)}`
+  } finally {
+    savingComment.value = false
+  }
 }
 
 function backToAssignments() {
   if (stage.value === 'assignments') return
   listRequest += 1
+  commentRequest += 1
   loading.value = false
   selectedAssignment.value = null
   selectedStudent.value = null
+  currentComment.value = null
+  commentLoadError.value = ''
+  commentModalOpen.value = false
   students.value = []
   items.value = []
 }
 
 function backToStudents() {
   listRequest += 1
+  commentRequest += 1
   loading.value = false
   selectedStudent.value = null
+  currentComment.value = null
+  commentLoadError.value = ''
+  commentModalOpen.value = false
   items.value = []
 }
 
@@ -527,7 +658,11 @@ function closeDetail() {
   detail.value = null
   selectedId.value = null
 }
-function onKeydown(event: KeyboardEvent) { if (event.key === 'Escape' && modalOpen.value) closeDetail() }
+function onKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  if (commentModalOpen.value) closeCommentEditor()
+  else if (modalOpen.value) closeDetail()
+}
 
 async function saveCorrection(errorId: number) {
   const form = correctionForms[errorId]
@@ -606,11 +741,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .threshold-input-wrap span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--text-2); pointer-events: none; }
 .threshold-controls .btn { min-height: 42px; white-space: nowrap; }
 .grading-list { padding: 0; overflow: hidden; }
-.grading-stage-head { display: flex; min-width: 0; min-height: 62px; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.grading-stage-head { display: flex; min-width: 0; min-height: 62px; align-items: center; justify-content: flex-start; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .grading-breadcrumb { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--text-2); font-size: 14px; }
 .grading-breadcrumb button { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .grading-breadcrumb strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 15px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
-.grading-stage-count { flex: 0 0 auto; color: var(--text-3); font-size: 12px; }
+.comment-action { flex: 0 0 auto; }
+.grading-stage-count { flex: 0 0 auto; margin-left: auto; color: var(--text-3); font-size: 12px; }
+.comment-load-error { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 20px; color: var(--red); font-size: 12px; }
+.comment-load-error button { padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-weight: 600; cursor: pointer; }
 .grading-entry-grid { display: grid; grid-template-columns: minmax(0, 1fr); padding: 0; }
 .grading-entry {
   display: grid; min-width: 0; min-height: 68px; grid-template-columns: 42px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px;
@@ -655,6 +793,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .pagination { display: flex; justify-content: center; align-items: center; gap: 14px; padding: 16px; color: var(--text-2); font-size: 13px; }
 .detail-mask { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 18px; background: rgba(15, 23, 42, .48); }
 .detail-modal { display: flex; flex-direction: column; width: min(1180px, 100%); max-height: min(92vh, 1000px); overflow: hidden; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-panel); box-shadow: var(--shadow-lg); }
+.comment-editor-modal { display: flex; flex-direction: column; width: min(620px, 100%); max-height: min(92vh, 760px); overflow: hidden; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-panel); box-shadow: var(--shadow-lg); }
+.comment-editor-body { display: grid; gap: 12px; padding: 20px; }
+.comment-editor-body label { color: var(--text-2); font-size: 13px; font-weight: 600; }
+.comment-save-error { color: var(--red); font-size: 13px; }
+.comment-editor-body textarea { width: 100%; min-height: 180px; resize: vertical; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--text); font: inherit; line-height: 1.7; }
+.comment-editor-body textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.comment-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-3); font-size: 12px; }
+.comment-editor-footer > div { display: flex; align-items: center; gap: 8px; }
 .detail-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 17px 22px; background: var(--card); border-bottom: 1px solid var(--border); }
 .detail-header h3 { font-size: 18px; }
 .detail-header p { margin-top: 2px; color: var(--text-2); font-size: 13px; }

@@ -23,6 +23,7 @@ from ..services import assignment_grading as assignment_grading_svc
 from ..services.provider_errors import log_model_failure
 from ..models import (
     Assignment,
+    AssignmentTeacherComment,
     AssignmentClass,
     AssignmentExt,
     AssignmentGradingAnswer,
@@ -716,11 +717,15 @@ def assignment_detail(assignment_id: int, db: Session = Depends(get_db),
         .filter(QuestionGroup.assignment_id == a.id)
         .order_by(QuestionGroup.order_num, QuestionGroup.id).all()
     )
+    teacher_comment = db.query(AssignmentTeacherComment.content).filter_by(
+        assignment_id=a.id, student_id=current.id,
+    ).scalar()
     diagram_statuses = dict(db.query(DiagramJob.group_id, DiagramJob.status).filter(
         DiagramJob.group_id.in_([row[0] for row in groups])
     ).all())
     return AssignmentDetail(
         id=a.id, title=a.title, description=a.description,
+        teacher_comment=teacher_comment,
         questions=[
             QuestionOut(
                 id=q.id, subject=q.subject, knowledge_point=q.knowledge_point,
