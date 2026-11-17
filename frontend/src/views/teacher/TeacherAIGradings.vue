@@ -65,7 +65,7 @@
       </div>
 
       <div v-if="loading" class="loading">加载中…</div>
-      <div v-else-if="stage === 'assignments' && !assignments.length" class="empty">暂无 AI 批改作业。</div>
+      <div v-else-if="stage === 'assignments' && !assignments.length" class="empty">暂无得分低于 {{ threshold }}% 的作业。</div>
       <div v-else-if="stage === 'assignments'" class="grading-entry-grid">
         <button
           v-for="assignment in assignments"
@@ -99,7 +99,7 @@
         </button>
       </div>
 
-      <div v-else-if="stage === 'students' && !students.length" class="empty">这份作业暂无 AI 批改记录。</div>
+      <div v-else-if="stage === 'students' && !students.length" class="empty">这份作业暂无得分低于 {{ threshold }}% 的学生。</div>
       <div v-else-if="stage === 'students'" class="grading-entry-grid student-entry-grid">
         <button
           v-for="entry in students"
@@ -469,12 +469,6 @@ async function load(newOffset = questionOffset.value) {
   }
 }
 
-async function refreshCurrentStage(): Promise<boolean> {
-  if (stage.value === 'assignments') return loadAssignments(assignmentOffset.value)
-  if (stage.value === 'students') return loadStudents(studentOffset.value)
-  return load(questionOffset.value)
-}
-
 function search() {
   commentRequest += 1
   currentComment.value = null
@@ -608,8 +602,13 @@ async function saveThreshold() {
   success.value = ''
   try {
     await teacher.updateGradingThreshold(value)
+    threshold.value = value
     thresholdInput.value = String(value)
-    if (await refreshCurrentStage()) success.value = '低分标记线已保存。'
+    backToAssignments()
+    assignmentOffset.value = 0
+    studentOffset.value = 0
+    questionOffset.value = 0
+    if (await loadAssignments(0)) success.value = '低分标记线已保存。'
     else error.value = '低分标记线已保存，列表刷新失败，请重新查询。'
   } catch (cause) {
     error.value = `低分标记线保存失败：${errDetail(cause)}`

@@ -1138,6 +1138,34 @@ def _ai_grading_keyword_filter(keyword: Optional[str]):
     )
 
 
+def _teacher_ai_grading_score_contexts(
+    db: Session, teacher: User, assignment_id: Optional[int] = None,
+) -> dict:
+    """按学生与作业汇总当前教师可查看的已批改作业成绩。"""
+    samples_query = (
+        db.query(func.min(Submission.id))
+        .join(Question, Question.id == Submission.question_id)
+        .filter(
+            Submission.status == "graded",
+            Submission.id.in_(_teacher_submission_ids(db, teacher)),
+        )
+    )
+    if assignment_id is not None:
+        samples_query = samples_query.filter(Question.assignment_id == assignment_id)
+    sample_ids = [row[0] for row in samples_query.group_by(
+        Submission.student_id, Question.assignment_id,
+    ).all() if row[0] is not None]
+
+    samples = []
+    for start in range(0, len(sample_ids), 400):
+        samples.extend(db.query(Submission).options(
+            joinedload(Submission.question),
+        ).filter(
+            Submission.id.in_(sample_ids[start:start + 400]),
+        ).all())
+    return review_svc.assignment_score_contexts(db, samples)
+
+
 @router.get(
     "/ai-gradings/assignments",
     response_model=TeacherAIGradingAssignmentPage,
@@ -1150,6 +1178,22 @@ def teacher_ai_grading_assignments(
     db: Session = Depends(get_db),
     current: User = Depends(require_teacher),
 ):
+    preference = db.get(TeacherGradingPreference, current.id)
+    low_score_threshold = preference.low_score_threshold if preference else 60
+    score_contexts = _teacher_ai_grading_score_contexts(db, current)
+    low_score_assignment_ids = {
+        assignment_id
+        for (_student_id, assignment_id), context in score_contexts.items()
+        if context["complete"] and context["percent"] < low_score_threshold
+    }
+    if not low_score_assignment_ids:
+        return {
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "low_score_threshold": low_score_threshold,
+            "items": [],
+        }
     grouped = (
         db.query(
             Assignment.id.label("assignment_id"),
@@ -1173,11 +1217,15 @@ def teacher_ai_grading_assignments(
     grouped = grouped.group_by(
         Assignment.id, Assignment.title, Assignment.created_at,
     ).subquery()
-    total = int(db.query(func.count()).select_from(grouped).scalar() or 0)
-    rows = db.query(grouped).order_by(
+    matching_rows = db.query(grouped).order_by(
         grouped.c.latest_submitted_at.desc(), grouped.c.assignment_id.desc(),
-    ).offset(offset).limit(limit).all()
-    preference = db.get(TeacherGradingPreference, current.id)
+    ).all()
+    matching_rows = [
+        row for row in matching_rows
+        if row.assignment_id in low_score_assignment_ids
+    ]
+    total = len(matching_rows)
+    rows = matching_rows[offset:offset + limit]
     assignment_ids = [row.assignment_id for row in rows]
     assignment_by_id = {
         assignment.id: assignment
@@ -1241,6 +1289,16 @@ def teacher_ai_grading_assignment_students(
     current: User = Depends(require_teacher),
 ):
     _require_teacher_assignment(db, current, assignment_id)
+    preference = db.get(TeacherGradingPreference, current.id)
+    low_score_threshold = preference.low_score_threshold if preference else 60
+    score_contexts = _teacher_ai_grading_score_contexts(db, current, assignment_id)
+    low_score_student_ids = {
+        student_id
+        for (student_id, _assignment_id), context in score_contexts.items()
+        if context["complete"] and context["percent"] < low_score_threshold
+    }
+    if not low_score_student_ids:
+        return {"total": 0, "limit": limit, "offset": offset, "items": []}
     grouped = (
         db.query(
             User.id.label("student_id"),
@@ -1262,11 +1320,16 @@ def teacher_ai_grading_assignment_students(
     if search_filter is not None:
         grouped = grouped.filter(search_filter)
     grouped = grouped.group_by(User.id, User.name, User.student_no).subquery()
-    total = int(db.query(func.count()).select_from(grouped).scalar() or 0)
-    rows = db.query(grouped).order_by(
+    matching_rows = db.query(grouped).order_by(
         grouped.c.latest_submitted_at.desc(), grouped.c.student_name.asc(),
         grouped.c.student_id.asc(),
-    ).offset(offset).limit(limit).all()
+    ).all()
+    matching_rows = [
+        row for row in matching_rows
+        if row.student_id in low_score_student_ids
+    ]
+    total = len(matching_rows)
+    rows = matching_rows[offset:offset + limit]
     return {
         "total": total,
         "limit": limit,
@@ -1504,7 +1567,7 @@ def teacher_ai_gradings(
             "percent": percent,
             "complete": bool(context["complete"]),
             "is_low_score": bool(
-                context["complete"] and raw_percent is not None and raw_percent < low_score_threshold
+                context["complete"] and context["percent"] < low_score_threshold
             ),
         }
 
