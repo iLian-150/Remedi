@@ -1190,7 +1190,7 @@ def my_mistakes(
 ):
     """List this student's active or archived error occurrences without deleting diagnosis history."""
     archive_filter = None if include_archived else archived
-    submission_archived = db.query(StudentMistakeArchive.id).join(
+    submission_archived = db.query(StudentMistakeArchive.error_id).join(
         Error, Error.id == StudentMistakeArchive.error_id,
     ).filter(
         Error.submission_id == Submission.id,
@@ -2376,7 +2376,7 @@ def my_mistake_count(subject: Optional[str] = Query(default=None),
 def student_mistake_review_summary(db: Session = Depends(get_db),
                                    current: User = Depends(require_student)):
     """只聚合错题复习侧栏需要的类别、进度和优先级字段。"""
-    submission_archived = db.query(StudentMistakeArchive.id).join(
+    submission_archived = db.query(StudentMistakeArchive.error_id).join(
         Error, Error.id == StudentMistakeArchive.error_id,
     ).filter(
         Error.submission_id == Submission.id,
