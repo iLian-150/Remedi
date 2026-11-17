@@ -92,10 +92,12 @@
               class="paper-item"
               :style="{ '--i': i }"
             >
-              <div class="stamps" aria-hidden="true">
+              <div class="stamps">
                 <span
                   class="stamp"
-                  :class="[`stamp--${stampOf(a).kind}`, { 'stamp--anim': intro }]"
+                  role="img"
+                  :aria-label="stampOf(a).scored ? `得分 ${stampOf(a).text}` : stampOf(a).text"
+                  :class="[`stamp--${stampOf(a).kind}`, { 'stamp--anim': intro, 'stamp--score': stampOf(a).scored }]"
                 >{{ stampOf(a).text }}</span>
               </div>
 
@@ -149,13 +151,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useStudentStore } from '../../stores/student'
-import type { Assignment, QuestionSubject } from '../../api/types'
+import type { Assignment, AssignmentScoreItem, QuestionSubject } from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import { getSubjectLabel } from '../../utils/subjectLabels'
 
 const student = useStudentStore()
 
 const assignments = ref<Assignment[]>([])
+const assignmentScores = ref(new Map<number, AssignmentScoreItem>())
 const subjectFilter = ref<QuestionSubject | ''>('')
 const subjectPickerOpen = ref(false)
 const subjectPickerRef = ref<HTMLElement | null>(null)
@@ -280,16 +283,35 @@ async function submitStagedAssignment(a: Assignment) {
   }
 }
 
-/** 状态印章：已完成=红章 / 进行中·未开始=灰色铅笔描边章（待审核为另一颗琥珀章并列） */
-function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string } {
+/** 状态印章：有已批改成绩时在红章内显示分数，其他状态沿用原有文案与样式。 */
+function stampOf(a: Assignment): { kind: 'done' | 'doing' | 'todo'; text: string; scored: boolean } {
   const total = a.question_count
   const done = doneCount(a)
-  if (a.grading_status === 'queued' || a.grading_status === 'processing') return { kind: 'doing', text: '批改中' }
-  if (a.grading_status === 'failed') return { kind: 'doing', text: '批改失败' }
-  if (a.grading_status === 'draft' && (a.staged_count ?? 0) > 0 && done >= total) return { kind: 'doing', text: '待提交' }
-  if (total > 0 && done >= total) return { kind: 'done', text: '已完成' }
-  if (done > 0) return { kind: 'doing', text: '进行中' }
-  return { kind: 'todo', text: '未开始' }
+  if (a.grading_status === 'queued' || a.grading_status === 'processing') return { kind: 'doing', text: '批改中', scored: false }
+  if (a.grading_status === 'failed') return { kind: 'doing', text: '批改失败', scored: false }
+  if (a.grading_status === 'draft' && (a.staged_count ?? 0) > 0 && done >= total) return { kind: 'doing', text: '待提交', scored: false }
+  if (total > 0 && done >= total) {
+    const score = assignmentScores.value.get(a.id)
+    if (a.pending_count === 0 && score) {
+      return { kind: 'done', text: formatStampScore(score.score), scored: true }
+    }
+    return { kind: 'done', text: '已完成', scored: false }
+  }
+  if (done > 0) return { kind: 'doing', text: '进行中', scored: false }
+  return { kind: 'todo', text: '未开始', scored: false }
+}
+
+function formatStampScore(score: number): string {
+  return `${Number(score.toFixed(1))}分`
+}
+
+async function loadAssignmentScores() {
+  try {
+    const report = await student.fetchReportScores()
+    assignmentScores.value = new Map(report.items.map((item) => [item.assignment_id, item]))
+  } catch {
+    // 成绩接口失败时保留作业列表，印章继续显示完成状态。
+  }
 }
 
 let assignmentLoadGeneration = 0
@@ -311,6 +333,7 @@ async function loadAssignments(showLoading = true) {
         window.clearInterval(gradingPollHandle)
         gradingPollHandle = null
       }
+      if (showLoading || !hasActiveGrading) void loadAssignmentScores()
     }
   } catch (e) {
     if (generation === assignmentLoadGeneration) {
@@ -628,6 +651,10 @@ onBeforeUnmount(() => {
   outline-offset: 2.5px;
   color: var(--red);
   font-size: 13.5px;
+}
+.stamp--score {
+  font-size: 11px;
+  letter-spacing: 0.5px;
 }
 /* 待审核：琥珀方章、双线边 */
 .stamp--pending {

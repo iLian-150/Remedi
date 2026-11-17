@@ -1,12 +1,8 @@
 <template>
   <div class="page">
     <div class="page-head analytics-head">
-      <div>
-        <h2>作业学情</h2>
-        <p v-if="report" class="page-sub">{{ report.title }} · {{ report.question_count }} 道题</p>
-      </div>
+      <router-link class="back-link" to="/teacher/assignments/manage"><AppIcon name="chevron-left" :size="16" /> 返回作业管理</router-link>
       <div class="head-actions">
-        <router-link class="back-link" to="/teacher/assignments/manage"><AppIcon name="chevron-left" :size="16" /> 返回作业管理</router-link>
         <router-link v-if="assignmentId" class="btn small secondary" :to="`/teacher/assignments/${assignmentId}`">查看题目</router-link>
         <button class="btn small secondary inline-icon" type="button" :disabled="loading" @click="refresh"><AppIcon name="refresh" :size="15" />{{ loading ? '刷新中…' : '刷新学情' }}</button>
       </div>
@@ -129,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { TeacherAssignmentAnalytics } from '../../api/types'
 import { AsyncEChartBar, AsyncEChartPie } from '../../components/AsyncEChart'
@@ -158,9 +154,14 @@ watch(assignmentId, (id, previousId) => {
     studentQuery.value = ''
     statusFilter.value = ''
     expandedStudentId.value = null
+    teacher.setAssignmentAnalyticsPageTitle('')
   }
   void load(id)
 }, { immediate: true })
+onBeforeUnmount(() => {
+  loadGeneration += 1
+  teacher.setAssignmentAnalyticsPageTitle('')
+})
 
 const progressLabels = ['未开始', '部分提交', '批改中', '待复核', '截止后批改', '已完成'] as const
 const filteredStudents = computed(() => {
@@ -191,7 +192,10 @@ async function load(id: number | null) {
     if (!result || !Array.isArray(result.questions) || !Array.isArray(result.students)) {
       throw new Error('学情接口未返回有效数据。')
     }
-    if (generation === loadGeneration) report.value = result
+    if (generation === loadGeneration) {
+      report.value = result
+      teacher.setAssignmentAnalyticsPageTitle(result.title)
+    }
   } catch {
     if (generation === loadGeneration) error.value = '学情加载失败，请稍后重试。'
   } finally {
@@ -295,7 +299,7 @@ function escapeTooltip(value: string): string {
 </script>
 
 <style scoped>
-.analytics-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.analytics-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .kpi-row { margin-bottom: 16px; }
 .blue-stat .stat-num { color: var(--primary); }
@@ -345,7 +349,7 @@ function escapeTooltip(value: string): string {
   .analytics-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 600px) {
-  .analytics-head { flex-direction: column; }
+  .analytics-head { align-items: flex-start; flex-direction: column; gap: 12px; }
   .section-heading, .student-tools { align-items: stretch; flex-direction: column; }
   .student-search input { width: 100%; }
   .student-question-result { grid-template-columns: minmax(0, 1fr) auto; }

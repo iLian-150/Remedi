@@ -127,6 +127,8 @@ export const useTeacherStore = defineStore('teacher', {
   state: () => ({
     /** 作业管理页的发布日期筛选（v0.3.1）：空 = 全部；由右侧栏日历写入、本页消费 */
     assignmentDateFilter: '',
+    /** 作业学情页当前作业标题：加载后替换全局页面标题。 */
+    assignmentAnalyticsPageTitle: '',
     /** 待审核队列（v0.9.0）：AI 批改完等老师审核的提交；count 供导航角标，
      *  App.vue 在教师端路由变化时刷新一次 */
     pendingReviews: [] as ReviewPendingItem[],
@@ -203,6 +205,9 @@ export const useTeacherStore = defineStore('teacher', {
   actions: {
     setAssignmentDateFilter(date: string) {
       this.assignmentDateFilter = date
+    },
+    setAssignmentAnalyticsPageTitle(title: string) {
+      this.assignmentAnalyticsPageTitle = title
     },
     // 4.1 错误记录列表（批改列表）
     async fetchErrors(filter: ErrorFilter = {}): Promise<PageResult<TeacherErrorItem>> {

@@ -314,6 +314,13 @@ const shellPageTitle = computed(() => {
   if (route.path === '/student/mistakes' && student.mistakePageTitle) {
     return student.mistakePageTitle
   }
+  if (
+    route.path.startsWith('/teacher/assignments/')
+    && route.path.endsWith('/analytics')
+    && teacher.assignmentAnalyticsPageTitle
+  ) {
+    return teacher.assignmentAnalyticsPageTitle
+  }
   if (typeof route.meta.title === 'string') return route.meta.title
   return navItems.value.find((item) =>
     [item.to, ...(item.activePaths ?? [])].some((path) =>
