@@ -213,6 +213,7 @@ class StudentCorrectionWallItemOut(BaseModel):
     assignment_title: str
     question_order: int
     question_stem: str
+    question_group_stem: Optional[str] = None
     review_status: str
     corrected: bool
     is_stubborn: bool

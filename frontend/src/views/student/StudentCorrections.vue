@@ -139,24 +139,41 @@
                先自己想、自己改，判定结果会告诉你对不对 -->
           <div class="review-block">
             <span class="review-label">原来的题目</span>
-            <p class="review-stem">{{ selectedError.question_stem || '题目内容暂未记录' }}</p>
+            <div class="review-stem">
+              <p v-if="selectedQuestionGroupStem" class="review-stem-main">{{ selectedQuestionGroupStem }}</p>
+              <p>{{ selectedError.question_stem || '题目内容暂未记录' }}</p>
+            </div>
             <a v-if="selectedError.image_url" class="review-img-link" :href="imageHref(selectedError.image_url)" target="_blank" rel="noreferrer">查看上传原图</a>
           </div>
           <div class="review-block">
             <span class="review-label">我当时的作答</span>
+            <div
+              v-if="origStepsLoading"
+              class="correction-assessment"
+              aria-live="polite"
+            >
+              正在汇总步骤判定…
+            </div>
+            <div
+              v-else-if="redoRecommendation.message"
+              class="correction-assessment"
+              :class="{ 'is-forced-redo': redoRecommendation.forceFullRedo }"
+              aria-live="polite"
+            >
+              {{ redoRecommendation.message }}
+            </div>
             <ol v-if="origSteps.length" class="orig-steps">
               <li v-for="st in origSteps" :key="st.seq" :class="origStepClass(st)">
-                <span class="orig-seq">{{ st.seq }}</span>
-                <span class="orig-text">{{ st.text }}</span>
-                <span v-if="errorsForStep(st.seq).length" class="orig-flag">错误步骤</span>
-                <div v-if="!redoMode && errorsForStep(st.seq).length" class="step-correction-editor">
-                  <div class="step-correction-types">
+                <div class="orig-step-content">
+                  <span class="orig-seq">{{ st.seq }}</span>
+                  <span class="orig-text">{{ st.text }}</span>
+                  <span v-if="errorsForStep(st.seq).length" class="orig-step-tags">
                     <ErrorTypeBadge v-for="errorDetail in errorsForStep(st.seq)" :key="errorDetail.id" :type="errorDetail.error_type" />
-                  </div>
-                  <label class="form-row">
-                    <span class="sr-only">订正第 {{ st.seq }} 步</span>
-                    <input v-model="stepCorrectionDrafts[st.seq]" :aria-label="`订正第 ${st.seq} 步`" />
-                  </label>
+                    <span class="orig-flag">错误步骤</span>
+                  </span>
+                </div>
+                <div v-if="!redoMode && !redoRecommendation.forceFullRedo && errorsForStep(st.seq).length" class="step-correction-editor">
+                  <input v-model="stepCorrectionDrafts[st.seq]" type="text" :aria-label="`订正第 ${st.seq} 步`" />
                   <button class="btn small" type="button" :disabled="submitting || !stepCorrectionDrafts[st.seq]?.trim() || stepIsCorrected(st.seq)" @click="submitStepCorrection(st.seq)">
                     {{ stepIsCorrected(st.seq) ? '这一步已订正' : submittingStepSeq === st.seq ? '判定中…' : '提交这一步' }}
                   </button>
@@ -165,17 +182,16 @@
             </ol>
             <ol v-else-if="fallbackWrongSteps.length" class="orig-steps">
               <li v-for="detail in fallbackWrongSteps" :key="detail.seq" class="is-error">
-                <span class="orig-seq">{{ detail.seq }}</span>
-                <span class="orig-text">{{ detail.text }}</span>
-                <span class="orig-flag">错误步骤</span>
-                <div v-if="!redoMode" class="step-correction-editor">
-                  <div class="step-correction-types">
+                <div class="orig-step-content">
+                  <span class="orig-seq">{{ detail.seq }}</span>
+                  <span class="orig-text">{{ detail.text }}</span>
+                  <span class="orig-step-tags">
                     <ErrorTypeBadge v-for="errorDetail in errorsForStep(detail.seq)" :key="errorDetail.id" :type="errorDetail.error_type" />
-                  </div>
-                  <label class="form-row">
-                    <span class="sr-only">订正第 {{ detail.seq }} 步</span>
-                    <input v-model="stepCorrectionDrafts[detail.seq]" :aria-label="`订正第 ${detail.seq} 步`" />
-                  </label>
+                    <span class="orig-flag">错误步骤</span>
+                  </span>
+                </div>
+                <div v-if="!origStepsLoading && !redoMode && !redoRecommendation.forceFullRedo" class="step-correction-editor">
+                  <input v-model="stepCorrectionDrafts[detail.seq]" type="text" :aria-label="`订正第 ${detail.seq} 步`" />
                   <button class="btn small" type="button" :disabled="submitting || !stepCorrectionDrafts[detail.seq]?.trim() || stepIsCorrected(detail.seq)" @click="submitStepCorrection(detail.seq)">
                     {{ stepIsCorrected(detail.seq) ? '这一步已订正' : submittingStepSeq === detail.seq ? '判定中…' : '提交这一步' }}
                   </button>
@@ -193,22 +209,32 @@
             <span v-if="selectedError.corrected" class="badge badge-green">已订正</span>
             <span v-else-if="selectedError.is_stubborn" class="badge badge-amber">需要加固</span>
           </p>
-          <div class="correction-mode-switch" role="group" aria-label="订正方式">
+          <div v-if="!origStepsLoading && !redoRecommendation.forceFullRedo" class="correction-mode-switch" role="group" aria-label="订正方式">
             <button type="button" :class="{ active: !redoMode }" :aria-pressed="!redoMode" @click="startStepCorrection">修改错误步骤</button>
             <button type="button" :class="{ active: redoMode }" :aria-pressed="redoMode" @click="startFullRedo">重新做整题</button>
           </div>
         </div>
 
-        <div v-if="redoMode" class="card">
-          <h3>重新做整题</h3>
-          <div class="form-row">
-            <label for="question-redo-content">完整作答</label>
-            <textarea id="question-redo-content" v-model="redoContent" rows="7" placeholder="按步骤逐行写出完整解题过程" />
+        <section v-if="redoMode" class="card redo-panel">
+          <header class="redo-panel-heading">
+            <span class="redo-panel-icon"><AppIcon name="edit" :size="18" /></span>
+            <h3>重新做整题</h3>
+          </header>
+          <div class="redo-panel-editor">
+            <textarea
+              id="question-redo-content"
+              v-model="redoContent"
+              rows="8"
+              aria-label="完整作答"
+              placeholder="按步骤写出完整解题过程"
+            />
           </div>
-          <button class="btn" :disabled="submitting || !redoContent.trim()" @click="submitFullRedo">
-            {{ submitting ? '判定中…' : '提交整题重做' }}
-          </button>
-        </div>
+          <footer class="redo-panel-footer">
+            <button class="btn" :disabled="submitting || !redoContent.trim()" @click="submitFullRedo">
+              {{ submitting ? '判定中…' : '提交整题重做' }}
+            </button>
+          </footer>
+        </section>
 
         <div v-if="result" class="card">
           <h3>判定结果</h3>
@@ -298,8 +324,10 @@ const loading = ref(false)
 const submitting = ref(false)
 const submittingStepSeq = ref<number | null>(null)
 const redoMode = ref(false)
+const origStepsLoading = ref(false)
 const stepCorrectionDrafts = reactive<Record<number, string>>({})
 const error = ref('')
+const QUESTION_REDO_ERROR_RATE_THRESHOLD = 0.5
 
 const selectedAssignmentSummary = computed(() =>
   assignmentSummaries.value.find(item => item.assignment_id === selectedAssignmentId.value) ?? null,
@@ -522,6 +550,11 @@ function syncSelection() {
 // 工作区消费当前页的轻量错题记录；完整作答步骤仍按提交 ID 按需读取，避免
 // 首屏请求携带错题本不需要的标准答案、相似错题和订正正文。
 const selectedError = computed(() => loadedMistakesById.get(Number(selectedErrorId.value)) ?? null)
+const selectedQuestionGroupStem = computed(() => {
+  const groupStem = selectedError.value?.question_group_stem?.trim() ?? ''
+  const questionStem = selectedError.value?.question_stem?.trim() ?? ''
+  return groupStem && !questionStem.includes(groupStem) ? groupStem : ''
+})
 interface FallbackWrongStep { seq: number; text: string }
 const fallbackWrongSteps = computed(() => {
   const byStep = new Map<number, FallbackWrongStep>()
@@ -538,12 +571,63 @@ function subjectName(subject: string) { return getSubjectLabel(subject, subject 
 // 完整原步骤在提交详情里（每步带判定状态），选中错题时按 submission_id 拉一次；
 // 拉不到就降级为只显示出错步骤（模板里的 v-else 分支）
 const origSteps = ref<StepDiagnosis[]>([])
+const origStepsSubmissionId = ref<number | null>(null)
 let origLoadToken = 0
 const origStepsBySubmission = new Map<number, Promise<StepDiagnosis[]>>()
+const unrelatedAnswerPattern = /答非所问|偏题|跑题|脱离题目|偏离题意|与题目无关|与题意无关|和题目无关|和题意无关|答案无关|无关内容|未回答题目/
+const redoRecommendation = computed(() => {
+  const stepsMatchSelection = origStepsSubmissionId.value === selectedError.value?.submission_id
+  const answerSteps = stepsMatchSelection
+    ? origSteps.value.filter((step) => step.text.trim())
+    : []
+  const incorrectSeqs = new Set(
+    answerSteps
+      .filter((step) => step.status === 'error'
+        || step.status === 'unparseable'
+        || errorsForStep(step.seq).length > 0)
+      .map((step) => step.seq),
+  )
+  const errorCount = incorrectSeqs.size
+  const totalCount = answerSteps.length
+  const errorRate = totalCount ? errorCount / totalCount : 0
+  const diagnosisText = [
+    selectedError.value?.detail,
+    ...(selectedError.value?.error_details ?? []).map((detail) => detail.detail),
+  ].filter(Boolean).join(' ')
+  const unrelatedEvidence = diagnosisText.replace(
+    /(?:并非|并不是|不是|并未|并不|没有|未曾|未|不)\s*(?:明显)?(?:存在)?(?:答非所问|偏题|跑题|脱离题目|偏离题意|与题目无关|与题意无关|和题目无关|和题意无关|答案无关|无关内容)/g,
+    '',
+  )
+  const answerIsUnrelated = unrelatedAnswerPattern.test(unrelatedEvidence)
+  const allWrong = totalCount > 0 && errorCount === totalCount
+  const overThreshold = totalCount > 0 && errorRate > QUESTION_REDO_ERROR_RATE_THRESHOLD
+  const forceFullRedo = answerIsUnrelated || allWrong || overThreshold
+
+  let message = ''
+  if (answerIsUnrelated) {
+    message = '现有诊断标记作答与题目无关，请重新做整题。'
+  } else if (allWrong) {
+    message = `整题 ${errorCount} 步均判错，请重新做整题。`
+  } else if (overThreshold) {
+    const thresholdPercent = Math.round(QUESTION_REDO_ERROR_RATE_THRESHOLD * 100)
+    message = `错误率 ${Math.round(errorRate * 100)}%（超过 ${thresholdPercent}%），请重新做整题。`
+  } else if (totalCount > 0) {
+    const thresholdPercent = Math.round(QUESTION_REDO_ERROR_RATE_THRESHOLD * 100)
+    message = `当前错误率 ${Math.round(errorRate * 100)}%；超过 ${thresholdPercent}% 时优先重新做整题。`
+  }
+
+  return { errorCount, totalCount, errorRate, answerIsUnrelated, allWrong, overThreshold, forceFullRedo, message }
+})
+watch(redoRecommendation, (recommendation) => {
+  if (recommendation.forceFullRedo && !redoMode.value) startFullRedo()
+})
+
 async function loadOrigSteps() {
   const err = selectedError.value
   const token = ++origLoadToken
   origSteps.value = []
+  origStepsSubmissionId.value = null
+  origStepsLoading.value = Boolean(err)
   if (!err) return
   const submissionId = err.submission_id
   for (const detail of err.error_details) {
@@ -562,17 +646,22 @@ async function loadOrigSteps() {
     const steps = await stepsRequest
     if (token !== origLoadToken) return
     origSteps.value = steps
+    origStepsSubmissionId.value = submissionId
     for (const step of steps) {
       if (errorsForStep(step.seq).length) stepCorrectionDrafts[step.seq] = step.text
     }
+    origStepsLoading.value = false
   } catch {
     if (origStepsBySubmission.get(submissionId) === stepsRequest) {
       origStepsBySubmission.delete(submissionId)
     }
-    if (token === origLoadToken) origSteps.value = []
+    if (token === origLoadToken) {
+      origSteps.value = []
+      origStepsLoading.value = false
+    }
   }
 }
-watch(selectedError, () => { void loadOrigSteps() })
+watch(selectedError, () => { void loadOrigSteps() }, { flush: 'sync' })
 
 function origStepClass(st: StepDiagnosis) {
   return {
@@ -597,6 +686,7 @@ function startFullRedo() {
 }
 
 function startStepCorrection() {
+  if (redoRecommendation.value.forceFullRedo) return
   redoMode.value = false
   result.value = null
 }
@@ -839,24 +929,36 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
 /* v0.13.9：题目回顾完整版——原题 / 原作答（错步原地标红）/ 正确答案 / 标准过程 */
 .review-block { margin-bottom: 14px; }
 .review-label { display: block; font-size: 12px; font-weight: 700; color: var(--text-3); letter-spacing: .4px; margin-bottom: 5px; }
+.correction-assessment { margin: 8px 0 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.correction-assessment.is-forced-redo { border-color: var(--amber-border); background: var(--amber-bg); color: var(--amber-strong); font-weight: 600; }
 .review-stem { font-size: 16px; font-weight: 600; line-height: 1.65; }
+.review-stem p { margin: 0; white-space: pre-wrap; }
+.review-stem p + p { margin-top: 8px; }
+.review-stem .review-stem-main { color: var(--text-2); font-size: 15px; font-weight: 500; }
 .review-img-link { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--primary); font-weight: 600; }
 .orig-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.orig-steps li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; padding: 7px 10px; border-radius: var(--radius-control); background: var(--bg); font-size: 14px; }
-.orig-steps li.is-error { background: var(--red-bg); box-shadow: inset 0 0 0 1.5px #DC2626; }
+.orig-steps li { display: flex; flex-direction: column; gap: 0; padding: 12px 14px; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--bg); font-size: 14px; }
+.orig-steps li.is-error { border-color: var(--red-border); background: var(--red-bg); }
 .orig-steps li.is-dim { opacity: .55; }
 .orig-seq { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; transform: translateY(2px); }
-.orig-steps li.is-error .orig-seq { background: #DC2626; border-color: transparent; color: #fff; }
-.orig-text { flex: 1; line-height: 1.55; word-break: break-word; }
-.orig-flag { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #DC2626; }
-.step-correction-editor { display: grid; flex: 1 1 100%; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 4px 0 0 29px; }
-.step-correction-editor .form-row { min-width: 0; margin: 0; }
-.step-correction-editor input { width: 100%; min-height: 36px; }
-.step-correction-types { display: flex; flex-wrap: wrap; gap: 5px; grid-column: 1 / -1; }
+.orig-steps li.is-error .orig-seq { background: var(--red); border-color: transparent; color: #fff; }
+.orig-step-content { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 100%; }
+.orig-text { min-width: 0; line-height: 1.55; word-break: break-word; }
+.orig-step-tags { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.orig-flag { flex-shrink: 0; padding: 3px 8px; border: 1px solid var(--red-border); border-radius: var(--radius-pill); background: var(--red-bg); color: var(--red-strong); font-size: 12px; font-weight: 650; white-space: nowrap; }
+.step-correction-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 10px 0 0 30px; }
+.step-correction-editor input { min-width: 0; min-height: 42px; }
 .correction-error-types { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .correction-mode-switch { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .correction-mode-switch button { min-height: 36px; padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .correction-mode-switch button.active { border-color: var(--primary); background: var(--primary-50); color: var(--primary); }
+.redo-panel { border-color: var(--blue-bg); background: linear-gradient(145deg, var(--primary-50), var(--card) 48%); }
+.redo-panel-heading { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; }
+.redo-panel-heading h3 { margin: 0; font-size: 17px; }
+.redo-panel-icon { display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center; border-radius: var(--radius-control); background: var(--blue-bg); color: var(--primary); }
+.redo-panel-editor textarea { display: block; width: 100%; min-height: 210px; padding: 14px 16px; border-color: var(--border); border-radius: var(--radius-surface); background: var(--card); font-size: 15px; line-height: 1.75; }
+.redo-panel-footer { display: flex; justify-content: flex-end; margin-top: 14px; }
+.redo-panel-footer .btn { min-width: 150px; }
 .note { margin-top: 8px; font-size: 14px; color: var(--text); }
 .note.hint { color: var(--text-3); font-size: 13px; }
 .verify-cta {
@@ -893,5 +995,12 @@ onBeforeUnmount(() => student.setCorrectionPageTitle(''))
   .verify-index-action { min-height: 34px; padding: 5px 8px; font-size: 12px; }
   .assignment-progress-copy { font-size: 11px; }
   .assignment-index-copy strong { font-size: 14px; }
+  .orig-step-content { grid-template-columns: 20px minmax(0, 1fr); }
+  .orig-step-tags { grid-column: 2; justify-content: flex-start; margin-top: 3px; }
+  .step-correction-editor { grid-template-columns: minmax(0, 1fr); margin-left: 30px; }
+  .step-correction-editor .btn { width: 100%; }
+  .redo-panel { padding: 16px; }
+  .redo-panel-editor textarea { min-height: 180px; }
+  .redo-panel-footer .btn { width: 100%; }
 }
 </style>

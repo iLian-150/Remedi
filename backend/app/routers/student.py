@@ -2068,6 +2068,7 @@ def correction_wall_page(
             Assignment.title.label("assignment_title"),
             Question.order_num.label("question_order"),
             Question.stem.label("question_stem"),
+            QuestionGroup.stem.label("question_group_stem"),
             review_status.label("review_status"),
             question_corrected.label("corrected"),
             Error.is_stubborn,
@@ -2084,6 +2085,14 @@ def correction_wall_page(
         .join(Submission, Submission.id == question_groups.c.submission_id)
         .join(Question, Question.id == Submission.question_id)
         .join(Assignment, Assignment.id == Question.assignment_id)
+        .outerjoin(QuestionGroupMember, QuestionGroupMember.question_id == Question.id)
+        .outerjoin(
+            QuestionGroup,
+            and_(
+                QuestionGroup.id == QuestionGroupMember.group_id,
+                QuestionGroup.assignment_id == Question.assignment_id,
+            ),
+        )
         .join(Error, Error.id == question_groups.c.representative_error_id)
         .outerjoin(Step, Step.id == Error.step_id)
         .filter(Submission.student_id == current.id)
@@ -2215,6 +2224,7 @@ def correction_wall_page(
             "assignment_title": row.assignment_title,
             "question_order": row.question_order,
             "question_stem": row.question_stem,
+            "question_group_stem": row.question_group_stem,
             "review_status": row.review_status or review_svc.APPROVED,
             "corrected": row.corrected is True,
             "is_stubborn": any(item["is_stubborn"] for item in error_details),

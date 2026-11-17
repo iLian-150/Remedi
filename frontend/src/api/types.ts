@@ -281,6 +281,7 @@ export interface StudentCorrectionWallItem {
   assignment_title: string
   question_order: number
   question_stem: string
+  question_group_stem: string | null
   review_status: 'pending' | 'approved'
   corrected: boolean
   is_stubborn: boolean
