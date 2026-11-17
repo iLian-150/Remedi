@@ -990,6 +990,16 @@ export interface StudentLearningMemory {
   updated_at: string
 }
 
+export interface StudentAssistantPreferenceItem {
+  key: 'concise' | 'detailed' | 'guided' | 'examples'
+  label: string
+}
+
+export interface StudentAssistantPreferences {
+  items: StudentAssistantPreferenceItem[]
+  updated_at: string | null
+}
+
 export interface KnowledgePointErrorItem {
   created_at: string
   assignment_title: string

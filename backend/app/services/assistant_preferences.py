@@ -106,3 +106,22 @@ def preference_context(db: Session, student_id: int, current_text: str | None = 
         + "\n在闲聊和学科讲解中都应用这些表达偏好；本轮明确要求优先。"
         "学生询问自己的回答偏好时，根据上述记录直接回答，不要说没有记录。"
     )
+
+
+def student_assistant_preferences(db: Session, student_id: int) -> dict:
+    """同步最近明确表达的偏好，并返回可展示的持久偏好摘要。"""
+    preference_context(db, student_id)
+    row = db.get(StudentAssistantPreference, student_id)
+    styles = []
+    if row is not None:
+        styles = [
+            style for style in json.loads(row.styles_json)
+            if style in STYLE_LABELS
+        ]
+    return {
+        "items": [
+            {"key": style, "label": STYLE_LABELS[style]}
+            for style in styles
+        ],
+        "updated_at": row.updated_at if row is not None and styles else None,
+    }

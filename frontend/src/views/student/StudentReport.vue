@@ -67,14 +67,26 @@
 
       <div class="card summary-card">
         <h3><AppIcon name="sparkles" :size="18" /> 学习记忆</h3>
-        <div v-if="learningMemory.length" class="memory-list">
+        <div v-if="memoryLoadError" class="memory-load-error" role="status">
+          {{ memoryLoadError }}
+          <button type="button" class="btn small secondary" :disabled="memoryLoading" @click="loadMemoryData">
+            {{ memoryLoading ? '加载中…' : '重试' }}
+          </button>
+        </div>
+        <div v-if="learningMemory.length || assistantPreferences.length" class="memory-list">
+          <div v-if="assistantPreferences.length" class="memory-row">
+            <span class="memory-tag">回答偏好</span>
+            <div><p>{{ assistantPreferences.map((item) => item.label).join('；') }}</p></div>
+            <span class="memory-state">跨对话适用</span>
+          </div>
           <div v-for="item in learningMemory" :key="`${item.subject}:${item.knowledge_point}`" class="memory-row">
             <span class="memory-tag">{{ subjectLabel(item.subject) }}</span>
             <div><b>{{ item.knowledge_point }}</b><p>{{ item.summary }}</p></div>
             <span class="memory-state" :class="`state-${item.state}`">{{ memoryStateLabel(item.state) }}</span>
           </div>
         </div>
-        <div v-else class="empty">还没有足够的错题、订正和验证记录形成学习记忆。</div>
+        <div v-else-if="memoryLoading" class="empty">正在读取学习记忆…</div>
+        <div v-else-if="!memoryLoadError" class="empty">还没有足够的错题、订正和验证记录形成学习记忆。</div>
       </div>
 
       <!-- 成绩分析（评分系统）：只统计老师审核通过并出分的作业 -->
@@ -113,7 +125,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStudentStore } from '../../stores/student'
-import type { AssignmentSubjectScore, ReportScores, StudentLearningMemory, SubjectReport } from '../../api/types'
+import type {
+  AssignmentSubjectScore,
+  ReportScores,
+  StudentAssistantPreferenceItem,
+  StudentLearningMemory,
+  SubjectReport
+} from '../../api/types'
 import AppIcon from '../../components/icons/AppIcon.vue'
 import { AsyncEChartLine as EChart } from '../../components/AsyncEChart'
 import { getSubjectLabel } from '../../utils/subjectLabels'
@@ -126,6 +144,9 @@ const subjectLabel = (subject: string) => subject === 'mixed' ? '综合' : getSu
 const report = ref<SubjectReport[]>([])
 const scoreData = ref<ReportScores | null>(null)
 const learningMemory = ref<StudentLearningMemory[]>([])
+const assistantPreferences = ref<StudentAssistantPreferenceItem[]>([])
+const memoryLoading = ref(false)
+const memoryLoadError = ref('')
 const loading = ref(false)
 const error = ref('')
 
@@ -341,11 +362,37 @@ async function enterSubject(s: SubjectCard) {
   router.push(`/student/report/${s.key}`)
 }
 
+async function loadMemoryData() {
+  memoryLoading.value = true
+  memoryLoadError.value = ''
+  const [memoryResult, preferenceResult] = await Promise.allSettled([
+    student.fetchLearningMemory(),
+    student.fetchAssistantPreferences()
+  ])
+  const failedLoads: string[] = []
+  if (memoryResult.status === 'fulfilled') {
+    learningMemory.value = memoryResult.value
+  } else {
+    failedLoads.push('学科记忆')
+    console.error(memoryResult.reason)
+  }
+  if (preferenceResult.status === 'fulfilled') {
+    assistantPreferences.value = preferenceResult.value.items
+  } else {
+    failedLoads.push('回答偏好')
+    console.error(preferenceResult.reason)
+  }
+  if (failedLoads.length) {
+    memoryLoadError.value = `${failedLoads.join('、')}读取失败，请重试。`
+  }
+  memoryLoading.value = false
+}
+
 onMounted(async () => {
   loading.value = true
   const reportRequest = student.fetchReport()
   const scoresRequest = student.fetchReportScores()
-  const memoryRequest = student.fetchLearningMemory()
+  const memoryRequest = loadMemoryData()
   try {
     report.value = await reportRequest
   } catch (e) {
@@ -360,11 +407,7 @@ onMounted(async () => {
   } catch (e) {
     console.error(e)
   }
-  try {
-    learningMemory.value = await memoryRequest
-  } catch (e) {
-    console.error(e)
-  }
+  await memoryRequest
 })
 </script>
 
@@ -453,6 +496,7 @@ onMounted(async () => {
 .memory-row b { font-size: 14px; }
 .memory-row p { margin: 4px 0 0; color: var(--text-2); font-size: 13px; }
 .memory-state { flex: none; font-size: 12px; color: var(--text-3); }
+.memory-load-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--red); font-size: 13px; }
 .state-mastered { color: var(--green); }
 .state-needs_practice, .state-reinforcing { color: var(--amber); }
 

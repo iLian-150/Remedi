@@ -517,6 +517,14 @@ class StudentLearningMemoryOut(BaseModel):
     summary: str
     updated_at: datetime
 
+class StudentAssistantPreferenceItemOut(BaseModel):
+    key: Literal['concise', 'detailed', 'guided', 'examples']
+    label: str
+
+class StudentAssistantPreferencesOut(BaseModel):
+    items: List[StudentAssistantPreferenceItemOut]
+    updated_at: Optional[datetime] = None
+
 class AssignmentSubjectScore(BaseModel):
     subject: str
     date: datetime              # 该科目计入提交中的最晚时间
@@ -594,6 +602,8 @@ __all__ = [
     'SubjectReportOut',
     'KnowledgePointErrorItem',
     'StudentLearningMemoryOut',
+    'StudentAssistantPreferenceItemOut',
+    'StudentAssistantPreferencesOut',
     'AssignmentSubjectScore',
     'AssignmentScoreItem',
     'SubjectScoreItem',

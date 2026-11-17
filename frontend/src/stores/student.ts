@@ -40,6 +40,7 @@ import type {
   StudentMistakeTimelinePage,
   SubjectReport,
   StudentLearningMemory,
+  StudentAssistantPreferences,
   ReportScores,
   SubmissionResult,
   SubmissionSummary,
@@ -787,6 +788,10 @@ export const useStudentStore = defineStore('student', {
     },
     async fetchLearningMemory(): Promise<StudentLearningMemory[]> {
       const { data } = await api.get<StudentLearningMemory[]>('/api/student/learning-memory')
+      return data
+    },
+    async fetchAssistantPreferences(): Promise<StudentAssistantPreferences> {
+      const { data } = await api.get<StudentAssistantPreferences>('/api/student/assistant-preferences')
       return data
     },
     // 3.14 知识点错题时间线（v0.2.1）
