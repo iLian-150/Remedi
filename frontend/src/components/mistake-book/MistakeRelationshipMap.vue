@@ -154,7 +154,7 @@ const activeTopic = computed(() => activeSubject.value?.topics[activeTopicIndex.
 const activeTopicPoint = computed<Point | undefined>(() => topicPoints.value[activeTopicIndex.value])
 const recordCount = computed(() => subjects.value.reduce((total, item) => total + item.recordCount, 0))
 const MIND_MAP_ROOT_X = 260
-const MIND_MAP_SUBJECT_X = 560
+const MIND_MAP_SUBJECT_X = 460
 const MIND_MAP_COLUMN_GAP = 210
 const canvasHeight = computed(() => Math.max(620, Math.max(0, subjects.value.length - 1) * 114 + 220, (activeSubject.value?.topics.length || 0) * 68 + 220, (activeTopic.value?.errorPoints.length || 0) * 58 + 220))
 const root = computed<Point>(() => ({ x: MIND_MAP_ROOT_X, y: canvasHeight.value / 2 }))
