@@ -24,8 +24,11 @@ flowchart TD
     More -->|是| Grade
     More -->|否| Save[集中写入批改结果\n分数 / 步骤 / 错因 / 审核状态]
     Save --> Done[任务标记 completed]
-    Done --> Student[学生端查询进度并查看结果]
-    Done --> Teacher[教师端查看本次作业学情]
+    Done --> Student[学生查看批改结果与教师评语]
+    Done --> Teacher[教师查看本次作业学情]
+    Done --> TeacherGrading[教师 AI 批改查看逐题结果]
+    TeacherGrading --> TeacherComment[教师发布或编辑整份作业评语]
+    TeacherComment --> Student
     Student --> Correction[学生后续订正与验证]
 
     Grade -. 任务异常 .-> Retry[任务重新排队\n指数退避，最长间隔 300 秒]
@@ -67,7 +70,11 @@ flowchart LR
     Result --> Save[保存评分、步骤与错因]
     Save --> StudentResult[学生查看结果与错题订正]
     Save --> TeacherResult[教师查看本次作业学情]
+    TeacherResult --> TeacherComment[教师检查逐题结果并发布或编辑整份评语]
+    TeacherComment --> StudentResult
 ```
+
+批改完成后，教师在「AI 批改」中选择作业和学生，查看逐题结果后可发布或编辑一条整份作业评语。评语按作业和学生唯一保存；学生从作业列表查看批改结果时，会在作业标题下、逐题结果前看到已发布的评语。接口权限和字段见 [API 契约](../api-contract.md) 4.31.3。
 
 ## 多 Agent 学科批改
 

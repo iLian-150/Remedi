@@ -12,14 +12,14 @@ flowchart TB
         TeacherAssistant[AI 助手\n班级数据 / 教学问答 / 作业草稿]
         ClassStudent[班级与学生\n班级管理 / 名册 / 学生画像]
         AssignmentManage[作业管理\nAI 辅助组题 / 线上线下发布 / 编辑提醒 / 学情]
-        GradingReview[AI 批改\n进度 / 诊断详情 / 教师复核]
+        GradingReview[AI 批改\n进度 / 逐题结果 / 教师复核 / 整份评语]
         Dashboard[班级总览\n错误率 / 错因分布 / 教学建议]
         Materials[教学资料\n上传 / 导入 / 学科知识库]
     end
 
     subgraph Student[学生端]
         StudentAssistant[学习助手\n文字问答 / 拍照答疑 / 主页对话]
-        StudentAssignment[作业学习\n查看 / 文字或图片作答 / 提交 / 批改结果]
+        StudentAssignment[作业学习\n查看 / 作答 / 提交 / 批改结果与教师评语]
         MistakeBook[错题本\n学科归类 / 题目专属讲解（独立会话）]
         Correction[订正与验证\n重新作答 / 订正提交 / 变式验证]
         Profile[学习档案\n学科报告 / 学习画像 / 知识点记忆]
@@ -40,6 +40,9 @@ flowchart TB
         Fix --> Memory[(学生长期学习记忆)]
         Memory --> Personalized[学习助手个性化上下文]
         Save --> ClassAnalytics[教师查看作业与班级学情]
+        Save --> TeacherGrading[教师查看 AI 逐题结果]
+        TeacherGrading --> TeacherComment[教师发布整份作业评语]
+        TeacherComment --> StudentAssignment
     end
 
     TeacherAssistant --> Draft

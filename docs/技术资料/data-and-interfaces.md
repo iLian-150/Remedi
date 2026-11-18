@@ -10,6 +10,8 @@ erDiagram
     ASSIGNMENT ||--o{ QUESTION : contains
     USER ||--o{ ASSIGNMENT_GRADING_JOB : submits
     ASSIGNMENT ||--o{ ASSIGNMENT_GRADING_JOB : grades
+    ASSIGNMENT ||--o{ ASSIGNMENT_TEACHER_COMMENT : receives
+    USER ||--o{ ASSIGNMENT_TEACHER_COMMENT : student
     ASSIGNMENT_GRADING_JOB ||--o{ ASSIGNMENT_GRADING_ANSWER : stages
     QUESTION ||--o{ ASSIGNMENT_GRADING_ANSWER : answered_by
     ASSIGNMENT_GRADING_ANSWER ||--o| ASSIGNMENT_GRADING_CHECKPOINT : checkpoints
@@ -36,6 +38,7 @@ erDiagram
 | `AssignmentGradingJob` | 学生整份作业批改任务、状态、进度、重试次数和下次执行时间 |
 | `AssignmentGradingAnswer` | 每道题暂存的文字或图片答案 |
 | `AssignmentGradingCheckpoint` | 成功处理的单题诊断结果；输入变化后按指纹重新计算 |
+| `AssignmentTeacherComment` | 每份作业、每位学生唯一一条整份作业评语，供教师编辑和该学生查看 |
 | `Submission`、`Step`、`Error` | 正式提交、分步诊断与错因记录 |
 | `Correction`、`Verification` | 学生订正与后续变式验证 |
 | `StudentLearningMemory` | 从错题、订正和验证状态汇总出的学科知识点记忆 |
@@ -50,6 +53,7 @@ API 路由在 `backend/app/main.py` 注册。主要入口：
 | 登录与鉴权 | `backend/app/routers/auth.py` |
 | 教师发布作业、查看班级 | `/api/teacher/assignments`、`/api/teacher/classes` |
 | 教师查看单份作业题目与学情 | `/api/teacher/assignments/{assignment_id}`、`/api/teacher/assignments/{assignment_id}/analytics` |
+| 教师查看 AI 批改与整份评语 | `/api/teacher/ai-gradings...`；评语接口见 `/api/teacher/ai-gradings/assignments/{assignment_id}/students/{student_id}/comment` |
 | 学生查看作业、作答、提交、查询状态 | `/api/student/assignments...` |
 | 学生错题本、订正和验证 | `/api/student/mistakes...`、`/api/student/corrections...`、`/api/student/verifications...` |
 | 教师上传知识库资料和查询导入进度 | `/api/teacher/knowledge...` |
