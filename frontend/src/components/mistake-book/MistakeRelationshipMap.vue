@@ -86,7 +86,7 @@ type Topic = { key: string; label: string; itemCount: number; errorPoints: Error
 type SubjectGroup = { key: string; label: string; topics: Topic[]; recordCount: number }
 type Branch = SubjectGroup & { side: 'left' | 'right'; x: number; y: number; color: string }
 
-const props = defineProps<{ mode: 'mindmap' | 'network'; mistakes: StudentMistake[]; studentName?: string; split?: boolean; reversed?: boolean; fullscreen?: boolean }>()
+const props = defineProps<{ mode: 'mindmap' | 'network'; mistakes: StudentMistake[]; activeMistake?: StudentMistake | null; studentName?: string; split?: boolean; reversed?: boolean; fullscreen?: boolean }>()
 const emit = defineEmits<{ select: [mistake: StudentMistake] }>()
 const zoom = ref(props.mode === 'network' ? 0.85 : 1.4)
 const selectedSubjectKey = ref<string | null>(null)
@@ -193,6 +193,18 @@ watch(() => props.split, (isSplit) => {
 watch(() => props.mistakes.length, () => { if (selectedSubjectKey.value && !subjects.value.some((item) => item.key === selectedSubjectKey.value)) resetMap() })
 watch(() => props.mode === 'network' ? subjects.value[0]?.key ?? '' : '', (firstSubjectKey) => {
   if (firstSubjectKey && !selectedSubjectKey.value) selectedSubjectKey.value = firstSubjectKey
+}, { immediate: true })
+watch(() => [props.activeMistake, props.mistakes] as const, ([mistake]) => {
+  if (!mistake) return
+  const subjectKey = mistake.question_subject || 'other'
+  const subject = subjects.value.find((item) => item.key === subjectKey)
+  const topic = subject?.topics.find((item) => item.label === (mistake.knowledge_point || '待归类'))
+  const point = topic?.errorPoints.find((item) => item.key === mistake.category_key)
+  if (!subject || !topic || !point) return
+  selectedSubjectKey.value = subject.key
+  selectedTopicKey.value = topic.key
+  selectedPointKey.value = point.key
+  void nextTick(centerNetwork)
 }, { immediate: true })
 watch(() => [props.mode, props.split, props.mistakes.length, networkWidth.value, networkHeight.value], () => { void nextTick(() => centerNetwork('auto')) })
 watch(() => [zoom.value, selectedPointKey.value], () => { void nextTick(centerNetwork) })

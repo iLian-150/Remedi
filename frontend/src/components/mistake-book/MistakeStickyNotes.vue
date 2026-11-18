@@ -87,6 +87,7 @@ type AssignmentProgress = { completed: number; total: number; complete: boolean 
 
 const props = defineProps<{
   mistakes: StudentMistake[]
+  activeMistake?: StudentMistake | null
   loading: boolean
   split?: boolean
   reversed?: boolean
@@ -225,6 +226,15 @@ watch(() => props.mistakes, () => {
   if (selectedSubjectKey.value && !subjectsByKey.value.has(selectedSubjectKey.value)) goToSubjects()
   else if (selectedCategoryKey.value && !categoriesBySubject.value.get(selectedSubjectKey.value ?? '')?.has(selectedCategoryKey.value)) goToCategories()
 })
+watch(() => [props.activeMistake, props.mistakes] as const, ([mistake]) => {
+  if (!mistake) return
+  const subjectKey = mistake.question_subject === 'english_exercise' ? 'english' : mistake.question_subject || 'other'
+  if (!categoriesBySubject.value.get(subjectKey)?.has(mistake.category_key)) return
+  selectedSubjectKey.value = subjectKey
+  selectedCategoryKey.value = mistake.category_key
+  focusedMistakeId.value = mistake.id
+  resetDetailPagination()
+}, { immediate: true })
 
 function displaySubject(value: string) {
   const labels: Record<string, string> = { math: '数学', english: '英语', physics: '物理', chemistry: '化学', biology: '生物', chinese: '语文', history: '历史', geography: '地理', politics: '道德与法治', computer_science: '信息科技' }

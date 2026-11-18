@@ -1,4 +1,5 @@
 # /api/student/* 学生端
+import io
 import json
 import logging
 import os
@@ -6,12 +7,14 @@ import re
 import secrets
 from bisect import bisect_left
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from time import perf_counter
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response
 from sqlalchemy import and_, case, exists, func, or_
 from sqlalchemy.orm import Session, aliased, joinedload, load_only, selectinload
 from starlette.concurrency import run_in_threadpool
@@ -1864,6 +1867,77 @@ def my_mistakes(
         capture_index -= 1
         write_index -= 1
     return result
+
+
+@lru_cache(maxsize=64)
+def _render_mistake_image_preview(file_path: str, modified_ns: int, file_size: int) -> bytes:
+    """Render a bounded JPEG preview while reusing the same result across requests."""
+    max_dimension = 1440
+    if Path(file_path).suffix.lower() == ".webp":
+        from PIL import Image
+
+        with Image.open(file_path) as image:
+            image.thumbnail((max_dimension, max_dimension))
+            output = io.BytesIO()
+            image.convert("RGB").save(output, format="JPEG", quality=84, optimize=True)
+            return output.getvalue()
+
+    import pymupdf
+
+    pixmap = pymupdf.Pixmap(file_path)
+    longest_side = max(pixmap.width, pixmap.height)
+    if longest_side > max_dimension:
+        scale = max_dimension / longest_side
+        pixmap = pymupdf.Pixmap(
+            pixmap,
+            max(1, round(pixmap.width * scale)),
+            max(1, round(pixmap.height * scale)),
+        )
+    if pixmap.colorspace != pymupdf.csRGB or pixmap.alpha:
+        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pixmap)
+    return pixmap.tobytes("jpeg", jpg_quality=84)
+
+
+@router.get(
+    "/mistakes/submissions/{submission_id}/image-preview",
+    summary="查看错题原图的快速预览",
+)
+def mistake_image_preview(
+    submission_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_student),
+):
+    image_path = (
+        db.query(SubmissionImage.file_path)
+        .join(Submission, Submission.id == SubmissionImage.submission_id)
+        .filter(
+            Submission.id == submission_id,
+            Submission.student_id == current.id,
+        )
+        .first()
+    )
+    if not image_path or not image_path[0]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="没有找到这份作业的原题图片")
+
+    upload_root = Path(settings.UPLOAD_DIR).resolve()
+    resolved_path = (upload_root / image_path[0]).resolve()
+    if not resolved_path.is_relative_to(upload_root) or not resolved_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="没有找到这份作业的原题图片")
+
+    try:
+        file_stat = resolved_path.stat()
+        preview = _render_mistake_image_preview(
+            str(resolved_path), file_stat.st_mtime_ns, file_stat.st_size,
+        )
+    except Exception as exc:
+        logger.warning("无法生成错题图片预览 submission_id=%s: %s", submission_id, exc)
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="暂不支持预览这张图片") from exc
+
+    return Response(
+        content=preview,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 def _question_error_groups(db: Session, student_id: int):

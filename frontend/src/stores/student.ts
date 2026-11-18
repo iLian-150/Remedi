@@ -581,6 +581,13 @@ export const useStudentStore = defineStore('student', {
       const { data } = await api.get<SubmissionResult>(`/api/student/submissions/${id}`)
       return data
     },
+    async fetchMistakeImagePreview(submissionId: number): Promise<Blob> {
+      const { data } = await api.get<Blob>(
+        `/api/student/mistakes/submissions/${submissionId}/image-preview`,
+        { responseType: 'blob' }
+      )
+      return data
+    },
     // 3.6 提交英语作文并评分
     async submitEssay(payload: { question_id?: number; text: string }): Promise<EssayResult> {
       const { data } = await api.post<EssayResult>('/api/student/essays', payload)

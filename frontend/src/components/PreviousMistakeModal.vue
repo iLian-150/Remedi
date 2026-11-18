@@ -20,7 +20,8 @@
         <section class="mistake-panel">
           <h3>原题内容</h3>
           <a v-if="originalImageUrl" class="mistake-original-image" :href="originalImageUrl" target="_blank" rel="noreferrer" aria-label="新窗口查看上传的原题图片">
-            <img :src="originalImageUrl" alt="上传的原题图片" />
+            <span v-if="previewLoading" class="mistake-original-image-loading" role="status">正在加载原题图片预览…</span>
+            <img v-else-if="displayImageUrl" :src="displayImageUrl" alt="上传的原题图片" loading="lazy" decoding="async" @error="fallbackToOriginalImage" />
             <span>查看上传原图 <b aria-hidden="true">↗</b></span>
           </a>
           <p class="mistake-question">{{ mistake.question_stem }}</p>
@@ -86,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { RelatedMistake, StudentMistake, SubmissionResult } from '../api/types'
 import { useStudentStore } from '../stores/student'
 import { STEP_STATUS_TEXT } from '../api/types'
@@ -111,6 +112,9 @@ const student = useStudentStore()
 const submission = ref<SubmissionResult | null>(null)
 const submissionLoading = ref(false)
 const submissionError = ref('')
+const previewImageUrl = ref('')
+const previewFallbackToOriginal = ref(false)
+const previewLoading = ref(false)
 const modalRef = ref<HTMLElement | null>(null)
 const closeButtonRef = ref<HTMLButtonElement | null>(null)
 let requestSeq = 0
@@ -118,6 +122,48 @@ const originalImageUrl = computed(() => {
   if (!props.mistake || !('image_url' in props.mistake) || !props.mistake.image_url) return ''
   const base = import.meta.env.VITE_API_BASE_URL || ''
   return base ? `${base.replace(/\/+$/, '')}${props.mistake.image_url}` : props.mistake.image_url
+})
+const displayImageUrl = computed(() => previewImageUrl.value || (previewFallbackToOriginal.value ? originalImageUrl.value : ''))
+let previewRequestSeq = 0
+
+watch(() => props.mistake?.submission_id, async (submissionId, _previous, onCleanup) => {
+  const seq = ++previewRequestSeq
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  if (previewImageUrl.value) URL.revokeObjectURL(previewImageUrl.value)
+  previewImageUrl.value = ''
+  previewFallbackToOriginal.value = false
+  previewLoading.value = Boolean(submissionId && originalImageUrl.value)
+  if (!submissionId || !originalImageUrl.value) {
+    previewFallbackToOriginal.value = true
+    previewLoading.value = false
+    return
+  }
+  try {
+    const image = await student.fetchMistakeImagePreview(submissionId)
+    const imageUrl = URL.createObjectURL(image)
+    if (cancelled || seq !== previewRequestSeq) URL.revokeObjectURL(imageUrl)
+    else previewImageUrl.value = imageUrl
+  } catch {
+    // Keep the existing full-size image as a fallback if preview rendering is unavailable.
+    if (!cancelled && seq === previewRequestSeq) previewFallbackToOriginal.value = true
+  } finally {
+    if (!cancelled && seq === previewRequestSeq) previewLoading.value = false
+  }
+}, { immediate: true })
+
+function fallbackToOriginalImage() {
+  if (previewImageUrl.value) {
+    URL.revokeObjectURL(previewImageUrl.value)
+    previewImageUrl.value = ''
+  }
+  previewFallbackToOriginal.value = true
+}
+
+onBeforeUnmount(() => {
+  previewRequestSeq += 1
+  if (previewImageUrl.value) URL.revokeObjectURL(previewImageUrl.value)
+  previewLoading.value = false
 })
 
 watch(() => Boolean(props.mistake), (isOpen, _wasOpen, onCleanup) => {
@@ -217,6 +263,7 @@ function stepStatusLabel(status: string) {
 .mistake-panel h3 { margin: 0 0 14px; color: var(--text); font-size: 18px; }
 .mistake-question { white-space: pre-wrap; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text); line-height: 1.8; }
 .mistake-original-image { display: grid; justify-items: center; gap: 7px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; }
+.mistake-original-image-loading { display: grid; width: 100%; min-height: 120px; place-items: center; color: var(--text-3); font-size: 12px; font-weight: 400; }
 .mistake-original-image img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; border-radius: var(--radius-detail); }
 .mistake-work, .mistake-solution, .mistake-correction { margin-top: 20px; }
 .mistake-work h4, .mistake-solution h4, .mistake-correction h4 { margin: 0 0 9px; color: var(--text); font-size: 14px; }
