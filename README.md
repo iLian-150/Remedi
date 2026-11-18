@@ -2,6 +2,12 @@
 
 多学科智能作业批改与学习诊断系统，包含教师端、学生端、AI 助手、作业发布与批改、错题订正、学习档案和学科知识库。
 
+## 核心功能
+
+- 教师可在「AI 批改」中按作业和学生查看逐题结果，并为每位学生的每份作业撰写或编辑一条教师评语。
+- 学生从「作业 → 查看批改结果」进入后，可先在作业标题下查看已发布评语，再查看逐题结果。
+- 评语按作业和学生关联保存；未发布的评语不会显示给学生。
+
 ## 技术栈
 
 - 前端：Vue 3、TypeScript、Vite、Vue Router、Pinia
@@ -31,7 +37,7 @@ Vite 默认把 `/api` 请求代理到 `http://localhost:8000`。详见 [前端�
 
 ## 本地验证
 
-前端构建和现有 smoke 脚本见[验证入口](docs/validation.md)。本项目当前只进行本地开发与验证，不包含服务器部署流程。
+前端构建和现有 smoke 脚本见[验证入口](docs/validation.md)。仓库级开发与部署约定见 [AGENTS.md](AGENTS.md)。
 
 ## 文档
 
@@ -40,4 +46,5 @@ Vite 默认把 `/api` 请求代理到 `http://localhost:8000`。详见 [前端�
 - [学科 RAG 与 Milvus 本地配置](docs/milvus-rag.md)
 - [校园服务台业务流程](docs/campus-service-workflow.md)
 - [前端设计规范](docs/frontend-design-guidelines.md)
+- [项目技术资料索引](docs/技术资料/README.md)：项目概览、工作流、架构和数据接口索引。
 - [v0.5 历史规格](docs/v0.5-spec.md)
