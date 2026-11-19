@@ -10,7 +10,7 @@ COPY frontend/ ./
 # VITE_API_BASE_URL 为空 → 走相对路径 /api，由同容器 nginx 反代到后端
 RUN npm run build
 
-FROM nginx:alpine
+FROM nginx:1.31.9-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
